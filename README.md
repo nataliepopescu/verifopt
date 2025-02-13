@@ -3,7 +3,7 @@
 ## Goals
 
 use verification at source level 
-- flux
+- flux [flux blog](https://flux-rs.github.io/flux/blog/01-introducing-flux.html)
 - verus
 
 propagate info to compiler / optimizations
@@ -18,10 +18,24 @@ specific applications:
     - optimize out the panics for a smaller kernel binary
 - [ ] safely elide bounds checks
 - [ ] remove redundant reference counting (mae's paper)
+- [ ] checking for nil/null for passed in parameters, etc. (can be removed if we have invariants about length)
 
 ## Work in Progress
 
-for panic-freeness, how to determine which panics are left in the binary vs optimized out? how to track/check this?
+First goal: look at examples of what info optimizers/compilers extract from unoptimized code in their passes.
+- for panic-freeness, how to determine which panics are left in the binary vs optimized out by just the compiler on unverified code? how to track/check this? how many are left in? what's the difference between those left in vs left out?
+  - for reproducability: 
+  - mlfq - a queue of 3 levels of priority, each is queue of processes. current panic is in getTimeslice making sure we never return a timeslice for any priority level that isn't 1,2,3. panic eliding would be based on verifying index and array length. Can current compiler elide this panic?
+
+Second goal(?): look at examples of what info is left to be extracted from verified code.
+Third goal: understand how new info can be propogated to compiler to aid in its pass/decision making.
+- ex) flux on ring buffer
+- ex) ring buffer is always length greater than 1
+
+## Look into next
+### Questions:
+- is flux a just a verifier or both a verifier and a compiler? if just a verifier, what compiles rust code + flux annotations?
+- is verification just of properties user-specified via annotations? or can properties be generated/synthesized to be verified about code? "trivial/meaningless" properties to verify about code that isn't specified by user.
 
 ## Completed Work
 

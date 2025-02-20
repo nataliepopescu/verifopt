@@ -1,4 +1,4 @@
-# Interesting Panics in Tock
+# Interesting Panics in [Tock](https://github.com/tock/tock)
 
 - [ ] `src/platform/mpu.rs`
     - interface for configuring MPU (memory protection unit)

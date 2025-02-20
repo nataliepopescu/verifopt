@@ -19,7 +19,7 @@
 
 [CompCert - A Formally Verified Optimizing Compiler](https://inria.hal.science/hal-01238879v1/document)
 
-[Verified Software Toolchain](https://link.springer.com/chapter/10.1007/978-3-642-19718-5_1)
+[Verified Software Toolchain](https://www.cs.princeton.edu/~appel/papers/vst.pdf)
 
 [Formal Verification of SSA-Based Optimizations for LLVM](https://dl.acm.org/doi/pdf/10.1145/2491956.2462164)
 

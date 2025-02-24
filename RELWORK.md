@@ -1,5 +1,17 @@
 # Potentially Related Work
 
+[Flux](https://dl.acm.org/doi/pdf/10.1145/3591283)
+- refinement types / liquid inference ?
+- type checker
+- extends rust types
+
+- declarative type system == plug in to Rust compiler
+    - spatial phase: use fxn sigs, program ids -> heap loc (map)
+        - location refinements?
+        - intermediate refinements still unknown
+    - checking phase: refinement type checking (Horn vars for unknown refinements) -> system of Horn constraints
+    - inference phase: solve the constraints
+
 ## Using Static Analysis for Optimization
 
 [From Verification to Optimizations](https://link.springer.com/chapter/10.1007/978-3-662-46081-8_17)

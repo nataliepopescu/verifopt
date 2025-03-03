@@ -12,13 +12,14 @@ propagate info to compiler / optimizations
 
 will need to think about which optimizations happen where, and what info is available there (MIR vs LLVM IR)
 
-specific applications:
+possible applications:
 
 - [ ] panic-free tock kernel
     - optimize out the panics for a smaller kernel binary
 - [ ] safely elide bounds checks
 - [ ] remove redundant reference counting (mae's paper)
 - [ ] checking for nil/null for passed in parameters, etc. (can be removed if we have invariants about length)
+- [ ] impl stacked/tree borrows in compiler + use for opt?
 
 ## Work in Progress
 

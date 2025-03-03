@@ -147,23 +147,7 @@ in reverse direction: identify a panic in the disassembled output + trace it to 
 arm-none-eabi-objdump -SC /path/to/imix/elf
 ```
 
-### ignore
-
-looking for calls to `_RNvNtCs1omKOwJWJyg_4core9panicking9panic_fmt`
-
-block: lines 48-2366 (line nums from `-dC` objdump flags)
-
-0001019c <_RINvMNtCshve5IrHWJ36_6kernel6kernelNtB3_6Kernel11kernel_loopNtCsk1uL2O17nym_4imix4ImixINtNtCsjM2vLBECUFU_5sam4l4chip5Sam4lNtB1p_23Sam4lDefaultPeripheralsEKh4_EBY_>:
-kernel:kernel:Kernel:kernel_loop:imix:Imix:sam4l:chip:Sam4l:Sam4lDefaultPeripherals
-- chips/sam4l/src/chip.rs
-    - 1 source code panic @ line 248 (InterruptService impl)
-        - possibly shows up multiple times in machine code due to loop unrolling
-        - but i don't think this is it b/c `impl<I: InterruptService + 'static> Chip for Sam4l<I>` (InterruptService does not show up in the above mangled name)
-    - what function is this then ??
-
-- interspersed source code maybe points to the `kernel_loop` func
-
-### use?
+~~looking for calls to `_RNvNtCs1omKOwJWJyg_4core9panicking9panic_fmt`~~
 
 looking for calls to `_RNvNtCs1omKOwJWJyg_4core9panicking5panic`
 

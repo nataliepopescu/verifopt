@@ -94,34 +94,31 @@ flags
 
 TODO
 
-## Panic unwinding?
+## Panic unwinding
 
 calls to `panic_fmt`
-
--> calls `rust_begin_unwind`
-
--> calls `_RINvNtCshve5IrHWJ36_6kernel5debug5panicINtNtNtB4_3hil3led6LedLowNtNtCsjM2vLBECUFU_5sam4l4gpio7GPIOPinENtNtCsk1uL2O17nym_4imix2io6WriterINtNtB14_4chip5Sam4lNtB2c_23Sam4lDefaultPeripheralsENtNtCs76KSGgFM9gH_15capsules_system15process_printer18ProcessPrinterTextEB1G_` 
-- `kernel/src/debugs.rs` `panic` function
-- `capsules_system::process_printer::ProcessPrinterText` initialized at `boards/imix/src/main.rs:103`
-    - prints out process state
-
--> calls (1) `_RINvNtCshve5IrHWJ36_6kernel5debug11panic_printNtNtCsk1uL2O17nym_4imix2io6WriterINtNtCsjM2vLBECUFU_5sam4l4chip5Sam4lNtB1i_23Sam4lDefaultPeripheralsENtNtCs76KSGgFM9gH_15capsules_system15process_printer18ProcessPrinterTextEBM_` 
-- (1) `kernel/src/debug.rs` `panic_print` function
-    - **fat**
-    - calls `_RNvXs_NtCsk1uL2O17nym_4imix2ioNtB4_6WriterNtNtCshve5IrHWJ36_6kernel5debug7IoWrite5write` many times
-        - `kernel/src/debug.rs` `IoWrite::write()`
-        - impls `std::io::write` for `no_std`
-    - calls `_RNvXs_NtCs76KSGgFM9gH_15capsules_system15process_printerNtB4_18ProcessPrinterTextNtNtCshve5IrHWJ36_6kernel15process_printer14ProcessPrinter14print_overview` once
-        - `capsules/system/src/process_printer.rs` `print_overview()`
-        - **also fat**
-        - calls `_RNvXs_NtNtCshve5IrHWJ36_6kernel9utilities12binary_writeNtB4_26WriteToBinaryOffsetWrapperNtNtCs1omKOwJWJyg_4core3fmt5Write9write_str`
-        - calls `_RNvYNtNtNtCshve5IrHWJ36_6kernel9utilities12binary_write26WriteToBinaryOffsetWrapperNtNtCs1omKOwJWJyg_4core3fmt5Write9write_fmtCs76KSGgFM9gH_15capsules_system`
-    - calls `_RNvNtNtCs1omKOwJWJyg_4core5slice5index24slice_end_index_len_fail`
-        - called by other code as well
-    - also calls panic_fmt again? (at very end)
--> and (2) `_RINvNtCshve5IrHWJ36_6kernel5debug19panic_blink_foreverINtNtNtB4_3hil3led6LedLowNtNtCsjM2vLBECUFU_5sam4l4gpio7GPIOPinEECsk1uL2O17nym_4imix`
-- (2) `kernel/src/debug.rs` `panic_blink_forever`
-    - less fat, but infinite loop
+- calls `rust_begin_unwind`
+    - calls `_RINvNtCshve5IrHWJ36_6kernel5debug5panicINtNtNtB4_3hil3led6LedLowNtNtCsjM2vLBECUFU_5sam4l4gpio7GPIOPinENtNtCsk1uL2O17nym_4imix2io6WriterINtNtB14_4chip5Sam4lNtB2c_23Sam4lDefaultPeripheralsENtNtCs76KSGgFM9gH_15capsules_system15process_printer18ProcessPrinterTextEB1G_` 
+        - `kernel/src/debugs.rs` `panic` function
+        - `capsules_system::process_printer::ProcessPrinterText` initialized at `boards/imix/src/main.rs:103`
+            - prints out process state
+        - calls (1) `_RINvNtCshve5IrHWJ36_6kernel5debug11panic_printNtNtCsk1uL2O17nym_4imix2io6WriterINtNtCsjM2vLBECUFU_5sam4l4chip5Sam4lNtB1i_23Sam4lDefaultPeripheralsENtNtCs76KSGgFM9gH_15capsules_system15process_printer18ProcessPrinterTextEBM_` 
+            - (1) `kernel/src/debug.rs` `panic_print` function
+                - **fat**
+                - calls `_RNvXs_NtCsk1uL2O17nym_4imix2ioNtB4_6WriterNtNtCshve5IrHWJ36_6kernel5debug7IoWrite5write` many times
+                    - `kernel/src/debug.rs` `IoWrite::write()`
+                    - impls `std::io::write` for `no_std`
+                - calls `_RNvXs_NtCs76KSGgFM9gH_15capsules_system15process_printerNtB4_18ProcessPrinterTextNtNtCshve5IrHWJ36_6kernel15process_printer14ProcessPrinter14print_overview` once
+                    - `capsules/system/src/process_printer.rs` `print_overview()`
+                    - **also fat**
+                    - calls `_RNvXs_NtNtCshve5IrHWJ36_6kernel9utilities12binary_writeNtB4_26WriteToBinaryOffsetWrapperNtNtCs1omKOwJWJyg_4core3fmt5Write9write_str`
+                    - calls `_RNvYNtNtNtCshve5IrHWJ36_6kernel9utilities12binary_write26WriteToBinaryOffsetWrapperNtNtCs1omKOwJWJyg_4core3fmt5Write9write_fmtCs76KSGgFM9gH_15capsules_system`
+                - calls `_RNvNtNtCs1omKOwJWJyg_4core5slice5index24slice_end_index_len_fail`
+                    - called by other code as well
+                - also calls panic_fmt again? (at very end)
+        - and (2) `_RINvNtCshve5IrHWJ36_6kernel5debug19panic_blink_foreverINtNtNtB4_3hil3led6LedLowNtNtCsjM2vLBECUFU_5sam4l4gpio7GPIOPinEECsk1uL2O17nym_4imix`
+            - (2) `kernel/src/debug.rs` `panic_blink_forever`
+                - less fat, but infinite loop
 
 ## Which panics end up in machine code?
 

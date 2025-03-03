@@ -149,7 +149,7 @@ disassembly
         - TODO how to compile a board _not_ in release mode?
             - debug mode/optimizations turned off
 
-### assembly -> kernel
+### assembly -> source
 
 in reverse direction: identify a panic in the disassembled output + trace it to the source
 
@@ -165,47 +165,47 @@ looking for calls to `_RNvNtCs1omKOwJWJyg_4core9panicking5panic`
 
 demangling via [rustfilt](https://crates.io/crates/rustfilt)
 
-1. 0001019c <_RINvMNtCshve5IrHWJ36_6kernel6kernelNtB3_6Kernel11kernel_loopNtCsk1uL2O17nym_4imix4ImixINtNtCsjM2vLBECUFU_5sam4l4chip5Sam4lNtB1p_23Sam4lDefaultPeripheralsEKh4_EBY_>:
-- `<kernel::kernel::Kernel>::kernel_loop::<imix::Imix, sam4l::chip::Sam4l<sam4l::chip::Sam4lDefaultPeripherals>, 4>`
-    - imix::Imix == KernelResources<C>
-    - sam4l::chip::Sam4l<sam4l::chip::Sam4lDefaultPeripherals> == Chip
-    - 4 == NUM_PROCS
+- [ ] 0001019c <_RINvMNtCshve5IrHWJ36_6kernel6kernelNtB3_6Kernel11kernel_loopNtCsk1uL2O17nym_4imix4ImixINtNtCsjM2vLBECUFU_5sam4l4chip5Sam4lNtB1p_23Sam4lDefaultPeripheralsEKh4_EBY_>:
+    - `<kernel::kernel::Kernel>::kernel_loop::<imix::Imix, sam4l::chip::Sam4l<sam4l::chip::Sam4lDefaultPeripherals>, 4>`
+        - imix::Imix == KernelResources<C>
+        - sam4l::chip::Sam4l<sam4l::chip::Sam4lDefaultPeripherals> == Chip
+        - 4 == NUM_PROCS
 
-2. 00014a9c <_RNvMs_NtNtCsjMjWsJL4FQh_13capsules_core12virtualizers11virtual_i2cINtB4_6MuxI2CNtNtCsjM2vLBECUFU_5sam4l3i2c5I2CHwE10do_next_opCsk1uL2O17nym_4imix>:
-- `<capsules_core::virtualizers::virtual_i2c::MuxI2C<sam4l::i2c::I2CHw>>::do_next_op`
+- [ ] 00014a9c <_RNvMs_NtNtCsjMjWsJL4FQh_13capsules_core12virtualizers11virtual_i2cINtB4_6MuxI2CNtNtCsjM2vLBECUFU_5sam4l3i2c5I2CHwE10do_next_opCsk1uL2O17nym_4imix>:
+    - `<capsules_core::virtualizers::virtual_i2c::MuxI2C<sam4l::i2c::I2CHw>>::do_next_op`
 
-3. 000166b8 <_RNvXNtNtNtCsjbBGJ2Hrjer_14capsules_extra3net4ipv69ipv6_sendINtB2_13IP6SendStructINtNtNtCsjMjWsJL4FQh_13capsules_core12virtualizers13virtual_alarm15VirtualMuxAlarmNtNtCsjM2vLBECUFU_5sam4l3ast3AstEENtB2_9IP6Sender7send_toCsk1uL2O17nym_4imix>:
-- `<capsules_extra::net::ipv6::ipv6_send::IP6SendStruct<capsules_core::virtualizers::virtual_alarm::VirtualMuxAlarm<sam4l::ast::Ast>> as capsules_extra::net::ipv6::ipv6_send::IP6Sender>::send_to`
+- [ ] 000166b8 <_RNvXNtNtNtCsjbBGJ2Hrjer_14capsules_extra3net4ipv69ipv6_sendINtB2_13IP6SendStructINtNtNtCsjMjWsJL4FQh_13capsules_core12virtualizers13virtual_alarm15VirtualMuxAlarmNtNtCsjM2vLBECUFU_5sam4l3ast3AstEENtB2_9IP6Sender7send_toCsk1uL2O17nym_4imix>:
+    - `<capsules_extra::net::ipv6::ipv6_send::IP6SendStruct<capsules_core::virtualizers::virtual_alarm::VirtualMuxAlarm<sam4l::ast::Ast>> as capsules_extra::net::ipv6::ipv6_send::IP6Sender>::send_to`
 
-4. 000209c8 <_RNvXs_NtNtCsjbBGJ2Hrjer_14capsules_extra3usb11usbc_clientINtB4_6ClientNtNtCsjM2vLBECUFU_5sam4l4usbc4UsbcENtNtNtCshve5IrHWJ36_6kernel3hil3usb6Client10packet_outCsk1uL2O17nym_4imix>:
-- `<capsules_extra::usb::usbc_client::Client<sam4l::usbc::Usbc> as kernel::hil::usb::Client>::packet_out`
+- [ ] 000209c8 <_RNvXs_NtNtCsjbBGJ2Hrjer_14capsules_extra3usb11usbc_clientINtB4_6ClientNtNtCsjM2vLBECUFU_5sam4l4usbc4UsbcENtNtNtCshve5IrHWJ36_6kernel3hil3usb6Client10packet_outCsk1uL2O17nym_4imix>:
+     - `<capsules_extra::usb::usbc_client::Client<sam4l::usbc::Usbc> as kernel::hil::usb::Client>::packet_out`
 
-5. 00020e18 <_RNvXs_NtNtCsjbBGJ2Hrjer_14capsules_extra3usb11usbc_clientINtB4_6ClientNtNtCsjM2vLBECUFU_5sam4l4usbc4UsbcENtNtNtCshve5IrHWJ36_6kernel3hil3usb6Client9packet_inCsk1uL2O17nym_4imix>:
-- `<capsules_extra::usb::usbc_client::Client<sam4l::usbc::Usbc> as kernel::hil::usb::Client>::packet_in`
+- [ ] 00020e18 <_RNvXs_NtNtCsjbBGJ2Hrjer_14capsules_extra3usb11usbc_clientINtB4_6ClientNtNtCsjM2vLBECUFU_5sam4l4usbc4UsbcENtNtNtCshve5IrHWJ36_6kernel3hil3usb6Client9packet_inCsk1uL2O17nym_4imix>:
+    - `<capsules_extra::usb::usbc_client::Client<sam4l::usbc::Usbc> as kernel::hil::usb::Client>::packet_in`
 
-6. 00027d24 <_RNvNtNtNtCsjbBGJ2Hrjer_14capsules_extra3net9sixlowpan21sixlowpan_compression22decompress_iid_context>:
-- `capsules_extra::net::sixlowpan::sixlowpan_compression::decompress_iid_context`
+- [ ] 00027d24 <_RNvNtNtNtCsjbBGJ2Hrjer_14capsules_extra3net9sixlowpan21sixlowpan_compression22decompress_iid_context>:
+    - `capsules_extra::net::sixlowpan::sixlowpan_compression::decompress_iid_context`
 
-7. 000283b4 <_RNvMNtNtNtCsjbBGJ2Hrjer_14capsules_extra3net9sixlowpan15sixlowpan_stateNtB2_7TxState24write_additional_headers>:
-- `<capsules_extra::net::sixlowpan::sixlowpan_state::TxState>::write_additional_headers`
+- [ ] 000283b4 <_RNvMNtNtNtCsjbBGJ2Hrjer_14capsules_extra3net9sixlowpan15sixlowpan_stateNtB2_7TxState24write_additional_headers>:
+    - `<capsules_extra::net::sixlowpan::sixlowpan_state::TxState>::write_additional_headers`
 
-8. 000285d8 <_RNvMs1_NtNtNtCsjbBGJ2Hrjer_14capsules_extra3net4ipv64ipv6NtB5_9IP6Packet18get_total_hdr_size>:
-- `<capsules_extra::net::ipv6::ipv6::IP6Packet>::get_total_hdr_size`
+- [ ] 000285d8 <_RNvMs1_NtNtNtCsjbBGJ2Hrjer_14capsules_extra3net4ipv64ipv6NtB5_9IP6Packet18get_total_hdr_size>:
+    - `<capsules_extra::net::ipv6::ipv6::IP6Packet>::get_total_hdr_size`
 
-9. 0002a930 <_RNvMs_NtNtCsjbBGJ2Hrjer_14capsules_extra10ieee8021546framerNtB4_9FrameInfo18ccm_encrypt_ranges>: (2)
-- `<capsules_extra::ieee802154::framer::FrameInfo>::ccm_encrypt_ranges`
+- [ ] 0002a930 <_RNvMs_NtNtCsjbBGJ2Hrjer_14capsules_extra10ieee8021546framerNtB4_9FrameInfo18ccm_encrypt_ranges>: (2)
+    - `<capsules_extra::ieee802154::framer::FrameInfo>::ccm_encrypt_ranges`
 
-10. 0002b860 <_RNvXs_NtCsjbBGJ2Hrjer_14capsules_extra6sha256NtB4_14Sha256SoftwareINtNtNtCshve5IrHWJ36_6kernel3hil6digest10DigestDataKj20_E15set_data_client>:
-- `<capsules_extra::sha256::Sha256Software as kernel::hil::digest::DigestData<32>>::set_data_client`
+- [ ] 0002b860 <_RNvXs_NtCsjbBGJ2Hrjer_14capsules_extra6sha256NtB4_14Sha256SoftwareINtNtNtCshve5IrHWJ36_6kernel3hil6digest10DigestDataKj20_E15set_data_client>:
+    - `<capsules_extra::sha256::Sha256Software as kernel::hil::digest::DigestData<32>>::set_data_client`
 
-11. 0002b878 <_RNvXs1_NtCsjbBGJ2Hrjer_14capsules_extra6sha256NtB5_14Sha256SoftwareINtNtNtCshve5IrHWJ36_6kernel3hil6digest12DigestVerifyKj20_E17set_verify_client>:
-- `<capsules_extra::sha256::Sha256Software as kernel::hil::digest::DigestVerify<32>>::set_verify_client`
+- [ ] 0002b878 <_RNvXs1_NtCsjbBGJ2Hrjer_14capsules_extra6sha256NtB5_14Sha256SoftwareINtNtNtCshve5IrHWJ36_6kernel3hil6digest12DigestVerifyKj20_E17set_verify_client>:
+    - `<capsules_extra::sha256::Sha256Software as kernel::hil::digest::DigestVerify<32>>::set_verify_client`
 
-12. 0002b890 <_RNvXs6_NtCsjbBGJ2Hrjer_14capsules_extra6sha256NtB5_14Sha256SoftwareINtNtNtCshve5IrHWJ36_6kernel3hil6digest16DigestDataVerifyKj20_E10set_client>:
-- `<capsules_extra::sha256::Sha256Software as kernel::hil::digest::DigestDataVerify<32>>::set_client`
+- [ ] 0002b890 <_RNvXs6_NtCsjbBGJ2Hrjer_14capsules_extra6sha256NtB5_14Sha256SoftwareINtNtNtCshve5IrHWJ36_6kernel3hil6digest16DigestDataVerifyKj20_E10set_client>:
+    - `<capsules_extra::sha256::Sha256Software as kernel::hil::digest::DigestDataVerify<32>>::set_client`
 
-13. 0002d1b8 <_RNvNtCs1omKOwJWJyg_4core6option13unwrap_failed>:
-- `core::option::unwrap_failed`
+- [ ] 0002d1b8 <_RNvNtCs1omKOwJWJyg_4core6option13unwrap_failed>:
+    - `core::option::unwrap_failed`
 
 
 

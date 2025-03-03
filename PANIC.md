@@ -128,7 +128,7 @@ in reverse direction: identify a panic in the disassembled output + trace it to 
 arm-none-eabi-objdump -SC /path/to/imix/elf
 ```
 
-1. 
+### 1
 
 block: lines 48-2366 (line nums from `-dC` objdump flags)
 

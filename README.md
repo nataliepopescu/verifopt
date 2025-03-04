@@ -41,10 +41,23 @@ refinement == extension of type checker by adding logic specifying correctness c
 
 flux is a refinement type checker for rust.
 
+a plug-in to the Rust compiler
+
+In this paper, we introduce Flux, which shows how refinements can work hand in glove with
+ownership mechanisms to yield ergonomic type-based verification for imperative (safe) Rust.
+
+the advantages of Flux’s refinement type-based verification over program logic based approaches
+- Prusti’s program logic can, in general, verify
+deep functional correctness specifications beyond the scope of Flux
+- for lightweight verification, Flux’s refined types naturally capture invariants and heap update specifications that
+must otherwise be spelled out via complex (quantified) program logic assertions.
+- liquid typing for speedup
+
 ex) normally when we write tests using assert(), we have to run the code to know if assert fails.
 with flux, you can add a precondition to the implementation of assert that states the input passed in is true.
 This way, the tests that pass in arguments == false (aka, cases that assert would fail on at runtime) won't type check! we can statically check our test cases.
 
+----> so flux can allow the compiler to verify certain properties of code. and compilers can also optimize code. .... sooo we want verified code to be optimized... hmmm
 
 
 

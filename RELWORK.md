@@ -1,9 +1,16 @@
 # Potentially Related Work
 
+## Rust Verification Tools
+
 [Flux](https://dl.acm.org/doi/pdf/10.1145/3591283)
 - refinement types / liquid inference ?
+    - TODO: difference between refinement / dependent / liquid types
+    - "synthesizing refinements via liquid type inference"
 - type checker
 - extends rust types
+- quantifier-free (easier to reason about)
+    - "using a program logic comes at the cost of complex user-specified universally quantified invariants"
+- also uses stacked borrows rules apparently
 
 - declarative type system == plug in to Rust compiler
     - spatial phase: use fxn sigs, program ids -> heap loc (map)
@@ -11,6 +18,31 @@
         - intermediate refinements still unknown
     - checking phase: refinement type checking (Horn vars for unknown refinements) -> system of Horn constraints
     - inference phase: solve the constraints
+
+- 2 A TOUR OF FLUX
+
+- 4 ALGORITHMIC VERIFICATION
+    - flux == compiler plugin; operates on programs that have _already_ been analyzed by the compiler
+        - benefits: IR contains inferred type info + assume Rust borrowing rules are satisfied
+    - at MIR level; CFG
+    - therefore flux doesn't technically pass info to the compiler, but rather the other way around (leverages compiler info)
+
+[Verus](https://www.andrew.cmu.edu/user/bparno/papers/verus-sys.pdf)
+
+- check out ghost types/values
+
+RustBelt
+- proving unsafe impls encapsulated in well-typed interface
+
+Oxide
+
+heavyweight verification
+- Prusti
+    - encodes programs into Viper?
+- RustHorn
+- Creusot
+
+What is "bounded" verification? 
 
 ## Using Static Analysis for Optimization
 

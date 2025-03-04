@@ -50,6 +50,9 @@ What is "bounded" verification?
 - link external static analysis tools into compilers
 - propagate source-level info into optimization pipeline
 
+[Perceus: Garbage Free Reference Counting with Reuse](https://dl.acm.org/doi/pdf/10.1145/3453483.3454032)
+- from mae
+
 ## Optimize + Verify
 
 [VSync: Push-Button Verification and Optimization for Synchronization Primitives on Weak Memory Models](https://dl.acm.org/doi/abs/10.1145/3445814.3446748)

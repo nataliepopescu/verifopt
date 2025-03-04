@@ -10,15 +10,19 @@ propagate info to compiler / optimizations
 - either just leverage existing machinery to trigger existing optimization passes
 - or, if needed, (for certain source code constructs/styles of info needed) may need to extend somehow (new optimization type? pull new info into the compiler?)
 
+goal: lightweight verif
+- why? b/c pinpointing very specific optimizations (bigger verification machinery is likely overkill)
+
 will need to think about which optimizations happen where, and what info is available there (MIR vs LLVM IR)
 
-specific applications:
+possible applications:
 
 - [ ] panic-free tock kernel
     - optimize out the panics for a smaller kernel binary
 - [ ] safely elide bounds checks
 - [ ] remove redundant reference counting (mae's paper)
 - [ ] checking for nil/null for passed in parameters, etc. (can be removed if we have invariants about length)
+- [ ] impl stacked/tree borrows in compiler + use for opt?
 
 ## Work in Progress
 

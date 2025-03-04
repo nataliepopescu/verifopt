@@ -28,6 +28,8 @@ but disassembly still shows some calls to a `_RNvNtCs1omKOwJWJyg_4core9panicking
 - 14 calls and one def
     - are these the calls to optimize out??
 
+[unwinding](https://doc.rust-lang.org/nomicon/unwinding.html)
+
 ## Generating objdump
 
 architecture-specific objdumps: 
@@ -88,6 +90,8 @@ disassembly
                     - less fat, but infinite loop
 
 ## How is objdump source code intermixed w disassembled output?
+
+TODO
 
 ## Which panics end up in machine code?
 

@@ -1,5 +1,7 @@
 # Panics in Tock Kernel
 
+imix binary size with panics: 6.2MB
+
 ## How do panics work in (embedded) Rust?
 
 panics signal that the program has entered an unrecoverable state
@@ -73,13 +75,13 @@ disassembly
                 - prints out process state
             - calls (1) `_RINvNtCshve5IrHWJ36_6kernel5debug11panic_printNtNtCsk1uL2O17nym_4imix2io6WriterINtNtCsjM2vLBECUFU_5sam4l4chip5Sam4lNtB1i_23Sam4lDefaultPeripheralsENtNtCs76KSGgFM9gH_15capsules_system15process_printer18ProcessPrinterTextEBM_` 
                 - (1) `kernel/src/debug.rs` `panic_print` function
-                    - **fat**
+                    - **fat** (2997 - 2371 = >600 LOAC)
                     - calls `_RNvXs_NtCsk1uL2O17nym_4imix2ioNtB4_6WriterNtNtCshve5IrHWJ36_6kernel5debug7IoWrite5write` many times
                         - `kernel/src/debug.rs` `IoWrite::write()`
                         - impls `std::io::write` for `no_std`
                     - calls `_RNvXs_NtCs76KSGgFM9gH_15capsules_system15process_printerNtB4_18ProcessPrinterTextNtNtCshve5IrHWJ36_6kernel15process_printer14ProcessPrinter14print_overview` once
                         - `capsules/system/src/process_printer.rs` `print_overview()`
-                        - **also fat**
+                        - **also fat** (42893 - 42316 = >500 LOAC)
                         - calls `_RNvXs_NtNtCshve5IrHWJ36_6kernel9utilities12binary_writeNtB4_26WriteToBinaryOffsetWrapperNtNtCs1omKOwJWJyg_4core3fmt5Write9write_str`
                         - calls `_RNvYNtNtNtCshve5IrHWJ36_6kernel9utilities12binary_write26WriteToBinaryOffsetWrapperNtNtCs1omKOwJWJyg_4core3fmt5Write9write_fmtCs76KSGgFM9gH_15capsules_system`
                     - calls `_RNvNtNtCs1omKOwJWJyg_4core5slice5index24slice_end_index_len_fail`

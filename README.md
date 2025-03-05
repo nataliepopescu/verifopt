@@ -24,6 +24,8 @@ possible applications:
 - [ ] checking for nil/null for passed in parameters, etc. (can be removed if we have invariants about length)
 - [ ] impl stacked/tree borrows in compiler + use for opt?
 
+verification vs static analysis?
+
 ## Work in Progress
 
 First goal: look at examples of what info optimizers/compilers extract from unoptimized code in their passes.

@@ -1,0 +1,21 @@
+# Student Meeting Feedback for Verifopt
+- get an example that's a bit more air tight than the panic removal
+	- could replace panic with infinite loop
+	- are devices that resource constrained?
+- how will this look in the end?
+	- a tool
+	- we took a system and verified it
+- given a goal of what the optimized output should be, how can you generate properties to verify?
+	- a way to extract the verification condition
+	- anti-patterns as a library that we can automatically remove
+- Want to be wary about whether the output is more than marginally better
+	- the compiler already does so much for you
+	- unclear how much of a win you actually get
+- what info *actually* informs the compiler to do more... since compilers are already so smart and do so much
+- compilers can benefit from intention
+- verification will surpass the what the compiler can do when instrumented with meaningful info.
+	- so this is difficult because
+		- how do you know what's meaningful
+		- how do you know the benefit will be actual surpassing?
+- often times verified systems are actually *not* optimized!
+- look at Verus and RustBelt

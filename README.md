@@ -67,6 +67,12 @@ This way, the tests that pass in arguments == false (aka, cases that assert woul
 
 - is verification just of properties user-specified via annotations? or can properties be generated/synthesized to be verified about code? "trivial/meaningless" properties to verify about code that isn't specified by user.
 
+
+Flux works on compiler analyzed Rust MIR.
+Rust --> MIR (flux) --> LLVM --> binary
+https://llvm.org/docs/Passes.html
+https://rustc-dev-guide.rust-lang.org/mir/index.html
+
 ## Completed Work
 
 no panics in tock compiled for qemu

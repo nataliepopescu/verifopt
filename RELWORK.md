@@ -27,20 +27,49 @@
     - at MIR level; CFG
     - therefore flux doesn't technically pass info to the compiler, but rather the other way around (leverages compiler info)
 
-[Verus](https://www.andrew.cmu.edu/user/bparno/papers/verus-sys.pdf)
+[Verus: A Practical Foundation for Systems Verification](https://www.andrew.cmu.edu/user/bparno/papers/verus-sys.pdf)
+- more focused on making verus practical (systems audience)
+- optimizations
 
-- check out ghost types/values
+[Verus: Verifying Rust Programs Using Linear Ghost
+Types](https://dl.acm.org/doi/pdf/10.1145/3586037)
+- " In particular, we demonstrate the use of linear ghost
+permissions that enable a program to take specific actions on specific resources, such as writing to a
+memory location. Since the permissions are linear, they can track the evolving state of a resource in
+the same way that separation logic formulas can track the state of a resource. **Since the permissions
+are ghost, they exist only during type checking and verification, and do not impose any overhead
+on compiled executable code.**"
+- 3 modes: specifications, proof, and executable code
+    - all are written in Rust (and go through Rust's type checker)
+    - specification / proof code are checked for termination
+    - proof / executable code are checked for linearity + borrowing
+        - why is spec code not checked for linearity / borrowing?
+    - ONLY executable is compiled to machine code
+
+- long list of what Verus supports, is the list of what it doesn't support even
+  longer? 
+
+- extends the Rust compiler? 
+    - "erases all ghost code (all specifications and proofs) before the code 
+    is compiled to machine code"
+- "driver" that links against the Rust compiler? what does this mean?
 
 RustBelt
 - proving unsafe impls encapsulated in well-typed interface
 
 Oxide
 
-heavyweight verification
-- Prusti
-    - encodes programs into Viper?
-- RustHorn
-- Creusot
+Aeneas
+
+Prusti
+- heavyweight (according to Flux)
+- encodes programs into Viper, whatever that is
+
+RustHorn
+- heavyweight (according to Flux)
+
+Creusot
+- heavyweight (according to Flux)
 
 What is "bounded" verification? 
 

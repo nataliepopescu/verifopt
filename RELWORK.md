@@ -1,6 +1,8 @@
 # Potentially Related Work
 
-## Rust Verification Tools
+## Verification Tools
+
+### Rust Verification
 
 [Flux](https://dl.acm.org/doi/pdf/10.1145/3591283)
 - refinement types / liquid inference ?
@@ -72,6 +74,78 @@ Creusot
 - heavyweight (according to Flux)
 
 What is "bounded" verification? 
+
+### LLVM Verification
+
+### Wasm Verification
+
+[Iris-Wasm](https://dl.acm.org/doi/pdf/10.1145/3591265)
+- Conrad is an author!!
+
+- mechanized higher-order separation logic
+    - what about the framework / specifications is specific to separation logic
+      and what does it mean to use it to verify non-seplogic things?
+- Coq + Iris (not very automated; in fact not automated at all - interactive)
+- emphasis on modules: how do modules exist in compiled code? 
+
+- what is the verification burden?
+
+- "Wasm is embedded within
+a host language, which provides several important capabilities not available to core Wasm code,
+including a complex, inherently higher-order, instantiation operation in which the declared state of
+a WebAssembly module is allocated, the module’s requested imports are satisfied, and the module’s
+declared exports are registered for use in satisfying further imports requested during subsequent
+instantiations."
+    - what host lang is compiled wasm embedded into?
+
+- paper's relwork section
+  - apparently shravan's paper (rlbox) has a similar pipeline: C -> wasm -> native
+    (goal = sandboxing)
+    - rlbox: https://www.usenix.org/system/files/sec20-narayan.pdf
+    - uses matthew's paper's results: https://dl.acm.org/doi/pdf/10.1145/3498688
+      - apparently shows that wasm -> native compilation "obeys a safe calling
+        convention and certain isolation properties with respect to the rest of
+        the system"
+    - what benefits does wasm give rlbox?
+  
+  - CAP (Certified Assembly Programming) frameworks
+    - "focuses on features that are abstracted away by Wasm"
+
+  - potentially for automating Iris verification? : https://dl.acm.org/doi/10.1145/3519939.3523432
+
+[Crocus](https://cs.wellesley.edu/~avh/veri-isle-preprint.pdf)
+- Fraser!
+- verification for instruction-lowering (from wasm to native code) in cranelift
+    - instruction-lowering = instruction selection?
+- what about Crocus is specific to these properties? (lowering)
+    - operates on cranelift DSL (ISLE)
+    - from a glance the syntax at least looks kind of similar to wasm
+
+[Specification and Verification of WebAssembly
+Programs](https://oa.upm.es/75802/1/TFM_DAVID_MUNUERA_MAZARRO.pdf)
+- David Mazarro master's thesis
+    - no other related papers sadly
+- VerifiWASM (spec language)
+    - apparently specs are written in a different file
+    - this could be a benefit for automatically-generated code...
+    - no support for global vars / mem management? 
+- [wasm-verify](https://github.com/DavidMazarro/wasm-verify)
+    - cmdline tool
+    - verification condition generator
+
+[KWASM](https://odr.chalmers.se/server/api/core/bitstreams/a06be182-a12e-46ce-94d3-cff7a5dc42ba/content)
+- mechanization of Wasm in the K framework -> formal verifiaction
+    - K framework seems to be a language-agnostic tool for enabling formal
+      verification
+    - [wasm-semantics](https://github.com/runtimeverification/wasm-semantics)
+- project goal == verify Wasm smart contracts
+    - what about the approach is specific to smart contracts, if anything?
+
+### Native Verification
+
+[Verification of Safety Properties for Concurrent Assembly Code](https://flint.cs.yale.edu/flint/publications/vsca.pdf)
+- Yale (zhong shao)
+- Coq
 
 ## Using Static Analysis for Optimization
 

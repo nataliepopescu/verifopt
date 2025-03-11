@@ -26,6 +26,20 @@ possible applications:
 
 verification vs static analysis?
 
+## Thoughts + Potential Project Directions
+
+mae idea: verify wasm
+- verif/compiler pipeline: verif -> monomorph -> optimizations
+- may get more helpful info for determining dead code after monomorph
+- i.e. at either the LLVM or assembly level 
+- Wasm = "massively restricted walled garden" (source: mae), so, easier
+  verification target than LLVM / native code
+
+are there any automated verification tools for wasm?
+- most seem to be built on Coq/Iris (interactive, not automated)
+
+also, how to compile rust to webassembly?
+
 ## Work in Progress
 
 First goal: look at examples of what info optimizers/compilers extract from unoptimized code in their passes.

@@ -101,7 +101,7 @@ instantiations."
 - paper's relwork section
   - apparently shravan's paper (rlbox) has a similar pipeline: C -> wasm -> native
     (goal = sandboxing)
-    - rlbox: https://www.usenix.org/system/files/sec20-narayan.pdf
+    - [rlbox](https://www.usenix.org/system/files/sec20-narayan.pdf)
     - uses matthew's paper's results: https://dl.acm.org/doi/pdf/10.1145/3498688
       - apparently shows that wasm -> native compilation "obeys a safe calling
         convention and certain isolation properties with respect to the rest of

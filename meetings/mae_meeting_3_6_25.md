@@ -21,6 +21,7 @@ from mae
 
 profile-guided stuff
 - different question from: trying to optimize something but blocked by something stupid
+    - mostly just tells you where your code is spending the most time
 - use profiler as proxy of what optimizer can see?
 
 when compiler is likely to not be able to do something
@@ -31,7 +32,7 @@ when compiler is likely to not be able to do something
 
 from potential dynamism, can get either:
 - switch statement
-    - always want to be here
+    - always want to be here (if going to optimize)
 - conditionals or arbitrary jumps
 
 how to add compiler hints
@@ -42,16 +43,18 @@ how to add compiler hints
     - struct layout hints
         - padding
     - these are dangerous: dev telling compiler to ignore some info? like intrinsics? always-dead annotations; will-not-alias; 
+        - but if some fact is verified then can safely hint it to the compiler
+          like this
 
 threading?
-- pthreads
+- pthreads (process threads)
     - compiler has completely diff logic re read/write optimizations (less conservative)
     - compiler: might be concurrency!
+    - a bit confused about this example...
 - volatile
     - sometimes ppl use multiple processes instead of multiple threads
     - communicate via memory mapped region
     - ppl use to ~memory map some region so writes are immediately shown
-
 
 whatever changes you end up doing, will need to verify that it does the same thing
 - will have a verification condition
@@ -77,7 +80,7 @@ line of work
 rust verification tools seem to be all front-end only
 - although we will still need access to the same stuff
 
-
+tock panic tracing
 - try compiling w full debugging symbols enabled
 - run the code + trigger the panic
 - GDB

@@ -14,6 +14,7 @@ goal: lightweight verif
 - why? b/c pinpointing very specific optimizations (bigger verification machinery is likely overkill)
 
 will need to think about which optimizations happen where, and what info is available there (MIR vs LLVM IR)
+- also where does verification happen with respect to where optimizations happen
 
 possible applications:
 
@@ -25,6 +26,21 @@ possible applications:
 - [ ] impl stacked/tree borrows in compiler + use for opt?
 
 verification vs static analysis?
+
+how should the project look at the end?
+- a tool
+- we took a system and optimized it via verification
+- generated antipatterns
+- ?
+
+also, why are existing verified systems often not optimized/perform worse than
+unverified systems?
+- perhaps it is easier to verify systems that are written more simply, and
+  harder to verify systems that are performance engineered (faster but more 
+  complicated)?
+    - a compiler that communicates its optimization conditions may be able to 
+    help ease verification for perf engineered code (i.e. facts XYZ need to be 
+    clear, but other stuff doesn't necessarily have to be)
 
 ## Thoughts + Potential Project Directions
 
@@ -50,9 +66,22 @@ compiler tells dev what it was able to optimize / "optimization conditions"
 - devs can check that those "optimization conditions" are not invalidated during
   code maintenance/updates/etc
 
+### generate verification conditions to verify in order to optimize code
+
+how hard is it to automatically generate meaningful verification conditions?
+- quite hard without any developer help
+
 ### antipatterns list
 
 certain data structure substitutions
+
+### iterative simplification of perf-engineered code s.t. it can be verified
+
+sort of the opposite of optimizing code, but for verification purposes
+
+i.e. this crazy-complicated implementation is equivalent to this longer, slower,
+simpler one, which we managed to verify; therefore the high-perf version is also
+verified
 
 ### potential similarities/shared goals in all of the above
 

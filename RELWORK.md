@@ -80,8 +80,7 @@ What is "bounded" verification?
 ### Wasm Verification
 
 [Iris-Wasm](https://dl.acm.org/doi/pdf/10.1145/3591265)
-- Conrad is an author!!
-
+- Conrad!
 - mechanized higher-order separation logic
     - what about the framework / specifications is specific to separation logic
       and what does it mean to use it to verify non-seplogic things?
@@ -160,6 +159,48 @@ Programs](https://oa.upm.es/75802/1/TFM_DAVID_MUNUERA_MAZARRO.pdf)
 
 [VSync: Push-Button Verification and Optimization for Synchronization Primitives on Weak Memory Models](https://dl.acm.org/doi/abs/10.1145/3445814.3446748)
 - automatically optimize + verify? how?
+
+[EverCrypt: A Fast, Verified, Cross-Platform Cryptographic
+Provider](https://www.microsoft.com/en-us/research/wp-content/uploads/2019/10/evercrypt.pdf)
+- verified, high-perf crypto
+- "new verified implementations (including hashes,
+Curve25519, and AES-GCM) whose performance matches or
+exceeds the best unverified implementations"
+- builds off of ValeCrypt work
+    - [Vale](https://web.eecs.umich.edu/~manosk/assets/papers/vale-sec17.pdf)
+    - [A Verified, Efficient Embedding of a Verifiable Assembly
+    Language](http://nickgian.github.io/popl19-vale.pdf)
+        - "The key idea is to use the computational
+        power of a *dependent type system’s type checker* to run a verified *verification-condition generator* during
+        type checking. This allows the embedding to *customize the verification condition* sent by the type checker
+        to an SMT solver"
+- "we show that multiple layers of abstraction, both in the
+implementation and (more surprisingly) in the specification of
+cryptographic algorithms, naturally leads to agile code while
+also improving verification efficiency."
+- F* proof assistant
+
+- is there a clear answer/intuition for why their implementations outperform
+  pre-existing ones?
+  - VII 
+    - "With EverCrypt, we aim to obviate the need for such a
+choice; thanks to verification, we can offer developers best-in-
+class performance and provable security guarantees"
+    - VII-A (AES-GCM)
+        - "To simplify the task of deciphering OpenSSL’s code
+and reconstructing the invariants the original programmer had in
+mind, we initially ported the encryption and the authentication
+operations separately, proving that each accomplished its goals
+individually. We then manually merged the implementations
+and proofs into single implementation and proof. In the future,
+we hope to develop techniques to automate such merges."
+  - VIII-B (perf eval)
+    - "value of optimizing for particular platforms" - targeted (not portable)
+      versions are those that surpass the perf of preexisting impls (fig 8)
+    - "We attribute this to the fact that the latter two
+each jointly optimize encryption and authentication together,
+whereas libjc optimizes the two primitives separately"
+    - "EverCrypt’s combined Low* +Vale implementation" (Section VI-B)
 
 ## Verified Optimizers/Compilers
 

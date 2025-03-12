@@ -1,5 +1,44 @@
 # Potentially Related Work
 
+## Defs/Concepts
+
+what are verification condition generators?
+- ah, these seem to be more so a part of how verification mechanics are
+  implemented (given these pre-/post-conditions and this code what are the
+  precise things we need to pass to the SMT solver)
+    - always use Hoare logic?
+- what are verification conditions?
+  - logical (boolean) formulas
+
+Hoare logic
+- Hoare triple: {P}C{Q}
+    - P = precondition
+    - C = code/logic/command
+    - Q = postcondition
+- can only prove partial correctness (no termination)
+
+[no-panic-rust](https://blog.reverberate.org/2025/02/03/no-panic-rust.html#fnref:0)
+
+abstract interpretation vs symbolic execution
+- [Abstract Interpretation, Symbolic Execution and
+  Constraints](https://drops.dagstuhl.de/storage/01oasics/oasics-vol086-gabbriellis-festschrift/OASIcs.Gabbrielli.7/OASIcs.Gabbrielli.7.pdf)
+  - AI: sound over-approx of all possible _states_
+  - SE: reachability analysis; all possible _execution paths_
+  - both: "implicitly or explicitly – maintains constraints
+during execution, in the form of invariants or path conditions."
+
+## Language Internals
+
+### Rust
+
+### Wasm
+
+[one-pass
+verification](https://stackoverflow.com/questions/48638653/can-anyone-help-explain-the-one-pass-verification-process-shows-in-webassembly)
+- really validation, not verification ("is this valid wasm")
+- validation of _types_ (but also other things)
+    - [wasm type checking](https://binji.github.io/posts/webassembly-type-checking/)
+
 ## Verification Tools
 
 ### Rust Verification
@@ -65,7 +104,7 @@ Aeneas
 
 Prusti
 - heavyweight (according to Flux)
-- encodes programs into Viper, whatever that is
+- encodes programs into Viper (a verification IR)
 
 RustHorn
 - heavyweight (according to Flux)
@@ -122,15 +161,55 @@ instantiations."
 
 [Specification and Verification of WebAssembly
 Programs](https://oa.upm.es/75802/1/TFM_DAVID_MUNUERA_MAZARRO.pdf)
-- David Mazarro master's thesis
+- David Mazarro master's thesis (June 2023)
     - no other related papers sadly
+- how to verify
+    - "the VCs are derived from the WebAssembly bytecode and the specification by 
+performing a symbolic execution of the WebAssembly code."
+    - automatic CFG generation (similar pipeline/workflow to VeriWasm, except
+      maybe cross-function)
+      - toCFG + simplifyCFG functions
+    - SCCs (strongly connected components) -> identify loops in CFG
+        - helps w per-loop invariants (if a SCC has a cycle, we know its a loop,
+          thus we require assertions)
 - VerifiWASM (spec language)
     - apparently specs are written in a different file
     - this could be a benefit for automatically-generated code...
     - no support for global vars / mem management? 
+    - "VerifiWASM is not intended to be used to write
+specifications manually. The idea is that the HLL you choose that targets WebAssembly also
+generates a specification written in VerifiWASM to accompany the WebAssembly bytecode that
+is generated"
+    - "In this sense, our tool is not batteries-included and we expect WASM-generating libraries and
+compilers for HLLs to generate VerifiWASM specifications as part of the
+compilation process."
+        - does anyone do this...?
+        - how hard would this be? i.e. would have to write a specification compiler
+            - maybe if targeting certain types of annotations (i.e. refinement
+              types) this wouldn't be so bad
+    - doesn't use an existing verification IR
+    - approach is similar to Dafny
 - [wasm-verify](https://github.com/DavidMazarro/wasm-verify)
     - cmdline tool
     - verification condition generator
+
+[Trust but Verify: SFI safety for native-compiled Wasm
+](https://www.ndss-symposium.org/wp-content/uploads/ndss2021_5B-3_24078_paper.pdf)
+- VeriWasm = static SFI verifier
+    - what about it is specific to this context?
+    - disassembles natively-compiled Wasm -> CFG
+        - how does this work?
+        - "As a part of this process, VeriWasm also resolves all
+indirect jumps in the control-flow graph... and ensures that all direct and indirect calls target functions
+present in the symbol table"
+        - verifies each individual function wrt _local_ safety properties
+            - potential limitations if trying to prove facts across functions
+    - runs verified analysis passes on each function's CFG -> SFI safe?
+    - uses abstract interpretation; "Abstract interpretation
+is a static analysis technique that infers information about
+a program by overapproximating its behavior"
+- Lucet compiler: Wasm -> binary
+- Yaxpeax: trusted disassembler
 
 [KWASM](https://odr.chalmers.se/server/api/core/bitstreams/a06be182-a12e-46ce-94d3-cff7a5dc42ba/content)
 - mechanization of Wasm in the K framework -> formal verifiaction
@@ -218,7 +297,8 @@ whereas libjc optimizes the two primitives separately"
 
 ## Using Optimization Problems for Verification
 
-unsure what is meant by "verification" in these contexts
+unsure what is meant by "verification" and "optimization" in these contexts,
+think it's very different
 
 [Thesis: Optimization-Based Methods for Nonlinear and Hybrid Systems Verification](https://thesis.library.caltech.edu/2155/1/thesis.pdf)
 

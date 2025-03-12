@@ -44,7 +44,7 @@ unverified systems?
 
 ## Thoughts + Potential Project Directions
 
-### panics in tock
+### panics in tock (likely single-system paper)
 
 mae idea: verify wasm
 - verif/compiler pipeline: verif -> monomorph -> optimizations
@@ -52,6 +52,7 @@ mae idea: verify wasm
 - i.e. at either the LLVM or assembly level 
 - Wasm = "massively restricted walled garden" (source: mae), so, easier
   verification target than LLVM / native code
+  - how exactly is wasm a "massively restricted walled garden"?
 
 are there any automated verification tools for wasm?
 - most seem to be built on Coq/Iris (interactive, not automated)
@@ -73,11 +74,14 @@ how hard is it to automatically generate meaningful verification conditions?
 
 ### antipatterns list
 
-certain data structure substitutions
+certain data structure substitutions that result in better perf
+- to be applied at compiler level (automatically) or source level (developer
+  mods)?
 
 ### iterative simplification of perf-engineered code s.t. it can be verified
 
 sort of the opposite of optimizing code, but for verification purposes
+- in a sense, de-optimizing for verification
 
 i.e. this crazy-complicated implementation is equivalent to this longer, slower,
 simpler one, which we managed to verify; therefore the high-perf version is also

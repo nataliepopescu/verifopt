@@ -225,6 +225,11 @@ a program by overapproximating its behavior"
 - Yale (zhong shao)
 - Coq
 
+## Optimization Techniques
+
+[The Program Dependence Graph and Its Use in Optimization](https://www.cs.utexas.edu/~pingali/CS395T/2009fa/papers/ferrante87.pdf)
+- 1987
+
 ## Using Static Analysis for Optimization
 
 [From Verification to Optimizations](https://link.springer.com/chapter/10.1007/978-3-662-46081-8_17)

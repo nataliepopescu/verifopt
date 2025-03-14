@@ -39,6 +39,12 @@ verification](https://stackoverflow.com/questions/48638653/can-anyone-help-expla
 - validation of _types_ (but also other things)
     - [wasm type checking](https://binji.github.io/posts/webassembly-type-checking/)
 
+- <watt notes>
+
+- kind of do need mechanization to do verif
+    - b/c need to know what the lang actually does
+    - linter vs formal backing
+
 ## Verification Tools
 
 ### Rust Verification
@@ -218,6 +224,11 @@ a program by overapproximating its behavior"
     - [wasm-semantics](https://github.com/runtimeverification/wasm-semantics)
 - project goal == verify Wasm smart contracts
     - what about the approach is specific to smart contracts, if anything?
+
+- K: a language compiler (generates tools for a lang given its spec)
+    - auto-gen default lang things (classes, tab-completion, etc)
+        - suite of defaults
+    - so you can focus on the cool stuff
 
 ### Native Verification
 

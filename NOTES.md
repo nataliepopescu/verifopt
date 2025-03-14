@@ -54,6 +54,9 @@ mae idea: verify wasm
   verification target than LLVM / native code
   - how exactly is wasm a "massively restricted walled garden"?
 
+- @ wasm level the optimizer(s) have already done a lot: monomorph, inlining, etc
+- thus local-only tool may still be helpful
+
 are there any automated verification tools for wasm?
 - most seem to be built on Coq/Iris (interactive, not automated)
 
@@ -87,6 +90,15 @@ i.e. this crazy-complicated implementation is equivalent to this longer, slower,
 simpler one, which we managed to verify; therefore the high-perf version is also
 verified
 
+very specific example would be useful
+- i.e. this would likely _not_ work: https://stackoverflow.com/questions/1349542/john-carmacks-unusual-fast-inverse-square-root-quake-iii
+    - human cannot understand why this works
+- maybe common numeric patterns?
+
+what do verifiers do to make it easier to verify code? (two-pass approach)
+
+### non-verification techniques? (other static analysis / intuition hints)
+
 ### potential similarities/shared goals in all of the above
 
 pull in certain dynamic info / "user intentions" into the compiler
@@ -98,6 +110,11 @@ maybe look into what kinds of things performance engineering successfully
 accomplishes
 
 ## Work in Progress
+
+just _try_ flux or verus to see if the tools are capable of proving X
+- sense of annoyance
+- automatable? 
+- user input?
 
 First goal: look at examples of what info optimizers/compilers extract from unoptimized code in their passes.
 - for panic-freeness, how to determine which panics are left in the binary vs optimized out by just the compiler on unverified code? how to track/check this? how many are left in? what's the difference between those left in vs left out?

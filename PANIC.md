@@ -217,6 +217,12 @@ demangling via [rustfilt](https://crates.io/crates/rustfilt)
 ### `-why_live` linker flag
 
 
+### other techniques to try
+
+remove a panic and see how the binary/objdump changes
+
+check `strings` output
+
 
 
 

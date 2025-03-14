@@ -17,8 +17,6 @@ Hoare logic
     - Q = postcondition
 - can only prove partial correctness (no termination)
 
-[no-panic-rust](https://blog.reverberate.org/2025/02/03/no-panic-rust.html#fnref:0)
-
 abstract interpretation vs symbolic execution
 - [Abstract Interpretation, Symbolic Execution and
   Constraints](https://drops.dagstuhl.de/storage/01oasics/oasics-vol086-gabbriellis-festschrift/OASIcs.Gabbrielli.7/OASIcs.Gabbrielli.7.pdf)
@@ -30,6 +28,26 @@ during execution, in the form of invariants or path conditions."
 ## Language Internals
 
 ### Rust
+
+[no-panic-rust](https://blog.reverberate.org/2025/02/03/no-panic-rust.html#fnref:0)
+
+hints: [enforced integer range](https://www.reddit.com/r/rust/comments/1jafvbe/how_to_inform_the_rust_compiler_of_an_enforced/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)
+
+[The state of Rust trying to catch up with Ada](https://fosdem.org/2025/schedule/event/fosdem-2025-5356-the-state-of-rust-trying-to-catch-up-with-ada/)
+- Feb 2025
+- apparently Ada has a lot of verification support
+- [ferrocene](https://ferrocene.dev/en/)
+    - compiler toolchain for safety-critical systems
+    - subset of Rust compiler?
+- subtypes
+- Rust contracts...?
+    - in the compiler
+    - dynamic or static?
+    - [contracts](https://docs.rs/contracts/latest/contracts/)
+        - via procmacros
+    - [PR](https://github.com/rust-lang/rust/pull/128045)
+    - uses Kani
+    - being used (where?) to prove some small rust code free of runtime exceptions
 
 ### Wasm
 
@@ -119,6 +137,9 @@ Creusot
 - heavyweight (according to Flux)
 
 What is "bounded" verification? 
+
+[Kani](https://github.com/model-checking/kani)
+- model-checking-based
 
 ### LLVM Verification
 

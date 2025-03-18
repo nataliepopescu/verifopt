@@ -213,13 +213,17 @@ demangling via [rustfilt](https://crates.io/crates/rustfilt)
 - [ ] 0002d1b8 <_RNvNtCs1omKOwJWJyg_4core6option13unwrap_failed>:
     - `core::option::unwrap_failed`
 
+### remove a panic and see how the binary/objdump changes
+
+removing MLFQ panic does change the binary, but unclear _how_
+
+might get more info from objdump diff
 
 ### `-why_live` linker flag
 
 
 ### other techniques to try
 
-remove a panic and see how the binary/objdump changes
 
 check `strings` output
 

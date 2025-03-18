@@ -57,12 +57,24 @@ verification](https://stackoverflow.com/questions/48638653/can-anyone-help-expla
 - validation of _types_ (but also other things)
     - [wasm type checking](https://binji.github.io/posts/webassembly-type-checking/)
 
-- <watt notes>
+[Mechanizing and Verifying the WebAssembly
+Specification](https://www.cl.cam.ac.uk/~caw77/papers/mechanising-and-verifying-the-webassembly-specification.pdf)
+- only 171 individual opcodes
+- "but each of these can be viewed as
+different specialisations of the 28 abstract operations spec-
+ified in the working group’s paper"
+- "explicit goal to eliminate undefined behavior from the specification"
 
-- kind of do need mechanization to do verif
-    - b/c need to know what the lang actually does
-    - linter vs formal backing
-    - [clippy?](https://rust-lang.github.io/rust-clippy/master/index.html#missing_panics_doc)
+- all memory accesses are bounds checked -> what does this mean for
+  "optimizations" that try to remove bounds checks?
+- no integer-pointer distinction
+
+- validation == type checking
+
+kind of do need mechanization to do verif
+- b/c need to know what the lang actually does
+- linter vs formal backing
+- [clippy?](https://rust-lang.github.io/rust-clippy/master/index.html#missing_panics_doc)
 
 ## Verification Tools
 
@@ -145,6 +157,22 @@ What is "bounded" verification?
 ### LLVM Verification
 
 ### Wasm Verification
+
+[Mechanizing and Verifying the WebAssembly
+Specification](https://www.cl.cam.ac.uk/~caw77/papers/mechanising-and-verifying-the-webassembly-specification.pdf)
+- what does mechanization mean?
+    - proof that the specification is correct?
+    - in Isabelle
+- also verified executable interpreter + type checker
+- how does mechanization of the specification help with verification of
+  properties?
+    - can you verify properties about something written in a language that
+      itself isn't proven sound? probably yes but there's the caveat that potential 
+      unsoundness will undermine the "correctness" of whatever properties you
+      have proved
+- "The designers of WebAssembly have made it an explicit
+goal to specify the language in a way that makes it amenable
+to formal analysis and verification."
 
 [Iris-Wasm](https://dl.acm.org/doi/pdf/10.1145/3591265)
 - Conrad!
@@ -240,12 +268,15 @@ a program by overapproximating its behavior"
 - Yaxpeax: trusted disassembler
 
 [KWASM](https://odr.chalmers.se/server/api/core/bitstreams/a06be182-a12e-46ce-94d3-cff7a5dc42ba/content)
-- mechanization of Wasm in the K framework -> formal verifiaction
+- Hjort's master's thesis
+- KWASM = mechanization of Wasm in the K framework -> formal verifiaction
     - K framework seems to be a language-agnostic tool for enabling formal
       verification
     - [wasm-semantics](https://github.com/runtimeverification/wasm-semantics)
 - project goal == verify Wasm smart contracts
     - what about the approach is specific to smart contracts, if anything?
+        - perhaps the types of properties?
+        - embedding in Ethereum?
 
 - K: a language compiler (generates tools for a lang given its spec)
     - auto-gen default lang things (classes, tab-completion, etc)

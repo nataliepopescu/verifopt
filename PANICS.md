@@ -218,6 +218,7 @@ demangling via [rustfilt](https://crates.io/crates/rustfilt)
 removing MLFQ panic does change the binary, but unclear _how_
 
 might get more info from objdump diff
+- same number of `_RNvNtCs1omKOwJWJyg_4core9panicking5panic` calls
 
 ### `-why_live` linker flag
 

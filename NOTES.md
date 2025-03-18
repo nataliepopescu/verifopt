@@ -61,6 +61,8 @@ are there any automated verification tools for wasm?
 - most seem to be built on Coq/Iris (interactive, not automated)
 
 also, how to compile rust to webassembly?
+- [Rust to
+  Wasm](https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Rust_to_Wasm)
 
 ### verification "fuzzing" loop
 

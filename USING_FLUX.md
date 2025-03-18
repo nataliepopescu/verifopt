@@ -27,14 +27,35 @@ specifically having issues with haskell/`stack`, trying to install via GHCup
 now. (initially tried:
 https://docs.haskellstack.org/en/stable/install_and_upgrade/#__tabbed_10_2)
 
-## on Tock
+## Running
 
-already verified some things [at ucsd](https://github.com/PLSysSec/tock)
+### on [Flux-Tock](https://github.com/PLSysSec/tock)
 
-### Scheduler/MLFQ
+goal: can we successfully run flux on a thing that is expected to pass
+verification
+
+trying per-package via cargo-flux
+
+Running `cargo flux` in the kernel subdir (kernel package)
+- a couple warnings but no flux errors, yay
+
+#### Scheduler/MLFQ
 
 [queue_idx < 3](https://github.com/PLSysSec/tock/blob/master/kernel/src/scheduler/mlfq.rs#L167)
-- what is the purpose of this line? seems to be trying to avoid a bounds check 
-  maybe in the next line
+- seems to be trying to avoid a bounds check in the next line
 
 what is being verified in this file/implementation, period?
+
+### on [base Tock](https://github.com/tock/tock)
+
+goal: 
+- is flux able to prove X?
+- how annoying is it to prove X?
+- how automatable is proving X?
+- does proving X require additional user input?
+
+
+
+
+
+

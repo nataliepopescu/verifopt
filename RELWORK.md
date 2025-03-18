@@ -289,6 +289,13 @@ a program by overapproximating its behavior"
 - Yale (zhong shao)
 - Coq
 
+## Compiler Output
+
+[How Should Compilers Explain Problems to
+Developers?](https://denaeford.me/papers/compiler-explanations-FSE-2018.pdf)
+- from Chasins @ berkeley, about how to best formulate compiler error messages
+- [Thesis version](https://static.barik.net/barik/thesis/barik-thesis.pdf)
+
 ## Optimization Techniques
 
 [The Program Dependence Graph and Its Use in Optimization](https://www.cs.utexas.edu/~pingali/CS395T/2009fa/papers/ferrante87.pdf)

@@ -62,6 +62,7 @@ verification](https://stackoverflow.com/questions/48638653/can-anyone-help-expla
 - kind of do need mechanization to do verif
     - b/c need to know what the lang actually does
     - linter vs formal backing
+    - [clippy?](https://rust-lang.github.io/rust-clippy/master/index.html#missing_panics_doc)
 
 ## Verification Tools
 

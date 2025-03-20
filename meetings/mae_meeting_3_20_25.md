@@ -1,5 +1,5 @@
 figure out what you want to verify first... then move into the SMT world when you know what to prove
-=======
+
 # Natalie using Flux
 
 flux doing stuff w/out annotations
@@ -112,7 +112,3 @@ next steps
 
 
 
-
-
-
->>>>>>> 6fb04b2e8ff519d625bb80b3fb884a672fee2454

@@ -96,7 +96,9 @@ next steps
 - what is flux's model when run without annotations?
     - anja doc
 - remove panics from another system?
-    - what other systems/apps contain panics?
+    - what other systems/apps contain panics? (anja)
+- continue verifying panic reachability in mlfq with Flux (natalie)
+
 
 - rust code that uses linked lists?
 - performance engineered code?

@@ -1,0 +1,12 @@
+cargo-features = ["edition2024"]
+
+[package]
+name = "flux-example"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.flux]
+enabled = true
+
+[dependencies]
+flux-rs = { git  = "https://github.com/flux-rs/flux.git" }

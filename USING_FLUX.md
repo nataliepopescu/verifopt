@@ -93,34 +93,18 @@ compiler ones too) by marking a bunch of unrelated things with
 
 #### Scheduler/MLFQ
 
+can get flux to pass on tock if simply add
 
+```rust
+#[flux_rs::sig(fn(&MLFQSched<A>[@m], i:usize{i < 3}) -> u32{r: r > 0})]
+```
 
+on `get_timeslice_us`, but not when i add an equivalent annotation to the
+simplified analogous function in our example/simplified code. this makes me
+think that there are some `#[flux_rs::trusted]` annotations somewhere making
+this "easier" to verify than it should be. 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+### on some simplified code
 
 
 

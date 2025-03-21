@@ -89,6 +89,7 @@ compiler ones too) by marking a bunch of unrelated things with
 `#[flux_rs::trusted]`
 - errors like: "assertion might fail: possible division by zero", or "arithmetic
   operation may overflow"
+- [commit](https://github.com/nataliepopescu/tock/commit/361f058792272d8375682b907f87f38d35684d7a)
 
 #### Scheduler/MLFQ
 

@@ -13,9 +13,18 @@ const fn flux_assume(b: bool) {
 
 /* Simplified MLFQ panic */
 
+//#[flux_rs::refined_by(array_len: int)]
+//#[flux_rs::invariant(array_len == 3)]
+
+//#[flux_rs::refined_by()]
 struct ArrayWrapper {
+    //#[field({[i32; 3]})]
     array: [i32; 3],
 }
+
+//flux_rs::defs! {
+//    fn len(aw: ArrayWrapper) -> int { 3 }
+//}
 
 impl ArrayWrapper {
     fn new() -> Self {
@@ -34,7 +43,7 @@ impl ArrayWrapper {
         }
     }
 
-    #[flux_rs::sig(fn(&ArrayWrapper[@a]) -> usize{i: i < 3})]
+    #[flux_rs::sig(fn(&ArrayWrapper[@a]) -> usize{i: i < 3} requires len(a) == 3)]
     fn get_next_ready_proc_node_sim(&self) -> usize {
         let mut rng = rand::rng();
         let nums: Vec<i32> = (1..10).collect();

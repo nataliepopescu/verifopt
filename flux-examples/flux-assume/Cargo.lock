@@ -25,7 +25,7 @@ dependencies = [
 [[package]]
 name = "flux-attrs"
 version = "0.1.0"
-source = "git+https://github.com/flux-rs/flux.git#d76b4d54b8bf4a5589bf22d7d928300a6870c5aa"
+source = "git+https://github.com/flux-rs/flux.git#ae08932919667e243059e26f37c54b8ee7b6a9c8"
 dependencies = [
  "flux-attrs-impl",
 ]
@@ -33,7 +33,7 @@ dependencies = [
 [[package]]
 name = "flux-attrs-impl"
 version = "0.1.0"
-source = "git+https://github.com/flux-rs/flux.git#d76b4d54b8bf4a5589bf22d7d928300a6870c5aa"
+source = "git+https://github.com/flux-rs/flux.git#ae08932919667e243059e26f37c54b8ee7b6a9c8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -43,7 +43,7 @@ dependencies = [
 [[package]]
 name = "flux-rs"
 version = "0.1.0"
-source = "git+https://github.com/flux-rs/flux.git#d76b4d54b8bf4a5589bf22d7d928300a6870c5aa"
+source = "git+https://github.com/flux-rs/flux.git#ae08932919667e243059e26f37c54b8ee7b6a9c8"
 dependencies = [
  "flux-attrs",
 ]
@@ -65,15 +65,6 @@ name = "libc"
 version = "0.2.171"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
-
-[[package]]
-name = "mlfq-panic"
-version = "0.1.0"
-dependencies = [
- "flux-assume",
- "flux-rs",
- "rand",
-]
 
 [[package]]
 name = "ppv-lite86"

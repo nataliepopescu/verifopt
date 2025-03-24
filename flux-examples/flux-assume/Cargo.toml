@@ -1,0 +1,11 @@
+[package]
+name = "flux-assume"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata.flux]
+enabled = true
+
+[dependencies]
+flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
+rand = "0.9.0"

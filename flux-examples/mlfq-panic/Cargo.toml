@@ -7,5 +7,6 @@ edition = "2024"
 enabled = true
 
 [dependencies]
-flux-rs = { git  = "https://github.com/flux-rs/flux.git" }
+flux-rs = { git = "https://github.com/flux-rs/flux.git" }
 rand = "0.9.0"
+flux-assume = { path = "../flux-assume" }

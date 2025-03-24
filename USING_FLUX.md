@@ -104,11 +104,29 @@ simplified analogous function in our example/simplified code. this makes me
 think that there are some `#[flux_rs::trusted]` annotations somewhere making
 this "easier" to verify than it should be. 
 
-### on some simplified code
+next TODO: try to track these down
 
 
 
+### on [example
+code](https://github.com/nataliepopescu/verifopt/blob/main/flux-example/src/lib.rs)
 
+using `flux_assume` probably inserts a panic into the compiled output, because 
+it is not a flux-intrinsic function (proof-carrying code) but rather a 
+flux-verified "normal" function. 
+- however, `flux_assume` is actually a `const` function, which means "When
+  called from a const context, the function is interpreted by the compiler at
+  compile time"
+  - what does calling a const function from a const context mean? does the
+    calling function also need to be const? 
+    - this is not the case in the flux-tock MLFQ usage...
+    - how difficult / obstructive is it to make a function const? probably
+      similar to async (i.e. depends on what calls _it_)...
+  - [const
+    context](https://doc.rust-lang.org/reference/const_eval.html#const-context)
+  - calling from a const context is difficult, even in a simple example
+  - if not called from a const context, still panicking in the LLVM IR (unsure
+    about the assembly/machine code)
 
 
 

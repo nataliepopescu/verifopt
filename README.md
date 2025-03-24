@@ -4,8 +4,9 @@ Using verification / static analysis for optimizing code
 
 ## Repo structure
 
-[flux-example](https://github.com/nataliepopescu/verifopt/tree/main/flux-example): 
-simplified code to play with flux on
+[flux-examples](https://github.com/nataliepopescu/verifopt/tree/main/flux-examples):
+simplified code to use flux on, mirroring the kinds of constructs we would like
+to verify in real world code
 
 [meetings](https://github.com/nataliepopescu/verifopt/tree/main/meetings): notes 
 from various meetings on verifopt / related things

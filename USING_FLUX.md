@@ -131,10 +131,11 @@ flux-verified "normal" function.
 
 not flux, but alternatively trying to use
 [this](https://www.reddit.com/r/rust/comments/1jafvbe/how_to_inform_the_rust_compiler_of_an_enforced/) 
-is very unclear and also seems to require `unsafe`. was not able to successfully
-use for helping flux
+to affect compilation / aid flux, but it is very unclear and also seems to 
+require `unsafe`. was not able to successfully help flux with it
 - finally an example: https://github.com/rust-lang/rust/issues/59524
 
+try [contracts](https://docs.rs/contracts/latest/contracts/) next
 
 
 

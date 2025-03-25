@@ -129,6 +129,11 @@ flux-verified "normal" function.
     about the assembly/machine code)
 
 
+not flux, but alternatively trying to use
+[this](https://www.reddit.com/r/rust/comments/1jafvbe/how_to_inform_the_rust_compiler_of_an_enforced/) 
+is very unclear and also seems to require `unsafe`. was not able to successfully
+use for helping flux
+- finally an example: https://github.com/rust-lang/rust/issues/59524
 
 
 

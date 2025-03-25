@@ -40,7 +40,7 @@ impl ArrayWrapper {
         let nums: Vec<i32> = (1..2).collect();
 
         for (idx, _) in self.array.iter().enumerate() {
-            // FIXME how to verify without this helper? introduces a panic
+            // FIXME how to verify without this helper? uses panic
             flux_assume::assume(idx < 3);
             let rand = nums.choose(&mut rng).unwrap();
             if *rand != 2 {

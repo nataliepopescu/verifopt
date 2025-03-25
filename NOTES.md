@@ -176,5 +176,7 @@ compiled tock for imix board
 
 ## Specs / Reproducability
 
-rust version: nightly-2024-11-16
+rust version: `nightly-2024-11-16`
+
+- rust-toolchain.toml now pinned to `nightly-2025-03-15`
 

@@ -110,21 +110,71 @@ TODO
     - trait `Chip` has a `print_state` func used by panic
         - TODO who calls this?
 
-- [ ] `src/utilities/copy_slice.rs`
-
 - [ ] `src/utilities/static_init.rs`
-
-- [ ] `src/utilities/leasable_buffer.rs`
+    - this might be very hard to remove / would require some other technique b/c
+    panicking depends on the number of times a function is called (so in the
+    hands of the caller)
 
 - [ ] `src/deferred_call.rs`
-    - array size default = 32 (supports up to 32 deferred calls), can be modified (statically) to support more
-    - implementors of `DeferredCallClient` can set/receive deferred calls (aka software interrups)
+    - array size default = 32 (supports up to 32 deferred calls), can be
+      modified (manually) to support more
+    - implementors of `DeferredCallClient` can set/receive deferred calls (aka 
+      software interrups)
+    - in comment/docs: "This function costs about 300 bytes, so you can remove 
+      it if you are confident your setup will not exceed 32 deferred calls, and 
+      that all of your components register their deferred calls."
+    - where/how are deferred calls created? "verifying" would require a similar
+      mechanism to ensuring that some function is called no more than X times
+      (once in the `static_init.rs` case, or 32 here)
 
 - [ ] `src/kernel.rs`
+    - panic if grant is created after processes are initialized
+    - in `create_grant()`
+        - called from all the boards and `kernel/src/ipc.rs`
+    - `self.grants_finalized` is a field, can maybe have a pre-condition on this
+      but don't know how to write a contract on a struct subfield TODO
+        - `self` == `Kernel`
+        - `self.grants_finalized: Cell<bool>`
+            - `Cell<T>` == shareable mutable container (single-threaded) ->
+              interior mutability
+                - `get()` copies the interior value
+                - `set()` replaces the interior value, dropping the replaced
+                  value
+        - set to `true` in `get_grant_count_and_finalize()`
+            - called by `get_grant_count_and_finalize_external()` but can't find
+              any callers of that in the tock repo
+            - `process_standard.rs` and `introspection.rs` call 
+              `get_grant_count_and_finalize()` directly
 
 - [ ] `src/process_printer.rs`
 
 - [ ] `src/process_standard.rs`
+    - in `set_fault_state`
+    - `self` == `ProcessStandard`
+    - when `self.fault_policy.action(self)` == `FaultAction::Panic`
+    - `fault_policy: &'a dyn ProcessFaultPolicy`
+        - `dyn` = dynamic dispatch calls to trait methods
+        - `ProcessFaultPolicy` is a trait
+        - must impl `fn action(&self, process: &dyn Process) ->
+          process::FaultAction`
+    - does this mean some processes choose to respond with panics? 
+        - capsules impl ProcessFaultPolicy (in
+          `capsules/system/src/process_policies.rs`)
+        - `PanicFaultPolicy` and `ThresholdRestartThenPanicFaultPolicy`
+        - used in boards (but not in imix); imix == `StopFaultPolicy`
+        - why is this a board-level decision? oh, its how the _kernel_ should
+          respond when a process faults
+    - FaultPolicy "popularity" (rough estimate = 
+      `grep -rnI '<type>FaultPolicy' | wc -l`)
+      - Panic: 81
+      - Stop: 4
+      - StopWithDebug: 12
+      - Restart: 7
+      - RestartWithDebug: 2
+      - ThresholdRestart: 5
+      - ThresholdRestartThenPanic: 7
+    - what should be taken into consideration when deciding a fault policy for a
+      board? TODO
 
 - [ ] `src/processbuffer.rs`
 
@@ -154,6 +204,10 @@ TODO
 
         - TODO how to compile a board _not_ in release mode?
             - debug mode/optimizations turned off
+
+
+what is `if !config::CONFIG.debug_panics {` ?
+
 
 ### assembly -> source
 

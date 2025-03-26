@@ -136,6 +136,9 @@ require `unsafe`. was not able to successfully help flux with it
 - finally an example: https://github.com/rust-lang/rust/issues/59524
 
 try [contracts](https://docs.rs/contracts/latest/contracts/) next
+- contracts will likely add the same the flux does
+    - the current problem is that `idx` is not in the function signature/API, so
+      it is hard to say anything about it in pre-/post-conditions
 
 
 

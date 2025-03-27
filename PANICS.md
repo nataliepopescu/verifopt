@@ -146,8 +146,6 @@ TODO
             - `process_standard.rs` and `introspection.rs` call 
               `get_grant_count_and_finalize()` directly
 
-- [ ] `src/process_printer.rs`
-
 - [ ] `src/process_standard.rs`
     - in `set_fault_state`
     - `self` == `ProcessStandard`
@@ -177,12 +175,25 @@ TODO
       board? TODO
 
 - [ ] `src/processbuffer.rs`
+    - several panics in `copy_to_slice` implementations (if 
+      `self.len() != dest.len()`)
+    - why is this a panic and, say, not an error?
+    - seems to be used in `kernel/src/utilities/streaming_process_slice.rs` and
+      in capsules
+    - flux: try slice len preconditions TODO
 
 - [ ] `src/process.rs`
+    - defines `FaultAction` enum (explicitly says `Panic` variant is useful for
+      debugging apps)
 
 - [ ] `src/grant.rs`
+    - in `access_grant_with_allocator()`
+    - large comment that may help w some verification intuition, but again
+      relies on the caller to not call a function on some object more than one
+      time
 
 - [ ] `src/debug.rs`
+    - panic support routines
 
 - [ ] `src/scheduler/round_robin.rs`
     - unwraps some result
@@ -205,9 +216,104 @@ TODO
         - TODO how to compile a board _not_ in release mode?
             - debug mode/optimizations turned off
 
-
 what is `if !config::CONFIG.debug_panics {` ?
 
+
+`capsules` subdir
+
+- [ ] `core/src/process_console.rs`
+
+- [ ] `core/src/alarm.rs`
+
+- [ ] `core/src/adc.rs`
+
+- [ ] `core/src/virtualizers/virtual_aes_ccm.rs`
+
+- [ ] `core/src/virtualizers/virtual_i2c.rs`
+
+- [ ] `system/src/process_checker/basic.rs`
+
+- [ ] `extra/src/ieee802154/framer.rs`
+
+- [ ] `extra/src/net/ieee802154.rs`
+
+- [ ] `extra/src/net/sixlowpan/sixlowpan_compression.rs`
+
+- [ ] `extra/src/net/thread/driver.rs`
+
+- [ ] `extra/src/log.rs`
+
+- [ ] `extra/src/usb/ctap.rs`
+
+- [ ] `extra/src/led_matrix.rs`
+
+- [ ] `extra/src/st77xx.rs`
+
+- [ ] `extra/src/panic_button.rs`
+
+- [ ] `extra/src/sht4x.rs`
+
+- [ ] `extra/src/seven_segment.rs`
+
+- [ ] `extra/src/sht3x.rs`
+
+- [ ] `extra/src/bus.rs`
+
+
+`boards` subdir
+
+- [ ] `wm1110dev/src/main.rs`
+
+- [ ] `nano33ble/src/main.rs`
+
+- [ ] `makepython-nrf52840/src/main.rs`
+
+- [ ] `nano33ble_rev2/src/main.rs`
+
+- [ ] `microbit_v2/src/main.rs`
+
+- [ ] `clue_nrf52840/src/main.rs`
+
+- [ ] `opentitan/earlgrey-cw310/build.rs`
+    - actual
+
+- [ ] `nano_rp2040_connect/src/main.rs`
+    - actual
+
+- [ ] `components/src/spi.rs`
+    - actual
+
+- [ ] `components/src/bus.rs`
+    - actual
+
+- [ ] `build_scripts/src/default.rs`
+    - actual
+
+
+`arch` subdir
+
+- [ ] `rv32i/src/pmp.rs`
+
+- [ ] `cortex-m0/src/lib.rs`
+
+- [ ] `cortex-v7m/src/lib.rs`
+
+- [ ] `cortex-m/src/lib.rs`
+
+- [ ] `cortex-m/src/scb.rs`
+
+
+lots in `chips` subdir TODO
+
+
+`libraries` subdir
+
+- [ ] `tock-cells/src/map_cell.rs`
+
+- [ ] `tickv/src/async_ops.rs`
+
+
+lots in `tools` subdir TODO
 
 ### assembly -> source
 

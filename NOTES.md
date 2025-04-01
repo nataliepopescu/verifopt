@@ -44,6 +44,8 @@ unverified systems?
 
 ## Thoughts + Potential Project Directions
 
+### general: propagating lower-level verif facts up the compiler stack
+
 ### panics in tock (likely single-system paper)
 
 mae idea: verify wasm
@@ -173,6 +175,8 @@ no panics in tock compiled for qemu
 compiled tock for imix board
 - found panics
 - difficult to trace assembly panics back to particular lines of source code
+
+flux (so far) cannot verify MLFQ panic without adding in another panic (`assume()` call)
 
 ## Specs / Reproducability
 

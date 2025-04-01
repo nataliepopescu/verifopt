@@ -1,4 +1,4 @@
-# akash feedback
+# akash / mike feedback
 
 look into interval analysis in copmilers
 - how often / aggressively does this happen?
@@ -7,10 +7,13 @@ look into interval analysis in copmilers
 - how does it work?
 
 e-graphs / egg
-- mike (?) works on this (newar akash's office)
 - may help find a good optimization pass order?
 - what else to use for?
 - => reachability analysis, trims paths as it goes
+
+mike: e-graphs are generally used to find best opt pass order / or most
+optimized code
+- memorizes "internal" states of rewrite rules instead of throwing them away
 
 think about loops
 

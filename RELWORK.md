@@ -327,9 +327,56 @@ egg
 
 ## Using Static Analysis for Optimization
 
-[From Verification to Optimizations](https://link.springer.com/chapter/10.1007/978-3-662-46081-8_17)
+[From Verification to
+Optimizations](https://kedar-namjoshi.github.io/papers/Gjomemo-Namjoshi-Phung-Venkatakrishnan-Zuck-VMCAI-2015.pdf)
 - link external static analysis tools into compilers
-- propagate source-level info into optimization pipeline
+- *propagate source-level info into optimization pipeline*
+- VMCAI 2015
+- cited by:
+  https://scholar.google.com/scholar?cites=15323456212062700795&as_sdt=5,31&sciodt=0,31&hl=en
+  - likely most relevant: 
+    - [SecureDelivery of Program Properties through Optimizing
+      Compilation](https://dl.acm.org/doi/pdf/10.1145/3377555.3377897)
+    - [Leveraging Static Analysis Tools for Improving Usability of Memory Error
+      Sanitization
+      Compilers](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=7589812)
+
+- abstract
+  - *compiler static analysis limited by compilation time budgets*
+    - is this the main reason?
+  - instead, link external static analysis tools into compiler
+  - assertions from Frama-C source code analysis -> LLVM
+  - improve effectiveness of several optimizations
+
+- into
+  - 'the GCC wiki has as rule 1: ruleDo not add algorithms with quadratic or
+  worse behavior, ever."'
+  - 'While the
+  compile-time cost of employing additional tools may be high, it is often the
+  case that runtime improvements in optimization outweigh this additional cost,
+  for example, for large frequently used code such as kernels and name servers.'
+    - kind of undermines the initial argument if time budgets are the main
+      constraint (weakens that statement)
+  - make these features optional
+  - "modular approach, which decouples analysis from transformation"
+
+  - challenge
+    - propagating info known about source code to certain optimization stages
+      requires somehow transforming that info (i.e. through opt stages?)
+      - e.g. what if variables are renamed
+    - refinement "witnesses"
+    - proposal = "instrumenting the optimization to produce a refinement relation
+      as it transforms a program."
+      - check validity of generated relation via SMT
+      - valid relation = "witness" to correctness of opt
+  - common case seems to mainly rely on range (interval) analysis
+
+- eval
+  - Frama-C = abstract interpretation
+  - apparently tool injects assertions according to Frama-C range analysis
+    findings (4.3)
+    - what is the rewriting step?
+
 
 [Perceus: Garbage Free Reference Counting with Reuse](https://dl.acm.org/doi/pdf/10.1145/3453483.3454032)
 - from mae

@@ -177,9 +177,8 @@ TODO
 - [ ] `src/processbuffer.rs`
     - several panics in `copy_to_slice` implementations (if 
       `self.len() != dest.len()`)
-    - why is this a panic and, say, not an error?
-    - seems to be used in `kernel/src/utilities/streaming_process_slice.rs` and
-      in capsules
+    - why is this a panic and, say, not an error? -> panic is optional
+    - seems to be used in capsules
     - flux: try slice len preconditions TODO
 
 - [ ] `src/process.rs`
@@ -191,6 +190,8 @@ TODO
     - large comment that may help w some verification intuition, but again
       relies on the caller to not call a function on some object more than one
       time
+    - if we have some dynamic counter somewhere, can that ever be verified
+      statically?
 
 - [ ] `src/debug.rs`
     - panic support routines

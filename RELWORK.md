@@ -76,6 +76,16 @@ kind of do need mechanization to do verif
 - linter vs formal backing
 - [clippy?](https://rust-lang.github.io/rust-clippy/master/index.html#missing_panics_doc)
 
+## Rust Performance
+
+[Towards Understanding the Runtime Performance of
+Rust](https://dl.acm.org/doi/pdf/10.1145/3551349.3559494)
+- Rust has a ~1.77x perf overhead (vs C)
+- compiler-inserted runtime checks
+- if these checks are disabled, Rust performance becomes like C
+- good citation for why moving from dynamic -> static checking is good for
+  performance
+
 ## Verification Tools
 
 ### Rust Verification
@@ -300,6 +310,20 @@ Developers?](https://denaeford.me/papers/compiler-explanations-FSE-2018.pdf)
 
 [The Program Dependence Graph and Its Use in Optimization](https://www.cs.utexas.edu/~pingali/CS395T/2009fa/papers/ferrante87.pdf)
 - 1987
+
+egg
+- e-graphs
+  - data structure for storing equivalence relations over terms in languages
+  - dev'd in 1970s -> automated theorem provers
+  - *equality saturation* is a distinct technique that _uses_ e-graphs
+- project for building optimixers and synthesizers using e-graphs
+- "An e-graph compactly represents many equivalent programs... egg makes
+  e-graphs fast and flexible enough for use in program optimization and
+  synthesis."
+- [egg](https://egraphs-good.github.io/)
+- [egg github (rust)](https://github.com/egraphs-good/egg)
+- [docs.rs](https://docs.rs/egg/latest/egg/struct.EGraph.html)
+- [egg paper](https://dl.acm.org/doi/pdf/10.1145/3434304)
 
 ## Using Static Analysis for Optimization
 

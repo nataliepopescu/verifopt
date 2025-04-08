@@ -140,6 +140,42 @@ try [contracts](https://docs.rs/contracts/latest/contracts/) next
     - the current problem is that `idx` is not in the function signature/API, so
       it is hard to say anything about it in pre-/post-conditions
 
+### Simple Bounds Checks
+
+b/c cannot verify bounds checks without `assume`, 
+looking for places in tock where flux reports `assertion might fail: possible 
+out-of-bounds access`
+- `scheduler/mlfq.rs` ; `result()`
+  - uses `assume`
+- `deferred_call.rs` ; `service_next_pending()`
+  - flux-tock doesn't change this code directly, maybe some invariants elsewhere
+    make this possible? 
+  - TODO track!
+- `processbuffer.rs` ; `impl ProcessSliceIndex<ReadableProcessSlice> for usize`
+  => `index()` && `impl ProcessSliceIndex<WriteableProcessSlice> for usize` =>
+  `index()`
+  - former: `impl Index<usize> for ReadableProcessSlice`
+    - `#[flux_rs::trusted_impl]` TODO why need?
+    - `#[flux_rs::sig(fn(self: &ReadableProcessSlice[@len], idx: usize ) ->
+      &Self::Output requires len > idx)]`
+
+```rust
+#[repr(transparent)]
+#[flux_rs::refined_by(len: int)]
+pub struct ReadableProcessSlice {
+    #[field([ReadableProcessByte][len])]
+    slice: [ReadableProcessByte],
+}
+```
+
+
+  - latter: `impl Index<usize> for WriteableProcessSlice`
+    - `#[flux_rs::trusted_impl]` TODO why need?
+    - `#[flux_rs::sig(fn(self: &WriteableProcessSlice[@len], idx: usize) ->
+      &Self::Output requires len > idx)]`
+
+
+
 
 
 

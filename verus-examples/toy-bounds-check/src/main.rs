@@ -19,19 +19,26 @@ pub fn get_array_elems(array: &[i32; 5]) {
 pub fn get_slice_elems(slice: &[i32])
   requires
     slice.len() >= 5,
-    forall|n: nat| 0 <= n < slice.len() ==> n < 5,
 {
-  for i in 0..5 {
+  for i in 0..5
+    invariant
+      slice.len() >= 5,
+  {
     let elem = slice[i];
   }
 }
 
 fn main() {
   let array: [i32; 5] = [1, 2, 3, 4, 5];
-
   get_array_elems(&array);
 
-  get_slice_elems(&array);
+  // error: in exec code, the index operator is only supported for usize index
+  //    ...
+  //    expected usize, found core::ops::range::RangeFull
+  //let slice = &array[..];
+  let slice: &[i32] = &[1, 2, 3, 4, 5];
+
+  get_slice_elems(&slice);
 }
 
 } // verus!

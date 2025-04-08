@@ -7,8 +7,6 @@
 verifying `get_array_elems` just works, but `get_slice_elems` is more
 complicated
 
-general specificity/reality (from least to most): spec -> proof -> exec
-
 [vstd](https://verus-lang.github.io/verus/verusdoc/vstd/)
 
 when trying forall (`forall|n: nat| 0 <= n < slice.len() ==> n < 5,`) for 
@@ -26,7 +24,6 @@ intended use of forall though
 
 [Verus Quantifiers](https://verus-lang.github.io/verus/guide/quants.html)
 - example starts w more like _contents_ of a collection obey some invariant/fact
-
 
 [Spec Libraries](https://verus-lang.github.io/verus/guide/spec_lib.html)
 - Seq, Set, Map: collections of arbitrary size
@@ -50,8 +47,51 @@ intended use of forall though
     - "Verus erases all ghost code before compilation so that it imposes no
       run-time overhead."
 
+- all can contain/call SPEC
+- proof/exec can contain/call PROOF
+- exec can contain/call EXEC
 
+- more concrete can use more abstract, but not other way around
 
+- SPEC
+    - body is _optional_
+        - if no body, [uninterpreted
+          function](https://microsoft.github.io/z3guide/docs/logic/Uninterpreted-functions-and-constants/)
+    - if body, _can_ be visible to other (modules?)
+    - open / closed ~= public / private (implementation, not declaration)
+    - pure functional code style
+    - deterministic
+        - stronger assumptions about determinism (i.e. no side effects, I/O, RNG)
+    - pre-/post-conditions == `recommends`
+        - no `requires`/`ensures` => keep similar to
+          [Boogie](https://github.com/boogie-org/boogie) style
+        - i.e. keep spec lang close to SMT solver's mathematical language ->
+          better solving efficiency
+
+- PROOF
+    - use if have an abstract function definition only? (i.e. when spec ==
+      closed?)
+      - does this mean marking spec w open will remove the need for a proof?
+    - exec code can contain proof blocks (`proof { ... }`)
+
+    - may need PROOF to show that:
+        - calls to function satisfy preconditions (`requires` clause)
+            - may need a lil proof at each callsite for certain functions
+        - function satisfies postconditions (`ensures` clause)
+
+    - strengths / limitations of SMT solving
+        - i.e. SMT cannot prove by induction, "but you can write a proof by
+          induction simply by writing a recursive Rust function whose `ensures`
+          clause expresses the induction hypothesis"
+
+[Loops](https://verus-lang.github.io/verus/guide/while.html)
+- "In fact, internally, Verus verifies the loop as if it were its own function,
+  separate from the enclosing ... function."
+- "This means that the loop does not automatically inherit preconditions ...
+  from the surrounding function — if the loop relies on these preconditions,
+  they must be listed explicitly in the loop invariants"
+  => more efficient verification when larger loops
+- can opt-out! via `#[verifier::loop_isolation(false)]`
 
 
 

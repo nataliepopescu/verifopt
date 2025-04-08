@@ -1,11 +1,10 @@
 #![allow(dead_code)]
 
-/* Simplified MLFQ panic */
+/* array wrapper */
 
-//#[flux_rs::refined_by(array_len: int)]
-//#[flux_rs::invariant(array_len == 3)]
+#[flux_rs::refined_by()]
 struct ArrayWrapper {
-    //#[field({[i32; 3]})]
+    #[field([i32; 3])]
     array: [i32; 3],
 }
 
@@ -34,7 +33,62 @@ impl ArrayWrapper {
 
         for (idx, _) in self.array.iter().enumerate() {
             // FIXME how to verify without this helper? uses panic
-            flux_assume::assume(idx < 3);
+            //flux_assume::assume(idx < 3);
+            let rand = nums.choose(&mut rng).unwrap();
+            if *rand != 2 {
+                return idx;
+            }
+        }
+        0
+    }
+
+    fn next(&self) -> u32 {
+        let idx = self.get_idx();
+        let time = self.get_timeslice_us(idx);
+        time
+    }
+}
+
+/* slice wrapper */
+
+#[flux_rs::refined_by(len: int)]
+struct SliceWrapper {
+    #[field([i32][len])]
+    slice: [i32],
+}
+
+// error[E0277]: the size for values of type `[i32]` cannot be known at
+// compilation time
+// ...
+// note: the return type of a function must have a statically known size
+
+impl SliceWrapper {
+    fn new() -> Self {
+        let arr = [7, 8, 9];
+        Self {
+            slice: arr[..],
+        }
+    }
+
+    #[flux_rs::sig(fn(&SliceWrapper[@len], i:usize{i < 3}) -> u32{r: r > 0})]
+    fn get_timeslice_us(&self, idx: usize) -> u32 {
+        match idx {
+            0 => 10000,
+            1 => 20000,
+            2 => 50000,
+            _ => 0, //panic!("invalid idx"),
+        }
+    }
+
+    #[flux_rs::sig(fn(&SliceWrapper[@len]) -> usize{i: i < 3} requires len <= 3)]
+    fn get_idx(&self) -> usize {
+        use rand::prelude::IndexedRandom;
+        let mut rng = rand::rng();
+        let nums: Vec<i32> = (1..2).collect();
+
+        for (idx, _) in self.slice.iter().enumerate() {
+            // FIXME how to verify without this helper? uses panic
+            //flux_assume::assume(idx < 3);
             let rand = nums.choose(&mut rng).unwrap();
             if *rand != 2 {
                 return idx;
@@ -52,6 +106,7 @@ impl ArrayWrapper {
 
 /* array version */
 
+/*
 #[flux_rs::sig(fn(i:usize{i < 3}) -> u32{r: r > 0})]
 fn get_timeslice_us(idx: usize) -> u32 {
     match idx {
@@ -105,5 +160,6 @@ fn next() -> u32 {
     let time = get_timeslice_us(idx);
     time
 }
+*/
 
 

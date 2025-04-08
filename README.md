@@ -1,4 +1,4 @@
-# Verification for Optimization Project
+# Verification for Compiler Optimization Project
 
 Using verification / static analysis for optimizing code
 

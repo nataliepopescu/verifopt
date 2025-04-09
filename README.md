@@ -8,12 +8,12 @@ Using verification / static analysis for optimizing code
 simplified code to use flux on, mirroring the kinds of constructs we would like
 to verify in the real world
 
+[meetings](https://github.com/nataliepopescu/verifopt/tree/main/meetings): notes 
+from various meetings on verifopt / related things
+
 [verus-examples](https://github.com/nataliepopescu/verifopt/tree/main/verus-examples):
 simplified code to use verus on, mirroring the kinds of constructs we would like
 to verify in the real world
-
-[meetings](https://github.com/nataliepopescu/verifopt/tree/main/meetings): notes 
-from various meetings on verifopt / related things
 
 [NOTES.md](https://github.com/nataliepopescu/verifopt/blob/main/NOTES.md): general 
 project notes (high-level)

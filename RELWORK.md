@@ -325,6 +325,41 @@ egg
 - [docs.rs](https://docs.rs/egg/latest/egg/struct.EGraph.html)
 - [egg paper](https://dl.acm.org/doi/pdf/10.1145/3434304)
 
+### Stochastic Optimization
+
+[Stochastic Program
+Optimization](https://theory.stanford.edu/~aiken/publications/papers/cacm16.pdf)
+- CACM 2016
+- HPC
+- opt short, loop-free. fixed-point asm
+
+- intro
+    - comilers generally "Factoring the optimization problem
+    into a collection of small subproblems"
+    - "In many
+    cases, the best possible code can only be obtained through
+    the simultaneous consideration of mutually dependent
+    issues such as instruction selection, register allocation, and
+    target-dependent optimization."
+    - seemingly argues that lower-level information is crucial for better
+      optimizations
+      - VERIFOPT might argue that higher-level information is _also_ crucial for
+        better optimizations (dev intention)
+
+    - incomplete search
+        - correctness vs performance -> cost function (over all x64_86 loop-free
+          instr seqs)
+          - how long are these instr seqs? TODO
+        - solve cost minimization problem
+        - Markov Chain Monte Carlo (MCMC) sampler used to explore the cost
+          function
+
+[Stochastic
+Superoptimization](https://theory.stanford.edu/~aiken/publications/papers/asplos13.pdf)
+
+[Stochastic Optimization of Floating-Point Programs with Tunable
+Precision](https://theory.stanford.edu/~aiken/publications/papers/pldi14a.pdf)
+
 ## Using Static Analysis for Optimization
 
 [From Verification to

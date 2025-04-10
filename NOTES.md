@@ -46,6 +46,17 @@ unverified systems?
 
 ### general: propagating lower-level verif facts up the compiler stack
 
+how much of a perf gain can we get for even simple things?
+- vs using the already-existent static analysis powers of compilers (e.g.
+  interval analysis)
+
+how much does just throwing a verifier at code get you? (i.e. without developer
+effort to identify + verify something)
+
+TODOs
+- rust -> wasm effort
+- what sorts of things are hard to verify pre-compilation?
+
 ### panics in tock (likely single-system paper)
 
 mae idea: verify wasm

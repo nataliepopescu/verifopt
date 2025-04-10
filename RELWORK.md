@@ -311,6 +311,11 @@ Developers?](https://denaeford.me/papers/compiler-explanations-FSE-2018.pdf)
 [The Program Dependence Graph and Its Use in Optimization](https://www.cs.utexas.edu/~pingali/CS395T/2009fa/papers/ferrante87.pdf)
 - 1987
 
+[Equality
+Saturation](https://rosstate.org/publications/eqsat/eqsat_tate_popl09.pdf)
+- [video](https://rosstate.org/publications/eqsat/)
+- POPL 2009
+
 egg
 - e-graphs
   - data structure for storing equivalence relations over terms in languages
@@ -324,6 +329,7 @@ egg
 - [egg github (rust)](https://github.com/egraphs-good/egg)
 - [docs.rs](https://docs.rs/egg/latest/egg/struct.EGraph.html)
 - [egg paper](https://dl.acm.org/doi/pdf/10.1145/3434304)
+    - POPL 2021
 
 ### Stochastic Optimization
 
@@ -331,7 +337,7 @@ egg
 Optimization](https://theory.stanford.edu/~aiken/publications/papers/cacm16.pdf)
 - CACM 2016
 - HPC
-- opt short, loop-free. fixed-point asm
+- opt short, loop-free, fixed-point asm
 
 - intro
     - comilers generally "Factoring the optimization problem
@@ -347,12 +353,95 @@ Optimization](https://theory.stanford.edu/~aiken/publications/papers/cacm16.pdf)
         better optimizations (dev intention)
 
     - incomplete search
-        - correctness vs performance -> cost function (over all x64_86 loop-free
+        - correctness vs performance -> cost function (over all x86_64 loop-free
           instr seqs)
           - how long are these instr seqs? TODO
         - solve cost minimization problem
         - Markov Chain Monte Carlo (MCMC) sampler used to explore the cost
           function
+
+- relwork
+    - STOKE
+        - 400 x86_64 opcodes
+    - [Superoptimizer -- A Look at the Smallest
+      Program](https://dl.acm.org/doi/pdf/10.1145/36177.36194)
+      - enumerates code seqs of increasing length; chooses first w identical
+        behavior (according to _test cases_, not some other equivalence
+        measurement -- sketchy)
+      - massively restricts the set of enumerable opcodes to 10-15
+      - unlikely to scale to many more opcodes
+    - [Denali](https://courses.cs.washington.edu/courses/cse501/15sp/papers/joshi.pdf)
+      + [Equality
+      Saturation](https://rosstate.org/publications/eqsat/eqsat_tate_popl09.pdf)
+      - improved scalability; _only_ consider "equivalent" code seqs
+      - explore via seccussive application of equality preserving
+        transformations
+      - goal-directed (TODO what exactly does this mean? is it like "i want to
+        optimize this specific code chunk"?)
+      - con: rely heavily on expert knowledge
+        - TODO how / for what exactly?
+      - "...whether a set of expert rules could ever cover the set of all
+      possible interesting optimizations."
+    - [Peephole
+      Superoptimizer](https://www.usenix.org/legacy/event/osdi08/tech/full_papers/bansal/bansal.pdf)
+      - auto-enumerates 32-bit x86 optimizations
+      - stores in DB for later
+      - search happens ONCE offline + no expert knowledge
+      - sliding code window
+      - local optimizations have their limitations (miss higher-level props)
+    - [Sketching](https://people.csail.mit.edu/asolar/papers/asplos06-final.pdf)
+      + [Brahma](https://susmitjha.github.io/papers/pldi11.pdf)
+      - closely related problem: component-based sequence synthesis
+      - "operate on statements in
+      simplified bit-vector calculi rather than directly on hard-
+      ware instructions... internal representations used by these
+      systems preclude them from reasoning about the low-level
+      performance properties of the code that they produce."
+
+- cost minimization
+    - function = eq(rewrite, target) + perf(rewrite)
+        - each term seems to have some weights as well
+        - eq == 0 if same
+        - perf: lower == better
+    - optimization is any rewrite where perf is better and eq == 0
+    - search space is highly irregular (what does this mean?) and high
+      dimensional (why? b/c many variables?)
+    - MCMC sampling == general solution, tractable
+        - also used in [code
+          breaking](https://math.uchicago.edu/~shmuel/Network-course-readings/MCMCRev.pdf)
+    - MCMC sampling
+        - draw elems from probability distribution
+        - draw more from higher probability areas
+        - in cost minimization:
+            - most samples are taken from the minimum (optimal) values of the
+              func (theoretically / "in the limit")
+            - in practice, "functions as an intelligent hill climbing
+            method which is robust against irregular functions that are
+            dense with local minima."
+    - transform cost -> probability density function
+        - common approach
+            - iteratively finds new rewrites to apply
+                - unclear why a proposal may be rejected
+                - local acceptance criteria = "Metropolis–Hastings acceptance 
+                  probability"
+                - this is its own probability distribution
+                - "Empirically, the best results
+                are obtained for a distribution which makes both local pro-
+                posals that make minor modifications to R and global pro-
+                posals that induce major changes"
+                - if proposed rewrite is better, accept; if its worse, possibly
+                  accept (might be a local minima); if same, ...?
+            - until computational budget is exhausted
+                - what is an example of a computational budget?
+            - rewrite proposals must be *ergodic*
+                - can transform one code seq into another given some number of
+                  mods
+                - what is an example of a rewrite that is not ergodic?
+            - "in the limit" produces a "sequence of samples distributed in 
+              proportion to their cost"
+
+- cost minimzation for x86
+    - eq() impl: symbolic validator + binary indicator (0 or 1)
 
 [Stochastic
 Superoptimization](https://theory.stanford.edu/~aiken/publications/papers/asplos13.pdf)

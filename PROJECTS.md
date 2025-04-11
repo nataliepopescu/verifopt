@@ -6,28 +6,27 @@
 
     1a. Amit's C -> Rust grant proposal
 
-2. User verifies program -> feed this to the compiler 
-    - backwards propagate (up the call tree) @ requires
+2. User verifies program -> feed this to the compiler via ASSERT/ASSUME
+    - helpful method to get verification to go through: backwards propagate (up the call tree) of @requires
 
-    2a. feed to compiler via assumes / asserts
+    2a. feed to compiler in another way besides ASSERT/ASSUME?
 
-    2b. feed to compiler in another way?
-
-    2c. automatically generate properties to verify, that are then fed to the
+    2b. **automatically** generate properties to verify, that are then fed to the
     compiler
-        - fuzzing?
-        - synthesis?
-        - LLM?
-        - other?
+    - fuzzing?
+    - synthesis?
+    - LLM?
+    - other?
 
 3. Source verification + IR / low representation verification (upward invariant
 propagation)
 
     3a. Wasm verification
-        - no tool to verify Wasm code (maybe?) - TODO confirm
-        - tools to verify LLVM are gross + LLVM is gross
+    - no tool to verify Wasm code (maybe?) --> TODO confirm
+    - tools to verify LLVM are gross + LLVM is gross
 
-4. IR / low rep. verification
+4. WASM / IR / low rep. verification
+    - Mae had discussion at conference with WASM ppl which said this is in progress
 
 5. How often do developers misuse data structures?
 

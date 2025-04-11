@@ -3,12 +3,16 @@
 ## Options
 
 1. Specification inference -> data structure substitution
+
     1a. Amit's C -> Rust grant proposal
 
 2. User verifies program -> feed this to the compiler 
     - backwards propagate (up the call tree) @ requires
+
     2a. feed to compiler via assumes / asserts
+
     2b. feed to compiler in another way?
+
     2c. automatically generate properties to verify, that are then fed to the
     compiler
         - fuzzing?
@@ -18,6 +22,7 @@
 
 3. Source verification + IR / low representation verification (upward invariant
 propagation)
+
     3a. Wasm verification
         - no tool to verify Wasm code (maybe?) - TODO confirm
         - tools to verify LLVM are gross + LLVM is gross
@@ -40,6 +45,7 @@ themselves
     - interval analysis?
     - vtable compression?
     - other?
+
     8a. Why isn't interval analysis being used?
 
 9. Anti-patterns list (more of a result of one of these other projects)

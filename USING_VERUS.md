@@ -94,7 +94,20 @@ intended use of forall though
 - can opt-out! via `#[verifier::loop_isolation(false)]`
 
 
+i cannot figure out how to import a crate!!
+- multi-crate support is limited
+- https://verus-lang.zulipchat.com/#narrow/channel/399078-help/topic/.E2.9C.94.20Support.20for.20separate.20verification.20of.20multi-crate.20projects/near/467686900
+    - might only be able to import verified things? but im confused by the
+      following example from the verus docs...
+      - https://verus-lang.github.io/verus/guide/calling-unverified-from-verified.html#applying-specifications-to-existing-library-functions
 
+given these limitations, tock (and things like it) make even more sense to
+verify at the moment because theyre very unlikely to use third-party libraries
+and generally either depend on `core` or things they've written themselves
+
+MLFQ simplification could still be verifiable, but may need to statically decide
+an index which defeats the purpose
+- unless you want to write/verify your own rand lib....
 
 
 

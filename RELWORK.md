@@ -472,7 +472,7 @@ Optimizations](https://kedar-namjoshi.github.io/papers/Gjomemo-Namjoshi-Phung-Ve
   - assertions from Frama-C source code analysis -> LLVM
   - improve effectiveness of several optimizations
 
-- into
+- intro
   - 'the GCC wiki has as rule 1: ruleDo not add algorithms with quadratic or
   worse behavior, ever."'
   - 'While the
@@ -494,6 +494,134 @@ Optimizations](https://kedar-namjoshi.github.io/papers/Gjomemo-Namjoshi-Phung-Ve
       - check validity of generated relation via SMT
       - valid relation = "witness" to correctness of opt
   - common case seems to mainly rely on range (interval) analysis
+
+- approach by example
+  - Frama-C => value analysis (abstract-interp - based) => get domains of
+    integers
+    - the vibe is that the "verification" part is specific to integer value
+      resolution (explains why eval focuses on bounds checks / arithmetic
+      overflow checks)
+      - note, no loops (interval analysis)
+
+- external invariant usage in LLVM (methodology)
+  - refinement relations (optimization validity / target equality to source)
+    - target = optimization(source); opt == transformer
+    - correct optimization if every possible behavior of T is also in S
+    - is S is "transition deterministic" + S and T have identical initial
+      states, then S has no "extra" behavrios wrt T
+    - refinement: map T states in S states
+
+  - invariant propagation
+    - existence of refinement relation == witness to the correctness of an
+      optimization
+    - winess ALSO is a means for propagating invariants
+
+  - generating witnesses
+    - refinement is generally undecidable
+    - augment opt w witness generator -> pass candidate witnesses to refinement
+      checker
+      - TODO does this mean it is incomplete? what exactly now makes this a
+        decidable problem?
+        - expressed in a special logic?
+
+  - effective manipulation of witnesses
+    - " the invariants obtained from Frama-C are of the form ∧
+    v∈V lv ≤ v ≤ hv where the lv and hv are integer constants. The
+    transformations of of the form VT = E(VS ) where E is a simple arithmetic
+    expression over VS . "
+
+- system description
+
+  - LLVM background
+    - "By this, we decouple the need for updating the compiler
+    frequently as newer or improved program analysis algorithms become
+    available,
+    as our system is designed to obtain assertions from cutting-edge program
+    analy-
+    sis tools such as Frama-C"
+
+  - practical challenges
+
+    - source-IR mapping
+      - i.e. propagating invariants
+      - b/c SSA, every source var => several SSA versions
+        - invariants must also be bound to each SSA version
+        - TODO what exactly do we mean by an SSA version?
+          - a single variable name will expand into one of several SSA
+            assignments, each of these is a "version"
+
+        - [SSA
+          explanation](https://www.cs.cornell.edu/courses/cs6120/2022sp/lesson/6/)
+          - "The idea in SSA is to convert general programs into SSA form, do all
+            our optimization there, and then convert back to a standard mutating
+            form before we generate backend code."
+          - SSA solves the problem of variable name conflicts
+          - phi-functions/nodes
+            - flow-sensitive copy instrs; determine which version of a variable
+              name to use depending on control flow
+
+    - intermediate operations
+
+    - code transformation
+
+  - system architecture
+    - source code is annotated w invariants (from static analysis) + compiled
+      into LLVM IR
+    - IR processed by 2 new passes
+        - annotation mapping
+            - binds assertions to SSA versions
+        - annotation propagation
+            - combines assertions
+            - propagates them to related intermediate ops
+        - run before any other pass
+
+    - opts:
+        - array bounds check INSERTION
+            - TODO why is this an "optimization"?
+                - guess this was a typo; in fact removing the bounds checks
+        - integer overflow check REMOVAL
+            - written by the authors
+            - "safely remove run time checks inserted by
+            LLVM when it is invoked with the bounds-checking option"
+        - instruction combination
+            - modified pass
+            - comparison simplifications
+
+    - CIL-based rewriter
+        - assertions via input file
+        - written in subset of ACSL
+        - goal: support many program analysis tools -> assertions
+        - thus assertions are encoded as "dummy" strings (to be tool-agnostic)
+        - CIL rewriter: injects these assertions into the source code
+            - [CIL = C Intermediate
+              Language](https://scottmcpeak.com/papers/cil_cc02.pdf)
+
+    - Annotation Mapping
+        - uses debug info + loads
+
+    - Annotation Propagation
+
+  - optimizations
+
+    - bounds check REMOVAL
+      - "If, however, at compile time, it can be proved that an array access
+        will never
+        be out of bounds during execution, then the bounds checks on that access
+        can
+        be removed."
+      - modify Safecode -> consult metadata (index range + array size) 
+        - TODO but not assertions? or are the assertions/invariants now present
+          as "metadata"?
+
+    - overflow check REMOVAL
+      - "As shown in Fig. 5, these options transform every oper-
+      ation that may result in overow into a procedure call (L3)"
+      - pass " checks the possible value range of the result" removes overflow
+        checks if overflow is impossible
+
+    - instruction combination
+      - e.g. integer comparison instruction -> res in bool
+      - can fold comparison into true or false
 
 - eval
   - Frama-C = abstract interpretation

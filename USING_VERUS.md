@@ -109,7 +109,56 @@ MLFQ simplification could still be verifiable, but may need to statically decide
 an index which defeats the purpose
 - unless you want to write/verify your own rand lib....
 
+- a more dumb simplification of the for loop (using a counter and return when
+  its value reaches some hardcoded number) results in the following error from
+  verus
 
+```rust
+error[E0277]: the trait bound `std::iter::Enumerate<std::slice::Iter<'_, i32>>: vstd::pervasive::ForLoopGhostIteratorNew` is not satisfied
+  --> src/lib.rs:35:9
+   |
+35 | /         for (idx, _) in self.array.iter().enumerate() {
+36 | |             //let rand = nums.choose(&mut rng).unwrap();
+37 | |             //if *rand != 2 {
+38 | |             //    return idx;
+...  |
+43 | |             }
+44 | |         }
+   | |_________^ the trait `vstd::pervasive::ForLoopGhostIteratorNew` is not implemented for `std::iter::Enumerate<std::slice::Iter<'_, 
+i32>>`
+   = help: the following other types implement trait `vstd::pervasive::ForLoopGhostIteratorNew`:
+             std::collections::hash_map::Keys<'a, Key, Value>
+             std::collections::hash_set::Iter<'a, Key>
+             std::collections::vec_deque::Iter<'a, T>
+             std::ops::Range<A>
+```
+
+- thankfully it does suggest a couple other data structures that implement the
+  `vstd::pervasive::ForLoopGhostIteratorNew1 trait
+  - unfortunately, this would require modifying the original code as well
+  - specifically, modifying the processes data structure which is a STATICALLY
+    SIZED ARRAY into something with a dynamic size..... which defeats the
+    purpose, UNLESS the dynamic size can still be statically verified..?
+    - what verification condition would we even want to write, actually?
+
+
+this feels VERY automatable:
+
+```rust
+fn special_inc(val: u8) -> (r: u8)
+  requires
+    val + 1 < 256,
+  ensures
+    r == val + 1,
+{
+    val + 1
+}
+```
+
+- the requires can use the type information to infer the bounds of what we'd
+  need the input to be
+- the ensures (and the LHS of the requires inequality) is essentially the body
+  of the function...
 
 
 

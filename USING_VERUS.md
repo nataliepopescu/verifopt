@@ -160,8 +160,26 @@ fn special_inc(val: u8) -> (r: u8)
 - the ensures (and the LHS of the requires inequality) is essentially the body
   of the function...
 
+also, `cargo-verus` doesn't work when `Cargo.toml` lists `vstd` as a dep as: 
 
+```rust
+vstd = "0.0.0"
+```
 
+but it _does_ work when `vstd` is listed as: 
+
+```rust
+vstd = { git = "https://github.com/verus-lang/verus.git", rev="a53f39271666ac7dc9f455b6267da4c49a5f75c6" }
+```
+
+`a53f39271666ac7dc9f455b6267da4c49a5f75c6` is a commit hash from Fri, March 29.
+lets update to `bc899203ffc4fb5ab7d46aa7097c4ba00172ba52`, which is from Wed,
+April 15. 
+- just kidding, `vstd` doesn't yet compile correclty under this commit.
+  reverting back
+
+wow, `cargo-verus` allows you to import deps without a problem now... can revert
+mlfq-panic implementation to one that more closely matches flux
 
 
 

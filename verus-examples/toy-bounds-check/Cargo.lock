@@ -3,14 +3,107 @@
 version = 4
 
 [[package]]
-name = "base64"
-version = "0.22.1"
+name = "builtin"
+version = "0.1.0"
+source = "git+https://github.com/verus-lang/verus.git?rev=a53f39271666ac7dc9f455b6267da4c49a5f75c6#a53f39271666ac7dc9f455b6267da4c49a5f75c6"
+
+[[package]]
+name = "builtin_macros"
+version = "0.1.0"
+source = "git+https://github.com/verus-lang/verus.git?rev=a53f39271666ac7dc9f455b6267da4c49a5f75c6#a53f39271666ac7dc9f455b6267da4c49a5f75c6"
+dependencies = [
+ "prettyplease_verus",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "syn_verus",
+ "synstructure",
+]
+
+[[package]]
+name = "prettyplease_verus"
+version = "0.1.15"
+source = "git+https://github.com/verus-lang/verus.git?rev=a53f39271666ac7dc9f455b6267da4c49a5f75c6#a53f39271666ac7dc9f455b6267da4c49a5f75c6"
+dependencies = [
+ "proc-macro2",
+ "syn_verus",
+]
+
+[[package]]
+name = "proc-macro2"
+version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
+name = "quote"
+version = "1.0.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1885c039570dc00dcb4ff087a89e185fd56bae234ddc7f056a945bf36467248d"
+dependencies = [
+ "proc-macro2",
+]
+
+[[package]]
+name = "syn"
+version = "1.0.109"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "syn_verus"
+version = "1.0.95"
+source = "git+https://github.com/verus-lang/verus.git?rev=a53f39271666ac7dc9f455b6267da4c49a5f75c6#a53f39271666ac7dc9f455b6267da4c49a5f75c6"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
+name = "synstructure"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f36bdaa60a83aca3921b5259d5400cbf5e90fc51931376a9bd4a0eb79aa7210f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "unicode-xid",
+]
 
 [[package]]
 name = "toy-bounds-check"
 version = "0.1.0"
 dependencies = [
- "base64",
+ "vstd",
+]
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
+
+[[package]]
+name = "unicode-xid"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "vstd"
+version = "0.1.0"
+source = "git+https://github.com/verus-lang/verus.git?rev=a53f39271666ac7dc9f455b6267da4c49a5f75c6#a53f39271666ac7dc9f455b6267da4c49a5f75c6"
+dependencies = [
+ "builtin",
+ "builtin_macros",
 ]

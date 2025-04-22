@@ -19,3 +19,7 @@ compile-time `assert` is possible
 - mess around w loop
   - invariants might not be getting generated internally
   - apparently this is hardcoded in flux
+
+https://github.com/flux-rs/flux/blob/main/tests/tests/todo/shr.rs
+
+https://flux-rs.github.io/flux/blog/03-vectors.html

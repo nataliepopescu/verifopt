@@ -11,6 +11,10 @@ to verify in the real world
 [meetings](https://github.com/nataliepopescu/verifopt/tree/main/meetings): notes 
 from various meetings on verifopt / related things
 
+[simple-interp](https://github.com/nataliepopescu/verifopt/tree/main/simple-interp): 
+simple interpreter for starting to think about what info we need to collect
+during compilation for vtable optimization
+
 [verus-examples](https://github.com/nataliepopescu/verifopt/tree/main/verus-examples):
 simplified code to use verus on, mirroring the kinds of constructs we would like
 to verify in the real world
@@ -24,6 +28,9 @@ about attempts to identify the compiled panics in tock
 [PERF_ENG.md](https://github.com/nataliepopescu/verifopt/blob/main/PERF_ENG.md): 
 notes on some performance engineering tips/tricks, possible things to try to
 optimize automatically
+
+[PROJECTS.md](https://github.com/nataliepopescu/verifopt/blob/main/PROJECTS.md): 
+list of potential project directions in this area
 
 [RELWORK.md](https://github.com/nataliepopescu/verifopt/blob/main/RELWORK.md): 
 related work notes

@@ -15,14 +15,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "flux-assume"
-version = "0.1.0"
-dependencies = [
- "flux-rs",
- "rand",
-]
-
-[[package]]
 name = "flux-attrs"
 version = "0.1.0"
 source = "git+https://github.com/flux-rs/flux.git#ae08932919667e243059e26f37c54b8ee7b6a9c8"
@@ -46,6 +38,14 @@ version = "0.1.0"
 source = "git+https://github.com/flux-rs/flux.git#ae08932919667e243059e26f37c54b8ee7b6a9c8"
 dependencies = [
  "flux-attrs",
+]
+
+[[package]]
+name = "flux-support"
+version = "0.1.0"
+dependencies = [
+ "flux-rs",
+ "rand",
 ]
 
 [[package]]

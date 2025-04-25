@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "flux-attrs"
 version = "0.1.0"
-source = "git+https://github.com/flux-rs/flux.git#db977690c9dd74a00c7b3152448cac120dbfba73"
+source = "git+https://github.com/flux-rs/flux.git#af9c36f8246fa907533d960a40a03188291c016e"
 dependencies = [
  "flux-attrs-impl",
 ]
@@ -13,7 +13,7 @@ dependencies = [
 [[package]]
 name = "flux-attrs-impl"
 version = "0.1.0"
-source = "git+https://github.com/flux-rs/flux.git#db977690c9dd74a00c7b3152448cac120dbfba73"
+source = "git+https://github.com/flux-rs/flux.git#af9c36f8246fa907533d960a40a03188291c016e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -23,16 +23,16 @@ dependencies = [
 [[package]]
 name = "flux-rs"
 version = "0.1.0"
-source = "git+https://github.com/flux-rs/flux.git#db977690c9dd74a00c7b3152448cac120dbfba73"
+source = "git+https://github.com/flux-rs/flux.git#af9c36f8246fa907533d960a40a03188291c016e"
 dependencies = [
  "flux-attrs",
 ]
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.94"
+version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a31971752e70b8b2686d7e46ec17fb38dad4051d94024c88df49b667caea9c84"
+checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
 ]
@@ -62,14 +62,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "toy-bounds-check"
-version = "0.1.0"
-dependencies = [
- "flux-rs",
- "rvec",
 ]
 
 [[package]]

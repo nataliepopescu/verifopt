@@ -1,5 +1,8 @@
 /* From flux_support */
 
+#[flux_rs::sig(fn(b: bool[true]))]
+pub fn assert(_: bool) {}
+
 #[flux_rs::sig(fn(b:bool) ensures b)]
 pub const fn assume(b: bool) {
     if !b {

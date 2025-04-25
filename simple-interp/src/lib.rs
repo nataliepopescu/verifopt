@@ -123,4 +123,21 @@ mod tests {
         let res = interp.interp(stmt);
         assert_eq!(res, Err(Error::UndefinedVariable("y")));
     }
+
+    #[test]
+    fn test_nested_seq() {
+        let interp = Interpreter::new();
+        let stmt = Statement::Sequence(
+            Box::new(Statement::Sequence(
+                Box::new(Statement::Assignment("x", 5)),
+                Box::new(Statement::Print("x")),
+            )),
+            Box::new(Statement::Sequence(
+                Box::new(Statement::Assignment("y", 6)),
+                Box::new(Statement::Print("y")),
+            )),
+        );
+        let res = interp.interp(stmt);
+        assert_eq!(res, Ok(()));
+    }
 }

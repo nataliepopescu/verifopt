@@ -57,3 +57,4 @@ and verifiable while maintaining performance
 
 ## Priority Queue
 
+8 -> 6/2 -> 1

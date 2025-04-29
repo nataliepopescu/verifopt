@@ -15,7 +15,7 @@ pub enum Statement {
 // intentionally skipping And, Xor, and GreaterThan for simplicity
 pub enum BooleanStatement {
     Literal(bool),
-    //Not(Box<BooleanStatement>),
+    Not(Box<BooleanStatement>),
     //Or(Box<BooleanStatement>),
     //Equals(Box<BooleanStatement>, Box<BooleanStatement>),
 }
@@ -27,6 +27,20 @@ pub enum PossibleBooleanValues {
     True(),
     False(),
     TrueOrFalse(),
+}
+
+impl Not for PossibleBooleanValues {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            PossibleBooleanValues::True() => PossibleBooleanValues::False(),
+            PossibleBooleanValues::False() => PossibleBooleanValues::True(),
+            PossibleBooleanValues::TrueOrFalse() => {
+                PossibleBooleanValues::TrueOrFalse()
+            }
+        }
+    }
 }
 
 impl Not for &PossibleBooleanValues {
@@ -47,8 +61,8 @@ impl Not for &PossibleBooleanValues {
 pub enum Error {
     #[error("Variable {0} is undefined.")]
     UndefinedVariable(&'static str),
-    #[error("Boolean interpretation failed")]
-    BooleanInterpFailed(),
+    //#[error("Boolean interpretation failed")]
+    //BooleanInterpFailed(),
 }
 
 /// Define interpreter state
@@ -120,18 +134,22 @@ impl Interpreter {
     pub fn interp_bool(
         &self,
         b_stmt: BooleanStatement,
-    ) -> Result<PossibleBooleanValues, Error> {
+    ) -> PossibleBooleanValues {
         // TODO when to return TrueOrFalse?
-        // TODO when to return Err, if at all?
         match b_stmt {
             BooleanStatement::Literal(b) => {
                 if b {
-                    return Ok(PossibleBooleanValues::True());
+                    return PossibleBooleanValues::True();
                 } else {
-                    return Ok(PossibleBooleanValues::False());
+                    return PossibleBooleanValues::False();
                 }
             }
+            BooleanStatement::Not(inner_b_stmt) => self.interp_not(*inner_b_stmt),
         }
+    }
+
+    pub fn interp_not(&self, b_stmt: BooleanStatement) -> PossibleBooleanValues {
+        !self.interp_bool(b_stmt)
     }
 
     pub fn interp_conditional(
@@ -141,17 +159,14 @@ impl Interpreter {
         else_branch: Statement,
     ) -> Result<(), Error> {
         let b_res = self.interp_bool(condition);
-        if b_res.is_err() {
-            return Err(Error::BooleanInterpFailed());
-        }
 
-        if self.possible(b_res.as_ref().unwrap()) {
+        if self.possible(&b_res) {
             let if_res = self.interp(if_branch);
             if if_res.is_err() {
                 return if_res;
             }
         }
-        if self.possible(!b_res.as_ref().unwrap()) {
+        if self.possible(!&b_res) {
             let else_res = self.interp(else_branch);
             if else_res.is_err() {
                 return else_res;
@@ -187,6 +202,7 @@ mod tests {
         let stmt = Statement::Assignment("x", 5);
         let res = interp.interp(stmt);
         assert_eq!(res, Ok(()));
+        assert_eq!(interp.mem.borrow().get("x"), Some(&5));
     }
 
     #[test]
@@ -198,6 +214,7 @@ mod tests {
         );
         let res = interp.interp(stmt);
         assert_eq!(res, Ok(()));
+        assert_eq!(interp.mem.borrow().get("x"), Some(&5));
     }
 
     #[test]
@@ -209,6 +226,7 @@ mod tests {
         );
         let res = interp.interp(stmt);
         assert_eq!(res.err(), Some(Error::UndefinedVariable("y")));
+        assert_eq!(interp.mem.borrow().get("x"), Some(&5));
     }
 
     #[test]
@@ -226,6 +244,8 @@ mod tests {
         );
         let res = interp.interp(stmt);
         assert_eq!(res, Ok(()));
+        assert_eq!(interp.mem.borrow().get("x"), Some(&5));
+        assert_eq!(interp.mem.borrow().get("y"), Some(&6));
     }
 
     #[test]
@@ -250,6 +270,24 @@ mod tests {
         let stmt = Statement::Sequence(
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::Literal(false)),
+                Box::new(Statement::Assignment("x", 5)),
+                Box::new(Statement::Assignment("x", 6)),
+            )),
+            Box::new(Statement::Print("x")),
+        );
+        let res = interp.interp(stmt);
+        assert_eq!(res, Ok(()));
+        assert_eq!(interp.mem.borrow().get("x"), Some(&6));
+    }
+
+    #[test]
+    fn test_conditional_not() {
+        let interp = Interpreter::new();
+        let stmt = Statement::Sequence(
+            Box::new(Statement::Conditional(
+                Box::new(BooleanStatement::Not(
+                    Box::new(BooleanStatement::Literal(true))
+                )),
                 Box::new(Statement::Assignment("x", 5)),
                 Box::new(Statement::Assignment("x", 6)),
             )),

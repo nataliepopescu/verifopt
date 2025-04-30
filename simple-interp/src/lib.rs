@@ -8,7 +8,6 @@ use thiserror::Error;
 pub enum Statement {
     Sequence(Vec<Box<Statement>>),
     Assignment(&'static str, Value),
-    Var(&'static str),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
 }
@@ -16,6 +15,7 @@ pub enum Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Num(i32),
+    Var(&'static str),
     // functions
     // bools?
 }
@@ -102,13 +102,12 @@ impl Interpreter {
         &self,
         mem: State,
         stmt: Statement,
-    ) -> Result<(State, Option<Value>), Error> {
+    ) -> Result<State, Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => self.interp_seq(mem, stmt_vec),
             Statement::Assignment(var, value) => {
                 self.interp_assignment(mem, var, value)
             }
-            Statement::Var(var) => self.interp_var(mem, var),
             Statement::Print(var) => self.interp_print(mem, var),
             Statement::Conditional(condition, if_branch, else_branch) => self
                 .interp_conditional(mem, *condition, *if_branch, *else_branch),
@@ -119,16 +118,16 @@ impl Interpreter {
         &self,
         mem: State,
         stmt_vec: Vec<Box<Statement>>,
-    ) -> Result<(State, Option<Value>), Error> {
+    ) -> Result<State, Error> {
         let mut cur_mem = mem;
         for stmt in stmt_vec.iter() {
             let res = self.interp(cur_mem, *stmt.clone());
             if res.is_err() {
                 return res;
             }
-            cur_mem = res.unwrap().0;
+            cur_mem = res.unwrap();
         }
-        Ok((cur_mem, None))
+        Ok(cur_mem)
     }
 
     pub fn interp_assignment(
@@ -136,32 +135,31 @@ impl Interpreter {
         mem: State,
         var: &'static str,
         value: Value,
-    ) -> Result<(State, Option<Value>), Error> {
+    ) -> Result<State, Error> {
         let mut new_mem = mem.clone();
-        let _ = new_mem.inner.insert(var, value);
-        Ok((new_mem, None))
-    }
-
-    pub fn interp_var(
-        &self,
-        mem: State,
-        var: &'static str,
-    ) -> Result<(State, Option<Value>), Error> {
-        match mem.inner.clone().get(var) {
-            Some(val) => return Ok((mem, Some(val.clone()))),
-            None => return Err(Error::UndefinedVariable(var)),
+        match value {
+            Value::Num(_) => {
+                new_mem.inner.insert(var, value);
+            },
+            Value::Var(varname) => {
+                match new_mem.inner.get(varname) {
+                    Some(val) => new_mem.inner.insert(var, val.clone()),
+                    None => return Err(Error::UndefinedVariable(var)),
+                };
+            },
         }
+        Ok(new_mem)
     }
 
     pub fn interp_print(
         &self,
         mem: State,
         var: &'static str,
-    ) -> Result<(State, Option<Value>), Error> {
+    ) -> Result<State, Error> {
         match mem.inner.get(var) {
             Some(val) => {
                 println!("{:#?}", val);
-                Ok((mem, None))
+                Ok(mem)
             }
             None => return Err(Error::UndefinedVariable(var)),
         }
@@ -202,7 +200,7 @@ impl Interpreter {
         condition: BooleanStatement,
         if_branch: Statement,
         else_branch: Statement,
-    ) -> Result<(State, Option<Value>), Error> {
+    ) -> Result<State, Error> {
         let (base_mem, b_res) = self.interp_bool(mem.clone(), condition);
         println!("base_mem: {:?}", &base_mem);
 
@@ -225,7 +223,7 @@ impl Interpreter {
         }
         // returning mem, not base_mem, because considering the
         // if clause as a new scope
-        Ok((mem, None))
+        Ok(mem)
     }
 
     pub fn possible(
@@ -259,7 +257,7 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Statement::Assignment("x", Value::Num(5));
         let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.unwrap().0.inner.get("x"), Some(&Value::Num(5)));
+        assert_eq!(res.unwrap().inner.get("x"), Some(&Value::Num(5)));
     }
 
     #[test]
@@ -271,7 +269,7 @@ mod tests {
         ];
         let stmt = Statement::Sequence(stmt_vec);
         let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.unwrap().0.inner.get("x"), Some(&Value::Num(5)));
+        assert_eq!(res.unwrap().inner.get("x"), Some(&Value::Num(5)));
     }
     #[test]
     fn test_seq_assign() {
@@ -282,8 +280,8 @@ mod tests {
         ];
         let stmt = Statement::Sequence(stmt_vec);
         let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.as_ref().unwrap().0.inner.get("x"), Some(&Value::Num(5)));
-        assert_eq!(res.as_ref().unwrap().0.inner.get("y"), Some(&Value::Num(6)));
+        assert_eq!(res.as_ref().unwrap().inner.get("x"), Some(&Value::Num(5)));
+        assert_eq!(res.as_ref().unwrap().inner.get("y"), Some(&Value::Num(6)));
     }
 
     #[test]
@@ -312,14 +310,16 @@ mod tests {
             ])),
         ]);
         let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.as_ref().unwrap().0.inner.get("x"), Some(&Value::Num(5)));
-        assert_eq!(res.as_ref().unwrap().0.inner.get("y"), Some(&Value::Num(6)));
+        assert_eq!(res.as_ref().unwrap().inner.get("x"), Some(&Value::Num(5)));
+        assert_eq!(res.as_ref().unwrap().inner.get("y"), Some(&Value::Num(6)));
     }
 
     #[test]
     fn test_var_undef() {
         let interp = Interpreter::new();
-        let stmt = Statement::Var("x");
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::Assignment("x", Value::Var("y"))),
+        ]);
         let res = interp.interp(State::new(), stmt);
         assert_eq!(res.err(), Some(Error::UndefinedVariable("x")));
     }
@@ -329,10 +329,11 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", Value::Num(5))),
-            Box::new(Statement::Var("x")),
+            Box::new(Statement::Assignment("y", Value::Var("x"))),
         ]);
         let res = interp.interp(State::new(), stmt);
         assert!(res.is_ok());
+        assert_eq!(res.as_ref().unwrap().inner.get("x"), res.as_ref().unwrap().inner.get("y"));
     }
 
     #[test]

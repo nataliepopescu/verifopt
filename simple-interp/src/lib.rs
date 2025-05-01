@@ -4,12 +4,14 @@ use thiserror::Error;
 
 /// Define CFG
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Sequence(Vec<Box<Statement>>),
     Assignment(&'static str, RVal),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
+    // no args or retvals for now
+    FuncDef(&'static str, Box<Statement>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,8 +23,7 @@ pub enum RVal {
 #[derive(Debug, Clone, PartialEq)]
 pub enum StoreVal {
     Num(i32),
-    // functions
-    // bools?
+    FuncPtr(Box<Statement>),
 }
 
 impl From<RVal> for StoreVal {
@@ -35,7 +36,7 @@ impl From<RVal> for StoreVal {
 }
 
 // intentionally skipping Or, And, Xor, Equals, and GreaterThan for simplicity
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BooleanStatement {
     Literal(bool),
     Not(Box<BooleanStatement>),
@@ -117,6 +118,9 @@ impl Interpreter {
             Statement::Print(var) => self.interp_print(mem, var),
             Statement::Conditional(condition, if_branch, else_branch) => self
                 .interp_conditional(mem, *condition, *if_branch, *else_branch),
+            Statement::FuncDef(name, body) => {
+                self.interp_funcdef(mem, name, body)
+            }
         }
     }
 
@@ -232,6 +236,16 @@ impl Interpreter {
         Ok(mem)
     }
 
+    pub fn interp_funcdef(
+        &self,
+        mem: Store,
+        name: &'static str,
+        body: Box<Statement>,
+    ) -> Result<Store, Error> {
+        let mut new_mem = mem.clone();
+        new_mem.inner.insert(name, StoreVal::FuncPtr(body));
+        Ok(new_mem)
+    }
     pub fn possible(
         &self,
         _mem: &Store,
@@ -494,5 +508,20 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
         // FIXME want x == 5
+    }
+
+    #[test]
+    fn test_funcdef() {
+        let interp = Interpreter::new();
+        let stmt = Statement::FuncDef(
+            "foo",
+            Box::new(Statement::Assignment(
+                "x",
+                RVal::Num(5),
+            ))
+        );
+        let res = interp.interp(Store::new(), stmt);
+        assert!(res.is_ok());
+        assert!(res.unwrap().inner.get("foo").is_some());
     }
 }

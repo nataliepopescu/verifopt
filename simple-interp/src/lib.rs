@@ -15,16 +15,23 @@ pub enum Statement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum RVal {
     Var(&'static str),
-    // this is gross and ugly (see tests)
-    StoreVal(StoreVal),
+    Num(i32),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StoreVal {
     Num(i32),
-    //Var(&'static str),
     // functions
     // bools?
+}
+
+impl From<RVal> for StoreVal {
+    fn from(item: RVal) -> Self {
+        match item {
+            RVal::Num(num) => StoreVal::Num(num),
+            RVal::Var(_) => panic!("cannot turn var name into StoreVal"),
+        }
+    }
 }
 
 // intentionally skipping Or, And, Xor, Equals, and GreaterThan for simplicity
@@ -137,10 +144,8 @@ impl Interpreter {
     ) -> Result<Store, Error> {
         let mut new_mem = mem.clone();
         match value {
-            RVal::StoreVal(storeval) => match storeval {
-                StoreVal::Num(_) => {
-                    new_mem.inner.insert(var, storeval);
-                }
+            RVal::Num(_) => {
+                new_mem.inner.insert(var, value.into());
             },
             RVal::Var(varname) => {
                 match new_mem.inner.get(varname) {
@@ -256,7 +261,7 @@ mod tests {
     #[test]
     fn test_assignment() {
         let interp = Interpreter::new();
-        let stmt = Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)));
+        let stmt = Statement::Assignment("x", RVal::Num(5));
         let res = interp.interp(Store::new(), stmt);
         assert_eq!(res.unwrap().inner.get("x"), Some(&StoreVal::Num(5)));
     }
@@ -267,7 +272,7 @@ mod tests {
         let stmt_vec = vec![
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(5)),
+                RVal::Num(5),
             )),
             Box::new(Statement::Print("x")),
         ];
@@ -281,11 +286,11 @@ mod tests {
         let stmt_vec = vec![
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(5)),
+                RVal::Num(5),
             )),
             Box::new(Statement::Assignment(
                 "y",
-                RVal::StoreVal(StoreVal::Num(6)),
+                RVal::Num(6),
             )),
         ];
         let stmt = Statement::Sequence(stmt_vec);
@@ -306,7 +311,7 @@ mod tests {
         let stmt_vec = vec![
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(5)),
+                RVal::Num(5),
             )),
             Box::new(Statement::Print("y")),
         ];
@@ -322,14 +327,14 @@ mod tests {
             Box::new(Statement::Sequence(vec![
                 Box::new(Statement::Assignment(
                     "x",
-                    RVal::StoreVal(StoreVal::Num(5)),
+                    RVal::Num(5),
                 )),
                 Box::new(Statement::Print("x")),
             ])),
             Box::new(Statement::Sequence(vec![
                 Box::new(Statement::Assignment(
                     "y",
-                    RVal::StoreVal(StoreVal::Num(6)),
+                    RVal::Num(6),
                 )),
                 Box::new(Statement::Print("y")),
             ])),
@@ -362,7 +367,7 @@ mod tests {
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(5)),
+                RVal::Num(5),
             )),
             Box::new(Statement::Assignment("y", RVal::Var("x"))),
         ]);
@@ -381,11 +386,11 @@ mod tests {
             Box::new(BooleanStatement::Literal(true)),
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(5)),
+                RVal::Num(5),
             )),
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(6)),
+                RVal::Num(6),
             )),
         );
         let res = interp.interp(Store::new(), stmt);
@@ -400,11 +405,11 @@ mod tests {
             Box::new(BooleanStatement::Literal(false)),
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(5)),
+                RVal::Num(5),
             )),
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(6)),
+                RVal::Num(6),
             )),
         );
         let res = interp.interp(Store::new(), stmt);
@@ -421,11 +426,11 @@ mod tests {
             ))),
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(5)),
+                RVal::Num(5),
             )),
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(6)),
+                RVal::Num(6),
             )),
         );
         let res = interp.interp(Store::new(), stmt);
@@ -442,22 +447,22 @@ mod tests {
                 Box::new(BooleanStatement::Literal(true)),
                 Box::new(Statement::Assignment(
                     "x",
-                    RVal::StoreVal(StoreVal::Num(5)),
+                    RVal::Num(5),
                 )),
                 Box::new(Statement::Assignment(
                     "x",
-                    RVal::StoreVal(StoreVal::Num(6)),
+                    RVal::Num(6),
                 )),
             )),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::Literal(true)),
                 Box::new(Statement::Assignment(
                     "x",
-                    RVal::StoreVal(StoreVal::Num(7)),
+                    RVal::Num(7),
                 )),
                 Box::new(Statement::Assignment(
                     "x",
-                    RVal::StoreVal(StoreVal::Num(8)),
+                    RVal::Num(8),
                 )),
             )),
         );
@@ -472,17 +477,17 @@ mod tests {
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment(
                 "x",
-                RVal::StoreVal(StoreVal::Num(3)),
+                RVal::Num(3),
             )),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::Literal(true)),
                 Box::new(Statement::Assignment(
                     "x",
-                    RVal::StoreVal(StoreVal::Num(5)),
+                    RVal::Num(5),
                 )),
                 Box::new(Statement::Assignment(
                     "x",
-                    RVal::StoreVal(StoreVal::Num(6)),
+                    RVal::Num(6),
                 )),
             )),
         ]);

@@ -7,15 +7,22 @@ use thiserror::Error;
 #[derive(Debug, Clone)]
 pub enum Statement {
     Sequence(Vec<Box<Statement>>),
-    Assignment(&'static str, Value),
+    Assignment(&'static str, RVal),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Value {
-    Num(i32),
+pub enum RVal {
     Var(&'static str),
+    // this is gross and ugly (see tests)
+    StoreVal(StoreVal),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StoreVal {
+    Num(i32),
+    //Var(&'static str),
     // functions
     // bools?
 }
@@ -31,36 +38,36 @@ pub enum BooleanStatement {
 
 // FIXME better way to do this?
 #[derive(Debug)]
-pub enum PossibleBooleanValues {
+pub enum PossibleBoolVals {
     True(),
     False(),
     // rename -> Unknown() or Either() ?
     TrueOrFalse(),
 }
 
-impl Not for PossibleBooleanValues {
+impl Not for PossibleBoolVals {
     type Output = Self;
 
     fn not(self) -> Self::Output {
         match self {
-            PossibleBooleanValues::True() => PossibleBooleanValues::False(),
-            PossibleBooleanValues::False() => PossibleBooleanValues::True(),
-            PossibleBooleanValues::TrueOrFalse() => {
-                PossibleBooleanValues::TrueOrFalse()
+            PossibleBoolVals::True() => PossibleBoolVals::False(),
+            PossibleBoolVals::False() => PossibleBoolVals::True(),
+            PossibleBoolVals::TrueOrFalse() => {
+                PossibleBoolVals::TrueOrFalse()
             }
         }
     }
 }
 
-impl Not for &PossibleBooleanValues {
+impl Not for &PossibleBoolVals {
     type Output = Self;
 
     fn not(self) -> Self::Output {
         match self {
-            PossibleBooleanValues::True() => &PossibleBooleanValues::False(),
-            PossibleBooleanValues::False() => &PossibleBooleanValues::True(),
-            PossibleBooleanValues::TrueOrFalse() => {
-                &PossibleBooleanValues::TrueOrFalse()
+            PossibleBoolVals::True() => &PossibleBoolVals::False(),
+            PossibleBoolVals::False() => &PossibleBoolVals::True(),
+            PossibleBoolVals::TrueOrFalse() => {
+                &PossibleBoolVals::TrueOrFalse()
             }
         }
     }
@@ -77,14 +84,14 @@ pub enum Error {
 /// Define interpreter state
 
 #[derive(Debug, Clone)]
-pub struct State {
-    inner: HashMap<&'static str, Value>,
+pub struct Store {
+    inner: HashMap<&'static str, StoreVal>,
 }
 
-impl State {
+impl Store {
     pub fn new() -> Self {
         Self {
-            inner: HashMap::<&'static str, Value>::new(),
+            inner: HashMap::<&'static str, StoreVal>::new(),
         }
     }
 }
@@ -100,9 +107,9 @@ impl Interpreter {
 
     pub fn interp(
         &self,
-        mem: State,
+        mem: Store,
         stmt: Statement,
-    ) -> Result<State, Error> {
+    ) -> Result<Store, Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => self.interp_seq(mem, stmt_vec),
             Statement::Assignment(var, value) => {
@@ -116,9 +123,9 @@ impl Interpreter {
 
     pub fn interp_seq(
         &self,
-        mem: State,
+        mem: Store,
         stmt_vec: Vec<Box<Statement>>,
-    ) -> Result<State, Error> {
+    ) -> Result<Store, Error> {
         let mut cur_mem = mem;
         for stmt in stmt_vec.iter() {
             let res = self.interp(cur_mem, *stmt.clone());
@@ -132,16 +139,20 @@ impl Interpreter {
 
     pub fn interp_assignment(
         &self,
-        mem: State,
+        mem: Store,
         var: &'static str,
-        value: Value,
-    ) -> Result<State, Error> {
+        value: RVal,
+    ) -> Result<Store, Error> {
         let mut new_mem = mem.clone();
         match value {
-            Value::Num(_) => {
-                new_mem.inner.insert(var, value);
+            RVal::StoreVal(storeval) => {
+                match storeval {
+                    StoreVal::Num(_) => {
+                        new_mem.inner.insert(var, storeval);
+                    }
+                }
             },
-            Value::Var(varname) => {
+            RVal::Var(varname) => {
                 match new_mem.inner.get(varname) {
                     Some(val) => new_mem.inner.insert(var, val.clone()),
                     None => return Err(Error::UndefinedVariable(var)),
@@ -153,9 +164,9 @@ impl Interpreter {
 
     pub fn interp_print(
         &self,
-        mem: State,
+        mem: Store,
         var: &'static str,
-    ) -> Result<State, Error> {
+    ) -> Result<Store, Error> {
         match mem.inner.get(var) {
             Some(val) => {
                 println!("{:#?}", val);
@@ -167,16 +178,16 @@ impl Interpreter {
 
     pub fn interp_bool(
         &self,
-        mem: State,
+        mem: Store,
         b_stmt: BooleanStatement,
-    ) -> (State, PossibleBooleanValues) {
+    ) -> (Store, PossibleBoolVals) {
         // TODO when to return TrueOrFalse?
         match b_stmt {
             BooleanStatement::Literal(b) => {
                 if b {
-                    return (mem.clone(), PossibleBooleanValues::True());
+                    return (mem.clone(), PossibleBoolVals::True());
                 } else {
-                    return (mem.clone(), PossibleBooleanValues::False());
+                    return (mem.clone(), PossibleBoolVals::False());
                 }
             }
             BooleanStatement::Not(inner_b_stmt) => {
@@ -187,20 +198,20 @@ impl Interpreter {
 
     pub fn interp_not(
         &self,
-        mem: State,
+        mem: Store,
         b_stmt: BooleanStatement,
-    ) -> (State, PossibleBooleanValues) {
+    ) -> (Store, PossibleBoolVals) {
         let (new_mem, ret) = self.interp_bool(mem, b_stmt);
         (new_mem, !ret)
     }
 
     pub fn interp_conditional(
         &self,
-        mem: State,
+        mem: Store,
         condition: BooleanStatement,
         if_branch: Statement,
         else_branch: Statement,
-    ) -> Result<State, Error> {
+    ) -> Result<Store, Error> {
         let (base_mem, b_res) = self.interp_bool(mem.clone(), condition);
         println!("base_mem: {:?}", &base_mem);
 
@@ -228,14 +239,14 @@ impl Interpreter {
 
     pub fn possible(
         &self,
-        _mem: &State,
-        possible_b: &PossibleBooleanValues,
+        _mem: &Store,
+        possible_b: &PossibleBoolVals,
     ) -> bool {
         // FIXME somehow use mem
         match possible_b {
-            PossibleBooleanValues::True() => true,
-            PossibleBooleanValues::False() => false,
-            PossibleBooleanValues::TrueOrFalse() => true,
+            PossibleBoolVals::True() => true,
+            PossibleBoolVals::False() => false,
+            PossibleBoolVals::TrueOrFalse() => true,
         }
     }
 }
@@ -248,51 +259,51 @@ mod tests {
     fn test_print_undef() {
         let interp = Interpreter::new();
         let stmt = Statement::Print("x");
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert_eq!(res.err(), Some(Error::UndefinedVariable("x")));
     }
 
     #[test]
     fn test_assignment() {
         let interp = Interpreter::new();
-        let stmt = Statement::Assignment("x", Value::Num(5));
-        let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.unwrap().inner.get("x"), Some(&Value::Num(5)));
+        let stmt = Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)));
+        let res = interp.interp(Store::new(), stmt);
+        assert_eq!(res.unwrap().inner.get("x"), Some(&StoreVal::Num(5)));
     }
 
     #[test]
     fn test_seq() {
         let interp = Interpreter::new();
         let stmt_vec = vec![
-            Box::new(Statement::Assignment("x", Value::Num(5))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
             Box::new(Statement::Print("x")),
         ];
         let stmt = Statement::Sequence(stmt_vec);
-        let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.unwrap().inner.get("x"), Some(&Value::Num(5)));
+        let res = interp.interp(Store::new(), stmt);
+        assert_eq!(res.unwrap().inner.get("x"), Some(&StoreVal::Num(5)));
     }
     #[test]
     fn test_seq_assign() {
         let interp = Interpreter::new();
         let stmt_vec = vec![
-            Box::new(Statement::Assignment("x", Value::Num(5))),
-            Box::new(Statement::Assignment("y", Value::Num(6))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
+            Box::new(Statement::Assignment("y", RVal::StoreVal(StoreVal::Num(6)))),
         ];
         let stmt = Statement::Sequence(stmt_vec);
-        let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.as_ref().unwrap().inner.get("x"), Some(&Value::Num(5)));
-        assert_eq!(res.as_ref().unwrap().inner.get("y"), Some(&Value::Num(6)));
+        let res = interp.interp(Store::new(), stmt);
+        assert_eq!(res.as_ref().unwrap().inner.get("x"), Some(&StoreVal::Num(5)));
+        assert_eq!(res.as_ref().unwrap().inner.get("y"), Some(&StoreVal::Num(6)));
     }
 
     #[test]
     fn test_seq_print_undef() {
         let interp = Interpreter::new();
         let stmt_vec = vec![
-            Box::new(Statement::Assignment("x", Value::Num(5))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
             Box::new(Statement::Print("y")),
         ];
         let stmt = Statement::Sequence(stmt_vec);
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert_eq!(res.clone().err(), Some(Error::UndefinedVariable("y")));
     }
 
@@ -301,37 +312,37 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Sequence(vec![
-                Box::new(Statement::Assignment("x", Value::Num(5))),
+                Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
                 Box::new(Statement::Print("x")),
             ])),
             Box::new(Statement::Sequence(vec![
-                Box::new(Statement::Assignment("y", Value::Num(6))),
+                Box::new(Statement::Assignment("y", RVal::StoreVal(StoreVal::Num(6)))),
                 Box::new(Statement::Print("y")),
             ])),
         ]);
-        let res = interp.interp(State::new(), stmt);
-        assert_eq!(res.as_ref().unwrap().inner.get("x"), Some(&Value::Num(5)));
-        assert_eq!(res.as_ref().unwrap().inner.get("y"), Some(&Value::Num(6)));
+        let res = interp.interp(Store::new(), stmt);
+        assert_eq!(res.as_ref().unwrap().inner.get("x"), Some(&StoreVal::Num(5)));
+        assert_eq!(res.as_ref().unwrap().inner.get("y"), Some(&StoreVal::Num(6)));
     }
 
     #[test]
     fn test_var_undef() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", Value::Var("y"))),
+            Box::new(Statement::Assignment("x", RVal::Var("y"))),
         ]);
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert_eq!(res.err(), Some(Error::UndefinedVariable("x")));
     }
 
     #[test]
-    fn test_var() {
+    fn test_assign_var() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", Value::Num(5))),
-            Box::new(Statement::Assignment("y", Value::Var("x"))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
+            Box::new(Statement::Assignment("y", RVal::Var("x"))),
         ]);
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
         assert_eq!(res.as_ref().unwrap().inner.get("x"), res.as_ref().unwrap().inner.get("y"));
     }
@@ -341,10 +352,10 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Statement::Conditional(
             Box::new(BooleanStatement::Literal(true)),
-            Box::new(Statement::Assignment("x", Value::Num(5))),
-            Box::new(Statement::Assignment("x", Value::Num(6))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(6)))),
         );
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
         // FIXME how to check values set in conditional scopes
     }
@@ -354,10 +365,10 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Statement::Conditional(
             Box::new(BooleanStatement::Literal(false)),
-            Box::new(Statement::Assignment("x", Value::Num(5))),
-            Box::new(Statement::Assignment("x", Value::Num(6))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(6)))),
         );
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
         // FIXME how to check values set in conditional scopes
     }
@@ -369,10 +380,10 @@ mod tests {
             Box::new(BooleanStatement::Not(Box::new(
                 BooleanStatement::Literal(true),
             ))),
-            Box::new(Statement::Assignment("x", Value::Num(5))),
-            Box::new(Statement::Assignment("x", Value::Num(6))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(6)))),
         );
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
         // FIXME how to check values set in conditional scopes
     }
@@ -384,16 +395,16 @@ mod tests {
             Box::new(BooleanStatement::Literal(true)),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::Literal(true)),
-                Box::new(Statement::Assignment("x", Value::Num(5))),
-                Box::new(Statement::Assignment("x", Value::Num(6))),
+                Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
+                Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(6)))),
             )),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::Literal(true)),
-                Box::new(Statement::Assignment("x", Value::Num(7))),
-                Box::new(Statement::Assignment("x", Value::Num(8))),
+                Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(7)))),
+                Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(8)))),
             )),
         );
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
         // FIXME how to check values set in conditional scopes
     }
@@ -402,14 +413,14 @@ mod tests {
     fn test_conditional_scope() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", Value::Num(3))),
+            Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(3)))),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::Literal(true)),
-                Box::new(Statement::Assignment("x", Value::Num(5))),
-                Box::new(Statement::Assignment("x", Value::Num(6))),
+                Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(5)))),
+                Box::new(Statement::Assignment("x", RVal::StoreVal(StoreVal::Num(6)))),
             )),
         ]);
-        let res = interp.interp(State::new(), stmt);
+        let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
         // FIXME want x == 5
     }

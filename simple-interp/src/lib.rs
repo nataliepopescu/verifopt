@@ -13,6 +13,7 @@ pub enum Statement {
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
     // no args or retvals for now
     FuncDef(&'static str, Box<Statement>),
+    InvokeFunc(&'static str),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,8 +93,12 @@ impl Not for &PossibleBoolVals {
 pub enum Error {
     #[error("Variable {0} is undefined.")]
     UndefinedVariable(&'static str),
-    #[error("{0} cannot be compared to {1}")]
+    #[error("Function {0} is undefined.")]
+    UndefinedFunction(&'static str),
+    #[error("{0} cannot be compared to {1}.")]
     IncomparableTypes(StoreVal, StoreVal),
+    #[error("{0} is not a function.")]
+    NotAFunction(&'static str),
 }
 
 /// Define interpreter state
@@ -132,6 +137,7 @@ impl Interpreter {
             Statement::FuncDef(name, body) => {
                 self.interp_funcdef(mem, name, body)
             }
+            Statement::InvokeFunc(name) => self.interp_invoke(mem, name),
         }
     }
 
@@ -326,6 +332,20 @@ impl Interpreter {
         new_mem.inner.insert(name, StoreVal::FuncPtr(body));
         Ok(new_mem)
     }
+
+    pub fn interp_invoke(
+        &self,
+        mem: Store,
+        name: &'static str,
+    ) -> Result<Store, Error> {
+        match mem.clone().inner.get(name) {
+            Some(StoreVal::FuncPtr(boxed_body)) => {
+                self.interp(mem, *boxed_body.clone())
+            }
+            Some(_) => Err(Error::NotAFunction(name)),
+            None => Err(Error::UndefinedFunction(name)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -382,12 +402,12 @@ mod tests {
     fn test_nested_seq() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Sequence(vec![
-                Box::new(Statement::Assignment("x", RVal::Num(5))),
-            ])),
-            Box::new(Statement::Sequence(vec![
-                Box::new(Statement::Assignment("y", RVal::Num(6))),
-            ])),
+            Box::new(Statement::Sequence(vec![Box::new(
+                Statement::Assignment("x", RVal::Num(5)),
+            )])),
+            Box::new(Statement::Sequence(vec![Box::new(
+                Statement::Assignment("y", RVal::Num(6)),
+            )])),
         ]);
         let res = interp.interp(Store::new(), stmt);
         assert_eq!(
@@ -468,6 +488,26 @@ mod tests {
     }
 
     #[test]
+    fn test_conditional_equals() {
+        let interp = Interpreter::new();
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::Assignment("x", RVal::Num(3))),
+            Box::new(Statement::Assignment("y", RVal::Num(3))),
+            Box::new(Statement::Conditional(
+                Box::new(BooleanStatement::Equals(
+                    RVal::Var("x"),
+                    RVal::Var("y"),
+                )),
+                Box::new(Statement::Print("true")),
+                Box::new(Statement::Print("false")),
+            )),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+        assert!(res.is_ok());
+        // FIXME how to check values set in conditional scopes
+    }
+
+    #[test]
     fn test_nested_conditional() {
         let interp = Interpreter::new();
         let stmt = Statement::Conditional(
@@ -517,22 +557,19 @@ mod tests {
     }
 
     #[test]
-    fn test_equals() {
+    fn test_invoke() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(3))),
-            Box::new(Statement::Assignment("y", RVal::Num(3))),
-            Box::new(Statement::Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("x"),
-                    RVal::Var("y"),
-                )),
-                Box::new(Statement::Print("true")),
-                Box::new(Statement::Print("false")),
+            Box::new(Statement::FuncDef(
+                "foo",
+                Box::new(Statement::Sequence(vec![
+                    Box::new(Statement::Assignment("x", RVal::Num(5))),
+                    Box::new(Statement::Print("done")),
+                ]))
             )),
+            Box::new(Statement::InvokeFunc("foo"))
         ]);
         let res = interp.interp(Store::new(), stmt);
         assert!(res.is_ok());
-        // FIXME want x == 5
     }
 }

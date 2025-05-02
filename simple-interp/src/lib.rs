@@ -49,42 +49,39 @@ impl fmt::Display for StoreVal {
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
 #[derive(Debug, Clone, PartialEq)]
 pub enum BooleanStatement {
-    Literal(bool),
+    True(),
+    False(),
+    TrueOrFalse(),
     Not(Box<BooleanStatement>),
     Equals(RVal, RVal),
 }
 
-/// Define return types
-
-// FIXME better way to do this?
-#[derive(Debug)]
-pub enum PossibleBoolVals {
-    True(),
-    False(),
-    // rename -> Unknown() or Either() ?
-    TrueOrFalse(),
-}
-
-impl Not for PossibleBoolVals {
+impl Not for BooleanStatement {
     type Output = Self;
 
     fn not(self) -> Self::Output {
         match self {
-            PossibleBoolVals::True() => PossibleBoolVals::False(),
-            PossibleBoolVals::False() => PossibleBoolVals::True(),
-            PossibleBoolVals::TrueOrFalse() => PossibleBoolVals::TrueOrFalse(),
+            BooleanStatement::True() => BooleanStatement::False(),
+            BooleanStatement::False() => BooleanStatement::True(),
+            BooleanStatement::TrueOrFalse() => BooleanStatement::TrueOrFalse(),
+            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
+                panic!("not implemented yet")
+            }
         }
     }
 }
 
-impl Not for &PossibleBoolVals {
+impl Not for &BooleanStatement {
     type Output = Self;
 
     fn not(self) -> Self::Output {
         match self {
-            PossibleBoolVals::True() => &PossibleBoolVals::False(),
-            PossibleBoolVals::False() => &PossibleBoolVals::True(),
-            PossibleBoolVals::TrueOrFalse() => &PossibleBoolVals::TrueOrFalse(),
+            BooleanStatement::True() => &BooleanStatement::False(),
+            BooleanStatement::False() => &BooleanStatement::True(),
+            BooleanStatement::TrueOrFalse() => &BooleanStatement::TrueOrFalse(),
+            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
+                panic!("not implemented yet (&)")
+            }
         }
     }
 }
@@ -209,16 +206,11 @@ impl Interpreter {
         &self,
         store: Store,
         b_stmt: BooleanStatement,
-    ) -> Result<(Store, PossibleBoolVals), Error> {
-        // TODO when to return TrueOrFalse?
+    ) -> Result<(Store, BooleanStatement), Error> {
         match b_stmt {
-            BooleanStatement::Literal(b) => {
-                if b {
-                    return Ok((store.clone(), PossibleBoolVals::True()));
-                } else {
-                    return Ok((store.clone(), PossibleBoolVals::False()));
-                }
-            }
+            BooleanStatement::True()
+            | BooleanStatement::False()
+            | BooleanStatement::TrueOrFalse() => Ok((store.clone(), b_stmt)),
             BooleanStatement::Not(inner_b_stmt) => {
                 self.interp_not(store, *inner_b_stmt)
             }
@@ -232,7 +224,7 @@ impl Interpreter {
         &self,
         store: Store,
         b_stmt: BooleanStatement,
-    ) -> Result<(Store, PossibleBoolVals), Error> {
+    ) -> Result<(Store, BooleanStatement), Error> {
         let res = self.interp_bool(store, b_stmt);
         match res {
             Ok((new_stores, b_res)) => Ok((new_stores, !b_res)),
@@ -259,7 +251,7 @@ impl Interpreter {
         store: Store,
         lhs: RVal,
         rhs: RVal,
-    ) -> Result<(Store, PossibleBoolVals), Error> {
+    ) -> Result<(Store, BooleanStatement), Error> {
         let lhs_res = self.interp_rval(&store, lhs);
         if lhs_res.is_err() {
             return Err(lhs_res.err().unwrap());
@@ -269,19 +261,20 @@ impl Interpreter {
             return Err(rhs_res.err().unwrap());
         }
 
+        // TODO when to return TrueOrFalse here?
         match (lhs_res.as_ref().unwrap(), rhs_res.as_ref().unwrap()) {
             (StoreVal::Num(lnum), StoreVal::Num(rnum)) => {
                 if lnum == rnum {
-                    return Ok((store, PossibleBoolVals::True()));
+                    return Ok((store, BooleanStatement::True()));
                 } else {
-                    return Ok((store, PossibleBoolVals::False()));
+                    return Ok((store, BooleanStatement::False()));
                 }
             }
             (StoreVal::FuncPtr(lfp), StoreVal::FuncPtr(rfp)) => {
                 if lfp == rfp {
-                    return Ok((store, PossibleBoolVals::True()));
+                    return Ok((store, BooleanStatement::True()));
                 } else {
-                    return Ok((store, PossibleBoolVals::False()));
+                    return Ok((store, BooleanStatement::False()));
                 }
             }
             (_, _) => {
@@ -333,11 +326,12 @@ impl Interpreter {
         Ok(res_stores)
     }
 
-    pub fn possible(&self, possible_b: &PossibleBoolVals) -> bool {
+    pub fn possible(&self, possible_b: &BooleanStatement) -> bool {
         match possible_b {
-            PossibleBoolVals::True() => true,
-            PossibleBoolVals::False() => false,
-            PossibleBoolVals::TrueOrFalse() => true,
+            BooleanStatement::True() => true,
+            BooleanStatement::False() => false,
+            BooleanStatement::TrueOrFalse() => true,
+            _ => panic!("boolean statement not fully evaluated"),
         }
     }
 
@@ -493,7 +487,7 @@ mod tests {
     fn test_conditional_true() {
         let interp = Interpreter::new();
         let stmt = Statement::Conditional(
-            Box::new(BooleanStatement::Literal(true)),
+            Box::new(BooleanStatement::True()),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
             Box::new(Statement::Assignment("x", RVal::Num(6))),
         );
@@ -510,7 +504,7 @@ mod tests {
     fn test_conditional_false() {
         let interp = Interpreter::new();
         let stmt = Statement::Conditional(
-            Box::new(BooleanStatement::Literal(false)),
+            Box::new(BooleanStatement::False()),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
             Box::new(Statement::Assignment("x", RVal::Num(6))),
         );
@@ -524,12 +518,31 @@ mod tests {
     }
 
     #[test]
+    fn test_conditional_uncertain() {
+        let interp = Interpreter::new();
+        let stmt = Statement::Conditional(
+            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(Statement::Assignment("x", RVal::Num(5))),
+            Box::new(Statement::Assignment("x", RVal::Num(6))),
+        );
+        let res = interp.interp(vec![Store::new()], stmt);
+
+        assert_eq!(res.as_ref().unwrap().len(), 2);
+
+        let mut store1 = Store::new();
+        store1.insert("x", StoreVal::Num(5));
+        assert_eq!(res.as_ref().unwrap()[0], store1);
+
+        let mut store2 = Store::new();
+        store2.insert("x", StoreVal::Num(6));
+        assert_eq!(res.as_ref().unwrap()[1], store2);
+    }
+
+    #[test]
     fn test_conditional_not() {
         let interp = Interpreter::new();
         let stmt = Statement::Conditional(
-            Box::new(BooleanStatement::Not(Box::new(
-                BooleanStatement::Literal(true),
-            ))),
+            Box::new(BooleanStatement::Not(Box::new(BooleanStatement::True()))),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
             Box::new(Statement::Assignment("x", RVal::Num(6))),
         );
@@ -573,14 +586,14 @@ mod tests {
     fn test_nested_conditional() {
         let interp = Interpreter::new();
         let stmt = Statement::Conditional(
-            Box::new(BooleanStatement::Literal(true)),
+            Box::new(BooleanStatement::True()),
             Box::new(Statement::Conditional(
-                Box::new(BooleanStatement::Literal(true)),
+                Box::new(BooleanStatement::True()),
                 Box::new(Statement::Assignment("x", RVal::Num(5))),
                 Box::new(Statement::Assignment("x", RVal::Num(6))),
             )),
             Box::new(Statement::Conditional(
-                Box::new(BooleanStatement::Literal(true)),
+                Box::new(BooleanStatement::True()),
                 Box::new(Statement::Assignment("x", RVal::Num(7))),
                 Box::new(Statement::Assignment("x", RVal::Num(8))),
             )),
@@ -600,7 +613,7 @@ mod tests {
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", RVal::Num(3))),
             Box::new(Statement::Conditional(
-                Box::new(BooleanStatement::Literal(true)),
+                Box::new(BooleanStatement::True()),
                 Box::new(Statement::Assignment("x", RVal::Num(5))),
                 Box::new(Statement::Assignment("x", RVal::Num(6))),
             )),
@@ -646,5 +659,40 @@ mod tests {
         store.insert("foo", StoreVal::FuncPtr(body));
         store.insert("x", StoreVal::Num(5));
         assert_eq!(res.as_ref().unwrap()[0], store);
+    }
+
+    #[test]
+    fn test_invoke_uncertain() {
+        let interp = Interpreter::new();
+        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
+            Statement::Assignment("x", RVal::Num(5)),
+        )]));
+        let bar_body = Box::new(Statement::Sequence(vec![Box::new(
+            Statement::Assignment("x", RVal::Num(6)),
+        )]));
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::FuncDef("foo", foo_body.clone())),
+            Box::new(Statement::FuncDef("bar", bar_body.clone())),
+            Box::new(Statement::Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Statement::InvokeFunc("foo")),
+                Box::new(Statement::InvokeFunc("bar")),
+            )),
+        ]);
+        let res = interp.interp(vec![Store::new()], stmt);
+
+        assert_eq!(res.as_ref().unwrap().len(), 2);
+
+        let mut store1 = Store::new();
+        store1.insert("foo", StoreVal::FuncPtr(foo_body.clone()));
+        store1.insert("bar", StoreVal::FuncPtr(bar_body.clone()));
+        store1.insert("x", StoreVal::Num(5));
+        assert_eq!(res.as_ref().unwrap()[0], store1);
+
+        let mut store2 = Store::new();
+        store2.insert("foo", StoreVal::FuncPtr(foo_body));
+        store2.insert("bar", StoreVal::FuncPtr(bar_body));
+        store2.insert("x", StoreVal::Num(6));
+        assert_eq!(res.as_ref().unwrap()[1], store2);
     }
 }

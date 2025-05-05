@@ -27,3 +27,17 @@ eventually, interp will spit out new version of the program
 - ^ don't worry about this yet
 
 maybe write out a simple parser (for own ease of writing tests, etc)
+
+TODOs
+write func: what are the possible values of "x" at this line?
+add switch statements to lang
+program rewriting
+
+1. collect info (possible vals at every line of code)
+2. use info for program rewriting (conditional/switch statement, or just single
+option)
+
+moving to Rust...
+- what problems to deal with first
+
+

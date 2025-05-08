@@ -11,6 +11,8 @@ pub enum Statement {
     Assignment(&'static str, RVal),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
+    // TODO replace w match
+    Switch(RVal, Vec<(StoreVal, Box<Statement>)>),
     // no args or retvals for now
     FuncDef(&'static str, Box<Statement>),
     InvokeFunc(&'static str),
@@ -193,6 +195,7 @@ impl Interpreter {
                     *false_branch,
                 )
             }
+            Statement::Switch(val, vec) => self.interp_switch(store, val, vec),
             Statement::FuncDef(name, body) => {
                 self.interp_funcdef(store, name, body)
             }
@@ -264,10 +267,9 @@ impl Interpreter {
         store: Store,
         b_stmt: BooleanStatement,
     ) -> Result<(Store, BooleanStatement), Error> {
-        let res = self.interp_bool(store, b_stmt);
-        match res {
+        match self.interp_bool(store, b_stmt) {
             Ok((new_store, b_res)) => Ok((new_store, !b_res)),
-            Err(_) => res,
+            e @ Err(_) => e,
         }
     }
 
@@ -339,28 +341,25 @@ impl Interpreter {
     ) -> Result<Store, Error> {
         let mut res_stores: Vec<Store> = vec![];
 
-        // FIXME store condition in future (when can mutate store)
-        let c_res = self.interp_bool(store.clone(), condition.clone());
-        match c_res {
+        // FIXME mod store if have effects
+        match self.interp_bool(store.clone(), condition.clone()) {
             Ok((c_store, bool_res)) => {
                 if self.possible(&bool_res) {
-                    let true_res =
-                        self.interp(c_store.clone(), true_branch.clone());
-                    match true_res {
+                    match self.interp(c_store.clone(), true_branch.clone()) {
                         Ok(true_store) => res_stores.push(true_store),
-                        Err(_) => return true_res,
+                        e @ Err(_) => return e,
                     }
                 }
                 if self.possible(!&bool_res) {
-                    let false_res = self.interp(c_store, false_branch.clone());
-                    match false_res {
+                    match self.interp(c_store, false_branch.clone()) {
                         Ok(false_store) => res_stores.push(false_store),
-                        Err(_) => return false_res,
+                        e @ Err(_) => return e,
                     }
                 }
             }
             Err(c_err) => return Err(c_err),
         }
+
         res_stores.merge()
     }
 
@@ -371,6 +370,39 @@ impl Interpreter {
             BooleanStatement::TrueOrFalse() => true,
             _ => panic!("boolean statement not fully evaluated"),
         }
+    }
+
+    pub fn interp_switch(
+        &self,
+        store: Store,
+        val: RVal,
+        vec: Vec<(StoreVal, Box<Statement>)>,
+    ) -> Result<Store, Error> {
+        // FIXME mod store if have effects
+        let store_vals = match val {
+            RVal::Num(num) => vec![StoreVal::Num(num)],
+            RVal::Var(varname) => match store.get(varname) {
+                Some(possible_storevals) => possible_storevals.to_vec(),
+                None => return Err(Error::UndefinedVariable(varname)),
+            },
+        };
+
+        // grab all vec elems where vec_val is in store_vals
+        let matching_vals: Vec<_> = vec
+            .into_iter()
+            .filter(|(vec_val, _)| store_vals.contains(vec_val))
+            .collect();
+
+        // loop to interp all such elems
+        let mut res_stores: Vec<Store> = Vec::new();
+        for (_, vec_stmt) in matching_vals.iter() {
+            match self.interp(store.clone(), *vec_stmt.clone()) {
+                Ok(new_store) => res_stores.push(new_store),
+                e @ Err(_) => return e,
+            }
+        }
+
+        res_stores.merge()
     }
 
     pub fn interp_funcdef(
@@ -399,10 +431,9 @@ impl Interpreter {
     ) -> Result<Store, Error> {
         match val {
             StoreVal::FuncPtr(boxed_body) => {
-                let res = self.interp(store, *boxed_body.clone());
-                match res {
+                match self.interp(store, *boxed_body.clone()) {
                     Ok(new_store) => return Ok(new_store),
-                    Err(_) => return res,
+                    e @ Err(_) => return e,
                 }
             }
             _ => return Err(Error::NotAFunction(name)),
@@ -418,11 +449,9 @@ impl Interpreter {
             Some(vec) => {
                 let mut res_stores: Vec<Store> = vec![];
                 for val in vec.iter() {
-                    let res =
-                        self.interp_invoke_helper(store.clone(), name, val);
-                    match res {
+                    match self.interp_invoke_helper(store.clone(), name, val) {
                         Ok(new_store) => res_stores.push(new_store),
-                        Err(_) => return res,
+                        e @ Err(_) => return e,
                     }
                 }
                 return res_stores.merge();
@@ -873,5 +902,78 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         assert_eq!(res, Err(Error::NotAFunction("foo")));
+    }
+
+    #[test]
+    fn test_switch_err() {
+        let interp = Interpreter::new();
+        let switch_vec: Vec<(StoreVal, Box<Statement>)> = vec![];
+        let stmt = Statement::Switch(
+            RVal::Var("x"),
+            switch_vec,
+        );
+        let res = interp.interp(Store::new(), stmt);
+
+        assert_eq!(res, Err(Error::UndefinedVariable("x")));
+    }
+
+    #[test]
+    fn test_switch() {
+        let interp = Interpreter::new();
+        let switch_vec: Vec<(StoreVal, Box<Statement>)> = vec![
+            (
+                StoreVal::Num(4),
+                Box::new(Statement::Assignment("y", RVal::Num(0)))
+            ),
+            (
+                StoreVal::Num(5),
+                Box::new(Statement::Assignment("y", RVal::Num(1)))
+            ),
+        ];
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::Assignment("x", RVal::Num(5))),
+            Box::new(Statement::Switch(
+                RVal::Var("x"),
+                switch_vec
+            )),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+
+        let mut store = Store::new();
+        store.insert("x", StoreVal::Num(5));
+        store.insert("y", StoreVal::Num(1));
+        assert_eq!(res.unwrap(), store);
+    }
+
+    #[test]
+    fn test_switch_uncertain() {
+        let interp = Interpreter::new();
+        let switch_vec: Vec<(StoreVal, Box<Statement>)> = vec![
+            (
+                StoreVal::Num(4),
+                Box::new(Statement::Assignment("y", RVal::Num(0)))
+            ),
+            (
+                StoreVal::Num(5),
+                Box::new(Statement::Assignment("y", RVal::Num(1)))
+            ),
+        ];
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Statement::Assignment("x", RVal::Num(5))),
+                Box::new(Statement::Assignment("x", RVal::Num(4))),
+            )),
+            Box::new(Statement::Switch(
+                RVal::Var("x"),
+                switch_vec
+            )),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+
+        let mut store = Store::new();
+        store.insert_vec("x", vec![StoreVal::Num(4), StoreVal::Num(5)]);
+        store.insert_vec("y", vec![StoreVal::Num(1), StoreVal::Num(0)]);
+        assert_eq!(res.unwrap(), store);
     }
 }

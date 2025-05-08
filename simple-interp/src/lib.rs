@@ -117,18 +117,6 @@ impl Store {
             inner: HashMap::<&'static str, Vec<StoreVal>>::new(),
         }
     }
-
-    pub fn insert(&mut self, key: &'static str, val: StoreVal) {
-        self.inner.insert(key, vec![val]);
-    }
-
-    pub fn insert_vec(&mut self, key: &'static str, val: Vec<StoreVal>) {
-        self.inner.insert(key, val);
-    }
-
-    pub fn get(&self, key: &'static str) -> Option<&Vec<StoreVal>> {
-        self.inner.get(key)
-    }
 }
 
 pub trait Merge {
@@ -151,11 +139,11 @@ impl Merge for Vec<Store> {
                     Some(mut mval) => {
                         if val != mval {
                             val.append(&mut mval);
-                            merged.insert_vec(key, val.to_vec());
+                            merged.inner.insert(key, val.to_vec());
                         }
                     }
                     None => {
-                        merged.insert_vec(key, val.to_vec());
+                        merged.inner.insert(key, val.to_vec());
                     }
                 }
             }
@@ -226,13 +214,17 @@ impl Interpreter {
         value: RVal,
     ) -> Result<Store, Error> {
         let mut new_store = store.clone();
+        if new_store.inner.get(var).is_some() {
+            return Err(Error::VarAlreadyExists(var));
+        }
+
         match value {
             RVal::Num(_) => {
-                new_store.insert(var, value.clone().into());
+                new_store.inner.insert(var, vec![value.clone().into()]);
             }
             RVal::Var(varname) => {
-                match new_store.get(varname) {
-                    Some(val) => new_store.insert_vec(var, val.clone()),
+                match new_store.inner.get(varname) {
+                    Some(val) => new_store.inner.insert(var, val.clone()),
                     None => return Err(Error::UndefinedVariable(var)),
                 };
             }
@@ -280,7 +272,7 @@ impl Interpreter {
     ) -> Result<Vec<StoreVal>, Error> {
         match rval {
             RVal::Num(num) => Ok(vec![StoreVal::Num(num)]),
-            RVal::Var(var) => match store.get(var) {
+            RVal::Var(var) => match store.inner.get(var) {
                 Some(val) => Ok(val.clone()),
                 None => return Err(Error::UndefinedVariable(var)),
             },
@@ -381,7 +373,7 @@ impl Interpreter {
         // FIXME mod store if have effects
         let store_vals = match val {
             RVal::Num(num) => vec![StoreVal::Num(num)],
-            RVal::Var(varname) => match store.get(varname) {
+            RVal::Var(varname) => match store.inner.get(varname) {
                 Some(possible_storevals) => possible_storevals.to_vec(),
                 None => return Err(Error::UndefinedVariable(varname)),
             },
@@ -411,13 +403,15 @@ impl Interpreter {
         name: &'static str,
         body: Box<Statement>,
     ) -> Result<Store, Error> {
-        match store.get(name) {
+        match store.inner.get(name) {
             Some(_) => {
                 return Err(Error::VarAlreadyExists(name));
             }
             None => {
                 let mut new_store = store.clone();
-                new_store.insert(name, StoreVal::FuncPtr(body.clone()));
+                new_store
+                    .inner
+                    .insert(name, vec![StoreVal::FuncPtr(body.clone())]);
                 Ok(new_store)
             }
         }
@@ -445,7 +439,7 @@ impl Interpreter {
         store: Store,
         name: &'static str,
     ) -> Result<Store, Error> {
-        match store.clone().get(name) {
+        match store.clone().inner.get(name) {
             Some(vec) => {
                 let mut res_stores: Vec<Store> = vec![];
                 for val in vec.iter() {
@@ -474,7 +468,7 @@ mod tests {
     #[test]
     fn test_merge_one() {
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
         let vec: Vec<Store> = vec![store];
         assert_eq!(vec[0].clone(), vec.merge().unwrap());
     }
@@ -482,13 +476,15 @@ mod tests {
     #[test]
     fn test_merge_two() {
         let mut store1 = Store::new();
-        store1.insert("x", StoreVal::Num(5));
+        store1.inner.insert("x", vec![StoreVal::Num(5)]);
         let mut store2 = Store::new();
-        store2.insert("x", StoreVal::Num(6));
+        store2.inner.insert("x", vec![StoreVal::Num(6)]);
         let vec: Vec<Store> = vec![store1, store2];
 
         let mut end_store = Store::new();
-        end_store.insert_vec("x", vec![StoreVal::Num(6), StoreVal::Num(5)]);
+        end_store
+            .inner
+            .insert("x", vec![StoreVal::Num(6), StoreVal::Num(5)]);
         assert_eq!(end_store, vec.merge().unwrap());
     }
 
@@ -508,7 +504,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -520,7 +516,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -535,8 +531,8 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
-        store.insert("y", StoreVal::Num(6));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
+        store.inner.insert("y", vec![StoreVal::Num(6)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -554,8 +550,8 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
-        store.insert("y", StoreVal::Num(6));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
+        store.inner.insert("y", vec![StoreVal::Num(6)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -581,8 +577,8 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
-        store.insert("y", StoreVal::Num(5));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
+        store.inner.insert("y", vec![StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -597,7 +593,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -612,7 +608,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(6));
+        store.inner.insert("x", vec![StoreVal::Num(6)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -627,7 +623,9 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert_vec("x", vec![StoreVal::Num(6), StoreVal::Num(5)]);
+        store
+            .inner
+            .insert("x", vec![StoreVal::Num(6), StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -642,7 +640,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(6));
+        store.inner.insert("x", vec![StoreVal::Num(6)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -664,9 +662,9 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(3));
-        store.insert("y", StoreVal::Num(3));
-        store.insert("z", StoreVal::Num(1));
+        store.inner.insert("x", vec![StoreVal::Num(3)]);
+        store.inner.insert("y", vec![StoreVal::Num(3)]);
+        store.inner.insert("z", vec![StoreVal::Num(1)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -691,9 +689,9 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("foo", StoreVal::FuncPtr(foo_body.clone()));
-        store.insert("bar", StoreVal::FuncPtr(foo_body.clone()));
-        store.insert("z", StoreVal::Num(1));
+        store.inner.insert("foo", vec![StoreVal::FuncPtr(foo_body.clone())]);
+        store.inner.insert("bar", vec![StoreVal::FuncPtr(foo_body.clone())]);
+        store.inner.insert("z", vec![StoreVal::Num(1)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -718,9 +716,9 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("foo", StoreVal::FuncPtr(foo_body.clone()));
-        store.insert("bar", StoreVal::FuncPtr(foo_body.clone()));
-        store.insert("z", StoreVal::Num(1));
+        store.inner.insert("foo", vec![StoreVal::FuncPtr(foo_body.clone())]);
+        store.inner.insert("bar", vec![StoreVal::FuncPtr(foo_body.clone())]);
+        store.inner.insert("z", vec![StoreVal::Num(1)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -746,9 +744,13 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(3));
-        store.insert_vec("y", vec![StoreVal::Num(4), StoreVal::Num(3)]);
-        store.insert_vec("z", vec![StoreVal::Num(2), StoreVal::Num(1)]);
+        store.inner.insert("x", vec![StoreVal::Num(3)]);
+        store
+            .inner
+            .insert("y", vec![StoreVal::Num(4), StoreVal::Num(3)]);
+        store
+            .inner
+            .insert("z", vec![StoreVal::Num(2), StoreVal::Num(1)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -800,7 +802,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -808,7 +810,6 @@ mod tests {
     fn test_conditional_scope() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(3))),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::True()),
                 Box::new(Statement::Assignment("x", RVal::Num(5))),
@@ -818,7 +819,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -830,7 +831,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("foo", StoreVal::FuncPtr(body));
+        store.inner.insert("foo", vec![StoreVal::FuncPtr(body)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -860,8 +861,8 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("foo", StoreVal::FuncPtr(body));
-        store.insert("x", StoreVal::Num(5));
+        store.inner.insert("foo", vec![StoreVal::FuncPtr(body)]);
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -886,9 +887,11 @@ mod tests {
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("foo", StoreVal::FuncPtr(foo_body));
-        store.insert("bar", StoreVal::FuncPtr(bar_body));
-        store.insert_vec("x", vec![StoreVal::Num(6), StoreVal::Num(5)]);
+        store.inner.insert("foo", vec![StoreVal::FuncPtr(foo_body)]);
+        store.inner.insert("bar", vec![StoreVal::FuncPtr(bar_body)]);
+        store
+            .inner
+            .insert("x", vec![StoreVal::Num(6), StoreVal::Num(5)]);
         assert_eq!(res.clone().unwrap(), store);
     }
 
@@ -908,10 +911,7 @@ mod tests {
     fn test_switch_err() {
         let interp = Interpreter::new();
         let switch_vec: Vec<(StoreVal, Box<Statement>)> = vec![];
-        let stmt = Statement::Switch(
-            RVal::Var("x"),
-            switch_vec,
-        );
+        let stmt = Statement::Switch(RVal::Var("x"), switch_vec);
         let res = interp.interp(Store::new(), stmt);
 
         assert_eq!(res, Err(Error::UndefinedVariable("x")));
@@ -923,25 +923,22 @@ mod tests {
         let switch_vec: Vec<(StoreVal, Box<Statement>)> = vec![
             (
                 StoreVal::Num(4),
-                Box::new(Statement::Assignment("y", RVal::Num(0)))
+                Box::new(Statement::Assignment("y", RVal::Num(0))),
             ),
             (
                 StoreVal::Num(5),
-                Box::new(Statement::Assignment("y", RVal::Num(1)))
+                Box::new(Statement::Assignment("y", RVal::Num(1))),
             ),
         ];
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Switch(
-                RVal::Var("x"),
-                switch_vec
-            )),
+            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
         ]);
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert("x", StoreVal::Num(5));
-        store.insert("y", StoreVal::Num(1));
+        store.inner.insert("x", vec![StoreVal::Num(5)]);
+        store.inner.insert("y", vec![StoreVal::Num(1)]);
         assert_eq!(res.unwrap(), store);
     }
 
@@ -951,11 +948,11 @@ mod tests {
         let switch_vec: Vec<(StoreVal, Box<Statement>)> = vec![
             (
                 StoreVal::Num(4),
-                Box::new(Statement::Assignment("y", RVal::Num(0)))
+                Box::new(Statement::Assignment("y", RVal::Num(0))),
             ),
             (
                 StoreVal::Num(5),
-                Box::new(Statement::Assignment("y", RVal::Num(1)))
+                Box::new(Statement::Assignment("y", RVal::Num(1))),
             ),
         ];
         let stmt = Statement::Sequence(vec![
@@ -964,16 +961,17 @@ mod tests {
                 Box::new(Statement::Assignment("x", RVal::Num(5))),
                 Box::new(Statement::Assignment("x", RVal::Num(4))),
             )),
-            Box::new(Statement::Switch(
-                RVal::Var("x"),
-                switch_vec
-            )),
+            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
         ]);
         let res = interp.interp(Store::new(), stmt);
 
         let mut store = Store::new();
-        store.insert_vec("x", vec![StoreVal::Num(4), StoreVal::Num(5)]);
-        store.insert_vec("y", vec![StoreVal::Num(1), StoreVal::Num(0)]);
+        store
+            .inner
+            .insert("x", vec![StoreVal::Num(4), StoreVal::Num(5)]);
+        store
+            .inner
+            .insert("y", vec![StoreVal::Num(1), StoreVal::Num(0)]);
         assert_eq!(res.unwrap(), store);
     }
 }

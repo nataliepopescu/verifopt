@@ -439,7 +439,7 @@ mod tests {
     #[test]
     fn test_merge_none() {
         let vec: Vec<Store> = Vec::new();
-        assert!(vec.merge().is_err());
+        assert_eq!(vec.merge(), Err(Error::VecSize()));
     }
 
     #[test]
@@ -566,7 +566,6 @@ mod tests {
             Box::new(Statement::Assignment("x", RVal::Num(6))),
         );
         let res = interp.interp(Store::new(), stmt);
-        println!("{:?}", &res);
 
         let mut store = Store::new();
         store.insert("x", StoreVal::Num(5));
@@ -619,12 +618,11 @@ mod tests {
     }
 
     #[test]
-    fn test_conditional_equals() {
+    fn test_conditional_equals_num() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", RVal::Num(3))),
             Box::new(Statement::Assignment("y", RVal::Num(3))),
-            Box::new(Statement::Assignment("z", RVal::Num(0))),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::Equals(
                     RVal::Var("x"),
@@ -644,7 +642,61 @@ mod tests {
     }
 
     #[test]
-    fn test_conditional_equals_trueorfalse() {
+    fn test_conditional_equals_func() {
+        let interp = Interpreter::new();
+        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
+            Statement::Assignment("x", RVal::Num(5)),
+        )]));
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::FuncDef("foo", foo_body.clone())),
+            Box::new(Statement::FuncDef("bar", foo_body.clone())),
+            Box::new(Statement::Conditional(
+                Box::new(BooleanStatement::Equals(
+                    RVal::Var("foo"),
+                    RVal::Var("bar"),
+                )),
+                Box::new(Statement::Assignment("z", RVal::Num(1))),
+                Box::new(Statement::Assignment("z", RVal::Num(2))),
+            )),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+
+        let mut store = Store::new();
+        store.insert("foo", StoreVal::FuncPtr(foo_body.clone()));
+        store.insert("bar", StoreVal::FuncPtr(foo_body.clone()));
+        store.insert("z", StoreVal::Num(1));
+        assert_eq!(res.unwrap(), store);
+    }
+
+    #[test]
+    fn test_conditional_equals_func_ref() {
+        let interp = Interpreter::new();
+        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
+            Statement::Assignment("x", RVal::Num(5)),
+        )]));
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::FuncDef("foo", foo_body.clone())),
+            Box::new(Statement::Assignment("bar", RVal::Var("foo"))),
+            Box::new(Statement::Conditional(
+                Box::new(BooleanStatement::Equals(
+                    RVal::Var("foo"),
+                    RVal::Var("bar"),
+                )),
+                Box::new(Statement::Assignment("z", RVal::Num(1))),
+                Box::new(Statement::Assignment("z", RVal::Num(2))),
+            )),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+
+        let mut store = Store::new();
+        store.insert("foo", StoreVal::FuncPtr(foo_body.clone()));
+        store.insert("bar", StoreVal::FuncPtr(foo_body.clone()));
+        store.insert("z", StoreVal::Num(1));
+        assert_eq!(res.unwrap(), store);
+    }
+
+    #[test]
+    fn test_conditional_equals_uncertain() {
         let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", RVal::Num(3))),
@@ -669,6 +721,35 @@ mod tests {
         store.insert_vec("y", vec![StoreVal::Num(4), StoreVal::Num(3)]);
         store.insert_vec("z", vec![StoreVal::Num(2), StoreVal::Num(1)]);
         assert_eq!(res.unwrap(), store);
+    }
+
+    #[test]
+    fn test_conditional_equals_err() {
+        let interp = Interpreter::new();
+        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
+            Statement::Assignment("x", RVal::Num(5)),
+        )]));
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::FuncDef("foo", foo_body.clone())),
+            Box::new(Statement::Assignment("x", RVal::Num(5))),
+            Box::new(Statement::Conditional(
+                Box::new(BooleanStatement::Equals(
+                    RVal::Var("foo"),
+                    RVal::Var("x"),
+                )),
+                Box::new(Statement::Assignment("z", RVal::Num(1))),
+                Box::new(Statement::Assignment("z", RVal::Num(2))),
+            )),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+
+        assert_eq!(
+            res,
+            Err(Error::IncomparableTypes(
+                StoreVal::FuncPtr(foo_body),
+                StoreVal::Num(5)
+            ))
+        );
     }
 
     #[test]
@@ -725,6 +806,19 @@ mod tests {
     }
 
     #[test]
+    fn test_funcdef_err() {
+        let interp = Interpreter::new();
+        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::FuncDef("foo", body.clone())),
+            Box::new(Statement::FuncDef("foo", body.clone())),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+
+        assert_eq!(res, Err(Error::VarAlreadyExists("foo")));
+    }
+
+    #[test]
     fn test_invoke() {
         let interp = Interpreter::new();
         let body = Box::new(Statement::Sequence(vec![Box::new(
@@ -769,5 +863,15 @@ mod tests {
         assert_eq!(res.clone().unwrap(), store);
     }
 
-    // TODO add some more tests that trigger errors
+    #[test]
+    fn test_invoke_err() {
+        let interp = Interpreter::new();
+        let stmt = Statement::Sequence(vec![
+            Box::new(Statement::Assignment("foo", RVal::Num(5))),
+            Box::new(Statement::InvokeFunc("foo")),
+        ]);
+        let res = interp.interp(Store::new(), stmt);
+
+        assert_eq!(res, Err(Error::NotAFunction("foo")));
+    }
 }

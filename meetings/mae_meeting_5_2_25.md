@@ -4,7 +4,7 @@ questions:
 - [ ] regular functions in (interp) are also function pointers..? does this seem
   like it will become problematic?
 
-- [ ] wdym by returning the program text?o
+- [ ] wdym by returning the program text?
 
 ## notes
 

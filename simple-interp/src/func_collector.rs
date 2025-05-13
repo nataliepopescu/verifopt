@@ -1,6 +1,8 @@
+use crate::interpreter::{Statement, StoreVal};
 use std::collections::HashMap;
 use thiserror::Error;
 
+/*
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Sequence(Vec<Box<Statement>>),
@@ -26,16 +28,17 @@ pub enum StoreVal {
     Num(i32),
     FuncPtr(Box<Statement>),
 }
+*/
 
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
-#[derive(Debug, Clone, PartialEq)]
-pub enum BooleanStatement {
-    True(),
-    False(),
-    TrueOrFalse(),
-    Not(Box<BooleanStatement>),
-    Equals(RVal, RVal),
-}
+//#[derive(Debug, Clone, PartialEq)]
+//pub enum BooleanStatement {
+//    True(),
+//    False(),
+//    TrueOrFalse(),
+//    Not(Box<BooleanStatement>),
+//    Equals(RVal, RVal),
+//}
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
@@ -49,7 +52,7 @@ pub enum Error {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Env {
-    funcs: HashMap<&'static str, StoreVal>,
+    pub funcs: HashMap<&'static str, StoreVal>,
 }
 
 impl Env {
@@ -89,17 +92,14 @@ impl FuncCollector {
         stmt_vec: Vec<Box<Statement>>,
     ) -> Result<(Env, Statement), Error> {
         let mut cur_env = env;
-        let mut new_stmt_vec = vec![];
-        let mut new_stmt;
         for stmt in stmt_vec.iter() {
             let res = self.collect(cur_env, *stmt.clone());
             if res.is_err() {
                 return res;
             }
-            (cur_env, new_stmt) = res.unwrap();
-            new_stmt_vec.push(Box::new(new_stmt));
+            cur_env = res.unwrap().0;
         }
-        Ok((cur_env, Statement::Sequence(new_stmt_vec)))
+        Ok((cur_env, Statement::Sequence(stmt_vec)))
     }
 
     /*
@@ -191,6 +191,7 @@ impl FuncCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::interpreter::{RVal, Statement, StoreVal};
 
     #[test]
     fn test_print() {

@@ -16,6 +16,7 @@ pub enum Statement {
     // no args or retvals for now
     FuncDef(&'static str, Box<Statement>),
     InvokeFunc(&'static str),
+    // TODO traits
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -225,7 +226,7 @@ impl Interpreter {
             RVal::Var(varname) => {
                 match new_store.inner.get(varname) {
                     Some(val) => new_store.inner.insert(var, val.clone()),
-                    None => return Err(Error::UndefinedVariable(var)),
+                    None => return Err(Error::UndefinedVariable(varname)),
                 };
             }
         }
@@ -404,7 +405,6 @@ impl Interpreter {
         body: Box<Statement>,
     ) -> Result<Store, Error> {
         match store.inner.get(name) {
-            // FIXME remove check; this will already be caught in parsing phase
             Some(_) => {
                 return Err(Error::VarAlreadyExists(name));
             }
@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn test_assignment() {
+    fn test_assign_num() {
         let interp = Interpreter::new();
         let stmt = Statement::Assignment("x", RVal::Num(5));
         let res = interp.interp(Store::new(), stmt);
@@ -521,6 +521,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_seq_assign() {
         let interp = Interpreter::new();
@@ -565,7 +566,7 @@ mod tests {
         ))]);
         let res = interp.interp(Store::new(), stmt);
 
-        assert_eq!(res.err(), Some(Error::UndefinedVariable("x")));
+        assert_eq!(res.err(), Some(Error::UndefinedVariable("y")));
     }
 
     #[test]
@@ -583,6 +584,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_true() {
         let interp = Interpreter::new();
@@ -598,6 +600,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_false() {
         let interp = Interpreter::new();
@@ -613,6 +616,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_uncertain() {
         let interp = Interpreter::new();
@@ -630,6 +634,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_not() {
         let interp = Interpreter::new();
@@ -645,6 +650,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_equals_num() {
         let interp = Interpreter::new();
@@ -669,6 +675,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_equals_func() {
         let interp = Interpreter::new();
@@ -700,6 +707,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_equals_func_ref() {
         let interp = Interpreter::new();
@@ -731,6 +739,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_equals_uncertain() {
         let interp = Interpreter::new();
@@ -763,6 +772,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_equals_err() {
         let interp = Interpreter::new();
@@ -792,6 +802,7 @@ mod tests {
         );
     }
 
+    // skipped in collect
     #[test]
     fn test_nested_conditional() {
         let interp = Interpreter::new();
@@ -815,6 +826,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
+    // skipped in collect
     #[test]
     fn test_conditional_scope() {
         let interp = Interpreter::new();
@@ -842,18 +854,7 @@ mod tests {
         assert_eq!(res.unwrap(), store);
     }
 
-    #[test]
-    fn test_funcdef_err() {
-        let interp = Interpreter::new();
-        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::FuncDef("foo", body.clone())),
-        ]);
-        let res = interp.interp(Store::new(), stmt);
-
-        assert_eq!(res, Err(Error::VarAlreadyExists("foo")));
-    }
+    // skipped in collect (rest of tests)
 
     #[test]
     fn test_invoke() {

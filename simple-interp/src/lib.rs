@@ -1,3 +1,3 @@
-pub mod collect;
-pub mod interp;
-pub mod translate;
+pub mod func_collector;
+pub mod interpreter;
+pub mod translator;

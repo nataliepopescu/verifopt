@@ -1,44 +1,6 @@
-use crate::interpreter::{Statement, StoreVal};
+use crate::interpreter::{FuncVal, Statement};
 use std::collections::HashMap;
 use thiserror::Error;
-
-/*
-#[derive(Debug, Clone, PartialEq)]
-pub enum Statement {
-    Sequence(Vec<Box<Statement>>),
-    Assignment(&'static str, RVal),
-    Print(&'static str),
-    Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
-    // TODO replace w match
-    Switch(RVal, Vec<(StoreVal, Box<Statement>)>),
-    // no args or retvals for now
-    FuncDef(&'static str, Box<Statement>),
-    InvokeFunc(&'static str),
-    // TODO traits
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum RVal {
-    Var(&'static str),
-    Num(i32),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum StoreVal {
-    Num(i32),
-    FuncPtr(Box<Statement>),
-}
-*/
-
-// intentionally skipping Or, And, Xor, and GreaterThan for simplicity
-//#[derive(Debug, Clone, PartialEq)]
-//pub enum BooleanStatement {
-//    True(),
-//    False(),
-//    TrueOrFalse(),
-//    Not(Box<BooleanStatement>),
-//    Equals(RVal, RVal),
-//}
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
@@ -52,13 +14,13 @@ pub enum Error {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Env {
-    pub funcs: HashMap<&'static str, StoreVal>,
+    pub funcs: HashMap<&'static str, FuncVal>,
 }
 
 impl Env {
     pub fn new() -> Self {
         Self {
-            funcs: HashMap::<&'static str, StoreVal>::new(),
+            funcs: HashMap::<&'static str, FuncVal>::new(),
         }
     }
 }
@@ -151,7 +113,7 @@ impl FuncCollector {
             }
             None => {
                 let mut new_env = env.clone();
-                new_env.funcs.insert(name, StoreVal::FuncPtr(body.clone()));
+                new_env.funcs.insert(name, FuncVal::new(body.clone()));
                 Ok((new_env, Statement::FuncDef(name, Box::new(*body))))
             }
         }
@@ -191,7 +153,7 @@ impl FuncCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interpreter::{RVal, Statement, StoreVal};
+    use crate::interpreter::{FuncVal, RVal, Statement};
 
     #[test]
     fn test_print() {
@@ -275,7 +237,7 @@ mod tests {
         let res = fc.collect(Env::new(), stmt.clone());
 
         let mut env = Env::new();
-        env.funcs.insert("foo", StoreVal::FuncPtr(body));
+        env.funcs.insert("foo", FuncVal::new(body));
         assert_eq!(res.unwrap(), (env, stmt));
     }
 
@@ -303,7 +265,7 @@ mod tests {
         let res = fc.collect(Env::new(), stmt.clone());
 
         let mut env = Env::new();
-        env.funcs.insert("foo", StoreVal::FuncPtr(body.clone()));
+        env.funcs.insert("foo", FuncVal::new(body.clone()));
         assert_eq!(res.unwrap(), (env, stmt));
     }
 }

@@ -38,7 +38,7 @@ additional context
 - rust is different: the simple analysis is easier?
     - new class of optimizations: ones that require/use frontend knowledge
 
-- we are well-equipped (as a group) to identify "the wins that matter"?
+- well-equipped (as a group) to identify "the wins that matter"?
 
 "template-expansion?"
 
@@ -57,4 +57,14 @@ pitch/motivation
 - be wary of "we just happened to be the first people to think of this thing"
 - what is the specific combination of things (circumstances, technology,
   Rust-uniqueness, etc) that enables our solution
+
+when developing (toy), take note of the things that might make the process
+different/unique/better from a comparable thing in a language with weaker
+frontend guarantees
+- specifically, for example...
+    - how does the knowledge that this thing is immutable help/simplify
+      reasoning?
+        - or if mutable, when does exclusionary access help/simplify reasoning?
+    - or same for knowing that something will remain the same type (won't be
+      interpreted differently)? 
 

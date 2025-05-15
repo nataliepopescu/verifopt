@@ -15,8 +15,7 @@ pub enum Statement {
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
     // no args or retvals for now
     FuncDef(&'static str, Box<Statement>),
-    DirectInvoke(&'static str),
-    IndirectInvoke(&'static str),
+    InvokeFunc(&'static str),
     // TODO traits
 }
 
@@ -213,11 +212,8 @@ impl Interpreter {
             }
             Statement::Switch(val, vec) => self.interp_switch(store, val, vec),
             Statement::FuncDef(_, _) => Ok((store, stmt)),
-            Statement::DirectInvoke(name) => {
-                self.interp_direct_invoke(store, name)
-            }
-            Statement::IndirectInvoke(name) => {
-                self.interp_indirect_invoke(store, name)
+            Statement::InvokeFunc(name) => {
+                self.interp_invoke(store, name)
             }
         }
     }
@@ -450,7 +446,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_invoke_helper(
+    pub fn interp_indirect_invoke_helper(
         &self,
         store: Store,
         name: &'static str,
@@ -474,22 +470,18 @@ impl Interpreter {
         &self,
         store: Store,
         name: &'static str,
+        vec: &Vec<RVal>,
     ) -> Result<(Store, Statement), Error> {
-        match store.clone().inner.get(name) {
-            Some(vec) => {
-                let mut res_stores: Vec<Store> = vec![];
-                for val in vec.iter() {
-                    match self.interp_invoke_helper(store.clone(), name, val) {
-                        Ok((new_store, _)) => res_stores.push(new_store),
-                        err @ Err(_) => return err,
-                    }
-                }
-                match res_stores.merge() {
-                    Ok(store) => Ok((store, Statement::IndirectInvoke(name))),
-                    Err(err) => Err(err),
-                }
+        let mut res_stores: Vec<Store> = vec![];
+        for val in vec.iter() {
+            match self.interp_indirect_invoke_helper(store.clone(), name, val) {
+                Ok((new_store, _)) => res_stores.push(new_store),
+                err @ Err(_) => return err,
             }
-            None => return Err(Error::UndefinedSymbol(name)),
+        }
+        match res_stores.merge() {
+            Ok(store) => Ok((store, Statement::InvokeFunc(name))),
+            Err(err) => Err(err),
         }
     }
 
@@ -501,11 +493,22 @@ impl Interpreter {
         match self.funcs.get(name) {
             Some(func) => match self.interp(store, *func.body.clone()) {
                 Ok((new_store, _)) => {
-                    return Ok((new_store, Statement::DirectInvoke(name)));
+                    return Ok((new_store, Statement::InvokeFunc(name)));
                 }
                 err @ Err(_) => return err,
             },
             None => return Err(Error::UndefinedSymbol(name)),
+        }
+    }
+
+    pub fn interp_invoke(
+        &self,
+        store: Store,
+        name: &'static str,
+    ) -> Result<(Store, Statement), Error> {
+        match store.clone().inner.get(name) {
+            Some(vec) => self.interp_indirect_invoke(store.clone(), name, vec),
+            None => self.interp_direct_invoke(store.clone(), name),
         }
     }
 }
@@ -914,7 +917,7 @@ mod tests {
         let interp = Interpreter::new(env);
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", body)),
-            Box::new(Statement::DirectInvoke("foo")),
+            Box::new(Statement::InvokeFunc("foo")),
         ]);
         let res = interp.interp(Store::new(), stmt.clone());
 
@@ -935,7 +938,7 @@ mod tests {
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", body)),
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-            Box::new(Statement::IndirectInvoke("x")),
+            Box::new(Statement::InvokeFunc("x")),
         ]);
         let res = interp.interp(Store::new(), stmt.clone());
 
@@ -963,8 +966,8 @@ mod tests {
             Box::new(Statement::FuncDef("bar", bar_body)),
             Box::new(Statement::Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::DirectInvoke("foo")),
-                Box::new(Statement::DirectInvoke("bar")),
+                Box::new(Statement::InvokeFunc("foo")),
+                Box::new(Statement::InvokeFunc("bar")),
             )),
         ]);
         let res = interp.interp(Store::new(), stmt.clone());
@@ -995,7 +998,7 @@ mod tests {
                 Box::new(Statement::Assignment("x", RVal::Var("foo"))),
                 Box::new(Statement::Assignment("x", RVal::Var("bar"))),
             )),
-            Box::new(Statement::IndirectInvoke("x")),
+            Box::new(Statement::InvokeFunc("x")),
         ]);
         let res = interp.interp(Store::new(), stmt.clone());
 
@@ -1012,7 +1015,7 @@ mod tests {
         let interp = Interpreter::new(Env::new());
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("foo", RVal::Num(5))),
-            Box::new(Statement::IndirectInvoke("foo")),
+            Box::new(Statement::InvokeFunc("foo")),
         ]);
         let res = interp.interp(Store::new(), stmt);
 

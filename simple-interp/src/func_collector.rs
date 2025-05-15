@@ -1,14 +1,14 @@
+use crate::Error;
 use crate::interpreter::{FuncVal, Statement};
 use std::collections::HashMap;
-use thiserror::Error;
 
+/*
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
     #[error("Function {0} already exists")]
     FuncAlreadyExists(&'static str),
-    #[error("Symbol {0} is undefined")]
-    UndefinedSymbol(&'static str),
 }
+*/
 
 /// Define collector state
 

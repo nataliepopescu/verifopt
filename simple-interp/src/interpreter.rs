@@ -1,7 +1,7 @@
+use crate::Error;
 use std::collections::HashMap;
 use std::fmt;
 use std::ops::Not;
-use thiserror::Error;
 
 /// Define CFG
 
@@ -111,6 +111,7 @@ impl Not for &BooleanStatement {
     }
 }
 
+/*
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
     #[error("Symbol {0} is undefined")]
@@ -128,19 +129,29 @@ pub enum Error {
     #[error("Cannot perform merge on Vec with less than two elements")]
     VecSize(),
 }
+*/
 
 /// Define interpreter state
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Store {
+    funcs: HashMap<&'static str, FuncVal>,
     // FIXME pub ok?
-    pub inner: HashMap<&'static str, Vec<RVal>>,
+    pub vars: HashMap<&'static str, Vec<RVal>>,
 }
 
 impl Store {
     pub fn new() -> Self {
         Self {
-            inner: HashMap::<&'static str, Vec<RVal>>::new(),
+            funcs: HashMap::<&'static str, FuncVal>::new(),
+            vars: HashMap::<&'static str, Vec<RVal>>::new(),
+        }
+    }
+
+    pub fn new_with_func_symbols(env: crate::func_collector::Env) -> Self {
+        Self {
+            funcs: env.funcs,
+            vars: HashMap::<&'static str, Vec<RVal>>::new(),
         }
     }
 }
@@ -160,16 +171,16 @@ impl Merge for Vec<Store> {
 
         let mut merged = self[0].clone();
         for i in 1..self.len() {
-            for (key, val) in self[i].clone().inner.iter_mut() {
-                match merged.inner.get_mut(key) {
+            for (key, val) in self[i].clone().vars.iter_mut() {
+                match merged.vars.get_mut(key) {
                     Some(mut mval) => {
                         if val != mval {
                             val.append(&mut mval);
-                            merged.inner.insert(key, val.to_vec());
+                            merged.vars.insert(key, val.to_vec());
                         }
                     }
                     None => {
-                        merged.inner.insert(key, val.to_vec());
+                        merged.vars.insert(key, val.to_vec());
                     }
                 }
             }
@@ -179,14 +190,20 @@ impl Merge for Vec<Store> {
 }
 
 pub struct Interpreter {
-    funcs: HashMap<&'static str, FuncVal>,
+    //funcs: HashMap<&'static str, FuncVal>,
 }
 
 /// Implement interpreter
 
 impl Interpreter {
+    /*
     pub fn new(env: crate::func_collector::Env) -> Self {
         Self { funcs: env.funcs }
+    }
+    */
+
+    pub fn new() -> Self {
+        Self {}
     }
 
     pub fn interp(
@@ -240,20 +257,20 @@ impl Interpreter {
         value: RVal,
     ) -> Result<(Store, Statement), Error> {
         let mut new_store = store.clone();
-        if new_store.inner.get(var).is_some() {
+        if new_store.vars.get(var).is_some() {
             return Err(Error::VarAlreadyExists(var));
         }
 
         match value {
             RVal::Num(_) => {
-                new_store.inner.insert(var, vec![value.clone().into()]);
+                new_store.vars.insert(var, vec![value.clone().into()]);
             }
             ref varval @ RVal::Var(varname) => {
-                match new_store.inner.get(varname) {
-                    Some(val) => new_store.inner.insert(var, val.clone()),
-                    None => match self.funcs.get(varname) {
+                match new_store.vars.get(varname) {
+                    Some(val) => new_store.vars.insert(var, val.clone()),
+                    None => match new_store.funcs.get(varname) {
                         Some(_) => {
-                            new_store.inner.insert(var, vec![varval.clone()])
+                            new_store.vars.insert(var, vec![varval.clone()])
                         }
                         None => return Err(Error::UndefinedSymbol(varname)),
                     },
@@ -303,9 +320,9 @@ impl Interpreter {
     ) -> Result<Vec<RVal>, Error> {
         match rval {
             num @ RVal::Num(_) => Ok(vec![num]),
-            varval @ RVal::Var(var) => match store.inner.get(var) {
+            varval @ RVal::Var(var) => match store.vars.get(var) {
                 Some(val) => Ok(val.clone()),
-                None => match self.funcs.get(var) {
+                None => match store.funcs.get(var) {
                     Some(_) => Ok(vec![varval]),
                     None => Err(Error::UndefinedSymbol(var)),
                 },
@@ -417,7 +434,7 @@ impl Interpreter {
         // FIXME mod store if have effects
         let resolved_vals = match val {
             ref num @ RVal::Num(_) => vec![num.clone()],
-            RVal::Var(varname) => match store.inner.get(varname) {
+            RVal::Var(varname) => match store.vars.get(varname) {
                 Some(possible_vals) => possible_vals.to_vec(),
                 None => return Err(Error::UndefinedSymbol(varname)),
             },
@@ -452,7 +469,7 @@ impl Interpreter {
         val: &RVal,
     ) -> Result<(Store, Statement), Error> {
         match val {
-            RVal::Var(name) => match self.funcs.get(name) {
+            RVal::Var(name) => match store.clone().funcs.get(name) {
                 Some(func_val) => {
                     match self.interp(store, *func_val.body.clone()) {
                         Ok(new_store) => return Ok(new_store),
@@ -489,7 +506,7 @@ impl Interpreter {
         store: Store,
         name: &'static str,
     ) -> Result<(Store, Statement), Error> {
-        match self.funcs.get(name) {
+        match store.clone().funcs.get(name) {
             Some(func) => match self.interp(store, *func.body.clone()) {
                 Ok((new_store, _)) => {
                     return Ok((new_store, Statement::InvokeFunc(name)));
@@ -505,7 +522,7 @@ impl Interpreter {
         store: Store,
         name: &'static str,
     ) -> Result<(Store, Statement), Error> {
-        match store.clone().inner.get(name) {
+        match store.clone().vars.get(name) {
             Some(vec) => self.interp_indirect_invoke(store.clone(), name, vec),
             None => self.interp_direct_invoke(store.clone(), name),
         }
@@ -526,7 +543,7 @@ mod tests {
     #[test]
     fn test_merge_one() {
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
         let vec: Vec<Store> = vec![store];
         assert_eq!(vec[0].clone(), vec.merge().unwrap());
     }
@@ -534,21 +551,19 @@ mod tests {
     #[test]
     fn test_merge_two() {
         let mut store1 = Store::new();
-        store1.inner.insert("x", vec![RVal::Num(5)]);
+        store1.vars.insert("x", vec![RVal::Num(5)]);
         let mut store2 = Store::new();
-        store2.inner.insert("x", vec![RVal::Num(6)]);
+        store2.vars.insert("x", vec![RVal::Num(6)]);
         let vec: Vec<Store> = vec![store1, store2];
 
         let mut end_store = Store::new();
-        end_store
-            .inner
-            .insert("x", vec![RVal::Num(6), RVal::Num(5)]);
+        end_store.vars.insert("x", vec![RVal::Num(6), RVal::Num(5)]);
         assert_eq!(end_store, vec.merge().unwrap());
     }
 
     #[test]
     fn test_print() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Print("hello");
         let res = interp.interp(Store::new(), stmt.clone());
 
@@ -557,31 +572,31 @@ mod tests {
 
     #[test]
     fn test_assign_num() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Assignment("x", RVal::Num(5));
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     #[test]
     fn test_seq() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt_vec = vec![Box::new(Statement::Assignment("x", RVal::Num(5)))];
         let stmt = Statement::Sequence(stmt_vec);
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_seq_assign() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt_vec = vec![
             Box::new(Statement::Assignment("x", RVal::Num(5))),
             Box::new(Statement::Assignment("y", RVal::Num(6))),
@@ -590,14 +605,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
-        store.inner.insert("y", vec![RVal::Num(6)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("y", vec![RVal::Num(6)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     #[test]
     fn test_nested_seq() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Sequence(vec![Box::new(
                 Statement::Assignment("x", RVal::Num(5)),
@@ -609,14 +624,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
-        store.inner.insert("y", vec![RVal::Num(6)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("y", vec![RVal::Num(6)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     #[test]
     fn test_var_undef() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![Box::new(Statement::Assignment(
             "x",
             RVal::Var("y"),
@@ -628,7 +643,7 @@ mod tests {
 
     #[test]
     fn test_assign_var() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", RVal::Num(5))),
             Box::new(Statement::Assignment("y", RVal::Var("x"))),
@@ -636,15 +651,15 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
-        store.inner.insert("y", vec![RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("y", vec![RVal::Num(5)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_conditional_true() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Conditional(
             Box::new(BooleanStatement::True()),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
@@ -653,14 +668,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_conditional_false() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Conditional(
             Box::new(BooleanStatement::False()),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
@@ -669,14 +684,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(6)]);
+        store.vars.insert("x", vec![RVal::Num(6)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_conditional_uncertain() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Conditional(
             Box::new(BooleanStatement::TrueOrFalse()),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
@@ -685,14 +700,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(6), RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(6), RVal::Num(5)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_conditional_not() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Conditional(
             Box::new(BooleanStatement::Not(Box::new(BooleanStatement::True()))),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
@@ -701,14 +716,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(6)]);
+        store.vars.insert("x", vec![RVal::Num(6)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_conditional_equals_num() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", RVal::Num(3))),
             Box::new(Statement::Assignment("y", RVal::Num(3))),
@@ -724,9 +739,9 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(3)]);
-        store.inner.insert("y", vec![RVal::Num(3)]);
-        store.inner.insert("z", vec![RVal::Num(1)]);
+        store.vars.insert("x", vec![RVal::Num(3)]);
+        store.vars.insert("y", vec![RVal::Num(3)]);
+        store.vars.insert("z", vec![RVal::Num(1)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
@@ -740,8 +755,10 @@ mod tests {
         env.funcs.insert("foo", FuncVal::new(foo_body.clone()));
         env.funcs.insert("bar", FuncVal::new(foo_body.clone()));
 
+        let store = Store::new_with_func_symbols(env.clone());
+
         // note: `equals` is _shallow_, which is why it evals to false here
-        let interp = Interpreter::new(env);
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", foo_body.clone())),
             Box::new(Statement::FuncDef("bar", foo_body.clone())),
@@ -754,11 +771,11 @@ mod tests {
                 Box::new(Statement::Assignment("z", RVal::Num(2))),
             )),
         ]);
-        let res = interp.interp(Store::new(), stmt.clone());
+        let res = interp.interp(store, stmt.clone());
 
-        let mut store = Store::new();
-        store.inner.insert("z", vec![RVal::Num(2)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store.vars.insert("z", vec![RVal::Num(2)]);
+        assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
     // skipped in collect
@@ -770,7 +787,9 @@ mod tests {
         )]));
         env.funcs.insert("foo", FuncVal::new(foo_body.clone()));
 
-        let interp = Interpreter::new(env);
+        let store = Store::new_with_func_symbols(env.clone());
+
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", foo_body.clone())),
             Box::new(Statement::Assignment("bar", RVal::Var("foo"))),
@@ -783,18 +802,18 @@ mod tests {
                 Box::new(Statement::Assignment("z", RVal::Num(2))),
             )),
         ]);
-        let res = interp.interp(Store::new(), stmt.clone());
+        let res = interp.interp(store, stmt.clone());
 
-        let mut store = Store::new();
-        store.inner.insert("bar", vec![RVal::Var("foo")]);
-        store.inner.insert("z", vec![RVal::Num(1)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store.vars.insert("bar", vec![RVal::Var("foo")]);
+        check_store.vars.insert("z", vec![RVal::Num(1)]);
+        assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_conditional_equals_uncertain() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("x", RVal::Num(3))),
             Box::new(Statement::Conditional(
@@ -814,9 +833,9 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(3)]);
-        store.inner.insert("y", vec![RVal::Num(4), RVal::Num(3)]);
-        store.inner.insert("z", vec![RVal::Num(2), RVal::Num(1)]);
+        store.vars.insert("x", vec![RVal::Num(3)]);
+        store.vars.insert("y", vec![RVal::Num(4), RVal::Num(3)]);
+        store.vars.insert("z", vec![RVal::Num(2), RVal::Num(1)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
@@ -829,7 +848,9 @@ mod tests {
         )]));
         env.funcs.insert("foo", FuncVal::new(foo_body.clone()));
 
-        let interp = Interpreter::new(env);
+        let store = Store::new_with_func_symbols(env);
+
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", foo_body)),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
@@ -842,7 +863,7 @@ mod tests {
                 Box::new(Statement::Assignment("z", RVal::Num(2))),
             )),
         ]);
-        let res = interp.interp(Store::new(), stmt);
+        let res = interp.interp(store, stmt);
 
         assert_eq!(
             res,
@@ -853,7 +874,7 @@ mod tests {
     // skipped in collect
     #[test]
     fn test_nested_conditional() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Conditional(
             Box::new(BooleanStatement::True()),
             Box::new(Statement::Conditional(
@@ -870,14 +891,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     // skipped in collect
     #[test]
     fn test_conditional_scope() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![Box::new(Statement::Conditional(
             Box::new(BooleanStatement::True()),
             Box::new(Statement::Assignment("x", RVal::Num(5))),
@@ -886,7 +907,7 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
@@ -896,11 +917,14 @@ mod tests {
         let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
         env.funcs.insert("foo", FuncVal::new(body.clone()));
 
-        let interp = Interpreter::new(env);
-        let stmt = Statement::FuncDef("foo", body);
-        let res = interp.interp(Store::new(), stmt.clone());
+        let store = Store::new_with_func_symbols(env.clone());
 
-        assert_eq!(res.unwrap(), (Store::new(), stmt));
+        let interp = Interpreter::new();
+        let stmt = Statement::FuncDef("foo", body);
+        let res = interp.interp(store, stmt.clone());
+
+        let check_store = Store::new_with_func_symbols(env);
+        assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
     // skipped in collect (rest of tests)
@@ -913,16 +937,18 @@ mod tests {
         )]));
         env.funcs.insert("foo", FuncVal::new(body.clone()));
 
-        let interp = Interpreter::new(env);
+        let store = Store::new_with_func_symbols(env.clone());
+
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", body)),
             Box::new(Statement::InvokeFunc("foo")),
         ]);
-        let res = interp.interp(Store::new(), stmt.clone());
+        let res = interp.interp(store, stmt.clone());
 
-        let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store.vars.insert("x", vec![RVal::Num(5)]);
+        assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
     #[test]
@@ -933,18 +959,20 @@ mod tests {
         )]));
         env.funcs.insert("foo", FuncVal::new(body.clone()));
 
-        let interp = Interpreter::new(env);
+        let store = Store::new_with_func_symbols(env.clone());
+
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", body)),
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
             Box::new(Statement::InvokeFunc("x")),
         ]);
-        let res = interp.interp(Store::new(), stmt.clone());
+        let res = interp.interp(store, stmt.clone());
 
-        let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Var("foo")]);
-        store.inner.insert("z", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store.vars.insert("x", vec![RVal::Var("foo")]);
+        check_store.vars.insert("z", vec![RVal::Num(5)]);
+        assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
     #[test]
@@ -959,7 +987,9 @@ mod tests {
         env.funcs.insert("foo", FuncVal::new(foo_body.clone()));
         env.funcs.insert("bar", FuncVal::new(bar_body.clone()));
 
-        let interp = Interpreter::new(env);
+        let store = Store::new_with_func_symbols(env.clone());
+
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", foo_body)),
             Box::new(Statement::FuncDef("bar", bar_body)),
@@ -969,11 +999,13 @@ mod tests {
                 Box::new(Statement::InvokeFunc("bar")),
             )),
         ]);
-        let res = interp.interp(Store::new(), stmt.clone());
+        let res = interp.interp(store, stmt.clone());
 
-        let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(6), RVal::Num(5)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store
+            .vars
+            .insert("x", vec![RVal::Num(6), RVal::Num(5)]);
+        assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
     #[test]
@@ -988,7 +1020,9 @@ mod tests {
         env.funcs.insert("foo", FuncVal::new(foo_body.clone()));
         env.funcs.insert("bar", FuncVal::new(bar_body.clone()));
 
-        let interp = Interpreter::new(env);
+        let store = Store::new_with_func_symbols(env.clone());
+
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", foo_body)),
             Box::new(Statement::FuncDef("bar", bar_body)),
@@ -999,19 +1033,21 @@ mod tests {
             )),
             Box::new(Statement::InvokeFunc("x")),
         ]);
-        let res = interp.interp(Store::new(), stmt.clone());
+        let res = interp.interp(store, stmt.clone());
 
-        let mut store = Store::new();
-        store
-            .inner
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store
+            .vars
             .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
-        store.inner.insert("z", vec![RVal::Num(5), RVal::Num(6)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        check_store
+            .vars
+            .insert("z", vec![RVal::Num(5), RVal::Num(6)]);
+        assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
     #[test]
     fn test_indirect_invoke_err() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let stmt = Statement::Sequence(vec![
             Box::new(Statement::Assignment("foo", RVal::Num(5))),
             Box::new(Statement::InvokeFunc("foo")),
@@ -1023,7 +1059,7 @@ mod tests {
 
     #[test]
     fn test_switch_err() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![];
         let stmt = Statement::Switch(RVal::Var("x"), switch_vec);
         let res = interp.interp(Store::new(), stmt);
@@ -1033,7 +1069,7 @@ mod tests {
 
     #[test]
     fn test_switch() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![
             (
                 RVal::Num(4),
@@ -1051,14 +1087,14 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(5)]);
-        store.inner.insert("y", vec![RVal::Num(1)]);
+        store.vars.insert("x", vec![RVal::Num(5)]);
+        store.vars.insert("y", vec![RVal::Num(1)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
     #[test]
     fn test_switch_uncertain() {
-        let interp = Interpreter::new(Env::new());
+        let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![
             (
                 RVal::Num(4),
@@ -1080,8 +1116,8 @@ mod tests {
         let res = interp.interp(Store::new(), stmt.clone());
 
         let mut store = Store::new();
-        store.inner.insert("x", vec![RVal::Num(4), RVal::Num(5)]);
-        store.inner.insert("y", vec![RVal::Num(1), RVal::Num(0)]);
+        store.vars.insert("x", vec![RVal::Num(4), RVal::Num(5)]);
+        store.vars.insert("y", vec![RVal::Num(1), RVal::Num(0)]);
         assert_eq!(res.unwrap(), (store, stmt));
     }
 }

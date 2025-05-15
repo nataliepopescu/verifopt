@@ -14,6 +14,7 @@ pub enum Error {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Env {
+    // FIXME pub ok?
     pub funcs: HashMap<&'static str, FuncVal>,
 }
 

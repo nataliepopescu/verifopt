@@ -133,7 +133,8 @@ pub enum Error {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Store {
-    inner: HashMap<&'static str, Vec<RVal>>,
+    // FIXME pub ok?
+    pub inner: HashMap<&'static str, Vec<RVal>>,
 }
 
 impl Store {
@@ -212,9 +213,7 @@ impl Interpreter {
             }
             Statement::Switch(val, vec) => self.interp_switch(store, val, vec),
             Statement::FuncDef(_, _) => Ok((store, stmt)),
-            Statement::InvokeFunc(name) => {
-                self.interp_invoke(store, name)
-            }
+            Statement::InvokeFunc(name) => self.interp_invoke(store, name),
         }
     }
 

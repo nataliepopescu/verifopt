@@ -135,8 +135,8 @@ pub enum Error {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Store {
-    funcs: HashMap<&'static str, FuncVal>,
     // FIXME pub ok?
+    pub funcs: HashMap<&'static str, FuncVal>,
     pub vars: HashMap<&'static str, Vec<RVal>>,
 }
 
@@ -462,7 +462,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_indirect_invoke_helper(
+    fn interp_indirect_invoke_helper(
         &self,
         store: Store,
         name: &'static str,
@@ -482,7 +482,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_indirect_invoke(
+    fn interp_indirect_invoke(
         &self,
         store: Store,
         name: &'static str,
@@ -501,7 +501,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_direct_invoke(
+    fn interp_direct_invoke(
         &self,
         store: Store,
         name: &'static str,

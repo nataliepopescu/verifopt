@@ -4,6 +4,7 @@ pub mod rewriter;
 
 use crate::func_collector::{Env, FuncCollector};
 use crate::interpreter::{Interpreter, RVal, Statement, Store};
+use crate::rewriter::Rewriter;
 use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Error)]
@@ -24,27 +25,34 @@ pub enum Error {
 
 pub struct SimpleInterp {
     fc: FuncCollector,
-    interp: Interpreter,
+    ip: Interpreter,
 }
 
 impl SimpleInterp {
     pub fn new() -> Self {
         Self {
             fc: FuncCollector::new(),
-            interp: Interpreter::new(),
+            ip: Interpreter::new(),
         }
     }
 
     pub fn interp(
         &self,
         stmt: Statement,
-    ) -> (Option<Env>, Result<(Store, Statement), Error>) {
+    ) -> Result<(Env, Store, Statement), Error> {
         match self.fc.collect(Env::new(), stmt.clone()) {
             Ok(fc_res) => {
                 let store = Store::new_with_func_symbols(fc_res.0.clone());
-                (Some(fc_res.0), self.interp.interp(store, fc_res.1))
+                match self.ip.interp(store, fc_res.1) {
+                    Ok((store, stmt)) => {
+                        let rw = Rewriter::new(store.clone());
+                        let rw_stmt = rw.rewrite(stmt.clone()).unwrap();
+                        Ok((fc_res.0, store, rw_stmt))
+                    }
+                    Err(err) => Err(err),
+                }
             }
-            Err(err) => (None, Err(err)),
+            Err(err) => Err(err),
         }
     }
 }
@@ -59,9 +67,10 @@ mod tests {
         let stmt = Statement::Print("hello");
 
         let si = SimpleInterp::new();
-        let (_, res) = si.interp(stmt.clone());
+        let (_, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(res.unwrap(), (Store::new(), stmt));
+        assert_eq!(store, Store::new());
+        assert_eq!(rw_stmt, stmt);
     }
 
     #[test]
@@ -70,11 +79,10 @@ mod tests {
         let stmt = Statement::FuncDef("foo", body.clone());
 
         let si = SimpleInterp::new();
-        let (Some(env), res) = si.interp(stmt.clone()) else {
-            panic!("env is none")
-        };
+        let (env, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(res.unwrap(), (Store::new_with_func_symbols(env), stmt));
+        assert_eq!(store, Store::new_with_func_symbols(env));
+        assert_eq!(rw_stmt, stmt);
     }
 
     #[test]
@@ -88,13 +96,13 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (Some(env), res) = si.interp(stmt.clone()) else {
-            panic!("env is none")
-        };
+        let (env, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        let mut store = Store::new_with_func_symbols(env);
-        store.vars.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store.vars.insert("x", vec![RVal::Num(5)]);
+
+        assert_eq!(store, check_store);
+        assert_eq!(rw_stmt, stmt);
     }
 
     #[test]
@@ -103,19 +111,27 @@ mod tests {
             Statement::Assignment("z", RVal::Num(5)),
         )]));
         let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body)),
+            Box::new(Statement::FuncDef("foo", body.clone())),
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
             Box::new(Statement::InvokeFunc("x")),
         ]);
 
         let si = SimpleInterp::new();
-        let (Some(env), res) = si.interp(stmt.clone()) else {
-            panic!("env is none")
-        };
+        let (env, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        let mut store = Store::new_with_func_symbols(env);
-        store.vars.insert("x", vec![RVal::Var("foo")]);
-        store.vars.insert("z", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), (store, stmt));
+        let mut check_store = Store::new_with_func_symbols(env);
+        check_store.vars.insert("x", vec![RVal::Var("foo")]);
+        check_store.vars.insert("z", vec![RVal::Num(5)]);
+
+        let switch_vec =
+            vec![(RVal::Var("foo"), Box::new(Statement::InvokeFunc("foo")))];
+        let check_stmt = Statement::Sequence(vec![
+            Box::new(Statement::FuncDef("foo", body)),
+            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
+            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
+        ]);
+
+        assert_eq!(store, check_store);
+        assert_eq!(rw_stmt, check_stmt);
     }
 }

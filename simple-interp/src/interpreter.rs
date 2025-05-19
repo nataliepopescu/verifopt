@@ -45,32 +45,6 @@ impl FuncVal {
     }
 }
 
-/*
-#[derive(Debug, Clone, PartialEq)]
-pub enum  {
-    Num(i32),
-    FuncPtr(Box<Statement>),
-}
-
-impl From<RVal> for  {
-    fn from(item: RVal) -> Self {
-        match item {
-            RVal::Num(num) => ::Num(num),
-            RVal::Var(_) => panic!("cannot turn var name into "),
-        }
-    }
-}
-
-impl fmt::Display for  {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ::Num(num) => write!(f, "{:?}", num),
-            ::FuncPtr(boxed) => write!(f, "{:?}", boxed),
-        }
-    }
-}
-*/
-
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
 #[derive(Debug, Clone, PartialEq)]
 pub enum BooleanStatement {
@@ -110,26 +84,6 @@ impl Not for &BooleanStatement {
         }
     }
 }
-
-/*
-#[derive(Clone, Debug, PartialEq, Error)]
-pub enum Error {
-    #[error("Symbol {0} is undefined")]
-    UndefinedSymbol(&'static str),
-    //#[error("Variable {0} is undefined.")]
-    //UndefinedVariable(&'static str),
-    //#[error("Function {0} is undefined.")]
-    //UndefinedFunction(&'static str),
-    #[error("{0} cannot be compared to {1}.")]
-    IncomparableTypes(RVal, RVal),
-    #[error("{0} is not a function.")]
-    NotAFunction(&'static str),
-    #[error("Variable {0} already exists")]
-    VarAlreadyExists(&'static str),
-    #[error("Cannot perform merge on Vec with less than two elements")]
-    VecSize(),
-}
-*/
 
 /// Define interpreter state
 
@@ -189,19 +143,11 @@ impl Merge for Vec<Store> {
     }
 }
 
-pub struct Interpreter {
-    //funcs: HashMap<&'static str, FuncVal>,
-}
+pub struct Interpreter {}
 
 /// Implement interpreter
 
 impl Interpreter {
-    /*
-    pub fn new(env: crate::func_collector::Env) -> Self {
-        Self { funcs: env.funcs }
-    }
-    */
-
     pub fn new() -> Self {
         Self {}
     }
@@ -593,7 +539,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_seq_assign() {
         let interp = Interpreter::new();
@@ -656,7 +601,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_true() {
         let interp = Interpreter::new();
@@ -672,7 +616,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_false() {
         let interp = Interpreter::new();
@@ -688,7 +631,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_uncertain() {
         let interp = Interpreter::new();
@@ -704,7 +646,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_not() {
         let interp = Interpreter::new();
@@ -720,7 +661,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_equals_num() {
         let interp = Interpreter::new();
@@ -745,7 +685,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_equals_func() {
         let mut env = Env::new();
@@ -778,7 +717,6 @@ mod tests {
         assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_equals_func_ref() {
         let mut env = Env::new();
@@ -810,7 +748,6 @@ mod tests {
         assert_eq!(res.unwrap(), (check_store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_equals_uncertain() {
         let interp = Interpreter::new();
@@ -839,7 +776,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_equals_err() {
         let mut env = Env::new();
@@ -871,7 +807,6 @@ mod tests {
         );
     }
 
-    // skipped in collect
     #[test]
     fn test_nested_conditional() {
         let interp = Interpreter::new();
@@ -895,7 +830,6 @@ mod tests {
         assert_eq!(res.unwrap(), (store, stmt));
     }
 
-    // skipped in collect
     #[test]
     fn test_conditional_scope() {
         let interp = Interpreter::new();
@@ -926,8 +860,6 @@ mod tests {
         let check_store = Store::new_with_func_symbols(env);
         assert_eq!(res.unwrap(), (check_store, stmt));
     }
-
-    // skipped in collect (rest of tests)
 
     #[test]
     fn test_direct_invoke() {

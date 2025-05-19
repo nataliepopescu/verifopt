@@ -45,6 +45,7 @@ impl SimpleInterp {
                 let store = Store::new_with_func_symbols(fc_res.0.clone());
                 match self.ip.interp(store, fc_res.1) {
                     Ok((store, stmt)) => {
+                        // FIXME better API?
                         let rw = Rewriter::new(store.clone());
                         let rw_stmt = rw.rewrite(stmt.clone()).unwrap();
                         Ok((fc_res.0, store, rw_stmt))

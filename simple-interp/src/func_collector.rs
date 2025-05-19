@@ -2,14 +2,6 @@ use crate::Error;
 use crate::interpreter::{FuncVal, Statement};
 use std::collections::HashMap;
 
-/*
-#[derive(Clone, Debug, PartialEq, Error)]
-pub enum Error {
-    #[error("Function {0} already exists")]
-    FuncAlreadyExists(&'static str),
-}
-*/
-
 /// Define collector state
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,43 +57,6 @@ impl FuncCollector {
         Ok((cur_env, Statement::Sequence(stmt_vec)))
     }
 
-    /*
-    pub fn collect_assignment(
-        &self,
-        env: Env,
-        name: &'static str,
-        value: RVal,
-    ) -> Result<(Env, Statement), Error> {
-        match env.vars.get(name) {
-            Some(_) => {
-                return Err(Error::VarAlreadyExists(name));
-            }
-            None => {
-                let mut new_env = env.clone();
-                match value {
-                    RVal::Num(num) => {
-                        new_env.vars.insert(name, StoreVal::Num(num));
-                    }
-                    RVal::Var(varname) => match new_env.vars.get(varname) {
-                        Some(val) => {
-                            new_env.vars.insert(name, val.clone());
-                        }
-                        None => match new_env.funcs.get(varname) {
-                            Some(funcptr) => {
-                                new_env.funcs.insert(name, funcptr.clone());
-                            }
-                            None => {
-                                return Err(Error::UndefinedSymbol(varname));
-                            }
-                        },
-                    },
-                }
-                Ok((new_env, Statement::Assignment(name, value)))
-            }
-        }
-    }
-    */
-
     pub fn collect_funcdef(
         &self,
         env: Env,
@@ -119,36 +74,6 @@ impl FuncCollector {
             }
         }
     }
-
-    /*
-    pub fn collect_invoke(
-        &self,
-        _env: Env,
-        _name: &'static str,
-    ) -> Result<(Env, Statement), Error> {
-        todo!()
-    }
-    */
-    /*
-    match env.funcs.get(name) {
-        Some(_) => {
-            return Err(Error::FuncAlreadyExists(name));
-        }
-        None => {
-            let mut env_clone = env.clone();
-            env_clone
-                .funcs
-                .insert(name, StoreVal::FuncPtr(body.clone()));
-            match self.collect(env_clone, *body) {
-                Ok((new_env, collected_body)) => Ok((
-                    new_env,
-                    Statement::FuncDef(name, Box::new(collected_body)),
-                )),
-                e @ Err(_) => e,
-            }
-        }
-    }
-    */
 }
 
 #[cfg(test)]

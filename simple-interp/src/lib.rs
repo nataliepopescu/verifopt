@@ -129,15 +129,16 @@ impl SimpleInterp {
         &self,
         stmt: Statement,
     ) -> Result<(Env, Store, Statement), Error> {
-        match self.fc.collect(Env::new(), stmt.clone()) {
+        let mut env = Env::new();
+        match self.fc.collect(&mut env, stmt.clone()) {
             Ok(fc_res) => {
-                let store = Store::new_with_func_symbols(fc_res.0.clone());
-                match self.ip.interp(store, fc_res.1) {
+                let store = Store::new_with_func_symbols(env.clone());
+                match self.ip.interp(store, fc_res) {
                     Ok((store, stmt)) => {
                         // FIXME better API?
                         let rw = Rewriter::new(store.clone());
                         let rw_stmt = rw.rewrite(stmt.clone()).unwrap();
-                        Ok((fc_res.0, store, rw_stmt))
+                        Ok((env, store, rw_stmt))
                     }
                     Err(err) => Err(err),
                 }

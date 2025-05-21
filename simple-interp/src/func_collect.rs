@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Env {
-    // FIXME pub ok?
+    // FIXME pub ok? (for tests)
     pub funcs: HashMap<&'static str, FuncVal>,
 }
 

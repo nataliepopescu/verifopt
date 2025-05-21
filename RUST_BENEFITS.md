@@ -50,13 +50,21 @@ add interior mutability to make struct fields effectively `mut`?
 
 - might want to somehow split up the data structure in order to be able to
   achieve this behavior...
-    - could wrap field in a Box and use
-      [`as_mut_ptr()`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.as_mut_ptr)
-      when want to mutate?
-        - maintains some aliasing guarantees
+- but just splitting into substructs won't work b/c field mutability is
+  inherited
+- could wrap field in a Box and use
+  [`as_mut_ptr()`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.as_mut_ptr)
+  when want to mutate?
+    - maintains some aliasing guarantees BUT requires unsafe to perform the
+      mutation...
+    - and using unsafe (unless necessary) sort of defeats the purpose of using
+      rust
 
 - do ^ for not only symbols table/variables (`funcs` and `vars` but also maybe
   the AST (`Statement`s))
 
+- what needs to be _shared_ vs what needs _exclusive access_
+
 did a high-level pass over code structure/data layout, but reason about the 
 implementation a bit more
+

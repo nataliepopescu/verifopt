@@ -18,7 +18,7 @@ impl Store {
         }
     }
 
-    pub fn new_with_func_symbols(env: crate::func_collector::Env) -> Self {
+    pub fn new_with_func_symbols(env: crate::func_collect::Env) -> Self {
         Self {
             funcs: env.funcs,
             vars: HashMap::<&'static str, Vec<RVal>>::new(),
@@ -394,7 +394,7 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::func_collector::Env;
+    use crate::func_collect::Env;
 
     #[test]
     fn test_merge_none() {

@@ -78,7 +78,7 @@ impl FuncCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::interpreter::{FuncVal, RVal, Statement};
+    use crate::{FuncVal, RVal, Statement};
 
     #[test]
     fn test_print() {

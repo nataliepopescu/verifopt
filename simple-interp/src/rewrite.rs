@@ -136,8 +136,8 @@ impl Rewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::func_collector::Env;
-    use crate::interpreter::FuncVal;
+    use crate::FuncVal;
+    use crate::func_collect::Env;
 
     #[test]
     fn test_print() {

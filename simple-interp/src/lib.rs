@@ -1,10 +1,10 @@
-pub mod func_collector;
-pub mod interpreter;
-pub mod rewriter;
+pub mod func_collect;
+pub mod interpret;
+pub mod rewrite;
 
-use crate::func_collector::{Env, FuncCollector};
-use crate::interpreter::{Interpreter, Store};
-use crate::rewriter::Rewriter;
+use crate::func_collect::{Env, FuncCollector};
+use crate::interpret::{Interpreter, Store};
+use crate::rewrite::Rewriter;
 use thiserror::Error;
 
 use std::fmt;
@@ -149,7 +149,6 @@ impl SimpleInterp {
 
 #[cfg(test)]
 mod tests {
-    use super::interpreter::RVal;
     use super::*;
 
     #[test]

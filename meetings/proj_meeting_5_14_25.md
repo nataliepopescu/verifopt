@@ -8,12 +8,12 @@
 
 - high-level
 
-##
+## notes
 
 impl traits in toy language?
 - subtle to impl this the first time
 
-don't pre-optimizse (worry about the performance _just yet_)
+don't pre-optimize (worry about the performance _just yet_)
 
 reiterate
 - why now?
@@ -67,4 +67,7 @@ frontend guarantees
         - or if mutable, when does exclusionary access help/simplify reasoning?
     - or same for knowing that something will remain the same type (won't be
       interpreted differently)? 
+        - def rely on this in some cases (search for the panics in the rewrite
+          impl)
+    - boxed / unique ptrs
 

@@ -1,5 +1,4 @@
-use crate::Error;
-use crate::interpreter::{FuncVal, Statement};
+use crate::{Error, FuncVal, Statement};
 use std::collections::HashMap;
 
 /// Define collector state

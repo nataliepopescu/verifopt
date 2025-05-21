@@ -3,9 +3,14 @@ pub mod interpreter;
 pub mod rewriter;
 
 use crate::func_collector::{Env, FuncCollector};
-use crate::interpreter::{Interpreter, RVal, Statement, Store};
+use crate::interpreter::{Interpreter, Store};
 use crate::rewriter::Rewriter;
 use thiserror::Error;
+
+use std::fmt;
+use std::ops::Not;
+
+/// Define Errors
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
@@ -22,6 +27,90 @@ pub enum Error {
     #[error("Cannot perform merge on Vec with less than two elements")]
     VecSize(),
 }
+
+/// Define CFG
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    Sequence(Vec<Box<Statement>>),
+    Assignment(&'static str, RVal),
+    Print(&'static str),
+    Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
+    // TODO replace w match
+    Switch(RVal, Vec<(RVal, Box<Statement>)>),
+    // no args or retvals for now
+    FuncDef(&'static str, Box<Statement>),
+    InvokeFunc(&'static str),
+    // TODO traits
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RVal {
+    Num(i32),
+    Var(&'static str),
+}
+
+impl fmt::Display for RVal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RVal::Num(num) => write!(f, "{}", num),
+            RVal::Var(var) => write!(f, "{}", var),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FuncVal {
+    body: Box<Statement>,
+}
+
+impl FuncVal {
+    pub fn new(body: Box<Statement>) -> Self {
+        Self { body }
+    }
+}
+
+// intentionally skipping Or, And, Xor, and GreaterThan for simplicity
+#[derive(Debug, Clone, PartialEq)]
+pub enum BooleanStatement {
+    True(),
+    False(),
+    TrueOrFalse(),
+    Not(Box<BooleanStatement>),
+    Equals(RVal, RVal),
+}
+
+impl Not for BooleanStatement {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            BooleanStatement::True() => BooleanStatement::False(),
+            BooleanStatement::False() => BooleanStatement::True(),
+            BooleanStatement::TrueOrFalse() => BooleanStatement::TrueOrFalse(),
+            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
+                panic!("not implemented yet")
+            }
+        }
+    }
+}
+
+impl Not for &BooleanStatement {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            BooleanStatement::True() => &BooleanStatement::False(),
+            BooleanStatement::False() => &BooleanStatement::True(),
+            BooleanStatement::TrueOrFalse() => &BooleanStatement::TrueOrFalse(),
+            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
+                panic!("not implemented yet (&)")
+            }
+        }
+    }
+}
+
+/// Define driver
 
 pub struct SimpleInterp {
     fc: FuncCollector,

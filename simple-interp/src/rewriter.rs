@@ -1,5 +1,4 @@
-use crate::Error;
-use crate::interpreter::{BooleanStatement, RVal, Statement, Store};
+use crate::{BooleanStatement, Error, RVal, Statement, Store};
 
 pub struct Rewriter {
     // note immutability
@@ -123,6 +122,8 @@ impl Rewriter {
         name: &'static str,
     ) -> Result<Statement, Error> {
         match self.store.clone().funcs.get(name) {
+            // FIXME make sure no variable has the same name as a func => SSA
+            // pass
             Some(_) => Ok(Statement::InvokeFunc(name)),
             None => match self.store.clone().vars.get(name) {
                 Some(vec) => self.rewrite_indirect_invoke(name, vec),

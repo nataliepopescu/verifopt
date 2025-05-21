@@ -68,3 +68,6 @@ add interior mutability to make struct fields effectively `mut`?
 did a high-level pass over code structure/data layout, but reason about the 
 implementation a bit more
 
+- attempting mut Env => BUT still need to return Env/Store/State/whatever for
+  the next pass(es)? can just use the original mutated param...
+

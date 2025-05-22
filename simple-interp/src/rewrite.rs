@@ -1,8 +1,12 @@
-use crate::{BooleanStatement, Error, RVal, Statement, Store};
+use crate::func_collect::Funcs;
+use crate::interpret::Vars;
+use crate::{BooleanStatement, Error, RVal, Statement};
 
 pub struct Rewriter {
     // note immutability
-    store: Store,
+    // FIXME no need to have these here
+    funcs: Funcs,
+    vars: Vars,
 }
 
 /// Implement rewriter
@@ -10,8 +14,8 @@ pub struct Rewriter {
 // FIXME never returns Err, refactor out Result return type
 
 impl Rewriter {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new(funcs: Funcs, vars: Vars) -> Self {
+        Self { funcs, vars }
     }
 
     pub fn rewrite(&self, stmt: &mut Statement) -> Result<(), Error> {
@@ -122,11 +126,11 @@ impl Rewriter {
         &self,
         name: &'static str,
     ) -> Result<Statement, Error> {
-        match self.store.clone().funcs.get(name) {
+        match self.funcs.funcs.get(name) {
             // FIXME make sure no variable has the same name as a func => SSA
             // pass
             Some(_) => Ok(Statement::InvokeFunc(name)),
-            None => match self.store.clone().vars.get(name) {
+            None => match self.vars.vars.get(name) {
                 Some(vec) => self.rewrite_indirect_invoke(name, vec),
                 None => panic!("IP BUG: missed undef symbol"),
             },
@@ -138,14 +142,14 @@ impl Rewriter {
 mod tests {
     use super::*;
     use crate::FuncVal;
-    use crate::func_collect::Env;
+    use crate::func_collect::Funcs;
 
     #[test]
     fn test_print() {
         let mut stmt = Statement::Print("hello");
         let check_stmt = stmt.clone();
 
-        let rw = Rewriter::new(Store::new());
+        let rw = Rewriter::new(Funcs::new(), Vars::new());
         let _ = rw.rewrite(&mut stmt);
 
         assert_eq!(check_stmt, stmt);
@@ -156,10 +160,10 @@ mod tests {
         let mut stmt = Statement::Assignment("x", RVal::Num(5));
         let check_stmt = stmt.clone();
 
-        let mut store = Store::new();
-        store.vars.insert("x", vec![RVal::Num(5)]);
+        let mut vars = Vars::new();
+        vars.vars.insert("x", vec![RVal::Num(5)]);
 
-        let rw = Rewriter::new(store);
+        let rw = Rewriter::new(Funcs::new(), vars);
         let _ = rw.rewrite(&mut stmt);
 
         assert_eq!(check_stmt, stmt);
@@ -177,12 +181,12 @@ mod tests {
         ]);
         let check_stmt = stmt.clone();
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(body.clone()));
-        let mut store = Store::new_with_func_symbols(env.clone());
-        store.vars.insert("x", vec![RVal::Var("foo")]);
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        let mut vars = Vars::new();
+        vars.vars.insert("x", vec![RVal::Var("foo")]);
 
-        let rw = Rewriter::new(store);
+        let rw = Rewriter::new(funcs, vars);
         let _ = rw.rewrite(&mut stmt);
 
         assert_eq!(check_stmt, stmt);
@@ -199,12 +203,12 @@ mod tests {
             Box::new(Statement::InvokeFunc("x")),
         ]);
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(body.clone()));
-        let mut store = Store::new_with_func_symbols(env.clone());
-        store.vars.insert("x", vec![RVal::Var("foo")]);
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        let mut vars = Vars::new();
+        vars.vars.insert("x", vec![RVal::Var("foo")]);
 
-        let rw = Rewriter::new(store);
+        let rw = Rewriter::new(funcs, vars);
         let _ = rw.rewrite(&mut stmt);
 
         let switch_vec =
@@ -237,15 +241,14 @@ mod tests {
             Box::new(Statement::InvokeFunc("x")),
         ]);
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(foo_body.clone()));
-        env.funcs.insert("bar", FuncVal::new(bar_body.clone()));
-        let mut store = Store::new_with_func_symbols(env.clone());
-        store
-            .vars
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
+        funcs.funcs.insert("bar", FuncVal::new(bar_body.clone()));
+        let mut vars = Vars::new();
+        vars.vars
             .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
 
-        let rw = Rewriter::new(store);
+        let rw = Rewriter::new(funcs, vars);
         let _ = rw.rewrite(&mut stmt);
 
         let switch_vec = vec![

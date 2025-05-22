@@ -2,56 +2,66 @@ use crate::func_collect::Funcs;
 use crate::interpret::Vars;
 use crate::{BooleanStatement, Error, RVal, Statement};
 
-pub struct Rewriter {
-    // note immutability
-    // FIXME no need to have these here
-    funcs: Funcs,
-    vars: Vars,
-}
+pub struct Rewriter {}
 
 /// Implement rewriter
 
 // FIXME never returns Err, refactor out Result return type
 
 impl Rewriter {
-    pub fn new(funcs: Funcs, vars: Vars) -> Self {
-        Self { funcs, vars }
+    pub fn new() -> Self {
+        Self {}
     }
 
-    pub fn rewrite(&self, stmt: &mut Statement) -> Result<(), Error> {
+    pub fn rewrite(
+        &self,
+        funcs: &Funcs,
+        vars: &Vars,
+        stmt: &mut Statement,
+    ) -> Result<(), Error> {
         match stmt {
             // FIXME impl when funcs have retvals + can print result
             Statement::Print(_) => Ok(()),
             // FIXME impl when funcs have retvals + can be assigned
             Statement::Assignment(_, _) => Ok(()),
-            Statement::Sequence(stmt_vec) => self.rewrite_seq(stmt_vec),
+            Statement::Sequence(stmt_vec) => {
+                self.rewrite_seq(funcs, vars, stmt_vec)
+            }
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.rewrite_conditional(
+                    funcs,
+                    vars,
                     *condition.clone(),
                     &mut (*true_branch),
                     &mut (*false_branch),
                 )
             }
             Statement::Switch(val, vec) => {
-                self.rewrite_switch(val.clone(), vec)
+                self.rewrite_switch(funcs, vars, val.clone(), vec)
             }
-            Statement::FuncDef(name, body) => self.rewrite_funcdef(name, body),
-            Statement::InvokeFunc(name) => match self.rewrite_invoke(name) {
-                Ok(res) => {
-                    *stmt = res;
-                    Ok(())
+            Statement::FuncDef(name, body) => {
+                self.rewrite_funcdef(funcs, vars, name, body)
+            }
+            Statement::InvokeFunc(name) => {
+                match self.rewrite_invoke(funcs, vars, name) {
+                    Ok(res) => {
+                        *stmt = res;
+                        Ok(())
+                    }
+                    Err(err) => Err(err),
                 }
-                Err(err) => Err(err),
-            },
+            }
         }
     }
 
     pub fn rewrite_seq(
         &self,
+        funcs: &Funcs,
+        vars: &Vars,
         stmt_vec: &mut Vec<Box<Statement>>,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter_mut() {
-            let res = self.rewrite(stmt);
+            let res = self.rewrite(funcs, vars, stmt);
             if res.is_err() {
                 return res;
             }
@@ -61,17 +71,19 @@ impl Rewriter {
 
     pub fn rewrite_conditional(
         &self,
+        funcs: &Funcs,
+        vars: &Vars,
         _condition: BooleanStatement,
         mut true_branch: &mut Statement,
         mut false_branch: &mut Statement,
     ) -> Result<(), Error> {
         // FIXME also rewrite condition when funcs can ret booleans
-        let res_true = self.rewrite(&mut true_branch);
+        let res_true = self.rewrite(funcs, vars, &mut true_branch);
         if res_true.is_err() {
             return res_true;
         }
 
-        let res_false = self.rewrite(&mut false_branch);
+        let res_false = self.rewrite(funcs, vars, &mut false_branch);
         if res_false.is_err() {
             return res_false;
         }
@@ -81,11 +93,13 @@ impl Rewriter {
 
     pub fn rewrite_switch(
         &self,
+        funcs: &Funcs,
+        vars: &Vars,
         _val: RVal,
         vec: &mut Vec<(RVal, Box<Statement>)>,
     ) -> Result<(), Error> {
         for (_, switch_stmt) in vec.iter_mut() {
-            let res = self.rewrite(&mut (*switch_stmt));
+            let res = self.rewrite(funcs, vars, &mut (*switch_stmt));
             if res.is_err() {
                 return res;
             }
@@ -95,10 +109,12 @@ impl Rewriter {
 
     pub fn rewrite_funcdef(
         &self,
+        funcs: &Funcs,
+        vars: &Vars,
         _name: &'static str,
         body: &mut Box<Statement>,
     ) -> Result<(), Error> {
-        let res = self.rewrite(&mut (*body));
+        let res = self.rewrite(funcs, vars, &mut (*body));
         if res.is_err() {
             return res;
         }
@@ -124,13 +140,15 @@ impl Rewriter {
 
     pub fn rewrite_invoke(
         &self,
+        funcs: &Funcs,
+        vars: &Vars,
         name: &'static str,
     ) -> Result<Statement, Error> {
-        match self.funcs.funcs.get(name) {
+        match funcs.funcs.get(name) {
             // FIXME make sure no variable has the same name as a func => SSA
             // pass
             Some(_) => Ok(Statement::InvokeFunc(name)),
-            None => match self.vars.vars.get(name) {
+            None => match vars.vars.get(name) {
                 Some(vec) => self.rewrite_indirect_invoke(name, vec),
                 None => panic!("IP BUG: missed undef symbol"),
             },
@@ -149,8 +167,10 @@ mod tests {
         let mut stmt = Statement::Print("hello");
         let check_stmt = stmt.clone();
 
-        let rw = Rewriter::new(Funcs::new(), Vars::new());
-        let _ = rw.rewrite(&mut stmt);
+        let funcs = Funcs::new();
+        let vars = Vars::new();
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -160,11 +180,12 @@ mod tests {
         let mut stmt = Statement::Assignment("x", RVal::Num(5));
         let check_stmt = stmt.clone();
 
+        let funcs = Funcs::new();
         let mut vars = Vars::new();
         vars.vars.insert("x", vec![RVal::Num(5)]);
 
-        let rw = Rewriter::new(Funcs::new(), vars);
-        let _ = rw.rewrite(&mut stmt);
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -186,8 +207,8 @@ mod tests {
         let mut vars = Vars::new();
         vars.vars.insert("x", vec![RVal::Var("foo")]);
 
-        let rw = Rewriter::new(funcs, vars);
-        let _ = rw.rewrite(&mut stmt);
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -208,8 +229,8 @@ mod tests {
         let mut vars = Vars::new();
         vars.vars.insert("x", vec![RVal::Var("foo")]);
 
-        let rw = Rewriter::new(funcs, vars);
-        let _ = rw.rewrite(&mut stmt);
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(Statement::InvokeFunc("foo")))];
@@ -248,8 +269,8 @@ mod tests {
         vars.vars
             .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
 
-        let rw = Rewriter::new(funcs, vars);
-        let _ = rw.rewrite(&mut stmt);
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         let switch_vec = vec![
             (RVal::Var("bar"), Box::new(Statement::InvokeFunc("bar"))),

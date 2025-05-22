@@ -115,6 +115,7 @@ impl Not for &BooleanStatement {
 pub struct SimpleInterp {
     fc: FuncCollector,
     ip: Interpreter,
+    rw: Rewriter,
 }
 
 impl SimpleInterp {
@@ -122,6 +123,7 @@ impl SimpleInterp {
         Self {
             fc: FuncCollector::new(),
             ip: Interpreter::new(),
+            rw: Rewriter::new(),
         }
     }
 
@@ -135,9 +137,7 @@ impl SimpleInterp {
                 let mut vars = Vars::new();
                 match self.ip.interp(&funcs, &mut vars, fc_res) {
                     Ok(mut stmt) => {
-                        // FIXME better API?
-                        let rw = Rewriter::new(funcs.clone(), vars.clone());
-                        rw.rewrite(&mut stmt).unwrap();
+                        self.rw.rewrite(&funcs, &vars, &mut stmt).unwrap();
                         Ok((funcs, vars, stmt))
                     }
                     Err(err) => Err(err),
@@ -169,7 +169,7 @@ mod tests {
         let stmt = Statement::FuncDef("foo", body.clone());
 
         let si = SimpleInterp::new();
-        let (funcs, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (_, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         assert_eq!(vars, Vars::new());
         assert_eq!(rw_stmt, stmt);
@@ -186,7 +186,7 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (funcs, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (_, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
@@ -207,7 +207,7 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (funcs, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (_, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Var("foo")]);

@@ -14,8 +14,6 @@ impl Funcs {
     }
 }
 
-// TODO remove Statement from retval if not using diff Statement types per pass
-
 pub struct FuncCollector {}
 
 impl FuncCollector {
@@ -26,37 +24,37 @@ impl FuncCollector {
     pub fn collect(
         &self,
         funcs: &mut Funcs,
-        stmt: Statement,
-    ) -> Result<Statement, Error> {
+        stmt: &Statement,
+    ) -> Result<(), Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => self.collect_seq(funcs, stmt_vec),
             Statement::FuncDef(name, body) => {
                 self.collect_funcdef(funcs, name, body)
             }
-            _ => Ok(stmt),
+            _ => Ok(()),
         }
     }
 
     pub fn collect_seq(
         &self,
         funcs: &mut Funcs,
-        stmt_vec: Vec<Box<Statement>>,
-    ) -> Result<Statement, Error> {
+        stmt_vec: &Vec<Box<Statement>>,
+    ) -> Result<(), Error> {
         for stmt in stmt_vec.iter() {
-            let res = self.collect(funcs, *stmt.clone());
+            let res = self.collect(funcs, &*stmt);
             if res.is_err() {
                 return res;
             }
         }
-        Ok(Statement::Sequence(stmt_vec))
+        Ok(())
     }
 
     pub fn collect_funcdef(
         &self,
         funcs: &mut Funcs,
         name: &'static str,
-        body: Box<Statement>,
-    ) -> Result<Statement, Error> {
+        body: &Box<Statement>,
+    ) -> Result<(), Error> {
         // FIXME remove duplicate name check (panic)
         match funcs.funcs.get(name) {
             Some(_) => {
@@ -64,7 +62,7 @@ impl FuncCollector {
             }
             None => {
                 funcs.funcs.insert(name, FuncVal::new(body.clone()));
-                Ok(Statement::FuncDef(name, Box::new(*body)))
+                Ok(())
             }
         }
     }
@@ -80,10 +78,10 @@ mod tests {
         let fc = FuncCollector::new();
         let stmt = Statement::Print("hello");
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let check_funcs = Funcs::new();
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 
@@ -92,10 +90,10 @@ mod tests {
         let fc = FuncCollector::new();
         let stmt = Statement::Assignment("x", RVal::Num(5));
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let check_funcs = Funcs::new();
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 
@@ -105,10 +103,10 @@ mod tests {
         let stmt_vec = vec![Box::new(Statement::Assignment("x", RVal::Num(5)))];
         let stmt = Statement::Sequence(stmt_vec);
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let check_funcs = Funcs::new();
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 
@@ -124,10 +122,10 @@ mod tests {
             )])),
         ]);
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let check_funcs = Funcs::new();
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 
@@ -139,10 +137,10 @@ mod tests {
             RVal::Var("y"),
         ))]);
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let check_funcs = Funcs::new();
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 
@@ -154,10 +152,10 @@ mod tests {
             Box::new(Statement::Assignment("y", RVal::Var("x"))),
         ]);
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let check_funcs = Funcs::new();
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 
@@ -167,11 +165,11 @@ mod tests {
         let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
         let stmt = Statement::FuncDef("foo", body.clone());
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert("foo", FuncVal::new(body));
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 
@@ -184,11 +182,11 @@ mod tests {
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
         ]);
         let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
+        let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert("foo", FuncVal::new(body.clone()));
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
 }

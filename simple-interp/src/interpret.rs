@@ -48,8 +48,6 @@ impl Merge for Vec<Vars> {
     }
 }
 
-// TODO remove Statement from retval if not using diff Statement types per pass
-
 pub struct Interpreter {}
 
 impl Interpreter {
@@ -61,8 +59,8 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         vars: &mut Vars,
-        stmt: Statement,
-    ) -> Result<Statement, Error> {
+        stmt: &Statement,
+    ) -> Result<(), Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => {
                 self.interp_seq(funcs, vars, stmt_vec)
@@ -72,21 +70,21 @@ impl Interpreter {
             }
             Statement::Print(var) => {
                 self.interp_print(var);
-                Ok(stmt)
+                Ok(())
             }
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.interp_conditional(
                     funcs,
                     vars,
-                    *condition,
-                    *true_branch,
-                    *false_branch,
+                    &*condition,
+                    &*true_branch,
+                    &*false_branch,
                 )
             }
             Statement::Switch(val, vec) => {
                 self.interp_switch(funcs, vars, val, vec)
             }
-            Statement::FuncDef(_, _) => Ok(stmt),
+            Statement::FuncDef(_, _) => Ok(()),
             Statement::InvokeFunc(name) => {
                 self.interp_invoke(funcs, vars, name)
             }
@@ -97,15 +95,15 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         vars: &mut Vars,
-        stmt_vec: Vec<Box<Statement>>,
-    ) -> Result<Statement, Error> {
+        stmt_vec: &Vec<Box<Statement>>,
+    ) -> Result<(), Error> {
         for stmt in stmt_vec.iter() {
-            let res = self.interp(&funcs, vars, *stmt.clone());
+            let res = self.interp(&funcs, vars, &*stmt);
             if res.is_err() {
                 return res;
             }
         }
-        Ok(Statement::Sequence(stmt_vec))
+        Ok(())
     }
 
     pub fn interp_assignment(
@@ -113,8 +111,8 @@ impl Interpreter {
         funcs: &Funcs,
         vars: &mut Vars,
         var: &'static str,
-        value: RVal,
-    ) -> Result<Statement, Error> {
+        value: &RVal,
+    ) -> Result<(), Error> {
         if vars.vars.get(var).is_some() {
             panic!("SSA BUG: varname {:?} already exists", &var);
         }
@@ -123,7 +121,7 @@ impl Interpreter {
             RVal::Num(_) => {
                 vars.vars.insert(var, vec![value.clone().into()]);
             }
-            ref r @ RVal::Var(varname) => {
+            r @ RVal::Var(varname) => {
                 match vars.vars.get(varname) {
                     Some(val) => vars.vars.insert(var, val.clone()),
                     None => match funcs.funcs.get(varname) {
@@ -133,7 +131,7 @@ impl Interpreter {
                 };
             }
         }
-        Ok(Statement::Assignment(var, value))
+        Ok(())
     }
 
     pub fn interp_print(&self, var: &'static str) {
@@ -239,10 +237,10 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         vars: &mut Vars,
-        condition: BooleanStatement,
-        true_branch: Statement,
-        false_branch: Statement,
-    ) -> Result<Statement, Error> {
+        condition: &BooleanStatement,
+        true_branch: &Statement,
+        false_branch: &Statement,
+    ) -> Result<(), Error> {
         let mut res_vars: Vec<Vars> = vec![];
 
         // FIXME mod store if have effects
@@ -250,17 +248,13 @@ impl Interpreter {
             Ok(bool_res) => {
                 let mut vars_clone = vars.clone();
                 if self.possible(&bool_res) {
-                    match self.interp(funcs, vars, true_branch.clone()) {
+                    match self.interp(funcs, vars, true_branch) {
                         Ok(_) => res_vars.push(vars.clone()),
                         err @ Err(_) => return err,
                     }
                 }
                 if self.possible(!&bool_res) {
-                    match self.interp(
-                        funcs,
-                        &mut vars_clone,
-                        false_branch.clone(),
-                    ) {
+                    match self.interp(funcs, &mut vars_clone, false_branch) {
                         Ok(_) => res_vars.push(vars_clone),
                         err @ Err(_) => return err,
                     }
@@ -272,11 +266,7 @@ impl Interpreter {
         match res_vars.merge() {
             Ok(new_vars) => {
                 *vars = new_vars;
-                Ok(Statement::Conditional(
-                    Box::new(condition),
-                    Box::new(true_branch),
-                    Box::new(false_branch),
-                ))
+                Ok(())
             }
             Err(err) => Err(err),
         }
@@ -295,12 +285,12 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         vars: &mut Vars,
-        val: RVal,
-        vec: Vec<(RVal, Box<Statement>)>,
-    ) -> Result<Statement, Error> {
+        val: &RVal,
+        vec: &Vec<(RVal, Box<Statement>)>,
+    ) -> Result<(), Error> {
         // FIXME mod store if have effects
         let resolved_vals = match val {
-            ref num @ RVal::Num(_) => vec![num.clone()],
+            num @ RVal::Num(_) => vec![num.clone()],
             RVal::Var(varname) => match vars.vars.get(varname) {
                 Some(possible_vals) => possible_vals.to_vec(),
                 None => return Err(Error::UndefinedSymbol(varname)),
@@ -318,7 +308,7 @@ impl Interpreter {
         let mut res_vars: Vec<Vars> = Vec::new();
         for (_, vec_stmt) in matching_vals.iter() {
             let mut scoped_vars = vars.clone();
-            match self.interp(funcs, &mut scoped_vars, *vec_stmt.clone()) {
+            match self.interp(funcs, &mut scoped_vars, &*vec_stmt) {
                 Ok(_) => res_vars.push(scoped_vars.clone()),
                 err @ Err(_) => return err,
             }
@@ -327,7 +317,7 @@ impl Interpreter {
         match res_vars.merge() {
             Ok(new_vars) => {
                 *vars = new_vars;
-                Ok(Statement::Switch(val, vec))
+                Ok(())
             }
             Err(err) => Err(err),
         }
@@ -339,11 +329,11 @@ impl Interpreter {
         vars: &mut Vars,
         name: &'static str,
         val: &RVal,
-    ) -> Result<Statement, Error> {
+    ) -> Result<(), Error> {
         match val {
             RVal::Var(name) => match funcs.funcs.get(name) {
                 Some(func_val) => {
-                    match self.interp(funcs, vars, *func_val.body.clone()) {
+                    match self.interp(funcs, vars, &*func_val.body) {
                         Ok(stmt) => return Ok(stmt),
                         err @ Err(_) => return err,
                     }
@@ -360,7 +350,7 @@ impl Interpreter {
         vars: &mut Vars,
         name: &'static str,
         vec: &Vec<RVal>,
-    ) -> Result<Statement, Error> {
+    ) -> Result<(), Error> {
         let mut res_vars: Vec<Vars> = vec![];
         for val in vec.iter() {
             match self.interp_indirect_invoke_helper(funcs, vars, name, val) {
@@ -371,7 +361,7 @@ impl Interpreter {
         match res_vars.merge() {
             Ok(new_vars) => {
                 *vars = new_vars;
-                Ok(Statement::InvokeFunc(name))
+                Ok(())
             }
             Err(err) => Err(err),
         }
@@ -382,11 +372,11 @@ impl Interpreter {
         funcs: &Funcs,
         vars: &mut Vars,
         name: &'static str,
-    ) -> Result<Statement, Error> {
+    ) -> Result<(), Error> {
         match funcs.funcs.get(name) {
-            Some(func) => match self.interp(funcs, vars, *func.body.clone()) {
+            Some(func) => match self.interp(funcs, vars, &*func.body) {
                 Ok(_) => {
-                    return Ok(Statement::InvokeFunc(name));
+                    return Ok(());
                 }
                 err @ Err(_) => return err,
             },
@@ -399,7 +389,7 @@ impl Interpreter {
         funcs: &Funcs,
         vars: &mut Vars,
         name: &'static str,
-    ) -> Result<Statement, Error> {
+    ) -> Result<(), Error> {
         match vars.clone().vars.get(name) {
             Some(vec) => self.interp_indirect_invoke(funcs, vars, name, vec),
             None => self.interp_direct_invoke(funcs, vars, name),
@@ -446,9 +436,9 @@ mod tests {
         let stmt = Statement::Print("hello");
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, Vars::new());
     }
 
@@ -458,11 +448,12 @@ mod tests {
         let stmt = Statement::Assignment("x", RVal::Num(5));
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -473,11 +464,12 @@ mod tests {
         let stmt = Statement::Sequence(stmt_vec);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -491,12 +483,13 @@ mod tests {
         let stmt = Statement::Sequence(stmt_vec);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
         check_vars.vars.insert("y", vec![RVal::Num(6)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -513,12 +506,13 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
         check_vars.vars.insert("y", vec![RVal::Num(6)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -531,7 +525,7 @@ mod tests {
         ))]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt);
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         assert_eq!(res.err(), Some(Error::UndefinedSymbol("y")));
     }
@@ -545,12 +539,13 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
         check_vars.vars.insert("y", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -564,11 +559,12 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -582,11 +578,12 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(6)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -600,13 +597,14 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars
             .vars
             .insert("x", vec![RVal::Num(6), RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -620,11 +618,12 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(6)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -645,13 +644,14 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(3)]);
         check_vars.vars.insert("y", vec![RVal::Num(3)]);
         check_vars.vars.insert("z", vec![RVal::Num(1)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -680,11 +680,12 @@ mod tests {
                 Box::new(Statement::Assignment("z", RVal::Num(2))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("z", vec![RVal::Num(2)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -711,12 +712,13 @@ mod tests {
                 Box::new(Statement::Assignment("z", RVal::Num(2))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("bar", vec![RVal::Var("foo")]);
         check_vars.vars.insert("z", vec![RVal::Num(1)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -741,7 +743,7 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(3)]);
@@ -751,7 +753,8 @@ mod tests {
         check_vars
             .vars
             .insert("z", vec![RVal::Num(2), RVal::Num(1)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -778,7 +781,7 @@ mod tests {
                 Box::new(Statement::Assignment("z", RVal::Num(2))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, stmt);
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         assert_eq!(
             res,
@@ -804,11 +807,12 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -822,11 +826,12 @@ mod tests {
         ))]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -840,9 +845,9 @@ mod tests {
 
         let interp = Interpreter::new();
         let stmt = Statement::FuncDef("foo", body);
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, Vars::new());
     }
 
@@ -861,11 +866,12 @@ mod tests {
             Box::new(Statement::FuncDef("foo", body)),
             Box::new(Statement::InvokeFunc("foo")),
         ]);
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -885,12 +891,13 @@ mod tests {
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
             Box::new(Statement::InvokeFunc("x")),
         ]);
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Var("foo")]);
         check_vars.vars.insert("z", vec![RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -918,13 +925,14 @@ mod tests {
                 Box::new(Statement::InvokeFunc("bar")),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars
             .vars
             .insert("x", vec![RVal::Num(6), RVal::Num(5)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -953,7 +961,7 @@ mod tests {
             )),
             Box::new(Statement::InvokeFunc("x")),
         ]);
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars
@@ -961,7 +969,8 @@ mod tests {
             .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
         check_vars.vars.insert("y", vec![RVal::Num(5)]);
         check_vars.vars.insert("z", vec![RVal::Num(6)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -974,7 +983,7 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt);
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         assert_eq!(res, Err(Error::NotAFunction("foo")));
     }
@@ -984,7 +993,7 @@ mod tests {
         let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![];
         let stmt = Statement::Switch(RVal::Var("x"), switch_vec);
-        let res = interp.interp(&Funcs::new(), &mut Vars::new(), stmt);
+        let res = interp.interp(&Funcs::new(), &mut Vars::new(), &stmt);
 
         assert_eq!(res, Err(Error::UndefinedSymbol("x")));
     }
@@ -1008,12 +1017,13 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
         check_vars.vars.insert("y", vec![RVal::Num(1)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
@@ -1040,7 +1050,7 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        let res = interp.interp(&funcs, &mut vars, stmt.clone());
+        let res = interp.interp(&funcs, &mut vars, &stmt);
 
         let mut check_vars = Vars::new();
         check_vars
@@ -1049,7 +1059,8 @@ mod tests {
         check_vars
             .vars
             .insert("y", vec![RVal::Num(1), RVal::Num(0)]);
-        assert_eq!(res.unwrap(), stmt);
+
+        assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 }

@@ -121,7 +121,10 @@ impl SimpleInterp {
         }
     }
 
-    pub fn interp(&self, stmt: Statement) -> Result<(Vars, Statement), Error> {
+    pub fn interp(
+        &self,
+        mut stmt: Statement,
+    ) -> Result<(Vars, Statement), Error> {
         let mut symbols = Symbols::new();
         let res1 = self.sc.check(&mut symbols, &stmt);
         if res1.is_err() {
@@ -129,26 +132,23 @@ impl SimpleInterp {
         }
 
         let mut funcs = Funcs::new();
-        // FIXME stmt.clone() -> &stmt
-        let res2 = self.fc.collect(&mut funcs, stmt.clone());
+        let res2 = self.fc.collect(&mut funcs, &stmt);
         if res2.is_err() {
             return Err(res2.err().unwrap());
         }
 
         let mut vars = Vars::new();
-        // FIXME use same stmt instead of res2.unwrap()
-        let res3 = self.ip.interp(&funcs, &mut vars, res2.unwrap());
+        let res3 = self.ip.interp(&funcs, &mut vars, &stmt);
         if res3.is_err() {
             return Err(res3.err().unwrap());
         }
 
-        let mut new_stmt = res3.unwrap().clone();
-        let res4 = self.rw.rewrite(&funcs, &vars, &mut new_stmt);
+        let res4 = self.rw.rewrite(&funcs, &vars, &mut stmt);
         if res4.is_err() {
             return Err(res4.err().unwrap());
         }
 
-        Ok((vars, new_stmt))
+        Ok((vars, stmt))
     }
 }
 

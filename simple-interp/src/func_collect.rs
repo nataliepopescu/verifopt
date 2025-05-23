@@ -1,15 +1,12 @@
 use crate::{Error, FuncVal, Statement};
 use std::collections::HashMap;
 
-/// Define collector state
-
 #[derive(Debug, Clone, PartialEq)]
-pub struct Env {
-    // FIXME pub ok? (for tests)
+pub struct Funcs {
     pub funcs: HashMap<&'static str, FuncVal>,
 }
 
-impl Env {
+impl Funcs {
     pub fn new() -> Self {
         Self {
             funcs: HashMap::<&'static str, FuncVal>::new(),
@@ -19,8 +16,6 @@ impl Env {
 
 pub struct FuncCollector {}
 
-/// Implement collector
-
 impl FuncCollector {
     pub fn new() -> Self {
         Self {}
@@ -28,48 +23,46 @@ impl FuncCollector {
 
     pub fn collect(
         &self,
-        env: Env,
-        stmt: Statement,
-    ) -> Result<(Env, Statement), Error> {
+        funcs: &mut Funcs,
+        stmt: &Statement,
+    ) -> Result<(), Error> {
         match stmt {
-            Statement::Sequence(stmt_vec) => self.collect_seq(env, stmt_vec),
+            Statement::Sequence(stmt_vec) => self.collect_seq(funcs, stmt_vec),
             Statement::FuncDef(name, body) => {
-                self.collect_funcdef(env, name, body)
+                self.collect_funcdef(funcs, name, body)
             }
-            _ => Ok((env, stmt)),
+            _ => Ok(()),
         }
     }
 
     pub fn collect_seq(
         &self,
-        env: Env,
-        stmt_vec: Vec<Box<Statement>>,
-    ) -> Result<(Env, Statement), Error> {
-        let mut cur_env = env;
+        funcs: &mut Funcs,
+        stmt_vec: &Vec<Box<Statement>>,
+    ) -> Result<(), Error> {
         for stmt in stmt_vec.iter() {
-            let res = self.collect(cur_env, *stmt.clone());
+            let res = self.collect(funcs, &*stmt);
             if res.is_err() {
                 return res;
             }
-            cur_env = res.unwrap().0;
         }
-        Ok((cur_env, Statement::Sequence(stmt_vec)))
+        Ok(())
     }
 
     pub fn collect_funcdef(
         &self,
-        env: Env,
+        funcs: &mut Funcs,
         name: &'static str,
-        body: Box<Statement>,
-    ) -> Result<(Env, Statement), Error> {
-        match env.funcs.get(name) {
+        body: &Box<Statement>,
+    ) -> Result<(), Error> {
+        // FIXME remove duplicate name check (panic)
+        match funcs.funcs.get(name) {
             Some(_) => {
-                return Err(Error::FuncAlreadyExists(name));
+                panic!("SSA BUG: funcname {:?} already exists", &name)
             }
             None => {
-                let mut new_env = env.clone();
-                new_env.funcs.insert(name, FuncVal::new(body.clone()));
-                Ok((new_env, Statement::FuncDef(name, Box::new(*body))))
+                funcs.funcs.insert(name, FuncVal::new(body.clone()));
+                Ok(())
             }
         }
     }
@@ -84,20 +77,24 @@ mod tests {
     fn test_print() {
         let fc = FuncCollector::new();
         let stmt = Statement::Print("hello");
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let env = Env::new();
-        assert_eq!(res.unwrap(), (env, stmt));
+        let check_funcs = Funcs::new();
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 
     #[test]
     fn test_assign_num() {
         let fc = FuncCollector::new();
         let stmt = Statement::Assignment("x", RVal::Num(5));
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let env = Env::new();
-        assert_eq!(res.unwrap(), (env, stmt));
+        let check_funcs = Funcs::new();
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 
     #[test]
@@ -105,10 +102,12 @@ mod tests {
         let fc = FuncCollector::new();
         let stmt_vec = vec![Box::new(Statement::Assignment("x", RVal::Num(5)))];
         let stmt = Statement::Sequence(stmt_vec);
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let env = Env::new();
-        assert_eq!(res.unwrap(), (env, stmt));
+        let check_funcs = Funcs::new();
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 
     #[test]
@@ -122,10 +121,12 @@ mod tests {
                 Statement::Assignment("y", RVal::Num(6)),
             )])),
         ]);
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let env = Env::new();
-        assert_eq!(res.unwrap(), (env, stmt));
+        let check_funcs = Funcs::new();
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 
     #[test]
@@ -135,10 +136,12 @@ mod tests {
             "x",
             RVal::Var("y"),
         ))]);
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let env = Env::new();
-        assert_eq!(res.unwrap(), (env, stmt));
+        let check_funcs = Funcs::new();
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 
     #[test]
@@ -148,10 +151,12 @@ mod tests {
             Box::new(Statement::Assignment("x", RVal::Num(5))),
             Box::new(Statement::Assignment("y", RVal::Var("x"))),
         ]);
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let env = Env::new();
-        assert_eq!(res.unwrap(), (env, stmt));
+        let check_funcs = Funcs::new();
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 
     #[test]
@@ -159,24 +164,13 @@ mod tests {
         let fc = FuncCollector::new();
         let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
         let stmt = Statement::FuncDef("foo", body.clone());
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(body));
-        assert_eq!(res.unwrap(), (env, stmt));
-    }
-
-    #[test]
-    fn test_funcdef_err() {
-        let fc = FuncCollector::new();
-        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::FuncDef("foo", body.clone())),
-        ]);
-        let res = fc.collect(Env::new(), stmt.clone());
-
-        assert_eq!(res, Err(Error::FuncAlreadyExists("foo")));
+        let mut check_funcs = Funcs::new();
+        check_funcs.funcs.insert("foo", FuncVal::new(body));
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 
     #[test]
@@ -187,10 +181,12 @@ mod tests {
             Box::new(Statement::FuncDef("foo", body.clone())),
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
         ]);
-        let res = fc.collect(Env::new(), stmt.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(body.clone()));
-        assert_eq!(res.unwrap(), (env, stmt));
+        let mut check_funcs = Funcs::new();
+        check_funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
     }
 }

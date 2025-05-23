@@ -1,104 +1,124 @@
-use crate::{BooleanStatement, Error, RVal, Statement, Store};
+use crate::func_collect::Funcs;
+use crate::interpret::Vars;
+use crate::{BooleanStatement, Error, RVal, Statement};
 
-pub struct Rewriter {
-    // note immutability
-    store: Store,
-}
+pub struct Rewriter {}
 
 /// Implement rewriter
 
-// FIXME never returns Err, refactor out Result return type
+// TODO never returns Err, refactor out Result return type (wait on this)
 
 impl Rewriter {
-    pub fn new(store: Store) -> Self {
-        Self { store }
+    pub fn new() -> Self {
+        Self {}
     }
 
-    pub fn rewrite(&self, stmt: Statement) -> Result<Statement, Error> {
+    pub fn rewrite(
+        &self,
+        funcs: &Funcs,
+        vars: &Vars,
+        stmt: &mut Statement,
+    ) -> Result<(), Error> {
         match stmt {
-            // FIXME when funcs have retvals + can print result
-            Statement::Print(_) => Ok(stmt),
-            // FIXME when funcs have retvals + can be assigned
-            Statement::Assignment(_, _) => Ok(stmt),
-            Statement::Sequence(stmt_vec) => self.rewrite_seq(stmt_vec),
+            // FIXME impl when funcs have retvals + can print result
+            Statement::Print(_) => Ok(()),
+            // FIXME impl when funcs have retvals + can be assigned
+            Statement::Assignment(_, _) => Ok(()),
+            Statement::Sequence(stmt_vec) => {
+                self.rewrite_seq(funcs, vars, stmt_vec)
+            }
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.rewrite_conditional(
-                    *condition,
-                    *true_branch,
-                    *false_branch,
+                    funcs,
+                    vars,
+                    *condition.clone(),
+                    &mut (*true_branch),
+                    &mut (*false_branch),
                 )
             }
-            Statement::Switch(val, vec) => self.rewrite_switch(val, vec),
-            Statement::FuncDef(name, body) => self.rewrite_funcdef(name, body),
-            Statement::InvokeFunc(name) => self.rewrite_invoke(name),
+            Statement::Switch(val, vec) => {
+                self.rewrite_switch(funcs, vars, val.clone(), vec)
+            }
+            Statement::FuncDef(name, body) => {
+                self.rewrite_funcdef(funcs, vars, name, body)
+            }
+            Statement::InvokeFunc(name) => {
+                match self.rewrite_invoke(funcs, vars, name) {
+                    Ok(res) => {
+                        *stmt = res;
+                        Ok(())
+                    }
+                    Err(err) => Err(err),
+                }
+            }
         }
     }
 
     pub fn rewrite_seq(
         &self,
-        stmt_vec: Vec<Box<Statement>>,
-    ) -> Result<Statement, Error> {
-        let mut new_stmt_vec = vec![];
-        for stmt in stmt_vec.iter() {
-            let res = self.rewrite(*stmt.clone());
+        funcs: &Funcs,
+        vars: &Vars,
+        stmt_vec: &mut Vec<Box<Statement>>,
+    ) -> Result<(), Error> {
+        for stmt in stmt_vec.iter_mut() {
+            let res = self.rewrite(funcs, vars, stmt);
             if res.is_err() {
                 return res;
             }
-            new_stmt_vec.push(Box::new(res.unwrap()));
         }
-        Ok(Statement::Sequence(new_stmt_vec))
+        Ok(())
     }
 
     pub fn rewrite_conditional(
         &self,
-        condition: BooleanStatement,
-        true_branch: Statement,
-        false_branch: Statement,
-    ) -> Result<Statement, Error> {
+        funcs: &Funcs,
+        vars: &Vars,
+        _condition: BooleanStatement,
+        mut true_branch: &mut Statement,
+        mut false_branch: &mut Statement,
+    ) -> Result<(), Error> {
         // FIXME also rewrite condition when funcs can ret booleans
-        let res_true = self.rewrite(true_branch);
+        let res_true = self.rewrite(funcs, vars, &mut true_branch);
         if res_true.is_err() {
             return res_true;
         }
 
-        let res_false = self.rewrite(false_branch);
+        let res_false = self.rewrite(funcs, vars, &mut false_branch);
         if res_false.is_err() {
             return res_false;
         }
 
-        Ok(Statement::Conditional(
-            Box::new(condition),
-            Box::new(res_true.unwrap()),
-            Box::new(res_false.unwrap()),
-        ))
+        Ok(())
     }
 
     pub fn rewrite_switch(
         &self,
-        val: RVal,
-        vec: Vec<(RVal, Box<Statement>)>,
-    ) -> Result<Statement, Error> {
-        let mut new_vec = vec![];
-        for (switch_val, switch_stmt) in vec.into_iter() {
-            let res = self.rewrite(*switch_stmt);
+        funcs: &Funcs,
+        vars: &Vars,
+        _val: RVal,
+        vec: &mut Vec<(RVal, Box<Statement>)>,
+    ) -> Result<(), Error> {
+        for (_, switch_stmt) in vec.iter_mut() {
+            let res = self.rewrite(funcs, vars, &mut (*switch_stmt));
             if res.is_err() {
                 return res;
             }
-            new_vec.push((switch_val, Box::new(res.unwrap())));
         }
-        Ok(Statement::Switch(val, new_vec))
+        Ok(())
     }
 
     pub fn rewrite_funcdef(
         &self,
-        name: &'static str,
-        body: Box<Statement>,
-    ) -> Result<Statement, Error> {
-        let res = self.rewrite(*body);
+        funcs: &Funcs,
+        vars: &Vars,
+        _name: &'static str,
+        body: &mut Box<Statement>,
+    ) -> Result<(), Error> {
+        let res = self.rewrite(funcs, vars, &mut (*body));
         if res.is_err() {
             return res;
         }
-        Ok(Statement::FuncDef(name, Box::new(res.unwrap())))
+        Ok(())
     }
 
     fn rewrite_indirect_invoke(
@@ -108,10 +128,12 @@ impl Rewriter {
     ) -> Result<Statement, Error> {
         let mut switch_vec = vec![];
         for rval in vec.into_iter() {
+            // FIXME remove check (panic)
             match rval.clone() {
-                RVal::Var(var) => switch_vec
-                    .push((rval.clone(), Box::new(Statement::InvokeFunc(var)))),
-                _ => panic!("IP BUG: num is not a func name"),
+                r @ RVal::Var(var) => {
+                    switch_vec.push((r, Box::new(Statement::InvokeFunc(var))))
+                }
+                _ => panic!("IP BUG: num {:?} is not a func name", &rval),
             }
         }
         Ok(Statement::Switch(RVal::Var(name), switch_vec))
@@ -119,15 +141,16 @@ impl Rewriter {
 
     pub fn rewrite_invoke(
         &self,
+        funcs: &Funcs,
+        vars: &Vars,
         name: &'static str,
     ) -> Result<Statement, Error> {
-        match self.store.clone().funcs.get(name) {
-            // FIXME make sure no variable has the same name as a func => SSA
-            // pass
+        match funcs.funcs.get(name) {
             Some(_) => Ok(Statement::InvokeFunc(name)),
-            None => match self.store.clone().vars.get(name) {
+            // FIXME remove check (panic)
+            None => match vars.vars.get(name) {
                 Some(vec) => self.rewrite_indirect_invoke(name, vec),
-                None => panic!("IP BUG: missed undef symbol"),
+                None => panic!("IP BUG: missed undef symbol {:?}", &name),
             },
         }
     }
@@ -137,29 +160,34 @@ impl Rewriter {
 mod tests {
     use super::*;
     use crate::FuncVal;
-    use crate::func_collect::Env;
+    use crate::func_collect::Funcs;
 
     #[test]
     fn test_print() {
-        let stmt = Statement::Print("hello");
+        let mut stmt = Statement::Print("hello");
+        let check_stmt = stmt.clone();
 
-        let rw = Rewriter::new(Store::new());
-        let res = rw.rewrite(stmt.clone());
+        let funcs = Funcs::new();
+        let vars = Vars::new();
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(check_stmt, stmt);
     }
 
     #[test]
     fn test_assignment() {
-        let stmt = Statement::Assignment("x", RVal::Num(5));
+        let mut stmt = Statement::Assignment("x", RVal::Num(5));
+        let check_stmt = stmt.clone();
 
-        let mut store = Store::new();
-        store.vars.insert("x", vec![RVal::Num(5)]);
+        let funcs = Funcs::new();
+        let mut vars = Vars::new();
+        vars.vars.insert("x", vec![RVal::Num(5)]);
 
-        let rw = Rewriter::new(store);
-        let res = rw.rewrite(stmt.clone());
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
-        assert_eq!(res.unwrap(), stmt);
+        assert_eq!(check_stmt, stmt);
     }
 
     #[test]
@@ -167,21 +195,22 @@ mod tests {
         let body = Box::new(Statement::Sequence(vec![Box::new(
             Statement::Assignment("z", RVal::Num(5)),
         )]));
-        let stmt = Statement::Sequence(vec![
+        let mut stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", body.clone())),
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
             Box::new(Statement::InvokeFunc("foo")),
         ]);
+        let check_stmt = stmt.clone();
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(body.clone()));
-        let mut store = Store::new_with_func_symbols(env.clone());
-        store.vars.insert("x", vec![RVal::Var("foo")]);
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        let mut vars = Vars::new();
+        vars.vars.insert("x", vec![RVal::Var("foo")]);
 
-        let rw = Rewriter::new(store);
-        let res = rw.rewrite(stmt.clone());
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
-        assert_eq!(res.unwrap(), stmt.clone());
+        assert_eq!(check_stmt, stmt);
     }
 
     #[test]
@@ -189,19 +218,19 @@ mod tests {
         let body = Box::new(Statement::Sequence(vec![Box::new(
             Statement::Assignment("z", RVal::Num(5)),
         )]));
-        let stmt = Statement::Sequence(vec![
+        let mut stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", body.clone())),
             Box::new(Statement::Assignment("x", RVal::Var("foo"))),
             Box::new(Statement::InvokeFunc("x")),
         ]);
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(body.clone()));
-        let mut store = Store::new_with_func_symbols(env.clone());
-        store.vars.insert("x", vec![RVal::Var("foo")]);
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        let mut vars = Vars::new();
+        vars.vars.insert("x", vec![RVal::Var("foo")]);
 
-        let rw = Rewriter::new(store);
-        let res = rw.rewrite(stmt);
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(Statement::InvokeFunc("foo")))];
@@ -211,7 +240,7 @@ mod tests {
             Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(res.unwrap(), check_stmt);
+        assert_eq!(stmt, check_stmt);
     }
 
     #[test]
@@ -222,7 +251,7 @@ mod tests {
         let bar_body = Box::new(Statement::Sequence(vec![Box::new(
             Statement::Assignment("z", RVal::Num(6)),
         )]));
-        let stmt = Statement::Sequence(vec![
+        let mut stmt = Statement::Sequence(vec![
             Box::new(Statement::FuncDef("foo", foo_body.clone())),
             Box::new(Statement::FuncDef("bar", bar_body.clone())),
             Box::new(Statement::Conditional(
@@ -233,16 +262,15 @@ mod tests {
             Box::new(Statement::InvokeFunc("x")),
         ]);
 
-        let mut env = Env::new();
-        env.funcs.insert("foo", FuncVal::new(foo_body.clone()));
-        env.funcs.insert("bar", FuncVal::new(bar_body.clone()));
-        let mut store = Store::new_with_func_symbols(env.clone());
-        store
-            .vars
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
+        funcs.funcs.insert("bar", FuncVal::new(bar_body.clone()));
+        let mut vars = Vars::new();
+        vars.vars
             .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
 
-        let rw = Rewriter::new(store);
-        let res = rw.rewrite(stmt);
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         let switch_vec = vec![
             (RVal::Var("bar"), Box::new(Statement::InvokeFunc("bar"))),
@@ -259,6 +287,6 @@ mod tests {
             Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(res.unwrap(), check_stmt);
+        assert_eq!(stmt, check_stmt);
     }
 }

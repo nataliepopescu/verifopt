@@ -1,16 +1,16 @@
 pub mod func_collect;
 pub mod interpret;
 pub mod rewrite;
+pub mod ssa;
 
-use crate::func_collect::{Env, FuncCollector};
-use crate::interpret::{Interpreter, Store};
+use crate::func_collect::{FuncCollector, Funcs};
+use crate::interpret::{Interpreter, Vars};
 use crate::rewrite::Rewriter;
+use crate::ssa::{SSAChecker, Symbols};
 use thiserror::Error;
 
 use std::fmt;
 use std::ops::Not;
-
-/// Define Errors
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
@@ -20,15 +20,11 @@ pub enum Error {
     IncomparableTypes(RVal, RVal),
     #[error("{0} is not a function.")]
     NotAFunction(&'static str),
-    #[error("Function {0} already exists")]
-    FuncAlreadyExists(&'static str),
-    #[error("Variable {0} already exists")]
-    VarAlreadyExists(&'static str),
+    #[error("Symbol {0} already exists.")]
+    SymbolAlreadyExists(&'static str),
     #[error("Cannot perform merge on Vec with less than two elements")]
     VecSize(),
 }
-
-/// Define CFG
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
@@ -36,12 +32,10 @@ pub enum Statement {
     Assignment(&'static str, RVal),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
-    // TODO replace w match
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
     // no args or retvals for now
     FuncDef(&'static str, Box<Statement>),
     InvokeFunc(&'static str),
-    // TODO traits
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -110,40 +104,51 @@ impl Not for &BooleanStatement {
     }
 }
 
-/// Define driver
-
 pub struct SimpleInterp {
+    sc: SSAChecker,
     fc: FuncCollector,
     ip: Interpreter,
+    rw: Rewriter,
 }
 
 impl SimpleInterp {
     pub fn new() -> Self {
         Self {
+            sc: SSAChecker::new(),
             fc: FuncCollector::new(),
             ip: Interpreter::new(),
+            rw: Rewriter::new(),
         }
     }
 
     pub fn interp(
         &self,
-        stmt: Statement,
-    ) -> Result<(Env, Store, Statement), Error> {
-        match self.fc.collect(Env::new(), stmt.clone()) {
-            Ok(fc_res) => {
-                let store = Store::new_with_func_symbols(fc_res.0.clone());
-                match self.ip.interp(store, fc_res.1) {
-                    Ok((store, stmt)) => {
-                        // FIXME better API?
-                        let rw = Rewriter::new(store.clone());
-                        let rw_stmt = rw.rewrite(stmt.clone()).unwrap();
-                        Ok((fc_res.0, store, rw_stmt))
-                    }
-                    Err(err) => Err(err),
-                }
-            }
-            Err(err) => Err(err),
+        mut stmt: Statement,
+    ) -> Result<(Vars, Statement), Error> {
+        let mut symbols = Symbols::new();
+        let res1 = self.sc.check(&mut symbols, &stmt);
+        if res1.is_err() {
+            return Err(res1.err().unwrap());
         }
+
+        let mut funcs = Funcs::new();
+        let res2 = self.fc.collect(&mut funcs, &stmt);
+        if res2.is_err() {
+            return Err(res2.err().unwrap());
+        }
+
+        let mut vars = Vars::new();
+        let res3 = self.ip.interp(&funcs, &mut vars, &stmt);
+        if res3.is_err() {
+            return Err(res3.err().unwrap());
+        }
+
+        let res4 = self.rw.rewrite(&funcs, &vars, &mut stmt);
+        if res4.is_err() {
+            return Err(res4.err().unwrap());
+        }
+
+        Ok((vars, stmt))
     }
 }
 
@@ -156,9 +161,9 @@ mod tests {
         let stmt = Statement::Print("hello");
 
         let si = SimpleInterp::new();
-        let (_, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(store, Store::new());
+        assert_eq!(vars, Vars::new());
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -168,9 +173,9 @@ mod tests {
         let stmt = Statement::FuncDef("foo", body.clone());
 
         let si = SimpleInterp::new();
-        let (env, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(store, Store::new_with_func_symbols(env));
+        assert_eq!(vars, Vars::new());
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -185,12 +190,12 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (env, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        let mut check_store = Store::new_with_func_symbols(env);
-        check_store.vars.insert("x", vec![RVal::Num(5)]);
+        let mut check_vars = Vars::new();
+        check_vars.vars.insert("x", vec![RVal::Num(5)]);
 
-        assert_eq!(store, check_store);
+        assert_eq!(vars, check_vars);
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -206,11 +211,11 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (env, store, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        let mut check_store = Store::new_with_func_symbols(env);
-        check_store.vars.insert("x", vec![RVal::Var("foo")]);
-        check_store.vars.insert("z", vec![RVal::Num(5)]);
+        let mut check_vars = Vars::new();
+        check_vars.vars.insert("x", vec![RVal::Var("foo")]);
+        check_vars.vars.insert("z", vec![RVal::Num(5)]);
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(Statement::InvokeFunc("foo")))];
@@ -220,7 +225,7 @@ mod tests {
             Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(store, check_store);
+        assert_eq!(vars, check_vars);
         assert_eq!(rw_stmt, check_stmt);
     }
 }

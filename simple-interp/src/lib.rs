@@ -1,16 +1,16 @@
 pub mod func_collect;
 pub mod interpret;
 pub mod rewrite;
+pub mod ssa;
 
 use crate::func_collect::{FuncCollector, Funcs};
 use crate::interpret::{Interpreter, Vars};
 use crate::rewrite::Rewriter;
+use crate::ssa::{SSAChecker, Symbols};
 use thiserror::Error;
 
 use std::fmt;
 use std::ops::Not;
-
-/// Define Errors
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
@@ -20,15 +20,11 @@ pub enum Error {
     IncomparableTypes(RVal, RVal),
     #[error("{0} is not a function.")]
     NotAFunction(&'static str),
-    #[error("Function {0} already exists")]
-    FuncAlreadyExists(&'static str),
-    #[error("Variable {0} already exists")]
-    VarAlreadyExists(&'static str),
+    #[error("Symbol {0} already exists.")]
+    SymbolAlreadyExists(&'static str),
     #[error("Cannot perform merge on Vec with less than two elements")]
     VecSize(),
 }
-
-/// Define CFG
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
@@ -108,9 +104,8 @@ impl Not for &BooleanStatement {
     }
 }
 
-/// Define driver
-
 pub struct SimpleInterp {
+    sc: SSAChecker,
     fc: FuncCollector,
     ip: Interpreter,
     rw: Rewriter,
@@ -119,30 +114,41 @@ pub struct SimpleInterp {
 impl SimpleInterp {
     pub fn new() -> Self {
         Self {
+            sc: SSAChecker::new(),
             fc: FuncCollector::new(),
             ip: Interpreter::new(),
             rw: Rewriter::new(),
         }
     }
 
-    pub fn interp(
-        &self,
-        stmt: Statement,
-    ) -> Result<(Funcs, Vars, Statement), Error> {
-        let mut funcs = Funcs::new();
-        match self.fc.collect(&mut funcs, stmt.clone()) {
-            Ok(fc_res) => {
-                let mut vars = Vars::new();
-                match self.ip.interp(&funcs, &mut vars, fc_res) {
-                    Ok(mut stmt) => {
-                        self.rw.rewrite(&funcs, &vars, &mut stmt).unwrap();
-                        Ok((funcs, vars, stmt))
-                    }
-                    Err(err) => Err(err),
-                }
-            }
-            Err(err) => Err(err),
+    pub fn interp(&self, stmt: Statement) -> Result<(Vars, Statement), Error> {
+        let mut symbols = Symbols::new();
+        let res1 = self.sc.check(&mut symbols, &stmt);
+        if res1.is_err() {
+            return Err(res1.err().unwrap());
         }
+
+        let mut funcs = Funcs::new();
+        // FIXME stmt.clone() -> &stmt
+        let res2 = self.fc.collect(&mut funcs, stmt.clone());
+        if res2.is_err() {
+            return Err(res2.err().unwrap());
+        }
+
+        let mut vars = Vars::new();
+        // FIXME use same stmt instead of res2.unwrap()
+        let res3 = self.ip.interp(&funcs, &mut vars, res2.unwrap());
+        if res3.is_err() {
+            return Err(res3.err().unwrap());
+        }
+
+        let mut new_stmt = res3.unwrap().clone();
+        let res4 = self.rw.rewrite(&funcs, &vars, &mut new_stmt);
+        if res4.is_err() {
+            return Err(res4.err().unwrap());
+        }
+
+        Ok((vars, new_stmt))
     }
 }
 
@@ -155,7 +161,7 @@ mod tests {
         let stmt = Statement::Print("hello");
 
         let si = SimpleInterp::new();
-        let (_, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         assert_eq!(vars, Vars::new());
         assert_eq!(rw_stmt, stmt);
@@ -167,7 +173,7 @@ mod tests {
         let stmt = Statement::FuncDef("foo", body.clone());
 
         let si = SimpleInterp::new();
-        let (_, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         assert_eq!(vars, Vars::new());
         assert_eq!(rw_stmt, stmt);
@@ -184,7 +190,7 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (_, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
@@ -205,7 +211,7 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (_, vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Var("foo")]);

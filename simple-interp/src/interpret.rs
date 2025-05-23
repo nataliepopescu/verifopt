@@ -1,8 +1,6 @@
 use crate::{BooleanStatement, Error, Funcs, RVal, Statement};
 use std::collections::HashMap;
 
-/// Define interpreter state
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vars {
     pub vars: HashMap<&'static str, Vec<RVal>>,
@@ -45,6 +43,7 @@ impl Merge for Vec<Vars> {
                 }
             }
         }
+
         Ok(merged)
     }
 }
@@ -52,8 +51,6 @@ impl Merge for Vec<Vars> {
 // TODO remove Statement from retval if not using diff Statement types per pass
 
 pub struct Interpreter {}
-
-/// Implement interpreter
 
 impl Interpreter {
     pub fn new() -> Self {
@@ -119,7 +116,7 @@ impl Interpreter {
         value: RVal,
     ) -> Result<Statement, Error> {
         if vars.vars.get(var).is_some() {
-            return Err(Error::VarAlreadyExists(var));
+            panic!("SSA BUG: varname {:?} already exists", &var);
         }
 
         match value {

@@ -128,11 +128,12 @@ impl Rewriter {
     ) -> Result<Statement, Error> {
         let mut switch_vec = vec![];
         for rval in vec.into_iter() {
+            // FIXME remove check (panic)
             match rval.clone() {
                 r @ RVal::Var(var) => {
                     switch_vec.push((r, Box::new(Statement::InvokeFunc(var))))
                 }
-                _ => panic!("IP BUG: num is not a func name"),
+                _ => panic!("IP BUG: num {:?} is not a func name", &rval),
             }
         }
         Ok(Statement::Switch(RVal::Var(name), switch_vec))
@@ -146,9 +147,10 @@ impl Rewriter {
     ) -> Result<Statement, Error> {
         match funcs.funcs.get(name) {
             Some(_) => Ok(Statement::InvokeFunc(name)),
+            // FIXME remove check (panic)
             None => match vars.vars.get(name) {
                 Some(vec) => self.rewrite_indirect_invoke(name, vec),
-                None => panic!("IP BUG: missed undef symbol"),
+                None => panic!("IP BUG: missed undef symbol {:?}", &name),
             },
         }
     }

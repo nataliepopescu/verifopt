@@ -1,8 +1,6 @@
 use crate::{Error, FuncVal, Statement};
 use std::collections::HashMap;
 
-/// Define collector state
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Funcs {
     pub funcs: HashMap<&'static str, FuncVal>,
@@ -19,8 +17,6 @@ impl Funcs {
 // TODO remove Statement from retval if not using diff Statement types per pass
 
 pub struct FuncCollector {}
-
-/// Implement collector
 
 impl FuncCollector {
     pub fn new() -> Self {
@@ -61,9 +57,10 @@ impl FuncCollector {
         name: &'static str,
         body: Box<Statement>,
     ) -> Result<Statement, Error> {
+        // FIXME remove duplicate name check (panic)
         match funcs.funcs.get(name) {
             Some(_) => {
-                return Err(Error::FuncAlreadyExists(name));
+                panic!("SSA BUG: funcname {:?} already exists", &name)
             }
             None => {
                 funcs.funcs.insert(name, FuncVal::new(body.clone()));
@@ -176,20 +173,6 @@ mod tests {
         check_funcs.funcs.insert("foo", FuncVal::new(body));
         assert_eq!(res.unwrap(), stmt);
         assert_eq!(funcs, check_funcs);
-    }
-
-    #[test]
-    fn test_funcdef_err() {
-        let fc = FuncCollector::new();
-        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::FuncDef("foo", body.clone())),
-        ]);
-        let mut funcs = Funcs::new();
-        let res = fc.collect(&mut funcs, stmt.clone());
-
-        assert_eq!(res, Err(Error::FuncAlreadyExists("foo")));
     }
 
     #[test]

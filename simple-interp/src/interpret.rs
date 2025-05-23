@@ -16,8 +16,6 @@ impl Vars {
     }
 }
 
-// FIXME remove Statement from retval
-
 pub trait Merge {
     fn merge(&self) -> Result<Vars, Error>;
 }
@@ -50,6 +48,8 @@ impl Merge for Vec<Vars> {
         Ok(merged)
     }
 }
+
+// TODO remove Statement from retval if not using diff Statement types per pass
 
 pub struct Interpreter {}
 

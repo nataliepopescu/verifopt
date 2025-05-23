@@ -36,12 +36,10 @@ pub enum Statement {
     Assignment(&'static str, RVal),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
-    // TODO replace w match
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
     // no args or retvals for now
     FuncDef(&'static str, Box<Statement>),
     InvokeFunc(&'static str),
-    // TODO traits
 }
 
 #[derive(Debug, Clone, PartialEq)]

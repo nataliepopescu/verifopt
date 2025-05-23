@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Funcs {
-    // FIXME pub ok? (for tests)
     pub funcs: HashMap<&'static str, FuncVal>,
 }
 
@@ -16,6 +15,8 @@ impl Funcs {
         }
     }
 }
+
+// TODO remove Statement from retval if not using diff Statement types per pass
 
 pub struct FuncCollector {}
 

@@ -6,7 +6,7 @@ pub struct Rewriter {}
 
 /// Implement rewriter
 
-// FIXME never returns Err, refactor out Result return type
+// TODO never returns Err, refactor out Result return type (wait on this)
 
 impl Rewriter {
     pub fn new() -> Self {
@@ -145,8 +145,6 @@ impl Rewriter {
         name: &'static str,
     ) -> Result<Statement, Error> {
         match funcs.funcs.get(name) {
-            // FIXME make sure no variable has the same name as a func => SSA
-            // pass
             Some(_) => Ok(Statement::InvokeFunc(name)),
             None => match vars.vars.get(name) {
                 Some(vec) => self.rewrite_indirect_invoke(name, vec),

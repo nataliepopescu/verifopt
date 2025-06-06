@@ -7,7 +7,7 @@ CHA = Class Hierarchy Analysis
     - todo: does this make resolving type ambiguity easier in Rust?
     - [Rust Is Beyond Object-Oriented, Part 3: Inheritance](https://www.thecodedmessage.com/posts/oop-3-inheritance/)
 
-|     | Verifopt | [KB96](https://dl.acm.org/doi/pdf/10.1145/331119.331419) | [NoVT](https://ieeexplore.ieee.org/document/9581255) | [SmallEiffel](https://inria.hal.science/inria-00565627/document) | [AH96](https://link.springer.com/chapter/10.1007/BFb0053060) |
+|     | Verifopt | [KB96](https://dl.acm.org/doi/pdf/10.1145/331119.331419) | [NoVT21](https://ieeexplore.ieee.org/document/9581255) | [SmallEiffel97](https://inria.hal.science/inria-00565627/document) | [AH96](https://link.springer.com/chapter/10.1007/BFb0053060) |
 | --- | --- | --- | --- | --- | --- |
 | analysis type | abstract interpretation | CHA | CHA + opts | | hybrid: CHA + type feedback |
 | profiling | no | no | no | | yes |

@@ -6,12 +6,12 @@ CHA = Class Hierarchy Analysis
 | --- | --- | --- | --- | --- | --- |
 | program analysis | abstract interpretation | CHA | CHA + opts | | hybrid: CHA + type feedback |
 | profiling | no | no | no | | yes |
-| program modification(s) | switch-conversion | switch-conversion | switch-conversion | | ? |
-| tool location | compiler-mod | source-to-source | compiler-mod | | source-to-source |
-| mod(s) correctness | verified | ? | tested | | ? |
-| multiple/virtual inheritance | yes | | yes | no | ? |
-| vtable fallback | no | yes full CH not available (dynlink) | no | | ? |
-| dynamic linking | don't believe so | no? | no | | ? |
+| program mod(s) | switch-conversion | switch-conversion | switch-conversion | | |
+| tool location | in-compiler | source-to-source | in-compiler | | source-to-source |
+| mod(s) correctness | verified | | tested | | |
+| multiple/virtual inheritance | yes | | yes | no | |
+| vtable fallback | no | yes if full CH not available (dynlink) | no | | |
+| dynamic linking | don't believe so | no? | no | | |
 | eval'd code | | | | | |
 
 uncertain

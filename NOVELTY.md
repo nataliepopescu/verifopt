@@ -2,8 +2,7 @@
 
 CHA = Class Hierarchy Analysis
 
-|     | Verifopt | [KB96](https://dl.acm.org/doi/pdf/10.1145/331119.331419) |
-[NoVT](https://ieeexplore.ieee.org/document/9581255) | [AH96](https://link.springer.com/chapter/10.1007/BFb0053060) |
+|     | Verifopt | [KB96](https://dl.acm.org/doi/pdf/10.1145/331119.331419) | [NoVT](https://ieeexplore.ieee.org/document/9581255) | [AH96](https://link.springer.com/chapter/10.1007/BFb0053060) |
 | --- | -------- | ---- | ---- | ---- |
 | program analysis | abstract interpretation | CHA | CHA + opts | hybrid: CHA + type feedback |
 | profiling | no | no | no | yes |

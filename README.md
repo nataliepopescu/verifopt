@@ -22,6 +22,9 @@ to verify in the real world
 [NOTES.md](https://github.com/nataliepopescu/verifopt/blob/main/NOTES.md): general 
 project notes (high-level)
 
+[NOVELTY.md](https://github.com/nataliepopescu/verifopt/blob/main/NOVELTY.md):
+related work comparison (table)
+
 [PANICS.md](https://github.com/nataliepopescu/verifopt/blob/main/PANICS.md): notes 
 about attempts to identify the compiled panics in tock
 
@@ -34,6 +37,12 @@ list of potential project directions in this area
 
 [RELWORK.md](https://github.com/nataliepopescu/verifopt/blob/main/RELWORK.md): 
 related work notes
+
+[RUST_BENEFITS.md](https://github.com/nataliepopescu/verifopt/blob/main/RUST_BENEFITS.md):
+notes on how Rust may aid in virtual function call analysis
+
+[TRAITS_GENERICS_VTABLES.md](https://github.com/nataliepopescu/verifopt/blob/main/TRAITS_GENERICS_VTABLES.md):
+background notes
 
 [USING_FLUX.md](https://github.com/nataliepopescu/verifopt/blob/main/USING_FLUX.md): 
 notes on how to install / use flux, and experience using it on certain panics in 

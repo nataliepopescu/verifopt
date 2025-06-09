@@ -125,11 +125,20 @@ impl SimpleInterp {
         &self,
         mut stmt: Statement,
     ) -> Result<(Vars, Statement), Error> {
+
+        println!("\nOriginal program statement: \n\n{:#?}", &stmt);
+
         let mut symbols = Symbols::new();
         let res1 = self.sc.check(&mut symbols, &stmt);
         if res1.is_err() {
             return Err(res1.err().unwrap());
         }
+
+        println!("\n-----------------------------------");
+        println!("PHASE 1: SSA Check");
+        println!("-----------------------------------");
+        println!("\n1. General symbols set: \n\n{:#?}", &symbols);
+        println!("\n2. Original program statement");
 
         let mut funcs = Funcs::new();
         let res2 = self.fc.collect(&mut funcs, &stmt);
@@ -137,16 +146,36 @@ impl SimpleInterp {
             return Err(res2.err().unwrap());
         }
 
+        println!("\n-----------------------------------");
+        println!("PHASE 2: Function Collection");
+        println!("-----------------------------------");
+        println!("\n1. Function symbols table: \n\n{:#?}", &funcs);
+        println!("\n2. Original program statement");
+
         let mut vars = Vars::new();
         let res3 = self.ip.interp(&funcs, &mut vars, &stmt);
         if res3.is_err() {
             return Err(res3.err().unwrap());
         }
 
+        println!("\n-----------------------------------");
+        println!("PHASE 3: Flow Interpretation");
+        println!("-----------------------------------");
+        println!("\n1. Function symbols table (from PHASE 2)");
+        println!("\n2. Flow-sensitive variable symbols table: \n\n{:#?}", &vars);
+        println!("\n3. Original program statement");
+
         let res4 = self.rw.rewrite(&funcs, &vars, &mut stmt);
         if res4.is_err() {
             return Err(res4.err().unwrap());
         }
+
+        println!("\n-----------------------------------");
+        println!("PHASE 4: Switch-Case Rewrite");
+        println!("-----------------------------------");
+        println!("\n1. Function symbols table (from PHASE 2)");
+        println!("\n2. Flow-sensitive variable symbols table (from PHASE 3)");
+        println!("\n3. (Maybe) modified program statement: \n\n{:#?}", &stmt);
 
         Ok((vars, stmt))
     }

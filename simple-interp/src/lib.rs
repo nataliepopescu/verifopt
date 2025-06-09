@@ -185,7 +185,7 @@ impl SimpleInterp {
 mod tests {
     use super::*;
     use crate::Statement::{
-        Assignment, FuncDef, InvokeFunc, Print, Sequence, Switch,
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
 
     #[test]
@@ -241,7 +241,7 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let (vars, rw_stmt) = si.interp(stmt).unwrap();
 
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Var("foo")]);
@@ -251,6 +251,85 @@ mod tests {
         let check_stmt = Sequence(vec![
             Box::new(FuncDef("foo", body)),
             Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
+        ]);
+
+        assert_eq!(vars, check_vars);
+        assert_eq!(rw_stmt, check_stmt);
+    }
+
+    #[test]
+    fn test_direct_invoke_uncertain() {
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
+        let bar_body =
+            Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(6)))]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body)),
+            Box::new(FuncDef("bar", bar_body)),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(InvokeFunc("foo")),
+                Box::new(InvokeFunc("bar")),
+            )),
+        ]);
+
+        let si = SimpleInterp::new();
+        let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
+
+        let mut check_vars = Vars::new();
+        check_vars
+            .vars
+            .insert("x", vec![RVal::Num(5)]);
+        check_vars
+            .vars
+            .insert("y", vec![RVal::Num(6)]);
+
+        assert_eq!(vars, check_vars);
+        assert_eq!(rw_stmt, stmt);
+    }
+
+    #[test]
+    fn overall_test_indirect_invoke_uncertain() {
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(5)))]));
+        let bar_body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(6)))]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body.clone())),
+            Box::new(FuncDef("bar", bar_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
+            )),
+            Box::new(InvokeFunc("x")),
+        ]);
+
+        let si = SimpleInterp::new();
+        let (vars, rw_stmt) = si.interp(stmt).unwrap();
+
+        let mut check_vars = Vars::new();
+        check_vars
+            .vars
+            .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
+        check_vars.vars.insert("y", vec![RVal::Num(5)]);
+        check_vars.vars.insert("z", vec![RVal::Num(6)]);
+
+        let switch_vec = vec![
+            (RVal::Var("bar"), Box::new(InvokeFunc("bar"))),
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo")))
+        ];
+        let check_stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body)),
+            Box::new(FuncDef("bar", bar_body)),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
+            )),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 

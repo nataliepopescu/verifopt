@@ -160,11 +160,14 @@ impl Rewriter {
 mod tests {
     use super::*;
     use crate::FuncVal;
+    use crate::Statement::{
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
+    };
     use crate::func_collect::Funcs;
 
     #[test]
     fn test_print() {
-        let mut stmt = Statement::Print("hello");
+        let mut stmt = Print("hello");
         let check_stmt = stmt.clone();
 
         let funcs = Funcs::new();
@@ -177,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_assignment() {
-        let mut stmt = Statement::Assignment("x", RVal::Num(5));
+        let mut stmt = Assignment("x", RVal::Num(5));
         let check_stmt = stmt.clone();
 
         let funcs = Funcs::new();
@@ -192,13 +195,12 @@ mod tests {
 
     #[test]
     fn test_direct_invoke() {
-        let body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("z", RVal::Num(5)),
-        )]));
-        let mut stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-            Box::new(Statement::InvokeFunc("foo")),
+        let body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
+        let mut stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body.clone())),
+            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(InvokeFunc("foo")),
         ]);
         let check_stmt = stmt.clone();
 
@@ -215,13 +217,12 @@ mod tests {
 
     #[test]
     fn test_indirect_invoke_single_val() {
-        let body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("z", RVal::Num(5)),
-        )]));
-        let mut stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-            Box::new(Statement::InvokeFunc("x")),
+        let body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
+        let mut stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body.clone())),
+            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(InvokeFunc("x")),
         ]);
 
         let mut funcs = Funcs::new();
@@ -232,12 +233,11 @@ mod tests {
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
-        let switch_vec =
-            vec![(RVal::Var("foo"), Box::new(Statement::InvokeFunc("foo")))];
-        let check_stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body)),
-            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
+        let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo")))];
+        let check_stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body)),
+            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
         assert_eq!(stmt, check_stmt);
@@ -245,21 +245,19 @@ mod tests {
 
     #[test]
     fn test_indirect_invoke_multiple_val() {
-        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("z", RVal::Num(5)),
-        )]));
-        let bar_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("z", RVal::Num(6)),
-        )]));
-        let mut stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", foo_body.clone())),
-            Box::new(Statement::FuncDef("bar", bar_body.clone())),
-            Box::new(Statement::Conditional(
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
+        let bar_body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(6)))]));
+        let mut stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body.clone())),
+            Box::new(FuncDef("bar", bar_body.clone())),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-                Box::new(Statement::Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
             )),
-            Box::new(Statement::InvokeFunc("x")),
+            Box::new(InvokeFunc("x")),
         ]);
 
         let mut funcs = Funcs::new();
@@ -273,18 +271,18 @@ mod tests {
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         let switch_vec = vec![
-            (RVal::Var("bar"), Box::new(Statement::InvokeFunc("bar"))),
-            (RVal::Var("foo"), Box::new(Statement::InvokeFunc("foo"))),
+            (RVal::Var("bar"), Box::new(InvokeFunc("bar"))),
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo"))),
         ];
-        let check_stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", foo_body.clone())),
-            Box::new(Statement::FuncDef("bar", bar_body.clone())),
-            Box::new(Statement::Conditional(
+        let check_stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body.clone())),
+            Box::new(FuncDef("bar", bar_body.clone())),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-                Box::new(Statement::Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
             )),
-            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
         assert_eq!(stmt, check_stmt);

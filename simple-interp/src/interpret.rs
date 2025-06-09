@@ -401,6 +401,9 @@ impl Interpreter {
 mod tests {
     use super::*;
     use crate::FuncVal;
+    use crate::Statement::{
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
+    };
     use crate::func_collect::Funcs;
 
     #[test]
@@ -433,7 +436,7 @@ mod tests {
     #[test]
     fn test_print() {
         let interp = Interpreter::new();
-        let stmt = Statement::Print("hello");
+        let stmt = Print("hello");
         let funcs = Funcs::new();
         let mut vars = Vars::new();
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -445,7 +448,7 @@ mod tests {
     #[test]
     fn test_assign_num() {
         let interp = Interpreter::new();
-        let stmt = Statement::Assignment("x", RVal::Num(5));
+        let stmt = Assignment("x", RVal::Num(5));
         let funcs = Funcs::new();
         let mut vars = Vars::new();
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -460,8 +463,8 @@ mod tests {
     #[test]
     fn test_seq() {
         let interp = Interpreter::new();
-        let stmt_vec = vec![Box::new(Statement::Assignment("x", RVal::Num(5)))];
-        let stmt = Statement::Sequence(stmt_vec);
+        let stmt_vec = vec![Box::new(Assignment("x", RVal::Num(5)))];
+        let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -477,10 +480,10 @@ mod tests {
     fn test_seq_assign() {
         let interp = Interpreter::new();
         let stmt_vec = vec![
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("y", RVal::Num(6))),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("y", RVal::Num(6))),
         ];
-        let stmt = Statement::Sequence(stmt_vec);
+        let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -496,13 +499,9 @@ mod tests {
     #[test]
     fn test_nested_seq() {
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Sequence(vec![Box::new(
-                Statement::Assignment("x", RVal::Num(5)),
-            )])),
-            Box::new(Statement::Sequence(vec![Box::new(
-                Statement::Assignment("y", RVal::Num(6)),
-            )])),
+        let stmt = Sequence(vec![
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))])),
+            Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(6)))])),
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -519,10 +518,7 @@ mod tests {
     #[test]
     fn test_var_undef() {
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![Box::new(Statement::Assignment(
-            "x",
-            RVal::Var("y"),
-        ))]);
+        let stmt = Sequence(vec![Box::new(Assignment("x", RVal::Var("y")))]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -533,9 +529,9 @@ mod tests {
     #[test]
     fn test_assign_var() {
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("y", RVal::Var("x"))),
+        let stmt = Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("y", RVal::Var("x"))),
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -552,10 +548,10 @@ mod tests {
     #[test]
     fn test_conditional_true() {
         let interp = Interpreter::new();
-        let stmt = Statement::Conditional(
+        let stmt = Conditional(
             Box::new(BooleanStatement::True()),
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("x", RVal::Num(6))),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("x", RVal::Num(6))),
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -571,10 +567,10 @@ mod tests {
     #[test]
     fn test_conditional_false() {
         let interp = Interpreter::new();
-        let stmt = Statement::Conditional(
+        let stmt = Conditional(
             Box::new(BooleanStatement::False()),
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("x", RVal::Num(6))),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("x", RVal::Num(6))),
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -590,10 +586,10 @@ mod tests {
     #[test]
     fn test_conditional_uncertain() {
         let interp = Interpreter::new();
-        let stmt = Statement::Conditional(
+        let stmt = Conditional(
             Box::new(BooleanStatement::TrueOrFalse()),
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("x", RVal::Num(6))),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("x", RVal::Num(6))),
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -611,10 +607,10 @@ mod tests {
     #[test]
     fn test_conditional_not() {
         let interp = Interpreter::new();
-        let stmt = Statement::Conditional(
+        let stmt = Conditional(
             Box::new(BooleanStatement::Not(Box::new(BooleanStatement::True()))),
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("x", RVal::Num(6))),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("x", RVal::Num(6))),
         );
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -630,16 +626,16 @@ mod tests {
     #[test]
     fn test_conditional_equals_num() {
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(3))),
-            Box::new(Statement::Assignment("y", RVal::Num(3))),
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(3))),
+            Box::new(Assignment("y", RVal::Num(3))),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
                     RVal::Var("x"),
                     RVal::Var("y"),
                 )),
-                Box::new(Statement::Assignment("z", RVal::Num(1))),
-                Box::new(Statement::Assignment("z", RVal::Num(2))),
+                Box::new(Assignment("z", RVal::Num(1))),
+                Box::new(Assignment("z", RVal::Num(2))),
             )),
         ]);
         let funcs = Funcs::new();
@@ -658,9 +654,8 @@ mod tests {
     #[test]
     fn test_conditional_equals_func() {
         let mut funcs = Funcs::new();
-        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("x", RVal::Num(5)),
-        )]));
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
         funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
         funcs.funcs.insert("bar", FuncVal::new(foo_body.clone()));
 
@@ -668,16 +663,16 @@ mod tests {
 
         // note: `equals` is _shallow_, which is why it evals to false here
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", foo_body.clone())),
-            Box::new(Statement::FuncDef("bar", foo_body.clone())),
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body.clone())),
+            Box::new(FuncDef("bar", foo_body.clone())),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
                     RVal::Var("foo"),
                     RVal::Var("bar"),
                 )),
-                Box::new(Statement::Assignment("z", RVal::Num(1))),
-                Box::new(Statement::Assignment("z", RVal::Num(2))),
+                Box::new(Assignment("z", RVal::Num(1))),
+                Box::new(Assignment("z", RVal::Num(2))),
             )),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -692,24 +687,23 @@ mod tests {
     #[test]
     fn test_conditional_equals_func_ref() {
         let mut funcs = Funcs::new();
-        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("x", RVal::Num(5)),
-        )]));
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
         funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", foo_body.clone())),
-            Box::new(Statement::Assignment("bar", RVal::Var("foo"))),
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body.clone())),
+            Box::new(Assignment("bar", RVal::Var("foo"))),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
                     RVal::Var("foo"),
                     RVal::Var("bar"),
                 )),
-                Box::new(Statement::Assignment("z", RVal::Num(1))),
-                Box::new(Statement::Assignment("z", RVal::Num(2))),
+                Box::new(Assignment("z", RVal::Num(1))),
+                Box::new(Assignment("z", RVal::Num(2))),
             )),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -725,20 +719,20 @@ mod tests {
     #[test]
     fn test_conditional_equals_uncertain() {
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(3))),
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(3))),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::Assignment("y", RVal::Num(3))),
-                Box::new(Statement::Assignment("y", RVal::Num(4))),
+                Box::new(Assignment("y", RVal::Num(3))),
+                Box::new(Assignment("y", RVal::Num(4))),
             )),
-            Box::new(Statement::Conditional(
+            Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
                     RVal::Var("x"),
                     RVal::Var("y"),
                 )),
-                Box::new(Statement::Assignment("z", RVal::Num(1))),
-                Box::new(Statement::Assignment("z", RVal::Num(2))),
+                Box::new(Assignment("z", RVal::Num(1))),
+                Box::new(Assignment("z", RVal::Num(2))),
             )),
         ]);
         let funcs = Funcs::new();
@@ -761,24 +755,23 @@ mod tests {
     #[test]
     fn test_conditional_equals_err() {
         let mut funcs = Funcs::new();
-        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("x", RVal::Num(5)),
-        )]));
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
         funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", foo_body)),
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body)),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
                     RVal::Var("foo"),
                     RVal::Var("x"),
                 )),
-                Box::new(Statement::Assignment("z", RVal::Num(1))),
-                Box::new(Statement::Assignment("z", RVal::Num(2))),
+                Box::new(Assignment("z", RVal::Num(1))),
+                Box::new(Assignment("z", RVal::Num(2))),
             )),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -792,17 +785,17 @@ mod tests {
     #[test]
     fn test_nested_conditional() {
         let interp = Interpreter::new();
-        let stmt = Statement::Conditional(
+        let stmt = Conditional(
             Box::new(BooleanStatement::True()),
-            Box::new(Statement::Conditional(
+            Box::new(Conditional(
                 Box::new(BooleanStatement::True()),
-                Box::new(Statement::Assignment("x", RVal::Num(5))),
-                Box::new(Statement::Assignment("x", RVal::Num(6))),
+                Box::new(Assignment("x", RVal::Num(5))),
+                Box::new(Assignment("x", RVal::Num(6))),
             )),
-            Box::new(Statement::Conditional(
+            Box::new(Conditional(
                 Box::new(BooleanStatement::True()),
-                Box::new(Statement::Assignment("x", RVal::Num(7))),
-                Box::new(Statement::Assignment("x", RVal::Num(8))),
+                Box::new(Assignment("x", RVal::Num(7))),
+                Box::new(Assignment("x", RVal::Num(8))),
             )),
         );
         let funcs = Funcs::new();
@@ -819,10 +812,10 @@ mod tests {
     #[test]
     fn test_conditional_scope() {
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![Box::new(Conditional(
             Box::new(BooleanStatement::True()),
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("x", RVal::Num(6))),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("x", RVal::Num(6))),
         ))]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -838,13 +831,13 @@ mod tests {
     #[test]
     fn test_funcdef() {
         let mut funcs = Funcs::new();
-        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
+        let body = Box::new(Assignment("x", RVal::Num(5)));
         funcs.funcs.insert("foo", FuncVal::new(body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = Statement::FuncDef("foo", body);
+        let stmt = FuncDef("foo", body);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
         assert_eq!(res.unwrap(), ());
@@ -854,17 +847,16 @@ mod tests {
     #[test]
     fn test_direct_invoke() {
         let mut funcs = Funcs::new();
-        let body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("x", RVal::Num(5)),
-        )]));
+        let body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
         funcs.funcs.insert("foo", FuncVal::new(body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body)),
-            Box::new(Statement::InvokeFunc("foo")),
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body)),
+            Box::new(InvokeFunc("foo")),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
@@ -878,18 +870,17 @@ mod tests {
     #[test]
     fn test_indirect_invoke() {
         let mut funcs = Funcs::new();
-        let body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("z", RVal::Num(5)),
-        )]));
+        let body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
         funcs.funcs.insert("foo", FuncVal::new(body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body)),
-            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-            Box::new(Statement::InvokeFunc("x")),
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body)),
+            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(InvokeFunc("x")),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
@@ -904,25 +895,23 @@ mod tests {
     #[test]
     fn test_direct_invoke_uncertain() {
         let mut funcs = Funcs::new();
-        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("x", RVal::Num(5)),
-        )]));
-        let bar_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("x", RVal::Num(6)),
-        )]));
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
+        let bar_body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(6)))]));
         funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
         funcs.funcs.insert("bar", FuncVal::new(bar_body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", foo_body)),
-            Box::new(Statement::FuncDef("bar", bar_body)),
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body)),
+            Box::new(FuncDef("bar", bar_body)),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::InvokeFunc("foo")),
-                Box::new(Statement::InvokeFunc("bar")),
+                Box::new(InvokeFunc("foo")),
+                Box::new(InvokeFunc("bar")),
             )),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -939,27 +928,25 @@ mod tests {
     #[test]
     fn test_indirect_invoke_uncertain() {
         let mut funcs = Funcs::new();
-        let foo_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("y", RVal::Num(5)),
-        )]));
-        let bar_body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("z", RVal::Num(6)),
-        )]));
+        let foo_body =
+            Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(5)))]));
+        let bar_body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(6)))]));
         funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
         funcs.funcs.insert("bar", FuncVal::new(bar_body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", foo_body)),
-            Box::new(Statement::FuncDef("bar", bar_body)),
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", foo_body)),
+            Box::new(FuncDef("bar", bar_body)),
+            Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-                Box::new(Statement::Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
             )),
-            Box::new(Statement::InvokeFunc("x")),
+            Box::new(InvokeFunc("x")),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
@@ -977,9 +964,9 @@ mod tests {
     #[test]
     fn test_indirect_invoke_err() {
         let interp = Interpreter::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("foo", RVal::Num(5))),
-            Box::new(Statement::InvokeFunc("foo")),
+        let stmt = Sequence(vec![
+            Box::new(Assignment("foo", RVal::Num(5))),
+            Box::new(InvokeFunc("foo")),
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -992,7 +979,7 @@ mod tests {
     fn test_switch_err() {
         let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![];
-        let stmt = Statement::Switch(RVal::Var("x"), switch_vec);
+        let stmt = Switch(RVal::Var("x"), switch_vec);
         let res = interp.interp(&Funcs::new(), &mut Vars::new(), &stmt);
 
         assert_eq!(res, Err(Error::UndefinedSymbol("x")));
@@ -1002,18 +989,12 @@ mod tests {
     fn test_switch() {
         let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![
-            (
-                RVal::Num(4),
-                Box::new(Statement::Assignment("y", RVal::Num(0))),
-            ),
-            (
-                RVal::Num(5),
-                Box::new(Statement::Assignment("y", RVal::Num(1))),
-            ),
+            (RVal::Num(4), Box::new(Assignment("y", RVal::Num(0)))),
+            (RVal::Num(5), Box::new(Assignment("y", RVal::Num(1)))),
         ];
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
+        let stmt = Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();
@@ -1031,22 +1012,16 @@ mod tests {
     fn test_switch_uncertain() {
         let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![
-            (
-                RVal::Num(4),
-                Box::new(Statement::Assignment("y", RVal::Num(0))),
-            ),
-            (
-                RVal::Num(5),
-                Box::new(Statement::Assignment("y", RVal::Num(1))),
-            ),
+            (RVal::Num(4), Box::new(Assignment("y", RVal::Num(0)))),
+            (RVal::Num(5), Box::new(Assignment("y", RVal::Num(1)))),
         ];
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::Assignment("x", RVal::Num(5))),
-                Box::new(Statement::Assignment("x", RVal::Num(4))),
+                Box::new(Assignment("x", RVal::Num(5))),
+                Box::new(Assignment("x", RVal::Num(4))),
             )),
-            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();

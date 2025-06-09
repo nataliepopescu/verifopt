@@ -71,12 +71,13 @@ impl FuncCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FuncVal, RVal, Statement};
+    use crate::Statement::{Assignment, FuncDef, Print, Sequence};
+    use crate::{FuncVal, RVal};
 
     #[test]
     fn test_print() {
         let fc = FuncCollector::new();
-        let stmt = Statement::Print("hello");
+        let stmt = Print("hello");
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
@@ -88,7 +89,7 @@ mod tests {
     #[test]
     fn test_assign_num() {
         let fc = FuncCollector::new();
-        let stmt = Statement::Assignment("x", RVal::Num(5));
+        let stmt = Assignment("x", RVal::Num(5));
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
@@ -100,8 +101,8 @@ mod tests {
     #[test]
     fn test_seq() {
         let fc = FuncCollector::new();
-        let stmt_vec = vec![Box::new(Statement::Assignment("x", RVal::Num(5)))];
-        let stmt = Statement::Sequence(stmt_vec);
+        let stmt_vec = vec![Box::new(Assignment("x", RVal::Num(5)))];
+        let stmt = Sequence(stmt_vec);
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
@@ -113,13 +114,9 @@ mod tests {
     #[test]
     fn test_nested_seq() {
         let fc = FuncCollector::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Sequence(vec![Box::new(
-                Statement::Assignment("x", RVal::Num(5)),
-            )])),
-            Box::new(Statement::Sequence(vec![Box::new(
-                Statement::Assignment("y", RVal::Num(6)),
-            )])),
+        let stmt = Sequence(vec![
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))])),
+            Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(6)))])),
         ]);
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
@@ -132,10 +129,7 @@ mod tests {
     #[test]
     fn test_var_undef() {
         let fc = FuncCollector::new();
-        let stmt = Statement::Sequence(vec![Box::new(Statement::Assignment(
-            "x",
-            RVal::Var("y"),
-        ))]);
+        let stmt = Sequence(vec![Box::new(Assignment("x", RVal::Var("y")))]);
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
@@ -147,9 +141,9 @@ mod tests {
     #[test]
     fn test_assign_var() {
         let fc = FuncCollector::new();
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("y", RVal::Var("x"))),
+        let stmt = Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("y", RVal::Var("x"))),
         ]);
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
@@ -162,8 +156,8 @@ mod tests {
     #[test]
     fn test_funcdef() {
         let fc = FuncCollector::new();
-        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
-        let stmt = Statement::FuncDef("foo", body.clone());
+        let body = Box::new(Assignment("x", RVal::Num(5)));
+        let stmt = FuncDef("foo", body.clone());
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
@@ -176,10 +170,10 @@ mod tests {
     #[test]
     fn test_assign_funcptr() {
         let fc = FuncCollector::new();
-        let body = Box::new(Statement::Assignment("y", RVal::Num(5)));
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
+        let body = Box::new(Assignment("y", RVal::Num(5)));
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body.clone())),
+            Box::new(Assignment("x", RVal::Var("foo"))),
         ]);
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);

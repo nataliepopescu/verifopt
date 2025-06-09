@@ -172,6 +172,9 @@ impl SSAChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Statement::{
+        Assignment, Conditional, FuncDef, Sequence, Switch,
+    };
     use crate::{BooleanStatement, Error};
 
     #[test]
@@ -189,9 +192,9 @@ mod tests {
 
     #[test]
     fn test_assignment_err() {
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("x", RVal::Num(6))),
+        let stmt = Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("x", RVal::Num(6))),
         ]);
 
         let sc = SSAChecker::new();
@@ -203,10 +206,10 @@ mod tests {
 
     #[test]
     fn test_funcdef_err() {
-        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::FuncDef("foo", body.clone())),
+        let body = Box::new(Assignment("x", RVal::Num(5)));
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body.clone())),
+            Box::new(FuncDef("foo", body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -218,10 +221,10 @@ mod tests {
 
     #[test]
     fn test_conditional_ok() {
-        let stmt = Statement::Conditional(
+        let stmt = Conditional(
             Box::new(BooleanStatement::TrueOrFalse()),
-            Box::new(Statement::Assignment("x", RVal::Num(5))),
-            Box::new(Statement::Assignment("x", RVal::Num(6))),
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment("x", RVal::Num(6))),
         );
 
         let sc = SSAChecker::new();
@@ -234,22 +237,16 @@ mod tests {
     #[test]
     fn test_switch_ok() {
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![
-            (
-                RVal::Num(4),
-                Box::new(Statement::Assignment("y", RVal::Num(0))),
-            ),
-            (
-                RVal::Num(5),
-                Box::new(Statement::Assignment("y", RVal::Num(1))),
-            ),
+            (RVal::Num(4), Box::new(Assignment("y", RVal::Num(0)))),
+            (RVal::Num(5), Box::new(Assignment("y", RVal::Num(1)))),
         ];
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::Conditional(
+        let stmt = Sequence(vec![
+            Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Statement::Assignment("x", RVal::Num(5))),
-                Box::new(Statement::Assignment("x", RVal::Num(4))),
+                Box::new(Assignment("x", RVal::Num(5))),
+                Box::new(Assignment("x", RVal::Num(4))),
             )),
-            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
         let sc = SSAChecker::new();

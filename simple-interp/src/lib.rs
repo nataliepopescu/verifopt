@@ -155,10 +155,13 @@ impl SimpleInterp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Statement::{
+        Assignment, FuncDef, InvokeFunc, Print, Sequence, Switch,
+    };
 
     #[test]
     fn test_print() {
-        let stmt = Statement::Print("hello");
+        let stmt = Print("hello");
 
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
@@ -169,8 +172,8 @@ mod tests {
 
     #[test]
     fn test_funcdef() {
-        let body = Box::new(Statement::Assignment("x", RVal::Num(5)));
-        let stmt = Statement::FuncDef("foo", body.clone());
+        let body = Box::new(Assignment("x", RVal::Num(5)));
+        let stmt = FuncDef("foo", body.clone());
 
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
@@ -181,12 +184,11 @@ mod tests {
 
     #[test]
     fn test_direct_invoke() {
-        let body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("x", RVal::Num(5)),
-        )]));
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body)),
-            Box::new(Statement::InvokeFunc("foo")),
+        let body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body)),
+            Box::new(InvokeFunc("foo")),
         ]);
 
         let si = SimpleInterp::new();
@@ -201,13 +203,12 @@ mod tests {
 
     #[test]
     fn test_indirect_invoke() {
-        let body = Box::new(Statement::Sequence(vec![Box::new(
-            Statement::Assignment("z", RVal::Num(5)),
-        )]));
-        let stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body.clone())),
-            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-            Box::new(Statement::InvokeFunc("x")),
+        let body =
+            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body.clone())),
+            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(InvokeFunc("x")),
         ]);
 
         let si = SimpleInterp::new();
@@ -217,12 +218,11 @@ mod tests {
         check_vars.vars.insert("x", vec![RVal::Var("foo")]);
         check_vars.vars.insert("z", vec![RVal::Num(5)]);
 
-        let switch_vec =
-            vec![(RVal::Var("foo"), Box::new(Statement::InvokeFunc("foo")))];
-        let check_stmt = Statement::Sequence(vec![
-            Box::new(Statement::FuncDef("foo", body)),
-            Box::new(Statement::Assignment("x", RVal::Var("foo"))),
-            Box::new(Statement::Switch(RVal::Var("x"), switch_vec)),
+        let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo")))];
+        let check_stmt = Sequence(vec![
+            Box::new(FuncDef("foo", body)),
+            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
         assert_eq!(vars, check_vars);

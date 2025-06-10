@@ -270,7 +270,7 @@ impl Interpreter {
             }
             Err(err) => Err(err),
         }
-    }
+   }
 
     pub fn possible(&self, possible_b: &BooleanStatement) -> bool {
         match possible_b {
@@ -309,7 +309,7 @@ impl Interpreter {
         for (_, vec_stmt) in matching_vals.iter() {
             let mut scoped_vars = vars.clone();
             match self.interp(funcs, &mut scoped_vars, &*vec_stmt) {
-                Ok(_) => res_vars.push(scoped_vars.clone()),
+                Ok(_) => res_vars.push(scoped_vars),
                 err @ Err(_) => return err,
             }
         }
@@ -353,11 +353,13 @@ impl Interpreter {
     ) -> Result<(), Error> {
         let mut res_vars: Vec<Vars> = vec![];
         for val in vec.iter() {
-            match self.interp_indirect_invoke_helper(funcs, vars, name, val) {
-                Ok(_) => res_vars.push(vars.clone()),
+            let mut vars_clone = vars.clone();
+            match self.interp_indirect_invoke_helper(funcs, &mut vars_clone, name, val) {
+                Ok(_) => res_vars.push(vars_clone),
                 err @ Err(_) => return err,
             }
         }
+
         match res_vars.merge() {
             Ok(new_vars) => {
                 *vars = new_vars;

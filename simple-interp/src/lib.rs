@@ -125,8 +125,7 @@ impl SimpleInterp {
         &self,
         mut stmt: Statement,
     ) -> Result<(Vars, Statement), Error> {
-
-        println!("\nOriginal program statement: \n\n{:#?}", &stmt);
+        //println!("\nOriginal program statement: \n\n{:#?}", &stmt);
 
         let mut symbols = Symbols::new();
         let res1 = self.sc.check(&mut symbols, &stmt);
@@ -134,11 +133,11 @@ impl SimpleInterp {
             return Err(res1.err().unwrap());
         }
 
-        println!("\n-----------------------------------");
-        println!("PHASE 1: SSA Check");
-        println!("-----------------------------------");
-        println!("\n1. General symbols set: \n\n{:#?}", &symbols);
-        println!("\n2. Original program statement");
+        //println!("\n-----------------------------------");
+        //println!("PHASE 1: SSA Check");
+        //println!("-----------------------------------");
+        //println!("\n1. General symbols set: \n\n{:#?}", &symbols);
+        //println!("\n2. Original program statement");
 
         let mut funcs = Funcs::new();
         let res2 = self.fc.collect(&mut funcs, &stmt);
@@ -146,11 +145,11 @@ impl SimpleInterp {
             return Err(res2.err().unwrap());
         }
 
-        println!("\n-----------------------------------");
-        println!("PHASE 2: Function Collection");
-        println!("-----------------------------------");
-        println!("\n1. Function symbols table: \n\n{:#?}", &funcs);
-        println!("\n2. Original program statement");
+        //println!("\n-----------------------------------");
+        //println!("PHASE 2: Function Collection");
+        //println!("-----------------------------------");
+        //println!("\n1. Function symbols table: \n\n{:#?}", &funcs);
+        //println!("\n2. Original program statement");
 
         let mut vars = Vars::new();
         let res3 = self.ip.interp(&funcs, &mut vars, &stmt);
@@ -158,24 +157,28 @@ impl SimpleInterp {
             return Err(res3.err().unwrap());
         }
 
-        println!("\n-----------------------------------");
-        println!("PHASE 3: Flow Interpretation");
-        println!("-----------------------------------");
-        println!("\n1. Function symbols table (from PHASE 2)");
-        println!("\n2. Flow-sensitive variable symbols table: \n\n{:#?}", &vars);
-        println!("\n3. Original program statement");
+        //println!("\n-----------------------------------");
+        //println!("PHASE 3: Flow Interpretation");
+        //println!("-----------------------------------");
+        //println!("\n1. Function symbols table (from PHASE 2)");
+        //println!(
+        //    "\n2. Flow-sensitive variable symbols table: \n\n{:#?}",
+        //    &vars
+        //);
+        //println!("\n3. Original program statement");
 
         let res4 = self.rw.rewrite(&funcs, &vars, &mut stmt);
         if res4.is_err() {
             return Err(res4.err().unwrap());
         }
 
-        println!("\n-----------------------------------");
-        println!("PHASE 4: Switch-Case Rewrite");
-        println!("-----------------------------------");
-        println!("\n1. Function symbols table (from PHASE 2)");
-        println!("\n2. Flow-sensitive variable symbols table (from PHASE 3)");
-        println!("\n3. (Maybe) modified program statement: \n\n{:#?}", &stmt);
+        //println!("\n-----------------------------------");
+        //println!("PHASE 4: Switch-Case Rewrite");
+        //println!("-----------------------------------");
+        //println!("\n1. Function symbols table (from PHASE 2)");
+        //println!("\n2. Flow-sensitive variable symbols table (from PHASE
+        // 3)"); println!("\n3. (Maybe) modified program statement:
+        // \n\n{:#?}", &stmt);
 
         Ok((vars, stmt))
     }
@@ -263,7 +266,7 @@ mod tests {
         let foo_body =
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
         let bar_body =
-            Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(6)))]));
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(6)))]));
 
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", foo_body)),
@@ -281,10 +284,7 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars
             .vars
-            .insert("x", vec![RVal::Num(5)]);
-        check_vars
-            .vars
-            .insert("y", vec![RVal::Num(6)]);
+            .insert("x", vec![RVal::Num(6), RVal::Num(5)]);
 
         assert_eq!(vars, check_vars);
         assert_eq!(rw_stmt, stmt);
@@ -320,7 +320,7 @@ mod tests {
 
         let switch_vec = vec![
             (RVal::Var("bar"), Box::new(InvokeFunc("bar"))),
-            (RVal::Var("foo"), Box::new(InvokeFunc("foo")))
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo"))),
         ];
         let check_stmt = Sequence(vec![
             Box::new(FuncDef("foo", foo_body)),

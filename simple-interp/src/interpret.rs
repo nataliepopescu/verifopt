@@ -270,7 +270,7 @@ impl Interpreter {
             }
             Err(err) => Err(err),
         }
-   }
+    }
 
     pub fn possible(&self, possible_b: &BooleanStatement) -> bool {
         match possible_b {
@@ -354,7 +354,12 @@ impl Interpreter {
         let mut res_vars: Vec<Vars> = vec![];
         for val in vec.iter() {
             let mut vars_clone = vars.clone();
-            match self.interp_indirect_invoke_helper(funcs, &mut vars_clone, name, val) {
+            match self.interp_indirect_invoke_helper(
+                funcs,
+                &mut vars_clone,
+                name,
+                val,
+            ) {
                 Ok(_) => res_vars.push(vars_clone),
                 err @ Err(_) => return err,
             }

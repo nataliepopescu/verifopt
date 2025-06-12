@@ -78,7 +78,8 @@ style 2: res on spot (set of constraints about possible vals)
 
 - [x] clone bug in invocation interp
 - [x] SSA pass: separate funcs in body
-- [ ] add function args
+- [x] add function args
+    - [ ] restructure vars to support scopes (like SSA pass mod)
 - [ ] collect all funcs of certain signature
 - [ ] impl negative constraints
 - [ ] impl CHA

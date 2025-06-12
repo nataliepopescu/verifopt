@@ -13,6 +13,12 @@ DSTs -> fat pointers (2x size)
 
 - `?Sized`
 
+[dyn overview](https://quinedot.github.io/rust-learning/dyn-trait-overview.html)
+- "dyn Trait is also useful in some situations where generics are undesirable"
+    - so `dyn Trait` and generics are not exactly the same thing
+    - generic params have an implicit `Sized` bound, which is incompatible w
+      unSized trait objects
+
 ## Generics
 
 generics and traits/trait objects are related b/c in order to have a generic

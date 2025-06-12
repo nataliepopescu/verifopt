@@ -77,10 +77,12 @@ style 2: res on spot (set of constraints about possible vals)
 ## next steps
 
 - [x] clone bug in invocation interp
-- [ ] SSA pass: separate funcs in body
-- [ ] ask amit/leon about rust code that heavily uses dyn
-- [ ] add function args + collect all funcs of certain signature
+- [x] SSA pass: separate funcs in body
+- [ ] add function args
+- [ ] collect all funcs of certain signature
 - [ ] impl negative constraints
 - [ ] impl CHA
 - [ ] eventually impl flow-sensitive stuff (for function res)
+
+- [ ] ask amit/leon about rust code that heavily uses dyn
 

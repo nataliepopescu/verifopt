@@ -329,11 +329,17 @@ impl Interpreter {
         vars: &mut Vars,
         name: &'static str,
         val: &RVal,
-        _args: &Vec<&'static str>,
+        args: &Vec<&'static str>,
     ) -> Result<(), Error> {
         match val {
             RVal::Var(name) => match funcs.funcs.get(name) {
                 Some(func_data) => {
+                    let res =
+                        self.resolve_args(funcs, vars, &func_data.params, args);
+                    if res.is_err() {
+                        return res;
+                    }
+
                     match self.interp(funcs, vars, &*func_data.body) {
                         Ok(stmt) => return Ok(stmt),
                         err @ Err(_) => return err,
@@ -384,13 +390,14 @@ impl Interpreter {
         params: &Vec<&'static str>,
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
-        println!("funcs: {:?}", funcs);
-        println!("vars: {:?}", vars);
-
         for (param, arg) in std::iter::zip(params, args) {
-            println!("param: {:?}", &param);
-            println!("arg: {:?}", &arg);
-            // FIXME overwrite previous y vals?
+            // FIXME do not overwrite previous y vals?
+            // maybe make Vars structure similar to Symbol to emulate scopes,
+            // but will then lose the function indirect we get from the separate
+            // funcs table (now the func name will exist in the vars table and
+            // will need either an extra check to differentiate, bad for perf,
+            // or will need to always check funcs table first, which is bad perf
+            // for the vars ~common case
             match vars.vars.get(arg) {
                 Some(value_vec) => {
                     vars.vars.insert(param, value_vec.to_vec());
@@ -910,9 +917,33 @@ mod tests {
         assert_eq!(vars, Vars::new());
     }
 
-    // TODO add meaningful func args/ret tests
     #[test]
-    fn test_funcdef_args() {
+    fn test_direct_invoke() {
+        let mut funcs = Funcs::new();
+        let body =
+            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
+        funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
+
+        let mut vars = Vars::new();
+
+        let interp = Interpreter::new();
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(InvokeFunc("foo", vec![])),
+        ]);
+        let res = interp.interp(&funcs, &mut vars, &stmt);
+
+        let mut check_vars = Vars::new();
+        check_vars.vars.insert("x", vec![RVal::Num(5)]);
+
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(vars, check_vars);
+    }
+
+    #[test]
+    fn test_funcdef_args_direct() {
         let mut funcs = Funcs::new();
         let mut vars = Vars::new();
         let interp = Interpreter::new();
@@ -953,34 +984,6 @@ mod tests {
         check_vars.vars.insert("x", vec![RVal::Num(5)]);
         check_vars.vars.insert("z", vec![RVal::Num(0)]);
 
-        println!("[test] funcs: {:?}", funcs);
-        println!("[test] vars: {:?}", vars);
-
-        assert_eq!(res.unwrap(), ());
-        assert_eq!(vars, check_vars);
-    }
-
-    #[test]
-    fn test_direct_invoke() {
-        let mut funcs = Funcs::new();
-        let body =
-            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
-        funcs
-            .funcs
-            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
-
-        let mut vars = Vars::new();
-
-        let interp = Interpreter::new();
-        let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body)),
-            Box::new(InvokeFunc("foo", vec![])),
-        ]);
-        let res = interp.interp(&funcs, &mut vars, &stmt);
-
-        let mut check_vars = Vars::new();
-        check_vars.vars.insert("x", vec![RVal::Num(5)]);
-
         assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
@@ -1007,6 +1010,54 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert("x", vec![RVal::Var("foo")]);
         check_vars.vars.insert("z", vec![RVal::Num(5)]);
+
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(vars, check_vars);
+    }
+
+    #[test]
+    fn test_funcdef_args_indirect() {
+        let mut funcs = Funcs::new();
+        let mut vars = Vars::new();
+        let interp = Interpreter::new();
+
+        let body = Box::new(Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::Equals(
+                    RVal::Var("x"),
+                    RVal::Var("y"),
+                )),
+                Box::new(Assignment("z", RVal::Num(0))),
+                Box::new(Assignment("z", RVal::Num(1))),
+            )),
+        ]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                body.clone(),
+            )),
+            Box::new(Assignment("w", RVal::Var("foo"))),
+            Box::new(Assignment("arg", RVal::Num(5))),
+            Box::new(InvokeFunc("w", vec!["arg"])),
+        ]);
+
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, body.clone()),
+        );
+        let res = interp.interp(&funcs, &mut vars, &stmt);
+
+        let mut check_vars = Vars::new();
+        check_vars.vars.insert("x", vec![RVal::Num(5)]);
+        check_vars.vars.insert("w", vec![RVal::Var("foo")]);
+        check_vars.vars.insert("y", vec![RVal::Num(5)]);
+        check_vars.vars.insert("arg", vec![RVal::Num(5)]);
+        check_vars.vars.insert("z", vec![RVal::Num(0)]);
 
         assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);

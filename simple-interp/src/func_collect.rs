@@ -1,4 +1,4 @@
-use crate::{Error, FuncVal, Statement};
+use crate::{Error, FuncVal, Statement, Type};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,9 +28,10 @@ impl FuncCollector {
     ) -> Result<(), Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => self.collect_seq(funcs, stmt_vec),
-            Statement::FuncDef(name, body) => {
-                self.collect_funcdef(funcs, name, body)
-            }
+            Statement::FuncDef(name, paramtypes, params, rettype, body) => self
+                .collect_funcdef(
+                    funcs, name, paramtypes, params, rettype, body,
+                ),
             _ => Ok(()),
         }
     }
@@ -53,6 +54,9 @@ impl FuncCollector {
         &self,
         funcs: &mut Funcs,
         name: &'static str,
+        paramtypes: &Vec<Type>,
+        params: &Vec<&'static str>,
+        rettype: &Option<Box<Type>>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
         // FIXME remove duplicate name check (panic)
@@ -61,7 +65,15 @@ impl FuncCollector {
                 panic!("SSA BUG: funcname {:?} already exists", &name)
             }
             None => {
-                funcs.funcs.insert(name, FuncVal::new(body.clone()));
+                funcs.funcs.insert(
+                    name,
+                    FuncVal::new(
+                        paramtypes.clone(),
+                        params.clone(),
+                        rettype.clone(),
+                        body.clone(),
+                    ),
+                );
                 Ok(())
             }
         }
@@ -157,12 +169,32 @@ mod tests {
     fn test_funcdef() {
         let fc = FuncCollector::new();
         let body = Box::new(Assignment("x", RVal::Num(5)));
-        let stmt = FuncDef("foo", body.clone());
+        let stmt = FuncDef("foo", vec![], vec![], None, body.clone());
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
-        check_funcs.funcs.insert("foo", FuncVal::new(body));
+        check_funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body));
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
+    }
+
+    #[test]
+    fn test_funcdef_args_do_nothing() {
+        let fc = FuncCollector::new();
+        let body = Box::new(Assignment("x", RVal::Num(5)));
+        let stmt =
+            FuncDef("foo", vec![Type::Int()], vec!["y"], None, body.clone());
+        let mut funcs = Funcs::new();
+        let res = fc.collect(&mut funcs, &stmt);
+
+        let mut check_funcs = Funcs::new();
+        check_funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, body),
+        );
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
@@ -172,14 +204,16 @@ mod tests {
         let fc = FuncCollector::new();
         let body = Box::new(Assignment("y", RVal::Num(5)));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
             Box::new(Assignment("x", RVal::Var("foo"))),
         ]);
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
-        check_funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        check_funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }

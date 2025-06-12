@@ -27,15 +27,26 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    Int(),
+    Func(Vec<Type>, Box<Type>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Sequence(Vec<Box<Statement>>),
     Assignment(&'static str, RVal),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
-    // no args or retvals for now
-    FuncDef(&'static str, Box<Statement>),
-    InvokeFunc(&'static str),
+    FuncDef(
+        &'static str,
+        Vec<Type>,
+        Vec<&'static str>,
+        Option<Box<Type>>,
+        Box<Statement>,
+    ),
+    InvokeFunc(&'static str, Vec<&'static str>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,12 +66,25 @@ impl fmt::Display for RVal {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncVal {
+    paramtypes: Vec<Type>,
+    params: Vec<&'static str>,
+    rettype: Option<Box<Type>>,
     body: Box<Statement>,
 }
 
 impl FuncVal {
-    pub fn new(body: Box<Statement>) -> Self {
-        Self { body }
+    pub fn new(
+        paramtypes: Vec<Type>,
+        params: Vec<&'static str>,
+        rettype: Option<Box<Type>>,
+        body: Box<Statement>,
+    ) -> Self {
+        Self {
+            paramtypes,
+            params,
+            rettype,
+            body,
+        }
     }
 }
 
@@ -205,7 +229,7 @@ mod tests {
     #[test]
     fn test_funcdef() {
         let body = Box::new(Assignment("x", RVal::Num(5)));
-        let stmt = FuncDef("foo", body.clone());
+        let stmt = FuncDef("foo", vec![], vec![], None, body.clone());
 
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
@@ -219,8 +243,8 @@ mod tests {
         let body =
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body)),
-            Box::new(InvokeFunc("foo")),
+            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(InvokeFunc("foo", vec![])),
         ]);
 
         let si = SimpleInterp::new();
@@ -238,9 +262,9 @@ mod tests {
         let body =
             Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
             Box::new(Assignment("x", RVal::Var("foo"))),
-            Box::new(InvokeFunc("x")),
+            Box::new(InvokeFunc("x", vec![])),
         ]);
 
         let si = SimpleInterp::new();
@@ -250,9 +274,10 @@ mod tests {
         check_vars.vars.insert("x", vec![RVal::Var("foo")]);
         check_vars.vars.insert("z", vec![RVal::Num(5)]);
 
-        let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo")))];
+        let switch_vec =
+            vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, body)),
             Box::new(Assignment("x", RVal::Var("foo"))),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
@@ -269,12 +294,12 @@ mod tests {
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(6)))]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body)),
-            Box::new(FuncDef("bar", bar_body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(InvokeFunc("foo")),
-                Box::new(InvokeFunc("bar")),
+                Box::new(InvokeFunc("foo", vec![])),
+                Box::new(InvokeFunc("bar", vec![])),
             )),
         ]);
 
@@ -298,14 +323,14 @@ mod tests {
             Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(6)))]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body.clone())),
-            Box::new(FuncDef("bar", bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment("x", RVal::Var("foo"))),
                 Box::new(Assignment("x", RVal::Var("bar"))),
             )),
-            Box::new(InvokeFunc("x")),
+            Box::new(InvokeFunc("x", vec![])),
         ]);
 
         let si = SimpleInterp::new();
@@ -319,12 +344,12 @@ mod tests {
         check_vars.vars.insert("z", vec![RVal::Num(6)]);
 
         let switch_vec = vec![
-            (RVal::Var("bar"), Box::new(InvokeFunc("bar"))),
-            (RVal::Var("foo"), Box::new(InvokeFunc("foo"))),
+            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body)),
-            Box::new(FuncDef("bar", bar_body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment("x", RVal::Var("foo"))),

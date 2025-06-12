@@ -84,9 +84,9 @@ impl Interpreter {
             Statement::Switch(val, vec) => {
                 self.interp_switch(funcs, vars, val, vec)
             }
-            Statement::FuncDef(_, _) => Ok(()),
-            Statement::InvokeFunc(name) => {
-                self.interp_invoke(funcs, vars, name)
+            Statement::FuncDef(..) => Ok(()),
+            Statement::InvokeFunc(name, args) => {
+                self.interp_invoke(funcs, vars, name, args)
             }
         }
     }
@@ -329,11 +329,12 @@ impl Interpreter {
         vars: &mut Vars,
         name: &'static str,
         val: &RVal,
+        _args: &Vec<&'static str>,
     ) -> Result<(), Error> {
         match val {
             RVal::Var(name) => match funcs.funcs.get(name) {
-                Some(func_val) => {
-                    match self.interp(funcs, vars, &*func_val.body) {
+                Some(func_data) => {
+                    match self.interp(funcs, vars, &*func_data.body) {
                         Ok(stmt) => return Ok(stmt),
                         err @ Err(_) => return err,
                     }
@@ -350,6 +351,7 @@ impl Interpreter {
         vars: &mut Vars,
         name: &'static str,
         vec: &Vec<RVal>,
+        args: &Vec<&'static str>,
     ) -> Result<(), Error> {
         let mut res_vars: Vec<Vars> = vec![];
         for val in vec.iter() {
@@ -359,6 +361,7 @@ impl Interpreter {
                 &mut vars_clone,
                 name,
                 val,
+                args,
             ) {
                 Ok(_) => res_vars.push(vars_clone),
                 err @ Err(_) => return err,
@@ -374,19 +377,58 @@ impl Interpreter {
         }
     }
 
+    fn resolve_args(
+        &self,
+        funcs: &Funcs,
+        vars: &mut Vars,
+        params: &Vec<&'static str>,
+        args: &Vec<&'static str>,
+    ) -> Result<(), Error> {
+        println!("funcs: {:?}", funcs);
+        println!("vars: {:?}", vars);
+
+        for (param, arg) in std::iter::zip(params, args) {
+            println!("param: {:?}", &param);
+            println!("arg: {:?}", &arg);
+            // FIXME overwrite previous y vals?
+            match vars.vars.get(arg) {
+                Some(value_vec) => {
+                    vars.vars.insert(param, value_vec.to_vec());
+                }
+                None => match funcs.funcs.get(arg) {
+                    Some(_func_data) => {
+                        todo!("not impl yet");
+                    }
+                    None => return Err(Error::UndefinedSymbol(arg)),
+                },
+            }
+        }
+
+        Ok(())
+    }
+
     fn interp_direct_invoke(
         &self,
         funcs: &Funcs,
         vars: &mut Vars,
         name: &'static str,
+        args: &Vec<&'static str>,
     ) -> Result<(), Error> {
         match funcs.funcs.get(name) {
-            Some(func) => match self.interp(funcs, vars, &*func.body) {
-                Ok(_) => {
-                    return Ok(());
+            Some(func_data) => {
+                let res =
+                    self.resolve_args(funcs, vars, &func_data.params, args);
+                if res.is_err() {
+                    return res;
                 }
-                err @ Err(_) => return err,
-            },
+
+                match self.interp(funcs, vars, &*func_data.body) {
+                    Ok(_) => {
+                        return Ok(());
+                    }
+                    err @ Err(_) => return err,
+                }
+            }
             None => return Err(Error::UndefinedSymbol(name)),
         }
     }
@@ -396,10 +438,13 @@ impl Interpreter {
         funcs: &Funcs,
         vars: &mut Vars,
         name: &'static str,
+        args: &Vec<&'static str>,
     ) -> Result<(), Error> {
         match vars.clone().vars.get(name) {
-            Some(vec) => self.interp_indirect_invoke(funcs, vars, name, vec),
-            None => self.interp_direct_invoke(funcs, vars, name),
+            Some(vec) => {
+                self.interp_indirect_invoke(funcs, vars, name, vec, args)
+            }
+            None => self.interp_direct_invoke(funcs, vars, name, args),
         }
     }
 }
@@ -407,11 +452,11 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::FuncVal;
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
     use crate::func_collect::Funcs;
+    use crate::{FuncVal, Type};
 
     #[test]
     fn test_merge_none() {
@@ -663,16 +708,22 @@ mod tests {
         let mut funcs = Funcs::new();
         let foo_body =
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
-        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
-        funcs.funcs.insert("bar", FuncVal::new(foo_body.clone()));
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
 
         let mut vars = Vars::new();
 
         // note: `equals` is _shallow_, which is why it evals to false here
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body.clone())),
-            Box::new(FuncDef("bar", foo_body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, foo_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
                     RVal::Var("foo"),
@@ -696,13 +747,16 @@ mod tests {
         let mut funcs = Funcs::new();
         let foo_body =
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
-        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
             Box::new(Assignment("bar", RVal::Var("foo"))),
             Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
@@ -764,13 +818,16 @@ mod tests {
         let mut funcs = Funcs::new();
         let foo_body =
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
-        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
             Box::new(Assignment("x", RVal::Num(5))),
             Box::new(Conditional(
                 Box::new(BooleanStatement::Equals(
@@ -839,16 +896,68 @@ mod tests {
     fn test_funcdef() {
         let mut funcs = Funcs::new();
         let body = Box::new(Assignment("x", RVal::Num(5)));
-        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
-        let stmt = FuncDef("foo", body);
+        let stmt = FuncDef("foo", vec![], vec![], None, body);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
         assert_eq!(res.unwrap(), ());
         assert_eq!(vars, Vars::new());
+    }
+
+    // TODO add meaningful func args/ret tests
+    #[test]
+    fn test_funcdef_args() {
+        let mut funcs = Funcs::new();
+        let mut vars = Vars::new();
+        let interp = Interpreter::new();
+
+        let body = Box::new(Sequence(vec![
+            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::Equals(
+                    RVal::Var("x"),
+                    RVal::Var("y"),
+                )),
+                Box::new(Assignment("z", RVal::Num(0))),
+                Box::new(Assignment("z", RVal::Num(1))),
+            )),
+        ]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                body.clone(),
+            )),
+            Box::new(Assignment("arg", RVal::Num(5))),
+            Box::new(InvokeFunc("foo", vec!["arg"])),
+        ]);
+
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, body.clone()),
+        );
+        let res = interp.interp(&funcs, &mut vars, &stmt);
+
+        let mut check_vars = Vars::new();
+        check_vars.vars.insert("arg", vec![RVal::Num(5)]);
+        check_vars.vars.insert("y", vec![RVal::Num(5)]);
+        check_vars.vars.insert("x", vec![RVal::Num(5)]);
+        check_vars.vars.insert("z", vec![RVal::Num(0)]);
+
+        println!("[test] funcs: {:?}", funcs);
+        println!("[test] vars: {:?}", vars);
+
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(vars, check_vars);
     }
 
     #[test]
@@ -856,14 +965,16 @@ mod tests {
         let mut funcs = Funcs::new();
         let body =
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
-        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body)),
-            Box::new(InvokeFunc("foo")),
+            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(InvokeFunc("foo", vec![])),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
@@ -879,15 +990,17 @@ mod tests {
         let mut funcs = Funcs::new();
         let body =
             Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
-        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, body)),
             Box::new(Assignment("x", RVal::Var("foo"))),
-            Box::new(InvokeFunc("x")),
+            Box::new(InvokeFunc("x", vec![])),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
@@ -906,19 +1019,25 @@ mod tests {
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
         let bar_body =
             Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(6)))]));
-        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
-        funcs.funcs.insert("bar", FuncVal::new(bar_body.clone()));
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+        );
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body)),
-            Box::new(FuncDef("bar", bar_body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(InvokeFunc("foo")),
-                Box::new(InvokeFunc("bar")),
+                Box::new(InvokeFunc("foo", vec![])),
+                Box::new(InvokeFunc("bar", vec![])),
             )),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
@@ -939,21 +1058,27 @@ mod tests {
             Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(5)))]));
         let bar_body =
             Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(6)))]));
-        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
-        funcs.funcs.insert("bar", FuncVal::new(bar_body.clone()));
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+        );
 
         let mut vars = Vars::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body)),
-            Box::new(FuncDef("bar", bar_body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment("x", RVal::Var("foo"))),
                 Box::new(Assignment("x", RVal::Var("bar"))),
             )),
-            Box::new(InvokeFunc("x")),
+            Box::new(InvokeFunc("x", vec![])),
         ]);
         let res = interp.interp(&funcs, &mut vars, &stmt);
 
@@ -973,7 +1098,7 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
             Box::new(Assignment("foo", RVal::Num(5))),
-            Box::new(InvokeFunc("foo")),
+            Box::new(InvokeFunc("foo", vec![])),
         ]);
         let funcs = Funcs::new();
         let mut vars = Vars::new();

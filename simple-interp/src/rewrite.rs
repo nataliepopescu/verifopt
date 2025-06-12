@@ -39,11 +39,11 @@ impl Rewriter {
             Statement::Switch(val, vec) => {
                 self.rewrite_switch(funcs, vars, val.clone(), vec)
             }
-            Statement::FuncDef(name, body) => {
-                self.rewrite_funcdef(funcs, vars, name, body)
+            Statement::FuncDef(_, _, _, _, body) => {
+                self.rewrite_funcdef(funcs, vars, body)
             }
-            Statement::InvokeFunc(name) => {
-                match self.rewrite_invoke(funcs, vars, name) {
+            Statement::InvokeFunc(name, args) => {
+                match self.rewrite_invoke(funcs, vars, name, args) {
                     Ok(res) => {
                         *stmt = res;
                         Ok(())
@@ -111,7 +111,6 @@ impl Rewriter {
         &self,
         funcs: &Funcs,
         vars: &Vars,
-        _name: &'static str,
         body: &mut Box<Statement>,
     ) -> Result<(), Error> {
         let res = self.rewrite(funcs, vars, &mut (*body));
@@ -125,14 +124,16 @@ impl Rewriter {
         &self,
         name: &'static str,
         vec: &Vec<RVal>,
+        args: Vec<&'static str>,
     ) -> Result<Statement, Error> {
         let mut switch_vec = vec![];
         for rval in vec.into_iter() {
             // FIXME remove check (panic)
             match rval.clone() {
-                r @ RVal::Var(var) => {
-                    switch_vec.push((r, Box::new(Statement::InvokeFunc(var))))
-                }
+                r @ RVal::Var(var) => switch_vec.push((
+                    r,
+                    Box::new(Statement::InvokeFunc(var, args.clone())),
+                )),
                 _ => panic!("IP BUG: num {:?} is not a func name", &rval),
             }
         }
@@ -144,12 +145,15 @@ impl Rewriter {
         funcs: &Funcs,
         vars: &Vars,
         name: &'static str,
+        args: &Vec<&'static str>,
     ) -> Result<Statement, Error> {
         match funcs.funcs.get(name) {
-            Some(_) => Ok(Statement::InvokeFunc(name)),
+            Some(_) => Ok(Statement::InvokeFunc(name, args.to_vec())),
             // FIXME remove check (panic)
             None => match vars.vars.get(name) {
-                Some(vec) => self.rewrite_indirect_invoke(name, vec),
+                Some(vec) => {
+                    self.rewrite_indirect_invoke(name, vec, args.to_vec())
+                }
                 None => panic!("IP BUG: missed undef symbol {:?}", &name),
             },
         }
@@ -198,14 +202,16 @@ mod tests {
         let body =
             Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
         let mut stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
             Box::new(Assignment("x", RVal::Var("foo"))),
-            Box::new(InvokeFunc("foo")),
+            Box::new(InvokeFunc("foo", vec![])),
         ]);
         let check_stmt = stmt.clone();
 
         let mut funcs = Funcs::new();
-        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
         let mut vars = Vars::new();
         vars.vars.insert("x", vec![RVal::Var("foo")]);
 
@@ -220,22 +226,25 @@ mod tests {
         let body =
             Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
         let mut stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
             Box::new(Assignment("x", RVal::Var("foo"))),
-            Box::new(InvokeFunc("x")),
+            Box::new(InvokeFunc("x", vec![])),
         ]);
 
         let mut funcs = Funcs::new();
-        funcs.funcs.insert("foo", FuncVal::new(body.clone()));
+        funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
         let mut vars = Vars::new();
         vars.vars.insert("x", vec![RVal::Var("foo")]);
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
-        let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo")))];
+        let switch_vec =
+            vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body)),
+            Box::new(FuncDef("foo", vec![], vec![], None, body)),
             Box::new(Assignment("x", RVal::Var("foo"))),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
@@ -250,19 +259,25 @@ mod tests {
         let bar_body =
             Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(6)))]));
         let mut stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body.clone())),
-            Box::new(FuncDef("bar", bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment("x", RVal::Var("foo"))),
                 Box::new(Assignment("x", RVal::Var("bar"))),
             )),
-            Box::new(InvokeFunc("x")),
+            Box::new(InvokeFunc("x", vec![])),
         ]);
 
         let mut funcs = Funcs::new();
-        funcs.funcs.insert("foo", FuncVal::new(foo_body.clone()));
-        funcs.funcs.insert("bar", FuncVal::new(bar_body.clone()));
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+        );
         let mut vars = Vars::new();
         vars.vars
             .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
@@ -271,12 +286,12 @@ mod tests {
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);
 
         let switch_vec = vec![
-            (RVal::Var("bar"), Box::new(InvokeFunc("bar"))),
-            (RVal::Var("foo"), Box::new(InvokeFunc("foo"))),
+            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", foo_body.clone())),
-            Box::new(FuncDef("bar", bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment("x", RVal::Var("foo"))),

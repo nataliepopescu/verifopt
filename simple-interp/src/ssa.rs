@@ -44,17 +44,15 @@ impl Merge for Vec<Symbols> {
         for i in 1..self.len() {
             for (key, val) in self[i].clone().0.iter_mut() {
                 match merged.0.get_mut(key) {
-                    Some(mergedval) => {
-                        match (val, mergedval) {
-                            (None, None) => continue,
-                            (Some(a), Some(b)) => {
-                                if a != b {
-                                    todo!("when NOT EQUAL?")
-                                }
+                    Some(mergedval) => match (val, mergedval) {
+                        (None, None) => continue,
+                        (Some(a), Some(b)) => {
+                            if a != b {
+                                todo!("when NOT EQUAL?")
                             }
-                            _ => return Err(Error::SymbolAlreadyExists(key)),
                         }
-                    }
+                        _ => return Err(Error::SymbolAlreadyExists(key)),
+                    },
                     None => {
                         merged.0.insert(key, val.clone());
                     }
@@ -80,7 +78,7 @@ impl SSAChecker {
     ) -> Result<(), Error> {
         match stmt {
             Statement::Print(_) => Ok(()),
-            Statement::InvokeFunc(_) => Ok(()),
+            Statement::InvokeFunc(..) => Ok(()),
             Statement::Assignment(name, _) => {
                 self.check_assignment(symbols, name)
             }
@@ -88,8 +86,8 @@ impl SSAChecker {
             Statement::Conditional(_, true_branch, false_branch) => self
                 .check_conditional(symbols, &(*true_branch), &(*false_branch)),
             Statement::Switch(_, vec) => self.check_switch(symbols, vec),
-            Statement::FuncDef(name, body) => {
-                self.check_funcdef(symbols, name, body)
+            Statement::FuncDef(name, _, params, _, body) => {
+                self.check_funcdef(symbols, name, params, body)
             }
         }
     }
@@ -179,14 +177,17 @@ impl SSAChecker {
         &self,
         symbols: &mut Symbols,
         name: &'static str,
+        params: &Vec<&'static str>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
         if symbols.0.get(name).is_some() {
             return Err(Error::SymbolAlreadyExists(name));
         }
 
-        // TODO insert func args
         let mut func_symbols = Symbols::new();
+        for argname in params.iter() {
+            func_symbols.0.insert(argname, None);
+        }
         let res = self.check(&mut func_symbols, body);
         if res.is_err() {
             return res;
@@ -203,7 +204,7 @@ mod tests {
     use crate::Statement::{
         Assignment, Conditional, FuncDef, Sequence, Switch,
     };
-    use crate::{BooleanStatement, Error};
+    use crate::{BooleanStatement, Error, Type};
 
     #[test]
     fn test_merge_vars() {
@@ -261,11 +262,37 @@ mod tests {
     }
 
     #[test]
+    fn test_funcdef_args_do_nothing() {
+        let body = Box::new(Assignment("y", RVal::Num(5)));
+        let stmt = Sequence(vec![Box::new(FuncDef(
+            "foo",
+            vec![Type::Int()],
+            vec!["x"],
+            None,
+            body.clone(),
+        ))]);
+
+        let sc = SSAChecker::new();
+        let mut symbols = Symbols::new();
+        let _ = sc.check(&mut symbols, &stmt);
+
+        let mut check_symbols = Symbols::new();
+        let mut inner_check_symbols = Symbols::new();
+        inner_check_symbols.0.insert("x", None);
+        inner_check_symbols.0.insert("y", None);
+        check_symbols
+            .0
+            .insert("foo", Some(Box::new(inner_check_symbols)));
+
+        assert_eq!(check_symbols, symbols);
+    }
+
+    #[test]
     fn test_funcdef_err() {
         let body = Box::new(Assignment("x", RVal::Num(5)));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body.clone())),
-            Box::new(FuncDef("foo", body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -277,11 +304,16 @@ mod tests {
 
     #[test]
     fn test_nested_funcdefs() {
-        let body =
-            Box::new(FuncDef("baz", Box::new(Assignment("x", RVal::Num(5)))));
+        let body = Box::new(FuncDef(
+            "baz",
+            vec![],
+            vec![],
+            None,
+            Box::new(Assignment("x", RVal::Num(5))),
+        ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", body.clone())),
-            Box::new(FuncDef("bar", body.clone())),
+            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();

@@ -40,9 +40,26 @@ impl Merge for Vec<Vars> {
             for (key, val) in self[i].clone().vars.iter() {
                 match merged.vars.get_mut(key) {
                     Some(mval) => match (*mval.clone(), *val.clone()) {
-                        (VarType::Scope(_, a), VarType::Scope(_, b)) => {
-                            if a != b {
-                                todo!("when UNEQUAL scopes?");
+                        (
+                            VarType::Scope(backptr_a, vars_a),
+                            VarType::Scope(backptr_b, vars_b),
+                        ) => {
+                            if vars_a != vars_b {
+                                let inner_vars = vec![vars_a, vars_b];
+                                match inner_vars.merge() {
+                                    Ok(merged_inner) => {
+                                        if backptr_a != backptr_b {
+                                            todo!(
+                                                "when UNEQUAL scope backptrs?"
+                                            );
+                                        }
+                                        *mval = Box::new(VarType::Scope(
+                                            backptr_a,
+                                            merged_inner,
+                                        ));
+                                    }
+                                    err @ Err(_) => return err,
+                                }
                             }
                         }
                         (VarType::Values(mut a), VarType::Values(mut b)) => {
@@ -154,6 +171,10 @@ impl Interpreter {
     ) -> Result<(), Error> {
         // first get the `vars` object pertaining to `this` scope
         if scope.is_none() {
+            if vars.vars.get(var).is_some() {
+                return Err(Error::SymbolAlreadyExists(var));
+            }
+
             vars.vars.insert(var, value.clone());
             return Ok(());
         }
@@ -161,6 +182,9 @@ impl Interpreter {
         match vars.vars.get(scope.unwrap()) {
             Some(vartype) => match *vartype.clone() {
                 VarType::Scope(backptr, mut inner_vars) => {
+                    if inner_vars.vars.get(var).is_some() {
+                        return Err(Error::SymbolAlreadyExists(var));
+                    }
                     // modify scope w new var
                     inner_vars.vars.insert(var, value);
                     vars.vars.insert(
@@ -201,10 +225,6 @@ impl Interpreter {
         var: &'static str,
         value: &RVal,
     ) -> Result<(), Error> {
-        if vars.vars.get(var).is_some() {
-            panic!("SSA BUG: varname {:?} already exists", &var);
-        }
-
         match value {
             RVal::Num(_) => {
                 let res = self.scoped_set(
@@ -219,15 +239,38 @@ impl Interpreter {
                 }
             }
             r @ RVal::Var(varname) => {
-                match vars.vars.get(varname) {
-                    Some(val) => vars.vars.insert(var, val.clone()),
-                    None => match funcs.funcs.get(varname) {
-                        Some(_) => vars.vars.insert(
-                            var,
-                            Box::new(VarType::Values(vec![r.clone()])),
-                        ),
+                match self.scoped_get(funcs, vars, scope, varname) {
+                    Ok(Some(val)) => match val {
+                        vec @ VarType::Values(_) => {
+                            let res = self.scoped_set(
+                                vars,
+                                scope,
+                                var,
+                                Box::new(vec),
+                            );
+
+                            if res.is_err() {
+                                return res;
+                            }
+                        }
+                        _ => todo!("not impl yet"),
+                    },
+                    Ok(None) => match funcs.funcs.get(varname) {
+                        Some(_) => {
+                            let res = self.scoped_set(
+                                vars,
+                                scope,
+                                var,
+                                Box::new(VarType::Values(vec![r.clone()])),
+                            );
+
+                            if res.is_err() {
+                                return res;
+                            }
+                        }
                         None => return Err(Error::UndefinedSymbol(varname)),
                     },
+                    Err(err) => return Err(err),
                 };
             }
         }
@@ -407,12 +450,15 @@ impl Interpreter {
         // FIXME mod store if have effects
         let resolved_vals = match val {
             num @ RVal::Num(_) => vec![num.clone()],
-            RVal::Var(varname) => match vars.vars.get(varname) {
-                Some(vartype) => match *vartype.clone() {
+            RVal::Var(varname) => match self
+                .scoped_get(funcs, vars, scope, varname)
+            {
+                Ok(Some(vartype)) => match vartype {
                     VarType::Values(possible_vals) => possible_vals.to_vec(),
                     _ => panic!("should not get scope here"),
                 },
-                None => return Err(Error::UndefinedSymbol(varname)),
+                Ok(None) => return Err(Error::UndefinedSymbol(varname)),
+                Err(err) => return Err(err),
             },
         };
 
@@ -453,8 +499,8 @@ impl Interpreter {
     ) -> Result<(), Error> {
         let mut func_vars = Vars::new();
         for (param, arg) in std::iter::zip(params, args) {
-            match vars.vars.get(arg) {
-                Some(vartype) => match *vartype.clone() {
+            match self.scoped_get(funcs, vars, scope, arg) {
+                Ok(Some(vartype)) => match vartype {
                     // add args to scope
                     VarType::Values(value_vec) => func_vars.vars.insert(
                         param,
@@ -462,12 +508,13 @@ impl Interpreter {
                     ),
                     _ => panic!("should not get scope here"),
                 },
-                None => match funcs.funcs.get(arg) {
+                Ok(None) => match funcs.funcs.get(arg) {
                     Some(_func_data) => {
                         todo!("not impl yet");
                     }
                     None => return Err(Error::UndefinedSymbol(arg)),
                 },
+                Err(err) => return Err(err),
             };
         }
 
@@ -590,14 +637,17 @@ impl Interpreter {
         name: &'static str,
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
-        match vars.clone().vars.get(name) {
-            Some(vartype) => match *vartype.clone() {
+        match self.scoped_get(funcs, vars, scope, name) {
+            Ok(Some(vartype)) => match vartype {
                 VarType::Values(vec) => self.interp_indirect_invoke(
                     funcs, vars, scope, name, &vec, args,
                 ),
                 _ => panic!("should not get scope here"),
             },
-            None => self.interp_direct_invoke(funcs, vars, scope, name, args),
+            Ok(None) => {
+                self.interp_direct_invoke(funcs, vars, scope, name, args)
+            }
+            Err(err) => return Err(err),
         }
     }
 }
@@ -1313,9 +1363,9 @@ mod tests {
         ]);
 
         let mut funcs = Funcs::new();
-        //funcs
-        //    .funcs
-        //    .insert("bar", FuncVal::new(vec![], vec![], None, bar_body));
+        funcs
+            .funcs
+            .insert("bar", FuncVal::new(vec![], vec![], None, bar_body));
         funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, foo_body));
@@ -1342,7 +1392,7 @@ mod tests {
         assert_eq!(vars, check_vars);
     }
 
-    //#[test]
+    #[test]
     fn test_nested_indirect_calls_no_args() {
         let baz_body = Box::new(Assignment("x", RVal::Num(1)));
         let qux_body = Box::new(Assignment("x", RVal::Num(2)));
@@ -1369,17 +1419,6 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
 
-        let mut funcs = Funcs::new();
-        funcs.funcs.insert(
-            "foo",
-            FuncVal::new(vec![], vec![], None, foo_body.clone()),
-        );
-        funcs.funcs.insert(
-            "bar",
-            FuncVal::new(vec![], vec![], None, bar_body.clone()),
-        );
-        // TODO does something break if non-top-level funcs are omitted here?
-
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
@@ -1390,6 +1429,32 @@ mod tests {
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
+
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+        );
+        funcs.funcs.insert(
+            "baz",
+            FuncVal::new(vec![], vec![], None, baz_body.clone()),
+        );
+        funcs.funcs.insert(
+            "qux",
+            FuncVal::new(vec![], vec![], None, qux_body.clone()),
+        );
+        funcs.funcs.insert(
+            "baz2",
+            FuncVal::new(vec![], vec![], None, baz2_body.clone()),
+        );
+        funcs.funcs.insert(
+            "qux2",
+            FuncVal::new(vec![], vec![], None, qux2_body.clone()),
+        );
 
         let mut vars = Vars::new();
         let interp = Interpreter::new();
@@ -1430,18 +1495,282 @@ mod tests {
 
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(vec![RVal::Var("foo"), RVal::Var("var")])),
+            Box::new(VarType::Values(vec![RVal::Var("foo"), RVal::Var("bar")])),
         );
+        check_vars
+            .vars
+            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_vars)));
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars
+            .vars
+            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_vars)));
+        check_vars
+            .vars
+            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_vars)));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
+        check_vars
+            .vars
+            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
 
         assert_eq!(res.unwrap(), ());
         assert_eq!(vars, check_vars);
     }
 
-    //#[test]
-    fn test_nested_direct_calls_with_args() {}
+    #[test]
+    fn test_nested_direct_calls_with_args() {
+        let bar_body = Box::new(Assignment("x", RVal::Var("y")));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef(
+                "bar",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                bar_body.clone(),
+            )),
+            Box::new(InvokeFunc("bar", vec!["y"])),
+        ]));
+        let stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                foo_body.clone(),
+            )),
+            Box::new(Assignment("arg", RVal::Num(3))),
+            Box::new(InvokeFunc("foo", vec!["arg"])),
+        ]);
 
-    //#[test]
-    fn test_nested_indirect_calls_with_args() {}
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, bar_body),
+        );
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, foo_body),
+        );
+
+        let mut vars = Vars::new();
+
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+
+        let mut check_vars = Vars::new();
+        let mut foo_vars = Vars::new();
+        let mut bar_vars = Vars::new();
+        bar_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        bar_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        foo_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        check_vars
+            .vars
+            .insert("arg", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_vars)));
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(vars, check_vars);
+    }
+
+    #[test]
+    fn test_nested_indirect_calls_with_args() {
+        let baz_body = Box::new(Assignment("x", RVal::Var("y")));
+        let qux_body = Box::new(Assignment("x", RVal::Var("y")));
+        let baz2_body = Box::new(Assignment("x", RVal::Var("y")));
+        let qux2_body = Box::new(Assignment("x", RVal::Var("y")));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef(
+                "baz",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                baz_body.clone(),
+            )),
+            Box::new(FuncDef(
+                "qux",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                qux_body.clone(),
+            )),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz"))),
+                Box::new(Assignment("x", RVal::Var("qux"))),
+            )),
+            Box::new(InvokeFunc("x", vec!["y"])),
+        ]));
+        let bar_body = Box::new(Sequence(vec![
+            Box::new(FuncDef(
+                "baz2",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                baz2_body.clone(),
+            )),
+            Box::new(FuncDef(
+                "qux2",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                qux2_body.clone(),
+            )),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz2"))),
+                Box::new(Assignment("x", RVal::Var("qux2"))),
+            )),
+            Box::new(InvokeFunc("x", vec!["y"])),
+        ]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                foo_body.clone(),
+            )),
+            Box::new(FuncDef(
+                "bar",
+                vec![Type::Int()],
+                vec!["y"],
+                None,
+                bar_body.clone(),
+            )),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
+            )),
+            Box::new(Assignment("y", RVal::Num(3))),
+            Box::new(InvokeFunc("x", vec!["y"])),
+        ]);
+
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, foo_body.clone()),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, bar_body.clone()),
+        );
+        funcs.funcs.insert(
+            "baz",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, baz_body.clone()),
+        );
+        funcs.funcs.insert(
+            "qux",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, qux_body.clone()),
+        );
+        funcs.funcs.insert(
+            "baz2",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, baz2_body.clone()),
+        );
+        funcs.funcs.insert(
+            "qux2",
+            FuncVal::new(vec![Type::Int()], vec!["y"], None, qux2_body.clone()),
+        );
+
+        let mut vars = Vars::new();
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+
+        let mut check_vars = Vars::new();
+        let mut foo_vars = Vars::new();
+        let mut bar_vars = Vars::new();
+        let mut baz_vars = Vars::new();
+        let mut qux_vars = Vars::new();
+        let mut baz2_vars = Vars::new();
+        let mut qux2_vars = Vars::new();
+
+        baz_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        baz_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        qux_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        qux_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        baz2_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        baz2_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        qux2_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        qux2_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+
+        foo_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![RVal::Var("baz"), RVal::Var("qux")])),
+        );
+        foo_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        bar_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![
+                RVal::Var("baz2"),
+                RVal::Var("qux2"),
+            ])),
+        );
+        bar_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+
+        check_vars
+            .vars
+            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_vars)));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![RVal::Var("foo"), RVal::Var("bar")])),
+        );
+        check_vars
+            .vars
+            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_vars)));
+        check_vars
+            .vars
+            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_vars)));
+        check_vars
+            .vars
+            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
+        check_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
+
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(vars, check_vars);
+    }
 
     #[test]
     fn test_direct_invoke_uncertain() {

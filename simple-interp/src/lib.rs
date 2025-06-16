@@ -406,4 +406,218 @@ mod tests {
         assert_eq!(vars, check_vars);
         assert_eq!(rw_stmt, check_stmt);
     }
+
+    #[test]
+    fn test_nested_direct_calls_no_args() {
+        let bar_body = Box::new(Assignment("x", RVal::Num(5)));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(InvokeFunc("bar", vec![])),
+        ]));
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(InvokeFunc("foo", vec![])),
+        ]);
+        let check_stmt = stmt.clone();
+
+        let si = SimpleInterp::new();
+        let (vars, rw_stmt) = si.interp(stmt).unwrap();
+
+        let mut check_vars = Vars::new();
+        let foo_vars = Vars::new();
+        let mut bar_vars = Vars::new();
+        bar_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_vars)));
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+
+        assert_eq!(vars, check_vars);
+        assert_eq!(rw_stmt, check_stmt);
+    }
+
+    #[test]
+    fn test_nested_indirect_calls_no_args() {
+        let baz_body = Box::new(Assignment("x", RVal::Num(1)));
+        let qux_body = Box::new(Assignment("x", RVal::Num(2)));
+        let baz2_body = Box::new(Assignment("x", RVal::Num(3)));
+        let qux2_body = Box::new(Assignment("x", RVal::Num(4)));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz"))),
+                Box::new(Assignment("x", RVal::Var("qux"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]));
+        let bar_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz2"))),
+                Box::new(Assignment("x", RVal::Var("qux2"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]);
+
+        let foo_switch_vec = vec![
+            (RVal::Var("baz"), Box::new(InvokeFunc("baz", vec![]))),
+            (RVal::Var("qux"), Box::new(InvokeFunc("qux", vec![]))),
+        ];
+        let check_foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz"))),
+                Box::new(Assignment("x", RVal::Var("qux"))),
+            )),
+            Box::new(Switch(RVal::Var("x"), foo_switch_vec)),
+        ]));
+        let bar_switch_vec = vec![
+            (RVal::Var("baz2"), Box::new(InvokeFunc("baz2", vec![]))),
+            (RVal::Var("qux2"), Box::new(InvokeFunc("qux2", vec![]))),
+        ];
+        let check_bar_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz2"))),
+                Box::new(Assignment("x", RVal::Var("qux2"))),
+            )),
+            Box::new(Switch(RVal::Var("x"), bar_switch_vec)),
+        ]));
+        let switch_vec = vec![
+            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
+        ];
+        let check_stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![],
+                vec![],
+                None,
+                check_foo_body.clone(),
+            )),
+            Box::new(FuncDef(
+                "bar",
+                vec![],
+                vec![],
+                None,
+                check_bar_body.clone(),
+            )),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
+            )),
+            Box::new(Switch(RVal::Var("x"), switch_vec)),
+        ]);
+
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+        );
+        funcs.funcs.insert(
+            "baz",
+            FuncVal::new(vec![], vec![], None, baz_body.clone()),
+        );
+        funcs.funcs.insert(
+            "qux",
+            FuncVal::new(vec![], vec![], None, qux_body.clone()),
+        );
+        funcs.funcs.insert(
+            "baz2",
+            FuncVal::new(vec![], vec![], None, baz2_body.clone()),
+        );
+        funcs.funcs.insert(
+            "qux2",
+            FuncVal::new(vec![], vec![], None, qux2_body.clone()),
+        );
+
+        let si = SimpleInterp::new();
+        let (vars, rw_stmt) = si.interp(stmt).unwrap();
+
+        let mut check_vars = Vars::new();
+        let mut foo_vars = Vars::new();
+        let mut bar_vars = Vars::new();
+        let mut baz_vars = Vars::new();
+        let mut qux_vars = Vars::new();
+        let mut baz2_vars = Vars::new();
+        let mut qux2_vars = Vars::new();
+
+        baz_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(1)])));
+        qux_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(2)])));
+        baz2_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(3)])));
+        qux2_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(4)])));
+
+        foo_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![RVal::Var("baz"), RVal::Var("qux")])),
+        );
+        bar_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![
+                RVal::Var("baz2"),
+                RVal::Var("qux2"),
+            ])),
+        );
+
+        check_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![RVal::Var("foo"), RVal::Var("bar")])),
+        );
+        check_vars
+            .vars
+            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_vars)));
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars
+            .vars
+            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_vars)));
+        check_vars
+            .vars
+            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_vars)));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
+        check_vars
+            .vars
+            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
+
+        assert_eq!(vars, check_vars);
+    }
 }

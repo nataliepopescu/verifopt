@@ -74,7 +74,8 @@ impl FuncCollector {
                         body.clone(),
                     ),
                 );
-                Ok(())
+
+                self.collect(funcs, body)
             }
         }
     }
@@ -238,9 +239,9 @@ mod tests {
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
-        //check_funcs
-        //    .funcs
-        //    .insert("bar", FuncVal::new(vec![], vec![], None, bar_body));
+        check_funcs
+            .funcs
+            .insert("bar", FuncVal::new(vec![], vec![], None, bar_body));
         check_funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, foo_body));
@@ -299,6 +300,22 @@ mod tests {
         check_funcs.funcs.insert(
             "bar",
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
+        );
+        check_funcs.funcs.insert(
+            "baz",
+            FuncVal::new(vec![], vec![], None, baz_body.clone()),
+        );
+        check_funcs.funcs.insert(
+            "qux",
+            FuncVal::new(vec![], vec![], None, qux_body.clone()),
+        );
+        check_funcs.funcs.insert(
+            "baz2",
+            FuncVal::new(vec![], vec![], None, baz2_body.clone()),
+        );
+        check_funcs.funcs.insert(
+            "qux2",
+            FuncVal::new(vec![], vec![], None, qux2_body.clone()),
         );
 
         assert_eq!(res.unwrap(), ());

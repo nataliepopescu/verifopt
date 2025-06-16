@@ -1,5 +1,5 @@
 use crate::func_collect::Funcs;
-use crate::interpret::Vars;
+use crate::interpret::{VarType, Vars};
 use crate::{BooleanStatement, Error, RVal, Statement};
 
 pub struct Rewriter {}
@@ -151,9 +151,12 @@ impl Rewriter {
             Some(_) => Ok(Statement::InvokeFunc(name, args.to_vec())),
             // FIXME remove check (panic)
             None => match vars.vars.get(name) {
-                Some(vec) => {
-                    self.rewrite_indirect_invoke(name, vec, args.to_vec())
-                }
+                Some(vartype) => match *vartype.clone() {
+                    VarType::Values(vec) => {
+                        self.rewrite_indirect_invoke(name, &vec, args.to_vec())
+                    }
+                    _ => panic!("should not get scope here"),
+                },
                 None => panic!("IP BUG: missed undef symbol {:?}", &name),
             },
         }
@@ -189,7 +192,8 @@ mod tests {
 
         let funcs = Funcs::new();
         let mut vars = Vars::new();
-        vars.vars.insert("x", vec![RVal::Num(5)]);
+        vars.vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);
@@ -213,7 +217,8 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
         let mut vars = Vars::new();
-        vars.vars.insert("x", vec![RVal::Var("foo")]);
+        vars.vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Var("foo")])));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);
@@ -236,7 +241,8 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
         let mut vars = Vars::new();
-        vars.vars.insert("x", vec![RVal::Var("foo")]);
+        vars.vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Var("foo")])));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);
@@ -279,8 +285,10 @@ mod tests {
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
         let mut vars = Vars::new();
-        vars.vars
-            .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
+        vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![RVal::Var("bar"), RVal::Var("foo")])),
+        );
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &vars, &mut stmt);

@@ -83,7 +83,10 @@ impl FuncCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Statement::{Assignment, FuncDef, Print, Sequence};
+    use crate::BooleanStatement;
+    use crate::Statement::{
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence,
+    };
     use crate::{FuncVal, RVal};
 
     #[test]
@@ -214,6 +217,90 @@ mod tests {
         check_funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
+    }
+
+    #[test]
+    fn test_nested_direct_calls_no_args() {
+        let bar_body = Box::new(Assignment("x", RVal::Num(5)));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(InvokeFunc("bar", vec![])),
+        ]));
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(InvokeFunc("foo", vec![])),
+        ]);
+
+        let mut funcs = Funcs::new();
+        let fc = FuncCollector::new();
+        let res = fc.collect(&mut funcs, &stmt);
+
+        let mut check_funcs = Funcs::new();
+        //check_funcs
+        //    .funcs
+        //    .insert("bar", FuncVal::new(vec![], vec![], None, bar_body));
+        check_funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, foo_body));
+
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(funcs, check_funcs);
+    }
+
+    #[test]
+    fn test_nested_indirect_calls_no_args() {
+        let baz_body = Box::new(Assignment("x", RVal::Num(1)));
+        let qux_body = Box::new(Assignment("x", RVal::Num(2)));
+        let baz2_body = Box::new(Assignment("x", RVal::Num(3)));
+        let qux2_body = Box::new(Assignment("x", RVal::Num(4)));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz"))),
+                Box::new(Assignment("x", RVal::Var("qux"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]));
+        let bar_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz2"))),
+                Box::new(Assignment("x", RVal::Var("qux2"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]);
+
+        let mut funcs = Funcs::new();
+        let fc = FuncCollector::new();
+        let res = fc.collect(&mut funcs, &stmt);
+
+        let mut check_funcs = Funcs::new();
+        check_funcs.funcs.insert(
+            "foo",
+            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+        );
+        check_funcs.funcs.insert(
+            "bar",
+            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+        );
+
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }

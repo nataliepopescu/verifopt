@@ -202,7 +202,7 @@ impl SSAChecker {
 mod tests {
     use super::*;
     use crate::Statement::{
-        Assignment, Conditional, FuncDef, Sequence, Switch,
+        Assignment, Conditional, FuncDef, InvokeFunc, Sequence, Switch,
     };
     use crate::{BooleanStatement, Error, Type};
 
@@ -370,6 +370,76 @@ mod tests {
         let sc = SSAChecker::new();
         let mut symbols = Symbols::new();
         let res = sc.check(&mut symbols, &stmt);
+
+        assert_eq!(res.unwrap(), ());
+    }
+
+    #[test]
+    fn test_nested_indirect_calls_no_args() {
+        let baz_body = Box::new(Assignment("x", RVal::Num(1)));
+        let qux_body = Box::new(Assignment("x", RVal::Num(2)));
+        let baz2_body = Box::new(Assignment("x", RVal::Num(3)));
+        let qux2_body = Box::new(Assignment("x", RVal::Num(4)));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz"))),
+                Box::new(Assignment("x", RVal::Var("qux"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]));
+        let bar_body = Box::new(Sequence(vec![
+            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("baz2"))),
+                Box::new(Assignment("x", RVal::Var("qux2"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment("x", RVal::Var("foo"))),
+                Box::new(Assignment("x", RVal::Var("bar"))),
+            )),
+            Box::new(InvokeFunc("x", vec![])),
+        ]);
+
+        let sc = SSAChecker::new();
+        let mut symbols = Symbols::new();
+        let res = sc.check(&mut symbols, &stmt);
+
+        let mut check_symbols = Symbols::new();
+        let mut foo_symbols = Symbols::new();
+        let mut bar_symbols = Symbols::new();
+        let mut baz_symbols = Symbols::new();
+        let mut qux_symbols = Symbols::new();
+        let mut baz2_symbols = Symbols::new();
+        let mut qux2_symbols = Symbols::new();
+
+        baz_symbols.0.insert("x", None);
+        qux_symbols.0.insert("x", None);
+        baz2_symbols.0.insert("x", None);
+        qux2_symbols.0.insert("x", None);
+
+        foo_symbols.0.insert("baz", Some(Box::new(baz_symbols)));
+        foo_symbols.0.insert("qux", Some(Box::new(qux_symbols)));
+        foo_symbols.0.insert("x", None);
+
+        bar_symbols.0.insert("baz2", Some(Box::new(baz2_symbols)));
+        bar_symbols.0.insert("qux2", Some(Box::new(qux2_symbols)));
+        bar_symbols.0.insert("x", None);
+
+        check_symbols.0.insert("foo", Some(Box::new(foo_symbols)));
+        check_symbols.0.insert("bar", Some(Box::new(bar_symbols)));
+        check_symbols.0.insert("x", None);
 
         assert_eq!(res.unwrap(), ());
     }

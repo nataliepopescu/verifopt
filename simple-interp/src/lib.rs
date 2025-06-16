@@ -14,15 +14,21 @@ use std::ops::Not;
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
-    #[error("Symbol {0} is undefined")]
+    #[error("Scope {0} is undefined,")]
+    UndefinedScope(&'static str),
+    #[error("{0} is not a scope.")]
+    NotAScope(&'static str),
+    #[error("Symbol {0} is undefined.")]
     UndefinedSymbol(&'static str),
+    #[error("VarTypes cannot be compared.")]
+    IncomparableVarTypes(),
     #[error("{0} cannot be compared to {1}.")]
     IncomparableTypes(RVal, RVal),
     #[error("{0} is not a function.")]
     NotAFunction(&'static str),
     #[error("Symbol {0} already exists.")]
     SymbolAlreadyExists(&'static str),
-    #[error("Cannot perform merge on Vec with less than two elements")]
+    #[error("Cannot perform merge on Vec with no elements.")]
     VecSize(),
 }
 
@@ -176,7 +182,7 @@ impl SimpleInterp {
         //println!("\n2. Original program statement");
 
         let mut vars = Vars::new();
-        let res3 = self.ip.interp(&funcs, &mut vars, &stmt);
+        let res3 = self.ip.interp(&funcs, &mut vars, None, &stmt);
         if res3.is_err() {
             return Err(res3.err().unwrap());
         }
@@ -214,6 +220,7 @@ mod tests {
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
+    use crate::interpret::VarType;
 
     #[test]
     fn test_print() {
@@ -251,7 +258,13 @@ mod tests {
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         let mut check_vars = Vars::new();
-        check_vars.vars.insert("x", vec![RVal::Num(5)]);
+        let mut foo_vars = Vars::new();
+        foo_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
 
         assert_eq!(vars, check_vars);
         assert_eq!(rw_stmt, stmt);
@@ -271,8 +284,16 @@ mod tests {
         let (vars, rw_stmt) = si.interp(stmt).unwrap();
 
         let mut check_vars = Vars::new();
-        check_vars.vars.insert("x", vec![RVal::Var("foo")]);
-        check_vars.vars.insert("z", vec![RVal::Num(5)]);
+        let mut foo_vars = Vars::new();
+        foo_vars
+            .vars
+            .insert("z", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Var("foo")])));
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
@@ -307,9 +328,20 @@ mod tests {
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
         let mut check_vars = Vars::new();
+        let mut foo_vars = Vars::new();
+        let mut bar_vars = Vars::new();
+        foo_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        bar_vars
+            .vars
+            .insert("x", Box::new(VarType::Values(vec![RVal::Num(6)])));
         check_vars
             .vars
-            .insert("x", vec![RVal::Num(6), RVal::Num(5)]);
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
 
         assert_eq!(vars, check_vars);
         assert_eq!(rw_stmt, stmt);
@@ -337,15 +369,28 @@ mod tests {
         let (vars, rw_stmt) = si.interp(stmt).unwrap();
 
         let mut check_vars = Vars::new();
+        let mut foo_vars = Vars::new();
+        let mut bar_vars = Vars::new();
+        foo_vars
+            .vars
+            .insert("y", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        bar_vars
+            .vars
+            .insert("z", Box::new(VarType::Values(vec![RVal::Num(6)])));
+        check_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(vec![RVal::Var("foo"), RVal::Var("bar")])),
+        );
         check_vars
             .vars
-            .insert("x", vec![RVal::Var("bar"), RVal::Var("foo")]);
-        check_vars.vars.insert("y", vec![RVal::Num(5)]);
-        check_vars.vars.insert("z", vec![RVal::Num(6)]);
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
 
         let switch_vec = vec![
-            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
+            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
         ];
         let check_stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),

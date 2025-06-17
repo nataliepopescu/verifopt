@@ -197,7 +197,7 @@ impl SimpleInterp {
         //);
         //println!("\n3. Original program statement");
 
-        let res4 = self.rw.rewrite(&funcs, &vars, &mut stmt);
+        let res4 = self.rw.rewrite(&funcs, &vars, None, &mut stmt);
         if res4.is_err() {
             return Err(res4.err().unwrap());
         }
@@ -507,8 +507,8 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), bar_switch_vec)),
         ]));
         let switch_vec = vec![
-            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
+            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
         ];
         let check_stmt = Sequence(vec![
             Box::new(FuncDef(
@@ -619,5 +619,6 @@ mod tests {
             .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
 
         assert_eq!(vars, check_vars);
+        assert_eq!(rw_stmt, check_stmt);
     }
 }

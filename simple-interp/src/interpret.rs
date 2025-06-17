@@ -20,6 +20,75 @@ impl Vars {
             vars: HashMap::<&'static str, Box<VarType>>::new(),
         }
     }
+
+    pub fn scoped_get(
+        &self,
+        scope: Option<&'static str>,
+        var: &'static str,
+    ) -> Result<Option<VarType>, Error> {
+        // first get the `vars` object pertaining to `this` scope
+        if scope.is_none() {
+            match self.vars.get(var) {
+                Some(boxed) => return Ok(Some(*boxed.clone())),
+                None => return Ok(None),
+            }
+        }
+
+        match self.vars.get(scope.unwrap()) {
+            Some(vartype) => match *vartype.clone() {
+                VarType::Scope(backptr, inner_vars) => {
+                    // is var in inner_vars? if not, recursively follow backptr
+                    // to enclosing scopes
+                    match inner_vars.vars.get(var) {
+                        Some(boxed) => return Ok(Some(*boxed.clone())),
+                        None => {
+                            return self.scoped_get(backptr, var);
+                        }
+                    }
+                }
+                _ => return Err(Error::NotAScope(scope.unwrap())),
+            },
+            None => return Err(Error::UndefinedScope(scope.unwrap())),
+        }
+    }
+
+    pub fn scoped_set(
+        &mut self,
+        scope: Option<&'static str>,
+        var: &'static str,
+        value: Box<VarType>,
+    ) -> Result<(), Error> {
+        // first get the `vars` object pertaining to `this` scope
+        if scope.is_none() {
+            if self.vars.get(var).is_some() {
+                return Err(Error::SymbolAlreadyExists(var));
+            }
+
+            self.vars.insert(var, value.clone());
+            return Ok(());
+        }
+
+        match self.vars.get(scope.unwrap()) {
+            Some(vartype) => match *vartype.clone() {
+                VarType::Scope(backptr, mut inner_vars) => {
+                    if inner_vars.vars.get(var).is_some() {
+                        return Err(Error::SymbolAlreadyExists(var));
+                    }
+                    // modify scope w new var
+                    inner_vars.vars.insert(var, value);
+                    self.vars.insert(
+                        scope.unwrap(),
+                        Box::new(VarType::Scope(backptr, inner_vars)),
+                    );
+                }
+                VarType::Values(_) => {
+                    return Err(Error::NotAScope(scope.unwrap()));
+                }
+            },
+            None => return Err(Error::UndefinedScope(scope.unwrap())),
+        }
+        Ok(())
+    }
 }
 
 pub trait Merge {
@@ -129,78 +198,6 @@ impl Interpreter {
         }
     }
 
-    fn scoped_get(
-        &self,
-        funcs: &Funcs,
-        vars: &Vars,
-        scope: Option<&'static str>,
-        var: &'static str,
-    ) -> Result<Option<VarType>, Error> {
-        // first get the `vars` object pertaining to `this` scope
-        if scope.is_none() {
-            match vars.vars.get(var) {
-                Some(boxed) => return Ok(Some(*boxed.clone())),
-                None => return Ok(None),
-            }
-        }
-
-        match vars.vars.get(scope.unwrap()) {
-            Some(vartype) => match *vartype.clone() {
-                VarType::Scope(backptr, inner_vars) => {
-                    // is var in inner_vars? if not, recursively follow backptr
-                    // to enclosing scopes
-                    match inner_vars.vars.get(var) {
-                        Some(boxed) => return Ok(Some(*boxed.clone())),
-                        None => {
-                            return self.scoped_get(funcs, vars, backptr, var);
-                        }
-                    }
-                }
-                _ => return Err(Error::NotAScope(scope.unwrap())),
-            },
-            None => return Err(Error::UndefinedScope(scope.unwrap())),
-        }
-    }
-
-    fn scoped_set(
-        &self,
-        vars: &mut Vars,
-        scope: Option<&'static str>,
-        var: &'static str,
-        value: Box<VarType>,
-    ) -> Result<(), Error> {
-        // first get the `vars` object pertaining to `this` scope
-        if scope.is_none() {
-            if vars.vars.get(var).is_some() {
-                return Err(Error::SymbolAlreadyExists(var));
-            }
-
-            vars.vars.insert(var, value.clone());
-            return Ok(());
-        }
-
-        match vars.vars.get(scope.unwrap()) {
-            Some(vartype) => match *vartype.clone() {
-                VarType::Scope(backptr, mut inner_vars) => {
-                    if inner_vars.vars.get(var).is_some() {
-                        return Err(Error::SymbolAlreadyExists(var));
-                    }
-                    // modify scope w new var
-                    inner_vars.vars.insert(var, value);
-                    vars.vars.insert(
-                        scope.unwrap(),
-                        Box::new(VarType::Scope(backptr, inner_vars)),
-                    );
-                }
-                VarType::Values(_) => {
-                    return Err(Error::NotAScope(scope.unwrap()));
-                }
-            },
-            None => return Err(Error::UndefinedScope(scope.unwrap())),
-        }
-        Ok(())
-    }
-
     pub fn interp_seq(
         &self,
         funcs: &Funcs,
@@ -227,8 +224,7 @@ impl Interpreter {
     ) -> Result<(), Error> {
         match value {
             RVal::Num(_) => {
-                let res = self.scoped_set(
-                    vars,
+                let res = vars.scoped_set(
                     scope,
                     var,
                     Box::new(VarType::Values(vec![value.clone().into()])),
@@ -239,15 +235,11 @@ impl Interpreter {
                 }
             }
             r @ RVal::Var(varname) => {
-                match self.scoped_get(funcs, vars, scope, varname) {
+                match vars.scoped_get(scope, varname) {
                     Ok(Some(val)) => match val {
                         vec @ VarType::Values(_) => {
-                            let res = self.scoped_set(
-                                vars,
-                                scope,
-                                var,
-                                Box::new(vec),
-                            );
+                            let res =
+                                vars.scoped_set(scope, var, Box::new(vec));
 
                             if res.is_err() {
                                 return res;
@@ -257,8 +249,7 @@ impl Interpreter {
                     },
                     Ok(None) => match funcs.funcs.get(varname) {
                         Some(_) => {
-                            let res = self.scoped_set(
-                                vars,
+                            let res = vars.scoped_set(
                                 scope,
                                 var,
                                 Box::new(VarType::Values(vec![r.clone()])),
@@ -324,7 +315,7 @@ impl Interpreter {
     ) -> Result<Vec<RVal>, Error> {
         match rval.clone() {
             RVal::Num(_) => Ok(vec![rval]),
-            RVal::Var(var) => match self.scoped_get(funcs, vars, scope, var) {
+            RVal::Var(var) => match vars.scoped_get(scope, var) {
                 Ok(Some(val)) => match val {
                     VarType::Values(vec) => return Ok(vec.clone()),
                     _ => todo!("should be a func"),
@@ -450,9 +441,7 @@ impl Interpreter {
         // FIXME mod store if have effects
         let resolved_vals = match val {
             num @ RVal::Num(_) => vec![num.clone()],
-            RVal::Var(varname) => match self
-                .scoped_get(funcs, vars, scope, varname)
-            {
+            RVal::Var(varname) => match vars.scoped_get(scope, varname) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(possible_vals) => possible_vals.to_vec(),
                     _ => panic!("should not get scope here"),
@@ -499,7 +488,7 @@ impl Interpreter {
     ) -> Result<(), Error> {
         let mut func_vars = Vars::new();
         for (param, arg) in std::iter::zip(params, args) {
-            match self.scoped_get(funcs, vars, scope, arg) {
+            match vars.scoped_get(scope, arg) {
                 Ok(Some(vartype)) => match vartype {
                     // add args to scope
                     VarType::Values(value_vec) => func_vars.vars.insert(
@@ -637,7 +626,7 @@ impl Interpreter {
         name: &'static str,
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
-        match self.scoped_get(funcs, vars, scope, name) {
+        match vars.scoped_get(scope, name) {
             Ok(Some(vartype)) => match vartype {
                 VarType::Values(vec) => self.interp_indirect_invoke(
                     funcs, vars, scope, name, &vec, args,

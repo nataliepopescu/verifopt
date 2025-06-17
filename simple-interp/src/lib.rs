@@ -1,11 +1,13 @@
 pub mod func_collect;
 pub mod interpret;
 pub mod rewrite;
+pub mod sig_collect;
 pub mod ssa;
 
 use crate::func_collect::{FuncCollector, Funcs};
 use crate::interpret::{Interpreter, Vars};
 use crate::rewrite::Rewriter;
+use crate::sig_collect::{SigCollector, Sigs};
 use crate::ssa::{SSAChecker, Symbols};
 use thiserror::Error;
 
@@ -32,7 +34,7 @@ pub enum Error {
     VecSize(),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int(),
     Func(Vec<Type>, Box<Type>),
@@ -94,6 +96,21 @@ impl FuncVal {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SigVal {
+    paramtypes: Vec<Type>,
+    rettype: Option<Box<Type>>,
+}
+
+impl SigVal {
+    pub fn new(paramtypes: Vec<Type>, rettype: Option<Box<Type>>) -> Self {
+        Self {
+            paramtypes,
+            rettype,
+        }
+    }
+}
+
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
 #[derive(Debug, Clone, PartialEq)]
 pub enum BooleanStatement {
@@ -135,19 +152,21 @@ impl Not for &BooleanStatement {
 }
 
 pub struct SimpleInterp {
-    sc: SSAChecker,
-    fc: FuncCollector,
-    ip: Interpreter,
-    rw: Rewriter,
+    ssa_checker: SSAChecker,
+    func_collector: FuncCollector,
+    sig_collector: SigCollector,
+    interpreter: Interpreter,
+    rewriter: Rewriter,
 }
 
 impl SimpleInterp {
     pub fn new() -> Self {
         Self {
-            sc: SSAChecker::new(),
-            fc: FuncCollector::new(),
-            ip: Interpreter::new(),
-            rw: Rewriter::new(),
+            ssa_checker: SSAChecker::new(),
+            func_collector: FuncCollector::new(),
+            sig_collector: SigCollector::new(),
+            interpreter: Interpreter::new(),
+            rewriter: Rewriter::new(),
         }
     }
 
@@ -158,7 +177,7 @@ impl SimpleInterp {
         //println!("\nOriginal program statement: \n\n{:#?}", &stmt);
 
         let mut symbols = Symbols::new();
-        let res1 = self.sc.check(&mut symbols, &stmt);
+        let res1 = self.ssa_checker.check(&mut symbols, &stmt);
         if res1.is_err() {
             return Err(res1.err().unwrap());
         }
@@ -170,7 +189,7 @@ impl SimpleInterp {
         //println!("\n2. Original program statement");
 
         let mut funcs = Funcs::new();
-        let res2 = self.fc.collect(&mut funcs, &stmt);
+        let res2 = self.func_collector.collect(&mut funcs, &stmt);
         if res2.is_err() {
             return Err(res2.err().unwrap());
         }
@@ -181,14 +200,26 @@ impl SimpleInterp {
         //println!("\n1. Function symbols table: \n\n{:#?}", &funcs);
         //println!("\n2. Original program statement");
 
-        let mut vars = Vars::new();
-        let res3 = self.ip.interp(&funcs, &mut vars, None, &stmt);
+        let mut sigs = Sigs::new();
+        let res3 = self.sig_collector.collect(&funcs, &mut sigs);
         if res3.is_err() {
             return Err(res3.err().unwrap());
         }
 
         //println!("\n-----------------------------------");
-        //println!("PHASE 3: Flow Interpretation");
+        //println!("PHASE 3: Signature Collection");
+        //println!("-----------------------------------");
+        //println!("\n1. Function symbols table (from PHASE 2)");
+        //println!("\n2. Function signatures table: \n\n{:#?}", &sigs);
+
+        let mut vars = Vars::new();
+        let res4 = self.interpreter.interp(&funcs, &mut vars, None, &stmt);
+        if res4.is_err() {
+            return Err(res4.err().unwrap());
+        }
+
+        //println!("\n-----------------------------------");
+        //println!("PHASE 4: Flow Interpretation");
         //println!("-----------------------------------");
         //println!("\n1. Function symbols table (from PHASE 2)");
         //println!(
@@ -197,13 +228,13 @@ impl SimpleInterp {
         //);
         //println!("\n3. Original program statement");
 
-        let res4 = self.rw.rewrite(&funcs, &vars, None, &mut stmt);
-        if res4.is_err() {
-            return Err(res4.err().unwrap());
+        let res5 = self.rewriter.rewrite(&funcs, &vars, None, &mut stmt);
+        if res5.is_err() {
+            return Err(res5.err().unwrap());
         }
 
         //println!("\n-----------------------------------");
-        //println!("PHASE 4: Switch-Case Rewrite");
+        //println!("PHASE 5: Switch-Case Rewrite");
         //println!("-----------------------------------");
         //println!("\n1. Function symbols table (from PHASE 2)");
         //println!("\n2. Flow-sensitive variable symbols table (from PHASE

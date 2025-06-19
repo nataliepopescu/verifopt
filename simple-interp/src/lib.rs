@@ -26,6 +26,8 @@ pub enum Error {
     IncomparableVarTypes(),
     #[error("{0} cannot be compared to {1}.")]
     IncomparableTypes(RVal, RVal),
+    #[error("Inconsistent return types.")]
+    InconsistentReturnTypes(),
     #[error("{0} is not a function.")]
     NotAFunction(&'static str),
     #[error("Symbol {0} already exists.")]
@@ -47,6 +49,7 @@ pub enum Statement {
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
+    Return(RVal),
     FuncDef(
         &'static str,
         Vec<Type>,

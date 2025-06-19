@@ -25,6 +25,7 @@ impl Rewriter {
             Statement::Print(_) => Ok(()),
             // FIXME impl when funcs have retvals + can be assigned
             Statement::Assignment(_, _) => Ok(()),
+            Statement::Return(_) => Ok(()),
             Statement::Sequence(stmt_vec) => {
                 self.rewrite_seq(funcs, vars, scope, stmt_vec)
             }

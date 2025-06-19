@@ -79,6 +79,7 @@ impl SSAChecker {
         match stmt {
             Statement::Print(_) => Ok(()),
             Statement::InvokeFunc(..) => Ok(()),
+            Statement::Return(_) => Ok(()),
             Statement::Assignment(name, _) => {
                 self.check_assignment(symbols, name)
             }

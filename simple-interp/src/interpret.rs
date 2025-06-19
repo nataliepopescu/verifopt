@@ -1,5 +1,5 @@
 use crate::{BooleanStatement, Error, Funcs, RVal, Statement};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum VarType {
@@ -91,11 +91,11 @@ impl Vars {
     }
 }
 
-pub trait Merge {
-    fn merge(&self) -> Result<Vars, Error>;
+pub trait Merge<T> {
+    fn merge(&self) -> Result<T, Error>;
 }
 
-impl Merge for Vec<Vars> {
+impl Merge<Vars> for Vec<Vars> {
     fn merge(&self) -> Result<Vars, Error> {
         if self.len() == 0 {
             return Err(Error::VecSize());
@@ -153,6 +153,28 @@ impl Merge for Vec<Vars> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Value {
+    Int(HashSet<i32>),
+    Func(HashSet<&'static str>),
+}
+
+impl Merge<Value> for Vec<Value> {
+    fn merge(&self) -> Result<Value, Error> {
+        if self.len() == 0 {
+            return Err(Error::VecSize());
+        }
+        if self.len() == 1 {
+            return Ok(self[0].clone());
+        }
+
+        todo!("not impl yet");
+        //let mut merged = self[0].clone();
+        //for i in 1..self.len() {
+        //}
+    }
+}
+
 pub struct Interpreter {}
 
 impl Interpreter {
@@ -166,7 +188,7 @@ impl Interpreter {
         vars: &mut Vars,
         scope: Option<&'static str>,
         stmt: &Statement,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => {
                 self.interp_seq(funcs, vars, scope, stmt_vec)
@@ -176,7 +198,7 @@ impl Interpreter {
             }
             Statement::Print(var) => {
                 self.interp_print(var);
-                Ok(())
+                Ok(None)
             }
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.interp_conditional(
@@ -191,7 +213,10 @@ impl Interpreter {
             Statement::Switch(val, vec) => {
                 self.interp_switch(funcs, vars, scope, val, vec)
             }
-            Statement::FuncDef(..) => Ok(()),
+            Statement::Return(rval) => {
+                self.interp_return(funcs, vars, scope, rval)
+            }
+            Statement::FuncDef(..) => Ok(None),
             Statement::InvokeFunc(name, args) => {
                 self.interp_invoke(funcs, vars, scope, name, args)
             }
@@ -204,14 +229,15 @@ impl Interpreter {
         vars: &mut Vars,
         scope: Option<&'static str>,
         stmt_vec: &Vec<Box<Statement>>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         for stmt in stmt_vec.iter() {
             let res = self.interp(&funcs, vars, scope, &*stmt);
             if res.is_err() {
                 return res;
             }
+            println!("res: {:?}", &res);
         }
-        Ok(())
+        Ok(None)
     }
 
     pub fn interp_assignment(
@@ -221,7 +247,7 @@ impl Interpreter {
         scope: Option<&'static str>,
         var: &'static str,
         value: &RVal,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         match value {
             RVal::Num(_) => {
                 let res = vars.scoped_set(
@@ -231,7 +257,7 @@ impl Interpreter {
                 );
 
                 if res.is_err() {
-                    return res;
+                    return Err(res.err().unwrap());
                 }
             }
             r @ RVal::Var(varname) => {
@@ -242,7 +268,7 @@ impl Interpreter {
                                 vars.scoped_set(scope, var, Box::new(vec));
 
                             if res.is_err() {
-                                return res;
+                                return Err(res.err().unwrap());
                             }
                         }
                         _ => todo!("not impl yet"),
@@ -256,7 +282,7 @@ impl Interpreter {
                             );
 
                             if res.is_err() {
-                                return res;
+                                return Err(res.err().unwrap());
                             }
                         }
                         None => return Err(Error::UndefinedSymbol(varname)),
@@ -266,7 +292,7 @@ impl Interpreter {
             }
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub fn interp_print(&self, var: &'static str) {
@@ -384,7 +410,7 @@ impl Interpreter {
         condition: &BooleanStatement,
         true_branch: &Statement,
         false_branch: &Statement,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         let mut res_vars: Vec<Vars> = vec![];
 
         // FIXME mod store if have effects
@@ -415,7 +441,7 @@ impl Interpreter {
         match res_vars.merge() {
             Ok(new_vars) => {
                 *vars = new_vars;
-                Ok(())
+                Ok(None)
             }
             Err(err) => Err(err),
         }
@@ -437,7 +463,7 @@ impl Interpreter {
         scope: Option<&'static str>,
         val: &RVal,
         vec: &Vec<(RVal, Box<Statement>)>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         // FIXME mod store if have effects
         let resolved_vals = match val {
             num @ RVal::Num(_) => vec![num.clone()],
@@ -471,9 +497,43 @@ impl Interpreter {
         match res_vars.merge() {
             Ok(new_vars) => {
                 *vars = new_vars;
-                Ok(())
+                Ok(None)
             }
             Err(err) => Err(err),
+        }
+    }
+
+    fn interp_return(
+        &self,
+        funcs: &Funcs,
+        vars: &mut Vars,
+        scope: Option<&'static str>,
+        rval: &RVal,
+    ) -> Result<Option<Value>, Error> {
+        match rval {
+            RVal::Num(num) => {
+                let mut set = HashSet::new();
+                set.insert(*num);
+                return Ok(Some(Value::Int(set)));
+            }
+            RVal::Var(varname) => match vars.scoped_get(scope, varname) {
+                Ok(Some(vartype)) => match vartype {
+                    VarType::Values(value_vec) => {
+                        todo!("return value vec TODO");
+                    }
+                    VarType::Scope(..) => match funcs.funcs.get(varname) {
+                        Some(func) => {
+                            todo!("return function TODO");
+                        }
+                        None => return Err(Error::UndefinedSymbol(varname)),
+                    },
+                },
+                Ok(None) => match funcs.funcs.get(varname) {
+                    Some(_) => panic!("func should have been a scope in vars"),
+                    None => return Err(Error::UndefinedSymbol(varname)),
+                }
+                Err(err) => return Err(err),
+            },
         }
     }
 
@@ -521,7 +581,7 @@ impl Interpreter {
         name: &'static str,
         val: &RVal,
         args: &Vec<&'static str>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         match val {
             RVal::Var(varname) => match funcs.funcs.get(varname) {
                 Some(func_data) => {
@@ -534,7 +594,7 @@ impl Interpreter {
                         args,
                     );
                     if res.is_err() {
-                        return res;
+                        return Err(res.err().unwrap());
                     }
 
                     match self.interp(
@@ -543,7 +603,7 @@ impl Interpreter {
                         Some(varname),
                         &*func_data.body,
                     ) {
-                        Ok(stmt) => return Ok(stmt),
+                        Ok(retval) => return Ok(retval),
                         err @ Err(_) => return err,
                     }
                 }
@@ -561,8 +621,9 @@ impl Interpreter {
         name: &'static str,
         vec: &Vec<RVal>,
         args: &Vec<&'static str>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         let mut res_vars: Vec<Vars> = vec![];
+        let mut retvals: Vec<Value> = vec![];
         for val in vec.iter() {
             let mut vars_clone = vars.clone();
             match self.interp_indirect_invoke_helper(
@@ -573,18 +634,31 @@ impl Interpreter {
                 val,
                 args,
             ) {
-                Ok(_) => res_vars.push(vars_clone),
+                Ok(retval) => {
+                    res_vars.push(vars_clone);
+                    if retval.is_some() {
+                        retvals.push(retval.unwrap());
+                    }
+                },
                 err @ Err(_) => return err,
             }
         }
 
-        match res_vars.merge() {
-            Ok(new_vars) => {
-                *vars = new_vars;
-                Ok(())
-            }
-            Err(err) => Err(err),
+        let res = res_vars.merge();
+        if res.is_err() {
+            return Err(res.err().unwrap());
         }
+        *vars = res.unwrap();
+
+        println!("retvals: {:?}", &retvals);
+        if retvals.len() > 0 {
+            println!("HERE");
+            return match retvals.merge() {
+                Ok(retval) => Ok(Some(retval)),
+                Err(err) => Err(err),
+            };
+        }
+        Ok(None)
     }
 
     fn interp_direct_invoke(
@@ -594,7 +668,7 @@ impl Interpreter {
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         match funcs.funcs.get(name) {
             Some(func_data) => {
                 let res = self.resolve_args(
@@ -606,11 +680,14 @@ impl Interpreter {
                     args,
                 );
                 if res.is_err() {
-                    return res;
+                    return Err(res.err().unwrap());
                 }
 
                 match self.interp(funcs, vars, Some(name), &*func_data.body) {
-                    Ok(_) => return Ok(()),
+                    Ok(retval) => {
+                        println!("retval: {:?}", &retval);
+                        return Ok(retval);
+                    },
                     err @ Err(_) => return err,
                 }
             }
@@ -625,7 +702,7 @@ impl Interpreter {
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<Value>, Error> {
         match vars.scoped_get(scope, name) {
             Ok(Some(vartype)) => match vartype {
                 VarType::Values(vec) => self.interp_indirect_invoke(
@@ -645,7 +722,7 @@ impl Interpreter {
 mod tests {
     use super::*;
     use crate::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence, Switch,
     };
     use crate::func_collect::Funcs;
     use crate::{FuncVal, Type};
@@ -693,7 +770,7 @@ mod tests {
         let mut vars = Vars::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, Vars::new());
     }
 
@@ -710,7 +787,7 @@ mod tests {
             .vars
             .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -728,7 +805,7 @@ mod tests {
             .vars
             .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -752,7 +829,7 @@ mod tests {
             .vars
             .insert("y", Box::new(VarType::Values(vec![RVal::Num(6)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -775,7 +852,7 @@ mod tests {
             .vars
             .insert("y", Box::new(VarType::Values(vec![RVal::Num(6)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -809,7 +886,7 @@ mod tests {
             .vars
             .insert("y", Box::new(VarType::Values(vec![RVal::Num(5)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -830,7 +907,7 @@ mod tests {
             .vars
             .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -851,7 +928,7 @@ mod tests {
             .vars
             .insert("x", Box::new(VarType::Values(vec![RVal::Num(6)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -873,7 +950,7 @@ mod tests {
             Box::new(VarType::Values(vec![RVal::Num(5), RVal::Num(6)])),
         );
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -894,7 +971,7 @@ mod tests {
             .vars
             .insert("x", Box::new(VarType::Values(vec![RVal::Num(6)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -928,7 +1005,7 @@ mod tests {
             .vars
             .insert("z", Box::new(VarType::Values(vec![RVal::Num(1)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -969,7 +1046,7 @@ mod tests {
             .vars
             .insert("z", Box::new(VarType::Values(vec![RVal::Num(2)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1008,7 +1085,7 @@ mod tests {
             .vars
             .insert("z", Box::new(VarType::Values(vec![RVal::Num(1)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1048,7 +1125,7 @@ mod tests {
             Box::new(VarType::Values(vec![RVal::Num(1), RVal::Num(2)])),
         );
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1110,7 +1187,7 @@ mod tests {
             .vars
             .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1131,7 +1208,7 @@ mod tests {
             .vars
             .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1149,7 +1226,7 @@ mod tests {
         let stmt = FuncDef("foo", vec![], vec![], None, body);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, Vars::new());
     }
 
@@ -1180,7 +1257,7 @@ mod tests {
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1238,7 +1315,7 @@ mod tests {
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1273,7 +1350,7 @@ mod tests {
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1335,7 +1412,7 @@ mod tests {
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1377,7 +1454,7 @@ mod tests {
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1505,7 +1582,7 @@ mod tests {
             .vars
             .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1571,7 +1648,7 @@ mod tests {
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1757,7 +1834,7 @@ mod tests {
             .vars
             .insert("y", Box::new(VarType::Values(vec![RVal::Num(3)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1807,7 +1884,7 @@ mod tests {
             .vars
             .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1862,7 +1939,7 @@ mod tests {
             .vars
             .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1913,7 +1990,7 @@ mod tests {
             .vars
             .insert("y", Box::new(VarType::Values(vec![RVal::Num(1)])));
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
         assert_eq!(vars, check_vars);
     }
 
@@ -1946,7 +2023,34 @@ mod tests {
             Box::new(VarType::Values(vec![RVal::Num(5), RVal::Num(4)])),
         );
 
-        assert_eq!(res.unwrap(), ());
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(vars, check_vars);
+    }
+
+    #[test]
+    fn test_direct_func_return() {
+        let mut funcs = Funcs::new();
+        let body = Box::new(Return(RVal::Num(5)));
+        funcs
+            .funcs
+            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
+
+        let mut vars = Vars::new();
+
+        let interp = Interpreter::new();
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(InvokeFunc("foo", vec![])),
+        ]);
+        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+
+        let mut check_vars = Vars::new();
+        check_vars.vars.insert("foo", Box::new(VarType::Scope(None, Vars::new())));
+
+        let mut check_set = HashSet::new();
+        check_set.insert(5);
+
+        assert_eq!(res.unwrap(), None); //Some(Value::Int(check_set)));
         assert_eq!(vars, check_vars);
     }
 }

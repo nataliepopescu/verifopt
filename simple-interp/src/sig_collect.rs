@@ -48,11 +48,14 @@ mod test {
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Sequence,
     };
-    use crate::{FuncVal, RVal, Type};
+    use crate::{AssignmentRVal, FuncVal, RVal, Type};
 
     #[test]
     fn test_funcdef() {
-        let body = Box::new(Assignment("x", RVal::Num(5)));
+        let body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
         let mut funcs = Funcs::new();
         funcs
             .funcs
@@ -77,8 +80,14 @@ mod test {
     #[test]
     fn test_same_sigs() {
         let mut funcs = Funcs::new();
-        let foo_body = Box::new(Assignment("x", RVal::Num(5)));
-        let bar_body = Box::new(Assignment("y", RVal::Num(5)));
+        let foo_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
+        let bar_body = Box::new(Assignment(
+            "y",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
         funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, foo_body));
@@ -106,9 +115,18 @@ mod test {
     #[test]
     fn test_more_sigs() {
         let mut funcs = Funcs::new();
-        let foo_body = Box::new(Assignment("x", RVal::Num(5)));
-        let bar_body = Box::new(Assignment("y", RVal::Num(5)));
-        let baz_body = Box::new(Assignment("z", RVal::Num(5)));
+        let foo_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
+        let bar_body = Box::new(Assignment(
+            "y",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
+        let baz_body = Box::new(Assignment(
+            "z",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
         funcs.funcs.insert(
             "foo",
             FuncVal::new(

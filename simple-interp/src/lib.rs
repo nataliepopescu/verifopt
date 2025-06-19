@@ -11,6 +11,7 @@ use crate::sig_collect::{SigCollector, Sigs};
 use crate::ssa::{SSAChecker, Symbols};
 use thiserror::Error;
 
+use std::collections::HashSet;
 use std::fmt;
 use std::ops::Not;
 
@@ -28,6 +29,10 @@ pub enum Error {
     IncomparableTypes(RVal, RVal),
     #[error("Inconsistent return types.")]
     InconsistentReturnTypes(),
+    #[error("Invalid RVal for Assignment.")]
+    InvalidAssignmentRVal(),
+    #[error("Function does not return a value.")]
+    FuncDoesNotReturnValue(),
     #[error("{0} is not a function.")]
     NotAFunction(&'static str),
     #[error("Symbol {0} already exists.")]
@@ -42,10 +47,16 @@ pub enum Type {
     Func(Vec<Type>, Box<Type>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AssignmentRVal {
+    RVal(RVal),
+    Statement(Box<Statement>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Statement {
     Sequence(Vec<Box<Statement>>),
-    Assignment(&'static str, RVal),
+    Assignment(&'static str, Box<AssignmentRVal>),
     Print(&'static str),
     Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
@@ -60,7 +71,7 @@ pub enum Statement {
     InvokeFunc(&'static str, Vec<&'static str>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RVal {
     Num(i32),
     Var(&'static str),
@@ -115,7 +126,7 @@ impl SigVal {
 }
 
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BooleanStatement {
     True(),
     False(),
@@ -269,7 +280,10 @@ mod tests {
 
     #[test]
     fn test_funcdef() {
-        let body = Box::new(Assignment("x", RVal::Num(5)));
+        let body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
         let stmt = FuncDef("foo", vec![], vec![], None, body.clone());
 
         let si = SimpleInterp::new();
@@ -281,8 +295,10 @@ mod tests {
 
     #[test]
     fn test_direct_invoke() {
-        let body =
-            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
+        let body = Box::new(Sequence(vec![Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, body)),
             Box::new(InvokeFunc("foo", vec![])),
@@ -293,9 +309,10 @@ mod tests {
 
         let mut check_vars = Vars::new();
         let mut foo_vars = Vars::new();
-        foo_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        foo_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+        );
         check_vars
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
@@ -306,11 +323,16 @@ mod tests {
 
     #[test]
     fn test_indirect_invoke() {
-        let body =
-            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(5)))]));
+        let body = Box::new(Sequence(vec![Box::new(Assignment(
+            "z",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
-            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+            )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
 
@@ -319,21 +341,26 @@ mod tests {
 
         let mut check_vars = Vars::new();
         let mut foo_vars = Vars::new();
-        foo_vars
-            .vars
-            .insert("z", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        foo_vars.vars.insert(
+            "z",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+        );
         check_vars
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Var("foo")])));
+        check_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Var("foo")]))),
+        );
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
         let check_stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, body)),
-            Box::new(Assignment("x", RVal::Var("foo"))),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+            )),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
@@ -343,10 +370,14 @@ mod tests {
 
     #[test]
     fn test_direct_invoke_uncertain() {
-        let foo_body =
-            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(5)))]));
-        let bar_body =
-            Box::new(Sequence(vec![Box::new(Assignment("x", RVal::Num(6)))]));
+        let foo_body = Box::new(Sequence(vec![Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
+        let bar_body = Box::new(Sequence(vec![Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(6))),
+        ))]));
 
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
@@ -364,12 +395,14 @@ mod tests {
         let mut check_vars = Vars::new();
         let mut foo_vars = Vars::new();
         let mut bar_vars = Vars::new();
-        foo_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
-        bar_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(6)])));
+        foo_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+        );
+        bar_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+        );
         check_vars
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
@@ -383,18 +416,28 @@ mod tests {
 
     #[test]
     fn overall_test_indirect_invoke_uncertain() {
-        let foo_body =
-            Box::new(Sequence(vec![Box::new(Assignment("y", RVal::Num(5)))]));
-        let bar_body =
-            Box::new(Sequence(vec![Box::new(Assignment("z", RVal::Num(6)))]));
+        let foo_body = Box::new(Sequence(vec![Box::new(Assignment(
+            "y",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
+        let bar_body = Box::new(Sequence(vec![Box::new(Assignment(
+            "z",
+            Box::new(AssignmentRVal::RVal(RVal::Num(6))),
+        ))]));
 
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("foo"))),
-                Box::new(Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                )),
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
@@ -405,15 +448,20 @@ mod tests {
         let mut check_vars = Vars::new();
         let mut foo_vars = Vars::new();
         let mut bar_vars = Vars::new();
-        foo_vars
-            .vars
-            .insert("y", Box::new(VarType::Values(vec![RVal::Num(5)])));
-        bar_vars
-            .vars
-            .insert("z", Box::new(VarType::Values(vec![RVal::Num(6)])));
+        foo_vars.vars.insert(
+            "y",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+        );
+        bar_vars.vars.insert(
+            "z",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+        );
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(vec![RVal::Var("foo"), RVal::Var("bar")])),
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Var("foo"),
+                RVal::Var("bar"),
+            ]))),
         );
         check_vars
             .vars
@@ -423,16 +471,22 @@ mod tests {
             .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
 
         let switch_vec = vec![
-            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
             (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
             Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("foo"))),
-                Box::new(Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                )),
             )),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
@@ -443,7 +497,10 @@ mod tests {
 
     #[test]
     fn test_nested_direct_calls_no_args() {
-        let bar_body = Box::new(Assignment("x", RVal::Num(5)));
+        let bar_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
         let foo_body = Box::new(Sequence(vec![
             Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
             Box::new(InvokeFunc("bar", vec![])),
@@ -460,9 +517,10 @@ mod tests {
         let mut check_vars = Vars::new();
         let foo_vars = Vars::new();
         let mut bar_vars = Vars::new();
-        bar_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(5)])));
+        bar_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+        );
         check_vars
             .vars
             .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_vars)));
@@ -476,17 +534,35 @@ mod tests {
 
     #[test]
     fn test_nested_indirect_calls_no_args() {
-        let baz_body = Box::new(Assignment("x", RVal::Num(1)));
-        let qux_body = Box::new(Assignment("x", RVal::Num(2)));
-        let baz2_body = Box::new(Assignment("x", RVal::Num(3)));
-        let qux2_body = Box::new(Assignment("x", RVal::Num(4)));
+        let baz_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+        ));
+        let qux_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(2))),
+        ));
+        let baz2_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(3))),
+        ));
+        let qux2_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(4))),
+        ));
         let foo_body = Box::new(Sequence(vec![
             Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
             Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("baz"))),
-                Box::new(Assignment("x", RVal::Var("qux"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("qux"))),
+                )),
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]));
@@ -495,8 +571,14 @@ mod tests {
             Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("baz2"))),
-                Box::new(Assignment("x", RVal::Var("qux2"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("qux2"))),
+                )),
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]));
@@ -506,8 +588,14 @@ mod tests {
             Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("foo"))),
-                Box::new(Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                )),
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
@@ -521,8 +609,14 @@ mod tests {
             Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("baz"))),
-                Box::new(Assignment("x", RVal::Var("qux"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("qux"))),
+                )),
             )),
             Box::new(Switch(RVal::Var("x"), foo_switch_vec)),
         ]));
@@ -535,14 +629,20 @@ mod tests {
             Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("baz2"))),
-                Box::new(Assignment("x", RVal::Var("qux2"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("qux2"))),
+                )),
             )),
             Box::new(Switch(RVal::Var("x"), bar_switch_vec)),
         ]));
         let switch_vec = vec![
-            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
             (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
+            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
             Box::new(FuncDef(
@@ -561,8 +661,14 @@ mod tests {
             )),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("foo"))),
-                Box::new(Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                )),
             )),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
@@ -604,34 +710,44 @@ mod tests {
         let mut baz2_vars = Vars::new();
         let mut qux2_vars = Vars::new();
 
-        baz_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(1)])));
-        qux_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(2)])));
-        baz2_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(3)])));
-        qux2_vars
-            .vars
-            .insert("x", Box::new(VarType::Values(vec![RVal::Num(4)])));
+        baz_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(1)]))),
+        );
+        qux_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(2)]))),
+        );
+        baz2_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+        );
+        qux2_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([RVal::Num(4)]))),
+        );
 
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(vec![RVal::Var("baz"), RVal::Var("qux")])),
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Var("baz"),
+                RVal::Var("qux"),
+            ]))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(vec![
+            Box::new(VarType::Values(HashSet::from([
                 RVal::Var("baz2"),
                 RVal::Var("qux2"),
-            ])),
+            ]))),
         );
 
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(vec![RVal::Var("foo"), RVal::Var("bar")])),
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Var("foo"),
+                RVal::Var("bar"),
+            ]))),
         );
         check_vars
             .vars

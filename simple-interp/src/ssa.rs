@@ -205,7 +205,7 @@ mod tests {
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Sequence, Switch,
     };
-    use crate::{BooleanStatement, Error, Type};
+    use crate::{AssignmentRVal, BooleanStatement, Error, Type};
 
     #[test]
     fn test_merge_vars() {
@@ -251,8 +251,14 @@ mod tests {
     #[test]
     fn test_assignment_err() {
         let stmt = Sequence(vec![
-            Box::new(Assignment("x", RVal::Num(5))),
-            Box::new(Assignment("x", RVal::Num(6))),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+            )),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::RVal(RVal::Num(6))),
+            )),
         ]);
 
         let sc = SSAChecker::new();
@@ -264,7 +270,10 @@ mod tests {
 
     #[test]
     fn test_funcdef_args_do_nothing() {
-        let body = Box::new(Assignment("y", RVal::Num(5)));
+        let body = Box::new(Assignment(
+            "y",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
         let stmt = Sequence(vec![Box::new(FuncDef(
             "foo",
             vec![Type::Int()],
@@ -290,7 +299,10 @@ mod tests {
 
     #[test]
     fn test_funcdef_err() {
-        let body = Box::new(Assignment("x", RVal::Num(5)));
+        let body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ));
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
             Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
@@ -310,7 +322,10 @@ mod tests {
             vec![],
             vec![],
             None,
-            Box::new(Assignment("x", RVal::Num(5))),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+            )),
         ));
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
@@ -342,8 +357,14 @@ mod tests {
     fn test_conditional_ok() {
         let stmt = Conditional(
             Box::new(BooleanStatement::TrueOrFalse()),
-            Box::new(Assignment("x", RVal::Num(5))),
-            Box::new(Assignment("x", RVal::Num(6))),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+            )),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::RVal(RVal::Num(6))),
+            )),
         );
 
         let sc = SSAChecker::new();
@@ -356,14 +377,32 @@ mod tests {
     #[test]
     fn test_switch_ok() {
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![
-            (RVal::Num(4), Box::new(Assignment("y", RVal::Num(0)))),
-            (RVal::Num(5), Box::new(Assignment("y", RVal::Num(1)))),
+            (
+                RVal::Num(4),
+                Box::new(Assignment(
+                    "y",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(0))),
+                )),
+            ),
+            (
+                RVal::Num(5),
+                Box::new(Assignment(
+                    "y",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+                )),
+            ),
         ];
         let stmt = Sequence(vec![
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Num(5))),
-                Box::new(Assignment("x", RVal::Num(4))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(4))),
+                )),
             )),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
@@ -377,17 +416,35 @@ mod tests {
 
     #[test]
     fn test_nested_indirect_calls_no_args() {
-        let baz_body = Box::new(Assignment("x", RVal::Num(1)));
-        let qux_body = Box::new(Assignment("x", RVal::Num(2)));
-        let baz2_body = Box::new(Assignment("x", RVal::Num(3)));
-        let qux2_body = Box::new(Assignment("x", RVal::Num(4)));
+        let baz_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+        ));
+        let qux_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(2))),
+        ));
+        let baz2_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(3))),
+        ));
+        let qux2_body = Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(4))),
+        ));
         let foo_body = Box::new(Sequence(vec![
             Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
             Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("baz"))),
-                Box::new(Assignment("x", RVal::Var("qux"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("qux"))),
+                )),
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]));
@@ -396,8 +453,14 @@ mod tests {
             Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("baz2"))),
-                Box::new(Assignment("x", RVal::Var("qux2"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("qux2"))),
+                )),
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]));
@@ -407,8 +470,14 @@ mod tests {
             Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
-                Box::new(Assignment("x", RVal::Var("foo"))),
-                Box::new(Assignment("x", RVal::Var("bar"))),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                )),
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);

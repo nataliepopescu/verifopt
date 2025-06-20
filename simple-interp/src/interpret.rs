@@ -154,14 +154,7 @@ impl Merge<Vars> for Vec<Vars> {
     }
 }
 
-// TODO could (given proper typechecking) reasonably just be VarType::Values
-// (aka HashSet<RVal>) if it is simpler
-//#[derive(Debug, Clone, PartialEq)]
 type Value = HashSet<RVal>;
-//pub enum Value {
-//    Int(HashSet<i32>),
-//    Func(HashSet<&'static str>),
-//}
 
 impl Merge<Value> for Vec<Value> {
     fn merge(&self) -> Result<Value, Error> {
@@ -172,10 +165,15 @@ impl Merge<Value> for Vec<Value> {
             return Ok(self[0].clone());
         }
 
-        todo!("not impl yet");
-        //let mut merged = self[0].clone();
-        //for i in 1..self.len() {
-        //}
+        // TODO check here if all ints vs vars?
+        let mut merged = self[0].clone();
+        for i in 1..self.len() {
+            let union: HashSet<_> =
+                merged.union(&self[i]).map(|x| x.clone()).collect();
+            merged = union;
+        }
+
+        Ok(merged)
     }
 }
 
@@ -234,14 +232,15 @@ impl Interpreter {
         scope: Option<&'static str>,
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<Option<Value>, Error> {
+        let mut last_ret = None;
         for stmt in stmt_vec.iter() {
             let res = self.interp(&funcs, vars, scope, &*stmt);
             if res.is_err() {
                 return res;
             }
-            println!("res: {:?}", &res);
+            last_ret = res.unwrap();
         }
-        Ok(None)
+        Ok(last_ret)
     }
 
     pub fn interp_assignment(
@@ -312,7 +311,7 @@ impl Interpreter {
                                 return Err(res.err().unwrap());
                             }
                         }
-                        Ok(None) => return Err(Error::FuncDoesNotReturnValue()),
+                        Ok(None) => return Err(Error::CannotAssignNoneRetval()),
                         err @ Err(_) => return err,
                     }
                 }
@@ -545,12 +544,10 @@ impl Interpreter {
             }
             RVal::Var(varname) => match vars.scoped_get(scope, varname) {
                 Ok(Some(vartype)) => match vartype {
-                    VarType::Values(value_set) => {
-                        todo!("return value vec TODO");
-                    }
+                    VarType::Values(value_set) => Ok(Some(value_set)),
                     VarType::Scope(..) => match funcs.funcs.get(varname) {
-                        Some(func) => {
-                            todo!("return function TODO");
+                        Some(_) => {
+                            Ok(Some(HashSet::from([RVal::Var(*varname)])))
                         }
                         None => return Err(Error::UndefinedSymbol(varname)),
                     },
@@ -677,9 +674,7 @@ impl Interpreter {
         }
         *vars = res.unwrap();
 
-        println!("retvals: {:?}", &retvals);
         if retvals.len() > 0 {
-            println!("HERE");
             return match retvals.merge() {
                 Ok(retval) => Ok(Some(retval)),
                 Err(err) => Err(err),
@@ -711,11 +706,8 @@ impl Interpreter {
                 }
 
                 match self.interp(funcs, vars, Some(name), &*func_data.body) {
-                    Ok(retval) => {
-                        println!("retval: {:?}", &retval);
-                        return Ok(retval);
-                    }
-                    err @ Err(_) => return err,
+                    res @ Ok(_) => res,
+                    err @ Err(_) => err,
                 }
             }
             None => return Err(Error::UndefinedSymbol(name)),
@@ -2434,7 +2426,7 @@ mod tests {
     }
 
     #[test]
-    fn test_direct_func_return() {
+    fn test_direct_func_return_num() {
         let mut funcs = Funcs::new();
         let body = Box::new(Return(RVal::Num(5)));
         funcs
@@ -2463,6 +2455,206 @@ mod tests {
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+        );
+
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(vars, check_vars);
+    }
+
+    #[test]
+    fn test_direct_func_return_set() {
+        let mut funcs = Funcs::new();
+        let body = Box::new(Sequence(vec![
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(6))),
+                )),
+            )),
+            Box::new(Return(RVal::Var("x"))),
+        ]));
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(
+                vec![],
+                vec![],
+                Some(Box::new(Type::Int())),
+                body.clone(),
+            ),
+        );
+
+        let mut vars = Vars::new();
+
+        let interp = Interpreter::new();
+        let stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![],
+                vec![],
+                Some(Box::new(Type::Int())),
+                body,
+            )),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
+                    "foo",
+                    vec![],
+                )))),
+            )),
+        ]);
+        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+
+        let mut check_vars = Vars::new();
+        let mut foo_vars = Vars::new();
+        foo_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Num(5),
+                RVal::Num(6),
+            ]))),
+        );
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Num(5),
+                RVal::Num(6),
+            ]))),
+        );
+
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(vars, check_vars);
+    }
+
+    #[test]
+    fn test_direct_func_return_func() {
+        let bar_body = Box::new(Return(RVal::Num(0)));
+        let baz_body = Box::new(Return(RVal::Num(1)));
+        let foo_body = Box::new(Sequence(vec![
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
+                )),
+            )),
+            Box::new(Return(RVal::Var("x"))),
+        ]));
+
+        let rettype = Box::new(Type::Int());
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(
+                vec![],
+                vec![],
+                Some(Box::new(Type::Func(vec![], rettype.clone()))),
+                foo_body.clone(),
+            ),
+        );
+        funcs.funcs.insert(
+            "bar",
+            FuncVal::new(
+                vec![],
+                vec![],
+                Some(Box::new(Type::Func(vec![], rettype.clone()))),
+                bar_body.clone(),
+            ),
+        );
+        funcs.funcs.insert(
+            "baz",
+            FuncVal::new(
+                vec![],
+                vec![],
+                Some(Box::new(Type::Func(vec![], rettype.clone()))),
+                baz_body.clone(),
+            ),
+        );
+
+        let mut vars = Vars::new();
+
+        let interp = Interpreter::new();
+        let stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![],
+                vec![],
+                Some(Box::new(Type::Int())),
+                foo_body,
+            )),
+            Box::new(FuncDef(
+                "bar",
+                vec![],
+                vec![],
+                Some(Box::new(Type::Int())),
+                bar_body,
+            )),
+            Box::new(FuncDef(
+                "baz",
+                vec![],
+                vec![],
+                Some(Box::new(Type::Int())),
+                baz_body,
+            )),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
+                    "foo",
+                    vec![],
+                )))),
+            )),
+            Box::new(Assignment(
+                "res",
+                Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
+                    "x",
+                    vec![],
+                )))),
+            )),
+        ]);
+        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+
+        let mut check_vars = Vars::new();
+        let mut foo_vars = Vars::new();
+        foo_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Var("bar"),
+                RVal::Var("baz"),
+            ]))),
+        );
+        check_vars
+            .vars
+            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_vars
+            .vars
+            .insert("bar", Box::new(VarType::Scope(None, Vars::new())));
+        check_vars
+            .vars
+            .insert("baz", Box::new(VarType::Scope(None, Vars::new())));
+        check_vars.vars.insert(
+            "x",
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Var("bar"),
+                RVal::Var("baz"),
+            ]))),
+        );
+        check_vars.vars.insert(
+            "res",
+            Box::new(VarType::Values(HashSet::from([
+                RVal::Num(1),
+                RVal::Num(0),
+            ]))),
         );
 
         assert_eq!(res.unwrap(), None);

@@ -45,9 +45,7 @@ impl SigCollector {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, Sequence,
-    };
+    use crate::Statement::Assignment;
     use crate::{AssignmentRVal, FuncVal, RVal, Type};
 
     #[test]

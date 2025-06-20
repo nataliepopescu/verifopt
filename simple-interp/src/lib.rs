@@ -11,7 +11,6 @@ use crate::sig_collect::{SigCollector, Sigs};
 use crate::ssa::{SSAChecker, Symbols};
 use thiserror::Error;
 
-use std::collections::HashSet;
 use std::fmt;
 use std::ops::Not;
 
@@ -31,8 +30,8 @@ pub enum Error {
     InconsistentReturnTypes(),
     #[error("Invalid RVal for Assignment.")]
     InvalidAssignmentRVal(),
-    #[error("Function does not return a value.")]
-    FuncDoesNotReturnValue(),
+    #[error("Cannot assign var to a return value of None.")]
+    CannotAssignNoneRetval(),
     #[error("{0} is not a function.")]
     NotAFunction(&'static str),
     #[error("Symbol {0} already exists.")]
@@ -266,6 +265,7 @@ mod tests {
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
     use crate::interpret::VarType;
+    use std::collections::HashSet;
 
     #[test]
     fn test_print() {

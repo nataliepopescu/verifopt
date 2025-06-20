@@ -80,7 +80,7 @@ style 2: res on spot (set of constraints about possible vals)
 - [x] SSA pass: separate funcs in body
 - [x] add function args
 - [x] collect all funcs of certain signature
-- [ ] add functional function retvals
+- [x] add functional function retvals
 - [ ] impl negative constraints
 - [ ] impl CHA
 - [ ] eventually impl flow-sensitive stuff (for function res)

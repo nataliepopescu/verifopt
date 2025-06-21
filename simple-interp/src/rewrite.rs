@@ -1,5 +1,5 @@
 use crate::func_collect::Funcs;
-use crate::interpret::{VarType, Vars};
+use crate::interpret::{Constraints, VarType, Vars};
 use crate::{BooleanStatement, Error, RVal, Statement};
 
 use std::collections::HashSet;
@@ -132,15 +132,17 @@ impl Rewriter {
     fn rewrite_indirect_invoke(
         &self,
         name: &'static str,
-        set: &HashSet<RVal>,
+        set: &Constraints,
         args: Vec<&'static str>,
     ) -> Result<Statement, Error> {
         let mut switch_vec = vec![];
         // FIXME sorting set to get deterministic switch statement order for
         // tests
-        let mut vec: Vec<_> = set.iter().collect::<Vec<_>>();
-        vec.sort();
-        for rval in vec.into_iter() {
+        let mut pos_vec: Vec<_> = set.0.iter().collect::<Vec<_>>();
+        let _neg_vec: Vec<_> = set.1.iter().collect::<Vec<_>>();
+        // FIXME also consider negative set
+        pos_vec.sort();
+        for rval in pos_vec.into_iter() {
             // FIXME remove check (panic)
             match rval.clone() {
                 r @ RVal::Var(var) => switch_vec.push((
@@ -166,8 +168,8 @@ impl Rewriter {
             // FIXME remove check (panic)
             None => match vars.scoped_get(scope, name) {
                 Ok(Some(vartype)) => match vartype {
-                    VarType::Values(set) => {
-                        self.rewrite_indirect_invoke(name, &set, args.to_vec())
+                    VarType::Values(constraints) => {
+                        self.rewrite_indirect_invoke(name, &constraints, args.to_vec())
                     }
                     _ => panic!("should not get scope here"),
                 },

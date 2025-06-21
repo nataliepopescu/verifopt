@@ -1,12 +1,49 @@
 use crate::{AssignmentRVal, BooleanStatement, Error, Funcs, RVal, Statement};
 use std::collections::{HashMap, HashSet};
 
+pub type Constraints = (HashSet<RVal>, HashSet<RVal>);
+
+pub trait Merge<T> {
+    fn merge(&self) -> Result<T, Error>;
+}
+
+impl Merge<Constraints> for Vec<Constraints> {
+    fn merge(&self) -> Result<Constraints, Error> {
+        if self.len() == 0 {
+            return Err(Error::VecSize());
+        }
+        if self.len() == 1 {
+            return Ok(self[0].clone());
+        }
+
+        // TODO check here if all ints vs vars?
+        let mut merged = self[0].clone();
+        for i in 1..self.len() {
+            // merge positive constraints
+            if merged.0 != self[i].0 {
+                let pos_union: HashSet<_> =
+                    merged.0.union(&self[i].0).map(|x| x.clone()).collect();
+                merged.0 = pos_union;
+            }
+            // merge negative constraints
+            if merged.1 != self[i].1 {
+                let neg_union: HashSet<_> =
+                    merged.1.union(&self[i].1).map(|x| x.clone()).collect();
+                merged.1 = neg_union;
+            }
+        }
+
+        Ok(merged)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum VarType {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
     Scope(Option<&'static str>, Vars),
-    Values(HashSet<RVal>),
+    // sets of positive and negative constraints
+    Values(Constraints),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,7 +118,7 @@ impl Vars {
                         Box::new(VarType::Scope(backptr, inner_vars)),
                     );
                 }
-                VarType::Values(_) => {
+                VarType::Values(..) => {
                     return Err(Error::NotAScope(scope.unwrap()));
                 }
             },
@@ -89,10 +126,6 @@ impl Vars {
         }
         Ok(())
     }
-}
-
-pub trait Merge<T> {
-    fn merge(&self) -> Result<T, Error>;
 }
 
 impl Merge<Vars> for Vec<Vars> {
@@ -131,15 +164,30 @@ impl Merge<Vars> for Vec<Vars> {
                                 }
                             }
                         }
-                        (VarType::Values(a), VarType::Values(b)) => {
-                            if a != b {
-                                let union: HashSet<_> =
-                                    a.union(&b).map(|x| x.clone()).collect();
-                                merged.vars.insert(
-                                    key,
-                                    Box::new(VarType::Values(union)),
-                                );
+                        (
+                            VarType::Values((pos_a, neg_a)),
+                            VarType::Values((pos_b, neg_b)),
+                        ) => {
+                            let mut pos = pos_a.clone();
+                            let mut neg = neg_a.clone();
+                            if pos_a != pos_b {
+                                let pos_union: HashSet<_> = pos_a
+                                    .union(&pos_b)
+                                    .map(|x| x.clone())
+                                    .collect();
+                                pos = pos_union;
                             }
+                            if neg_a != neg_b {
+                                let neg_union: HashSet<_> = neg_a
+                                    .union(&neg_b)
+                                    .map(|x| x.clone())
+                                    .collect();
+                                neg = neg_union;
+                            }
+                            merged.vars.insert(
+                                key,
+                                Box::new(VarType::Values((pos, neg))),
+                            );
                         }
                         _ => return Err(Error::IncomparableVarTypes()),
                     },
@@ -148,29 +196,6 @@ impl Merge<Vars> for Vec<Vars> {
                     }
                 }
             }
-        }
-
-        Ok(merged)
-    }
-}
-
-type Value = HashSet<RVal>;
-
-impl Merge<Value> for Vec<Value> {
-    fn merge(&self) -> Result<Value, Error> {
-        if self.len() == 0 {
-            return Err(Error::VecSize());
-        }
-        if self.len() == 1 {
-            return Ok(self[0].clone());
-        }
-
-        // TODO check here if all ints vs vars?
-        let mut merged = self[0].clone();
-        for i in 1..self.len() {
-            let union: HashSet<_> =
-                merged.union(&self[i]).map(|x| x.clone()).collect();
-            merged = union;
         }
 
         Ok(merged)
@@ -190,7 +215,7 @@ impl Interpreter {
         vars: &mut Vars,
         scope: Option<&'static str>,
         stmt: &Statement,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => {
                 self.interp_seq(funcs, vars, scope, stmt_vec)
@@ -231,7 +256,7 @@ impl Interpreter {
         vars: &mut Vars,
         scope: Option<&'static str>,
         stmt_vec: &Vec<Box<Statement>>,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         let mut last_ret = None;
         for stmt in stmt_vec.iter() {
             let res = self.interp(&funcs, vars, scope, &*stmt);
@@ -250,13 +275,16 @@ impl Interpreter {
         scope: Option<&'static str>,
         var: &'static str,
         value: &AssignmentRVal,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         match value {
             AssignmentRVal::RVal(RVal::Num(num)) => {
                 let res = vars.scoped_set(
                     scope,
                     var,
-                    Box::new(VarType::Values(HashSet::from([RVal::Num(*num)]))),
+                    Box::new(VarType::Values((
+                        HashSet::from([RVal::Num(*num)]),
+                        HashSet::new(),
+                    ))),
                 );
 
                 if res.is_err() {
@@ -281,9 +309,10 @@ impl Interpreter {
                             let res = vars.scoped_set(
                                 scope,
                                 var,
-                                Box::new(VarType::Values(HashSet::from([
-                                    RVal::Var(varname),
-                                ]))),
+                                Box::new(VarType::Values((
+                                    HashSet::from([RVal::Var(varname)]),
+                                    HashSet::new(),
+                                ))),
                             );
 
                             if res.is_err() {
@@ -300,11 +329,11 @@ impl Interpreter {
                     // assume func has retval (given typechecking) but return
                     // err if none
                     match self.interp_invoke(funcs, vars, scope, name, &args) {
-                        Ok(Some(retval)) => {
+                        Ok(Some(constraints)) => {
                             let res = vars.scoped_set(
                                 scope,
                                 var,
-                                Box::new(VarType::Values(retval)),
+                                Box::new(VarType::Values(constraints)),
                             );
 
                             if res.is_err() {
@@ -365,21 +394,32 @@ impl Interpreter {
         vars: &Vars,
         scope: Option<&'static str>,
         rval: RVal,
-    ) -> Result<HashSet<RVal>, Error> {
+    ) -> Result<Constraints, Error> {
         match rval.clone() {
-            RVal::Num(_) => Ok(HashSet::from([rval])),
+            RVal::Num(_) => Ok((HashSet::from([rval]), HashSet::new())),
             RVal::Var(var) => match vars.scoped_get(scope, var) {
                 Ok(Some(val)) => match val {
-                    VarType::Values(set) => return Ok(set.clone()),
+                    VarType::Values(constraints) => {
+                        return Ok(constraints.clone());
+                    }
                     _ => todo!("should be a func"),
                 },
                 Ok(None) => match funcs.funcs.get(var) {
-                    Some(_) => Ok(HashSet::from([rval])),
+                    Some(_) => Ok((HashSet::from([rval]), HashSet::new())),
                     None => Err(Error::UndefinedSymbol(var)),
                 },
                 Err(err) => return Err(err),
             },
         }
+    }
+
+    fn constraints_to_vecs(
+        &self,
+        constraints: &Constraints,
+    ) -> (Vec<RVal>, Vec<RVal>) {
+        let pos_vec: Vec<_> = constraints.0.clone().into_iter().collect();
+        let neg_vec: Vec<_> = constraints.1.clone().into_iter().collect();
+        (pos_vec, neg_vec)
     }
 
     pub fn interp_equals(
@@ -399,10 +439,15 @@ impl Interpreter {
             return Err(rhs_res.err().unwrap());
         }
 
-        let lhs_vec: Vec<_> = lhs_res.as_ref().unwrap().iter().collect();
-        let rhs_vec: Vec<_> = rhs_res.as_ref().unwrap().iter().collect();
-        if lhs_vec.len() == 1 && rhs_vec.len() == 1 {
-            match (lhs_vec[0].clone(), rhs_vec[0].clone()) {
+        let lhs_vecs = self.constraints_to_vecs(&lhs_res.unwrap());
+        let rhs_vecs = self.constraints_to_vecs(&rhs_res.unwrap());
+        // eval if if only a single positive constraint
+        if lhs_vecs.0.len() == 1
+            && lhs_vecs.1.len() == 0
+            && rhs_vecs.0.len() == 1
+            && rhs_vecs.1.len() == 0
+        {
+            match (lhs_vecs.0[0].clone(), rhs_vecs.0[0].clone()) {
                 (RVal::Num(lnum), RVal::Num(rnum)) => {
                     if lnum == rnum {
                         return Ok(BooleanStatement::True());
@@ -419,8 +464,8 @@ impl Interpreter {
                 }
                 (_, _) => {
                     return Err(Error::IncomparableTypes(
-                        lhs_vec[0].clone(),
-                        rhs_vec[0].clone(),
+                        lhs_vecs.0[0].clone(),
+                        rhs_vecs.0[0].clone(),
                     ));
                 }
             }
@@ -438,7 +483,7 @@ impl Interpreter {
         condition: &BooleanStatement,
         true_branch: &Statement,
         false_branch: &Statement,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         let mut res_vars: Vec<Vars> = vec![];
 
         // FIXME mod store if have effects
@@ -491,13 +536,15 @@ impl Interpreter {
         scope: Option<&'static str>,
         val: &RVal,
         vec: &Vec<(RVal, Box<Statement>)>,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         // FIXME mod store if have effects
-        let resolved_vals = match val {
-            num @ RVal::Num(_) => HashSet::from([num.clone()]),
+        let resolved_constraints = match val {
+            num @ RVal::Num(_) => {
+                (HashSet::from([num.clone()]), HashSet::new())
+            }
             RVal::Var(varname) => match vars.scoped_get(scope, varname) {
                 Ok(Some(vartype)) => match vartype {
-                    VarType::Values(possible_vals) => possible_vals.clone(),
+                    VarType::Values(constraints) => constraints.clone(),
                     _ => panic!("should not get scope here"),
                 },
                 Ok(None) => return Err(Error::UndefinedSymbol(varname)),
@@ -505,16 +552,17 @@ impl Interpreter {
             },
         };
 
+        // FIXME resolve some constraints
         // grab all vec elems where vec_val is in vars_vals
-        let matching_vals: Vec<_> = vec
-            .clone()
-            .into_iter()
-            .filter(|(vec_val, _)| resolved_vals.contains(vec_val))
-            .collect();
+        //let matching_vals: Vec<_> = vec
+        //    .clone()
+        //    .into_iter()
+        //    .filter(|(vec_val, _)| resolved_constraints.contains(vec_val))
+        //    .collect();
 
         // loop to interp all such elems
         let mut res_vars: Vec<Vars> = Vec::new();
-        for (_, vec_stmt) in matching_vals.iter() {
+        for (_, vec_stmt) in vec.iter() {
             let mut scoped_vars = vars.clone();
             match self.interp(funcs, &mut scoped_vars, scope, &*vec_stmt) {
                 Ok(_) => res_vars.push(scoped_vars),
@@ -537,18 +585,22 @@ impl Interpreter {
         vars: &mut Vars,
         scope: Option<&'static str>,
         rval: &RVal,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         match rval {
             num @ RVal::Num(_) => {
-                return Ok(Some(HashSet::from([num.clone()])));
+                return Ok(Some((
+                    HashSet::from([num.clone()]),
+                    HashSet::new(),
+                )));
             }
             RVal::Var(varname) => match vars.scoped_get(scope, varname) {
                 Ok(Some(vartype)) => match vartype {
-                    VarType::Values(value_set) => Ok(Some(value_set)),
+                    VarType::Values(constraints) => Ok(Some(constraints)),
                     VarType::Scope(..) => match funcs.funcs.get(varname) {
-                        Some(_) => {
-                            Ok(Some(HashSet::from([RVal::Var(*varname)])))
-                        }
+                        Some(_) => Ok(Some((
+                            HashSet::from([RVal::Var(*varname)]),
+                            HashSet::new(),
+                        ))),
                         None => return Err(Error::UndefinedSymbol(varname)),
                     },
                 },
@@ -575,9 +627,9 @@ impl Interpreter {
             match vars.scoped_get(scope, arg) {
                 Ok(Some(vartype)) => match vartype {
                     // add args to scope
-                    VarType::Values(value_set) => func_vars.vars.insert(
+                    VarType::Values(constraints) => func_vars.vars.insert(
                         param,
-                        Box::new(VarType::Values(value_set.clone())),
+                        Box::new(VarType::Values(constraints.clone())),
                     ),
                     _ => panic!("should not get scope here"),
                 },
@@ -605,7 +657,7 @@ impl Interpreter {
         name: &'static str,
         val: &RVal,
         args: &Vec<&'static str>,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         match val {
             RVal::Var(varname) => match funcs.funcs.get(varname) {
                 Some(func_data) => {
@@ -627,7 +679,7 @@ impl Interpreter {
                         Some(varname),
                         &*func_data.body,
                     ) {
-                        Ok(retval) => return Ok(retval),
+                        Ok(constraints) => return Ok(constraints),
                         err @ Err(_) => return err,
                     }
                 }
@@ -643,12 +695,13 @@ impl Interpreter {
         vars: &mut Vars,
         scope: Option<&'static str>,
         name: &'static str,
-        set: &HashSet<RVal>,
+        constraints: &Constraints,
         args: &Vec<&'static str>,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         let mut res_vars: Vec<Vars> = vec![];
-        let mut retvals: Vec<Value> = vec![];
-        for val in set.iter() {
+        let mut constraints_vec: Vec<Constraints> = vec![];
+        // TODO what to do with constraints.1 (neg)
+        for val in constraints.0.iter() {
             let mut vars_clone = vars.clone();
             match self.interp_indirect_invoke_helper(
                 funcs,
@@ -658,10 +711,10 @@ impl Interpreter {
                 val,
                 args,
             ) {
-                Ok(retval) => {
+                Ok(constraints) => {
                     res_vars.push(vars_clone);
-                    if retval.is_some() {
-                        retvals.push(retval.unwrap());
+                    if constraints.is_some() {
+                        constraints_vec.push(constraints.unwrap());
                     }
                 }
                 err @ Err(_) => return err,
@@ -674,9 +727,9 @@ impl Interpreter {
         }
         *vars = res.unwrap();
 
-        if retvals.len() > 0 {
-            return match retvals.merge() {
-                Ok(retval) => Ok(Some(retval)),
+        if constraints_vec.len() > 0 {
+            return match constraints_vec.merge() {
+                Ok(constraints) => Ok(Some(constraints)),
                 Err(err) => Err(err),
             };
         }
@@ -690,7 +743,7 @@ impl Interpreter {
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         match funcs.funcs.get(name) {
             Some(func_data) => {
                 let res = self.resolve_args(
@@ -721,11 +774,16 @@ impl Interpreter {
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
-    ) -> Result<Option<Value>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         match vars.scoped_get(scope, name) {
             Ok(Some(vartype)) => match vartype {
-                VarType::Values(set) => self.interp_indirect_invoke(
-                    funcs, vars, scope, name, &set, args,
+                VarType::Values(constraints) => self.interp_indirect_invoke(
+                    funcs,
+                    vars,
+                    scope,
+                    name,
+                    &constraints,
+                    args,
                 ),
                 _ => panic!("should not get scope here"),
             },

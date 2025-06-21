@@ -82,6 +82,7 @@ style 2: res on spot (set of constraints about possible vals)
 - [x] collect all funcs of certain signature
 - [x] add functional function retvals
 - [ ] impl negative constraints
+- [ ] traits (before/after CHA)
 - [ ] impl CHA
 - [ ] eventually impl flow-sensitive stuff (for function res)
 

@@ -2,6 +2,10 @@ use crate::{AssignmentRVal, BooleanStatement, Error, Funcs, RVal, Statement};
 use std::collections::{HashMap, HashSet};
 
 pub type Constraints = (HashSet<RVal>, HashSet<RVal>);
+//struct Constraints {
+//    pos: HashSet<RVal>,
+//    neg: HashSet<RVal>,
+//}
 
 pub trait Merge<T> {
     fn merge(&self) -> Result<T, Error>;
@@ -34,6 +38,28 @@ impl Merge<Constraints> for Vec<Constraints> {
         }
 
         Ok(merged)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BooleanConstraints {
+    true_branch: Vars,
+    false_branch: Vars,
+}
+
+impl BooleanConstraints {
+    pub fn new(true_branch: Vars, false_branch: Vars) -> Self {
+        Self {
+            true_branch,
+            false_branch,
+        }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            true_branch: Vars::new(),
+            false_branch: Vars::new(),
+        }
     }
 }
 
@@ -198,7 +224,66 @@ impl Merge<Vars> for Vec<Vars> {
             }
         }
 
+        // remove all negative constraints are also positive constraints
+        // (intersections)
+        /*
+        for (_, val) in merged.vars.iter_mut() {
+            match &mut **val {
+                &mut VarType::Values((ref pos, ref mut neg)) => {
+                    let intersection: HashSet<_> =
+                        pos.intersection(&neg).map(|x| x.clone()).collect();
+                    let diff: HashSet<_> = neg
+                        .difference(&intersection)
+                        .map(|x| x.clone())
+                        .collect();
+                    *neg = diff;
+                }
+                _ => continue,
+            }
+        }
+        */
+
         Ok(merged)
+    }
+}
+
+pub trait Difference<T> {
+    fn diff(&mut self, other: &T);
+}
+
+impl Difference<Vars> for Vars {
+    fn diff(&mut self, other: &Vars) {
+        // FIXME multi-layer vars (i.e. other w scopes)
+
+        for (other_key, other_val) in other.vars.iter() {
+            match self.vars.get(other_key) {
+                Some(self_val) => {
+                    match (*self_val.clone(), *other_val.clone()) {
+                        (
+                            VarType::Values((self_pos, self_neg)),
+                            VarType::Values((other_pos, other_neg)),
+                        ) => {
+                            let diff_pos: HashSet<_> = self_pos
+                                .difference(&other_pos)
+                                .map(|x| x.clone())
+                                .collect();
+                            let diff_neg: HashSet<_> = self_neg
+                                .difference(&other_neg)
+                                .map(|x| x.clone())
+                                .collect();
+                            self.vars.insert(
+                                other_key,
+                                Box::new(VarType::Values((diff_pos, diff_neg))),
+                            );
+                        }
+                        _ => todo!("scopes ever?"),
+                    }
+                }
+                None => panic!(
+                    "diff used wrong, should have a subset of self's keys"
+                ),
+            }
+        }
     }
 }
 
@@ -361,11 +446,13 @@ impl Interpreter {
         vars: &Vars,
         scope: Option<&'static str>,
         b_stmt: BooleanStatement,
-    ) -> Result<BooleanStatement, Error> {
+    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
         match b_stmt {
             BooleanStatement::True()
             | BooleanStatement::False()
-            | BooleanStatement::TrueOrFalse() => Ok(b_stmt),
+            | BooleanStatement::TrueOrFalse() => {
+                Ok((b_stmt, BooleanConstraints::empty()))
+            }
             BooleanStatement::Not(inner_b_stmt) => {
                 self.interp_not(funcs, vars, scope, *inner_b_stmt)
             }
@@ -381,9 +468,9 @@ impl Interpreter {
         vars: &Vars,
         scope: Option<&'static str>,
         b_stmt: BooleanStatement,
-    ) -> Result<BooleanStatement, Error> {
+    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
         match self.interp_bool(funcs, vars, scope, b_stmt) {
-            Ok(b_res) => Ok(!b_res),
+            Ok(b_res) => Ok((!b_res.0, b_res.1)),
             err @ Err(_) => err,
         }
     }
@@ -429,18 +516,19 @@ impl Interpreter {
         scope: Option<&'static str>,
         lhs: RVal,
         rhs: RVal,
-    ) -> Result<BooleanStatement, Error> {
-        let lhs_res = self.interp_rval(&funcs, &vars, scope, lhs);
+    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+        let lhs_res = self.interp_rval(&funcs, &vars, scope, lhs.clone());
         if lhs_res.is_err() {
             return Err(lhs_res.err().unwrap());
         }
-        let rhs_res = self.interp_rval(&funcs, &vars, scope, rhs);
+        let rhs_res = self.interp_rval(&funcs, &vars, scope, rhs.clone());
         if rhs_res.is_err() {
             return Err(rhs_res.err().unwrap());
         }
 
         let lhs_vecs = self.constraints_to_vecs(&lhs_res.unwrap());
         let rhs_vecs = self.constraints_to_vecs(&rhs_res.unwrap());
+
         // eval if if only a single positive constraint
         if lhs_vecs.0.len() == 1
             && lhs_vecs.1.len() == 0
@@ -450,16 +538,28 @@ impl Interpreter {
             match (lhs_vecs.0[0].clone(), rhs_vecs.0[0].clone()) {
                 (RVal::Num(lnum), RVal::Num(rnum)) => {
                     if lnum == rnum {
-                        return Ok(BooleanStatement::True());
+                        return Ok((
+                            BooleanStatement::True(),
+                            BooleanConstraints::empty(),
+                        ));
                     } else {
-                        return Ok(BooleanStatement::False());
+                        return Ok((
+                            BooleanStatement::False(),
+                            BooleanConstraints::empty(),
+                        ));
                     }
                 }
                 (RVal::Var(lfp), RVal::Var(rfp)) => {
                     if lfp == rfp {
-                        return Ok(BooleanStatement::True());
+                        return Ok((
+                            BooleanStatement::True(),
+                            BooleanConstraints::empty(),
+                        ));
                     } else {
-                        return Ok(BooleanStatement::False());
+                        return Ok((
+                            BooleanStatement::False(),
+                            BooleanConstraints::empty(),
+                        ));
                     }
                 }
                 (_, _) => {
@@ -470,8 +570,56 @@ impl Interpreter {
                 }
             }
         } else {
-            // TODO could potentially do more analysis here
-            return Ok(BooleanStatement::TrueOrFalse());
+            // make sure lhs/rhs are vars, not nums
+            match (lhs.clone(), rhs.clone()) {
+                (RVal::Var(a), RVal::Var(b)) => {
+                    // right now we know this function is only ever called by
+                    // the equality comparison, but in the future we'll need a
+                    // check which operator we're evaluating TODO
+
+                    // in the true branch, we know that lhs == rhs, thus
+                    // new constraints: lhs {(rhs), ()}, rhs {(lhs), ()}
+                    let mut true_branch = Vars::new();
+                    true_branch.vars.insert(
+                        a,
+                        Box::new(VarType::Values((
+                            HashSet::from([rhs.clone()]),
+                            HashSet::new(),
+                        ))),
+                    );
+                    true_branch.vars.insert(
+                        b,
+                        Box::new(VarType::Values((
+                            HashSet::from([lhs.clone()]),
+                            HashSet::new(),
+                        ))),
+                    );
+
+                    // in the false branch, we know that lhs != rhs, thus
+                    // new constraints: lhs {(), (rhs)}, rhs {(), (rhs)}
+                    let mut false_branch = Vars::new();
+                    false_branch.vars.insert(
+                        a,
+                        Box::new(VarType::Values((
+                            HashSet::new(),
+                            HashSet::from([rhs]),
+                        ))),
+                    );
+                    false_branch.vars.insert(
+                        b,
+                        Box::new(VarType::Values((
+                            HashSet::new(),
+                            HashSet::from([lhs]),
+                        ))),
+                    );
+
+                    return Ok((
+                        BooleanStatement::TrueOrFalse(),
+                        BooleanConstraints::new(true_branch, false_branch),
+                    ));
+                }
+                _ => todo!("not impl yet"),
+            }
         }
     }
 
@@ -488,23 +636,55 @@ impl Interpreter {
 
         // FIXME mod store if have effects
         match self.interp_bool(funcs, vars, scope, condition.clone()) {
-            Ok(bool_res) => {
-                let mut vars_clone = vars.clone();
+            Ok((bool_res, bconstraints)) => {
+                let true_vars = vars.clone();
+                let false_vars = vars.clone();
                 if self.possible(&bool_res) {
-                    match self.interp(funcs, vars, scope, true_branch) {
-                        Ok(_) => res_vars.push(vars.clone()),
-                        err @ Err(_) => return err,
+                    match vec![
+                        true_vars.clone(),
+                        bconstraints.true_branch.clone(),
+                    ]
+                    .merge()
+                    {
+                        Ok(mut new_vars) => match self.interp(
+                            funcs,
+                            &mut new_vars,
+                            scope,
+                            true_branch,
+                        ) {
+                            Ok(_) => {
+                                // remove true branch constraints from 
+                                // resulting vars (safe b/c of SSA guarantee)
+                                new_vars.diff(&bconstraints.true_branch);
+                                res_vars.push(new_vars);
+                            }
+                            err @ Err(_) => return err,
+                        },
+                        Err(err) => return Err(err),
                     }
                 }
                 if self.possible(!&bool_res) {
-                    match self.interp(
-                        funcs,
-                        &mut vars_clone,
-                        scope,
-                        false_branch,
-                    ) {
-                        Ok(_) => res_vars.push(vars_clone),
-                        err @ Err(_) => return err,
+                    match vec![
+                        false_vars.clone(),
+                        bconstraints.false_branch.clone(),
+                    ]
+                    .merge()
+                    {
+                        Ok(mut new_vars) => match self.interp(
+                            funcs,
+                            &mut new_vars,
+                            scope,
+                            false_branch,
+                        ) {
+                            Ok(_) => {
+                                // remove false branch constraints from 
+                                // resulting vars (safe b/c of SSA guarantee)
+                                new_vars.diff(&bconstraints.false_branch);
+                                res_vars.push(new_vars);
+                            }
+                            err @ Err(_) => return err,
+                        },
+                        Err(err) => return Err(err),
                     }
                 }
             }
@@ -552,17 +732,27 @@ impl Interpreter {
             },
         };
 
-        // FIXME resolve some constraints
-        // grab all vec elems where vec_val is in vars_vals
-        //let matching_vals: Vec<_> = vec
-        //    .clone()
-        //    .into_iter()
-        //    .filter(|(vec_val, _)| resolved_constraints.contains(vec_val))
-        //    .collect();
+        // filter out switch cases not possible given positive constraints
+        let mut filtered: Vec<_> = vec
+            .clone()
+            .into_iter()
+            .filter(|(case_value, _)| {
+                resolved_constraints.0.contains(case_value)
+            })
+            .collect();
+
+        // filter out switch cases not possible given negative constraints
+        filtered = filtered
+            .clone()
+            .into_iter()
+            .filter(|(case_value, _)| {
+                !resolved_constraints.1.contains(case_value)
+            })
+            .collect();
 
         // loop to interp all such elems
         let mut res_vars: Vec<Vars> = Vec::new();
-        for (_, vec_stmt) in vec.iter() {
+        for (_, vec_stmt) in filtered.iter() {
             let mut scoped_vars = vars.clone();
             match self.interp(funcs, &mut scoped_vars, scope, &*vec_stmt) {
                 Ok(_) => res_vars.push(scoped_vars),
@@ -816,7 +1006,10 @@ mod tests {
         let mut vars = Vars::new();
         vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         let vec: Vec<Vars> = vec![vars];
         assert_eq!(vec[0].clone(), vec.merge().unwrap());
@@ -827,22 +1020,28 @@ mod tests {
         let mut vars1 = Vars::new();
         vars1.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         let mut vars2 = Vars::new();
         vars2.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
         let vec: Vec<Vars> = vec![vars1, vars2];
 
         let mut end_vars = Vars::new();
         end_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(5),
-                RVal::Num(6),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
         assert_eq!(end_vars, vec.merge().unwrap());
     }
@@ -871,7 +1070,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -893,7 +1095,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -921,11 +1126,17 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -952,11 +1163,17 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -997,11 +1214,17 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1029,7 +1252,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1057,7 +1283,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1085,10 +1314,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(5),
-                RVal::Num(6),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1116,7 +1345,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1157,15 +1389,24 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(1)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1215,7 +1456,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(2)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(2)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1263,11 +1507,17 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "bar",
-            Box::new(VarType::Values(HashSet::from([RVal::Var("foo")]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo")]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(1)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1315,21 +1565,24 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(3),
-                RVal::Num(4),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3), RVal::Num(4)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(1),
-                RVal::Num(2),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1), RVal::Num(2)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1415,7 +1668,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1443,7 +1699,10 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -1495,7 +1754,10 @@ mod tests {
         let mut foo_vars = Vars::new();
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -1557,19 +1819,31 @@ mod tests {
         let mut foo_vars = Vars::new();
         check_vars.vars.insert(
             "arg",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(0)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(0)]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -1607,11 +1881,17 @@ mod tests {
         let mut foo_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Var("foo")]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo")]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -1677,23 +1957,38 @@ mod tests {
         let mut foo_vars = Vars::new();
         foo_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(0)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(0)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "arg",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "w",
-            Box::new(VarType::Values(HashSet::from([RVal::Var("foo")]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo")]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -1736,7 +2031,10 @@ mod tests {
         let mut bar_vars = Vars::new();
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -1857,42 +2155,54 @@ mod tests {
 
         baz_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(1)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1)]),
+                HashSet::new(),
+            ))),
         );
         qux_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(2)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(2)]),
+                HashSet::new(),
+            ))),
         );
         baz2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         qux2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(4)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(4)]),
+                HashSet::new(),
+            ))),
         );
 
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz"),
-                RVal::Var("qux"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz2"),
-                RVal::Var("qux2"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
+                HashSet::new(),
+            ))),
         );
 
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("foo"),
-                RVal::Var("bar"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -1968,19 +2278,31 @@ mod tests {
         let mut bar_vars = Vars::new();
         bar_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "arg",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -2141,58 +2463,88 @@ mod tests {
 
         baz_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         baz_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         qux_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         qux_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         baz2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         baz2_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         qux2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         qux2_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
 
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz"),
-                RVal::Var("qux"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz2"),
-                RVal::Var("qux2"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
 
         check_vars
@@ -2206,10 +2558,10 @@ mod tests {
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("foo"),
-                RVal::Var("bar"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -2222,7 +2574,10 @@ mod tests {
             .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -2268,11 +2623,17 @@ mod tests {
         let mut bar_vars = Vars::new();
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -2331,18 +2692,24 @@ mod tests {
         let mut bar_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("foo"),
-                RVal::Var("bar"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
+                HashSet::new(),
+            ))),
         );
         foo_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -2415,11 +2782,17 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(1)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -2466,17 +2839,17 @@ mod tests {
         let mut check_vars = Vars::new();
         check_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(0),
-                RVal::Num(1),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(0), RVal::Num(1)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(5),
-                RVal::Num(4),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(4)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -2512,7 +2885,10 @@ mod tests {
             .insert("foo", Box::new(VarType::Scope(None, Vars::new())));
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -2571,20 +2947,20 @@ mod tests {
         let mut foo_vars = Vars::new();
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(5),
-                RVal::Num(6),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(5),
-                RVal::Num(6),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);
@@ -2686,10 +3062,10 @@ mod tests {
         let mut foo_vars = Vars::new();
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("bar"),
-                RVal::Var("baz"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("bar"), RVal::Var("baz")]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -2702,17 +3078,17 @@ mod tests {
             .insert("baz", Box::new(VarType::Scope(None, Vars::new())));
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("bar"),
-                RVal::Var("baz"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("bar"), RVal::Var("baz")]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "res",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Num(1),
-                RVal::Num(0),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1), RVal::Num(0)]),
+                HashSet::new(),
+            ))),
         );
 
         assert_eq!(res.unwrap(), None);

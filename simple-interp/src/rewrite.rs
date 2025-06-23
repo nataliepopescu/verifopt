@@ -2,8 +2,6 @@ use crate::func_collect::Funcs;
 use crate::interpret::{Constraints, VarType, Vars};
 use crate::{BooleanStatement, Error, RVal, Statement};
 
-use std::collections::HashSet;
-
 pub struct Rewriter {}
 
 /// Implement rewriter
@@ -168,9 +166,12 @@ impl Rewriter {
             // FIXME remove check (panic)
             None => match vars.scoped_get(scope, name) {
                 Ok(Some(vartype)) => match vartype {
-                    VarType::Values(constraints) => {
-                        self.rewrite_indirect_invoke(name, &constraints, args.to_vec())
-                    }
+                    VarType::Values(constraints) => self
+                        .rewrite_indirect_invoke(
+                            name,
+                            &constraints,
+                            args.to_vec(),
+                        ),
                     _ => panic!("should not get scope here"),
                 },
                 Ok(None) => panic!("IP BUG: missed undef symbol {:?}", &name),
@@ -188,6 +189,7 @@ mod tests {
     };
     use crate::func_collect::Funcs;
     use crate::{AssignmentRVal, FuncVal};
+    use std::collections::HashSet;
 
     #[test]
     fn test_print() {
@@ -212,7 +214,10 @@ mod tests {
         let mut vars = Vars::new();
         vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
 
         let rw = Rewriter::new();
@@ -244,7 +249,10 @@ mod tests {
         let mut vars = Vars::new();
         vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Var("foo")]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo")]),
+                HashSet::new(),
+            ))),
         );
 
         let rw = Rewriter::new();
@@ -275,7 +283,10 @@ mod tests {
         let mut vars = Vars::new();
         vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Var("foo")]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo")]),
+                HashSet::new(),
+            ))),
         );
 
         let rw = Rewriter::new();
@@ -334,10 +345,10 @@ mod tests {
         let mut vars = Vars::new();
         vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("bar"),
-                RVal::Var("foo"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("bar"), RVal::Var("foo")]),
+                HashSet::new(),
+            ))),
         );
 
         let rw = Rewriter::new();
@@ -471,42 +482,54 @@ mod tests {
 
         baz_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(1)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1)]),
+                HashSet::new(),
+            ))),
         );
         qux_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(2)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(2)]),
+                HashSet::new(),
+            ))),
         );
         baz2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         qux2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(4)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(4)]),
+                HashSet::new(),
+            ))),
         );
 
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz"),
-                RVal::Var("qux"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz2"),
-                RVal::Var("qux2"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
+                HashSet::new(),
+            ))),
         );
 
         vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("foo"),
-                RVal::Var("bar"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
+                HashSet::new(),
+            ))),
         );
         vars.vars
             .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_vars)));

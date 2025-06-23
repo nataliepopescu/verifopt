@@ -311,7 +311,10 @@ mod tests {
         let mut foo_vars = Vars::new();
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -343,14 +346,20 @@ mod tests {
         let mut foo_vars = Vars::new();
         foo_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Var("foo")]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo")]),
+                HashSet::new(),
+            ))),
         );
 
         let switch_vec =
@@ -397,11 +406,17 @@ mod tests {
         let mut bar_vars = Vars::new();
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -450,18 +465,24 @@ mod tests {
         let mut bar_vars = Vars::new();
         foo_vars.vars.insert(
             "y",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "z",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(6)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(6)]),
+                HashSet::new(),
+            ))),
         );
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("foo"),
-                RVal::Var("bar"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -519,7 +540,10 @@ mod tests {
         let mut bar_vars = Vars::new();
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(5)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5)]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars
@@ -712,42 +736,54 @@ mod tests {
 
         baz_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(1)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(1)]),
+                HashSet::new(),
+            ))),
         );
         qux_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(2)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(2)]),
+                HashSet::new(),
+            ))),
         );
         baz2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(3)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
         );
         qux2_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([RVal::Num(4)]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(4)]),
+                HashSet::new(),
+            ))),
         );
 
         foo_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz"),
-                RVal::Var("qux"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
+                HashSet::new(),
+            ))),
         );
         bar_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("baz2"),
-                RVal::Var("qux2"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
+                HashSet::new(),
+            ))),
         );
 
         check_vars.vars.insert(
             "x",
-            Box::new(VarType::Values(HashSet::from([
-                RVal::Var("foo"),
-                RVal::Var("bar"),
-            ]))),
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
+                HashSet::new(),
+            ))),
         );
         check_vars
             .vars

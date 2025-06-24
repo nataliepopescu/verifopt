@@ -55,7 +55,7 @@ only visit function once + attach info to func: function summary
 
 ## next steps
 
-- [ ] check for intersections (at every merge step, i.e. branch unification)
+- [x] check for intersections (at every merge step, i.e. branch unification)
 
 - [ ] CHA
     - code transformation: put types on all vars

@@ -461,6 +461,16 @@ impl Interpreter {
         }
     }
 
+    fn flip_constraints(
+        &self,
+        bconstraints: BooleanConstraints,
+    ) -> BooleanConstraints {
+        BooleanConstraints::new(
+            bconstraints.false_branch,
+            bconstraints.true_branch,
+        )
+    }
+
     pub fn interp_not(
         &self,
         funcs: &Funcs,
@@ -469,7 +479,7 @@ impl Interpreter {
         b_stmt: BooleanStatement,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
         match self.interp_bool(funcs, cmap, scope, b_stmt) {
-            Ok(b_res) => Ok((!b_res.0, b_res.1)),
+            Ok(b_res) => Ok((!b_res.0, self.flip_constraints(b_res.1))),
             err @ Err(_) => err,
         }
     }
@@ -3094,6 +3104,152 @@ mod tests {
             "res",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1), RVal::Num(0)]),
+                HashSet::new(),
+            ))),
+        );
+
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(cmap, check_cmap);
+    }
+
+    #[test]
+    fn test_negative_constraints_eq() {
+        let stmt = Sequence(vec![
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(3))),
+                )),
+            )),
+            Box::new(Assignment(
+                "f",
+                Box::new(AssignmentRVal::RVal(RVal::Num(3))),
+            )),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::Equals(
+                    RVal::Var("x"),
+                    RVal::Var("f"),
+                )),
+                Box::new(Assignment(
+                    "g",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("x"))),
+                )),
+                Box::new(Assignment(
+                    "h",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(0))),
+                )),
+            )),
+        ]);
+
+        let funcs = Funcs::new();
+        let mut cmap = ConstraintMap::new();
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
+            "x",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(3)]),
+                HashSet::new(),
+            ))),
+        );
+        check_cmap.cmap.insert(
+            "f",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
+        );
+        check_cmap.cmap.insert(
+            "g",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(3), RVal::Var("f")]),
+                HashSet::new(),
+            ))),
+        );
+        check_cmap.cmap.insert(
+            "h",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(0)]),
+                HashSet::new(),
+            ))),
+        );
+
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(cmap, check_cmap);
+    }
+
+    #[test]
+    fn test_negative_constraints_neq() {
+        let stmt = Sequence(vec![
+            Box::new(Conditional(
+                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+                )),
+                Box::new(Assignment(
+                    "x",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(3))),
+                )),
+            )),
+            Box::new(Assignment(
+                "f",
+                Box::new(AssignmentRVal::RVal(RVal::Num(3))),
+            )),
+            Box::new(Conditional(
+                Box::new(BooleanStatement::Not(Box::new(BooleanStatement::Equals(
+                    RVal::Var("x"),
+                    RVal::Var("f"),
+                )))),
+                Box::new(Assignment(
+                    "g",
+                    Box::new(AssignmentRVal::RVal(RVal::Var("x"))),
+                )),
+                Box::new(Assignment(
+                    "h",
+                    Box::new(AssignmentRVal::RVal(RVal::Num(0))),
+                )),
+            )),
+        ]);
+
+        let funcs = Funcs::new();
+        let mut cmap = ConstraintMap::new();
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
+            "x",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(3)]),
+                HashSet::new(),
+            ))),
+        );
+        check_cmap.cmap.insert(
+            "f",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(3)]),
+                HashSet::new(),
+            ))),
+        );
+        check_cmap.cmap.insert(
+            "g",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(5), RVal::Num(3)]),
+                HashSet::from([RVal::Var("f")]),
+            ))),
+        );
+        check_cmap.cmap.insert(
+            "h",
+            Box::new(VarType::Values((
+                HashSet::from([RVal::Num(0)]),
                 HashSet::new(),
             ))),
         );

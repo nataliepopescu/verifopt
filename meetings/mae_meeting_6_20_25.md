@@ -53,3 +53,16 @@ only visit function once + attach info to func: function summary
     - constraints wrt global names or param names only
     - don't have to step into func again
 
+## next steps
+
+- [ ] check for intersections (at every merge step, i.e. branch unification)
+
+- [ ] CHA
+    - code transformation: put types on all vars
+    - in rewrite step, if don't have any constraints (top/bottom of lattice) use
+      function signatures to resolve list
+
+- [ ] clarify function scope semantics (nested funcs vs lambdas)
+
+- [ ] conditional scopes vs SSA
+

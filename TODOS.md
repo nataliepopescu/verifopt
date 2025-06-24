@@ -13,6 +13,7 @@
 
 - [ ] simplify implementation where possible
     - add more small/helper functions to make code more readable
+    - panics -> errors
 
 
 - [ ] CHA

@@ -147,7 +147,7 @@ mod test {
         funcs.funcs.insert(
             "baz",
             FuncVal::new(
-                vec![Type::Func(vec![], baz_funcarg_rettype.clone())],
+                vec![Type::Func(vec![], Some(baz_funcarg_rettype.clone()))],
                 vec![],
                 None,
                 baz_body,
@@ -174,7 +174,10 @@ mod test {
             func_names,
         );
         check_sigs.sigs.insert(
-            SigVal::new(vec![Type::Func(vec![], baz_funcarg_rettype)], None),
+            SigVal::new(
+                vec![Type::Func(vec![], Some(baz_funcarg_rettype))],
+                None,
+            ),
             func_names2,
         );
 

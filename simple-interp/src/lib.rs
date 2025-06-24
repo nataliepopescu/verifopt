@@ -41,12 +41,6 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Type {
-    Int(),
-    Func(Vec<Type>, Box<Type>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AssignmentRVal {
     RVal(RVal),
     Statement(Box<Statement>),
@@ -85,6 +79,7 @@ impl fmt::Display for RVal {
     }
 }
 
+// TODO add sigval field
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncVal {
     paramtypes: Vec<Type>,
@@ -107,6 +102,13 @@ impl FuncVal {
             body,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Type {
+    Int(),
+    Func(Vec<Type>, Option<Box<Type>>),
+    //Func(Box<SigVal>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -183,10 +185,7 @@ impl SimpleInterp {
         }
     }
 
-    pub fn interp(
-        &self,
-        mut stmt: Statement,
-    ) -> Result<(ConstraintMap, Statement), Error> {
+    pub fn interp(&self, mut stmt: Statement) -> Result<Statement, Error> {
         //println!("\nOriginal program statement: \n\n{:#?}", &stmt);
 
         let mut symbols = Symbols::new();
@@ -254,7 +253,7 @@ impl SimpleInterp {
         // 3)"); println!("\n3. (Maybe) modified program statement:
         // \n\n{:#?}", &stmt);
 
-        Ok((cmap, stmt))
+        Ok(stmt)
     }
 }
 
@@ -264,17 +263,14 @@ mod tests {
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
-    use crate::interpret::VarType;
-    use std::collections::HashSet;
 
     #[test]
     fn test_print() {
         let stmt = Print("hello");
 
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let rw_stmt = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(cmap, ConstraintMap::new());
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -287,9 +283,8 @@ mod tests {
         let stmt = FuncDef("foo", vec![], vec![], None, body.clone());
 
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let rw_stmt = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(cmap, ConstraintMap::new());
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -305,22 +300,8 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let rw_stmt = si.interp(stmt.clone()).unwrap();
 
-        let mut check_cmap = ConstraintMap::new();
-        let mut foo_cmap = ConstraintMap::new();
-        foo_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(5)]),
-                HashSet::new(),
-            ))),
-        );
-        check_cmap
-            .cmap
-            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
-
-        assert_eq!(cmap, check_cmap);
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -340,27 +321,7 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt).unwrap();
-
-        let mut check_cmap = ConstraintMap::new();
-        let mut foo_cmap = ConstraintMap::new();
-        foo_cmap.cmap.insert(
-            "z",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(5)]),
-                HashSet::new(),
-            ))),
-        );
-        check_cmap
-            .cmap
-            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
-        check_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Var("foo")]),
-                HashSet::new(),
-            ))),
-        );
+        let rw_stmt = si.interp(stmt).unwrap();
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
@@ -373,7 +334,6 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(cmap, check_cmap);
         assert_eq!(rw_stmt, check_stmt);
     }
 
@@ -399,33 +359,8 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt.clone()).unwrap();
+        let rw_stmt = si.interp(stmt.clone()).unwrap();
 
-        let mut check_cmap = ConstraintMap::new();
-        let mut foo_cmap = ConstraintMap::new();
-        let mut bar_cmap = ConstraintMap::new();
-        foo_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(5)]),
-                HashSet::new(),
-            ))),
-        );
-        bar_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(6)]),
-                HashSet::new(),
-            ))),
-        );
-        check_cmap
-            .cmap
-            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
-        check_cmap
-            .cmap
-            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
-
-        assert_eq!(cmap, check_cmap);
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -458,38 +393,7 @@ mod tests {
         ]);
 
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt).unwrap();
-
-        let mut check_cmap = ConstraintMap::new();
-        let mut foo_cmap = ConstraintMap::new();
-        let mut bar_cmap = ConstraintMap::new();
-        foo_cmap.cmap.insert(
-            "y",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(5)]),
-                HashSet::new(),
-            ))),
-        );
-        bar_cmap.cmap.insert(
-            "z",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(6)]),
-                HashSet::new(),
-            ))),
-        );
-        check_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
-                HashSet::new(),
-            ))),
-        );
-        check_cmap
-            .cmap
-            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
-        check_cmap
-            .cmap
-            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
+        let rw_stmt = si.interp(stmt).unwrap();
 
         let switch_vec = vec![
             (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
@@ -512,7 +416,6 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(cmap, check_cmap);
         assert_eq!(rw_stmt, check_stmt);
     }
 
@@ -533,26 +436,8 @@ mod tests {
         let check_stmt = stmt.clone();
 
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt).unwrap();
+        let rw_stmt = si.interp(stmt).unwrap();
 
-        let mut check_cmap = ConstraintMap::new();
-        let foo_cmap = ConstraintMap::new();
-        let mut bar_cmap = ConstraintMap::new();
-        bar_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(5)]),
-                HashSet::new(),
-            ))),
-        );
-        check_cmap
-            .cmap
-            .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_cmap)));
-        check_cmap
-            .cmap
-            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
-
-        assert_eq!(cmap, check_cmap);
         assert_eq!(rw_stmt, check_stmt);
     }
 
@@ -697,114 +582,9 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        let mut funcs = Funcs::new();
-        funcs.funcs.insert(
-            "foo",
-            FuncVal::new(vec![], vec![], None, foo_body.clone()),
-        );
-        funcs.funcs.insert(
-            "bar",
-            FuncVal::new(vec![], vec![], None, bar_body.clone()),
-        );
-        funcs.funcs.insert(
-            "baz",
-            FuncVal::new(vec![], vec![], None, baz_body.clone()),
-        );
-        funcs.funcs.insert(
-            "qux",
-            FuncVal::new(vec![], vec![], None, qux_body.clone()),
-        );
-        funcs.funcs.insert(
-            "baz2",
-            FuncVal::new(vec![], vec![], None, baz2_body.clone()),
-        );
-        funcs.funcs.insert(
-            "qux2",
-            FuncVal::new(vec![], vec![], None, qux2_body.clone()),
-        );
-
         let si = SimpleInterp::new();
-        let (cmap, rw_stmt) = si.interp(stmt).unwrap();
+        let rw_stmt = si.interp(stmt).unwrap();
 
-        let mut check_cmap = ConstraintMap::new();
-        let mut foo_cmap = ConstraintMap::new();
-        let mut bar_cmap = ConstraintMap::new();
-        let mut baz_cmap = ConstraintMap::new();
-        let mut qux_cmap = ConstraintMap::new();
-        let mut baz2_cmap = ConstraintMap::new();
-        let mut qux2_cmap = ConstraintMap::new();
-
-        baz_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(1)]),
-                HashSet::new(),
-            ))),
-        );
-        qux_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(2)]),
-                HashSet::new(),
-            ))),
-        );
-        baz2_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(3)]),
-                HashSet::new(),
-            ))),
-        );
-        qux2_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Num(4)]),
-                HashSet::new(),
-            ))),
-        );
-
-        foo_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
-                HashSet::new(),
-            ))),
-        );
-        bar_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
-                HashSet::new(),
-            ))),
-        );
-
-        check_cmap.cmap.insert(
-            "x",
-            Box::new(VarType::Values((
-                HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
-                HashSet::new(),
-            ))),
-        );
-        check_cmap
-            .cmap
-            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_cmap)));
-        check_cmap
-            .cmap
-            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
-        check_cmap
-            .cmap
-            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_cmap)));
-        check_cmap
-            .cmap
-            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_cmap)));
-        check_cmap
-            .cmap
-            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
-        check_cmap
-            .cmap
-            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_cmap)));
-
-        assert_eq!(cmap, check_cmap);
         assert_eq!(rw_stmt, check_stmt);
     }
 }

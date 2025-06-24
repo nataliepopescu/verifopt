@@ -16,7 +16,7 @@ impl Merge<Constraints> for Vec<Constraints> {
             return Ok(self[0].clone());
         }
 
-        // TODO check here if all ints vs vars?
+        // TODO check here if all ints vs cmap?
         let mut merged = self[0].clone();
         for i in 1..self.len() {
             // merge positive constraints
@@ -73,13 +73,13 @@ pub enum VarType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintMap {
-    pub vars: HashMap<&'static str, Box<VarType>>,
+    pub cmap: HashMap<&'static str, Box<VarType>>,
 }
 
 impl ConstraintMap {
     pub fn new() -> Self {
         Self {
-            vars: HashMap::<&'static str, Box<VarType>>::new(),
+            cmap: HashMap::<&'static str, Box<VarType>>::new(),
         }
     }
 
@@ -88,20 +88,20 @@ impl ConstraintMap {
         scope: Option<&'static str>,
         var: &'static str,
     ) -> Result<Option<VarType>, Error> {
-        // first get the `vars` object pertaining to `this` scope
+        // first get the `cmap` object pertaining to `this` scope
         if scope.is_none() {
-            match self.vars.get(var) {
+            match self.cmap.get(var) {
                 Some(boxed) => return Ok(Some(*boxed.clone())),
                 None => return Ok(None),
             }
         }
 
-        match self.vars.get(scope.unwrap()) {
+        match self.cmap.get(scope.unwrap()) {
             Some(vartype) => match *vartype.clone() {
-                VarType::Scope(backptr, inner_vars) => {
-                    // is var in inner_vars? if not, recursively follow backptr
+                VarType::Scope(backptr, inner_cmap) => {
+                    // is var in inner_cmap? if not, recursively follow backptr
                     // to enclosing scopes
-                    match inner_vars.vars.get(var) {
+                    match inner_cmap.cmap.get(var) {
                         Some(boxed) => return Ok(Some(*boxed.clone())),
                         None => {
                             return self.scoped_get(backptr, var);
@@ -120,27 +120,27 @@ impl ConstraintMap {
         var: &'static str,
         value: Box<VarType>,
     ) -> Result<(), Error> {
-        // first get the `vars` object pertaining to `this` scope
+        // first get the `cmap` object pertaining to `this` scope
         if scope.is_none() {
-            if self.vars.get(var).is_some() {
+            if self.cmap.get(var).is_some() {
                 return Err(Error::SymbolAlreadyExists(var));
             }
 
-            self.vars.insert(var, value.clone());
+            self.cmap.insert(var, value.clone());
             return Ok(());
         }
 
-        match self.vars.get(scope.unwrap()) {
+        match self.cmap.get(scope.unwrap()) {
             Some(vartype) => match *vartype.clone() {
-                VarType::Scope(backptr, mut inner_vars) => {
-                    if inner_vars.vars.get(var).is_some() {
+                VarType::Scope(backptr, mut inner_cmap) => {
+                    if inner_cmap.cmap.get(var).is_some() {
                         return Err(Error::SymbolAlreadyExists(var));
                     }
                     // modify scope w new var
-                    inner_vars.vars.insert(var, value);
-                    self.vars.insert(
+                    inner_cmap.cmap.insert(var, value);
+                    self.cmap.insert(
                         scope.unwrap(),
-                        Box::new(VarType::Scope(backptr, inner_vars)),
+                        Box::new(VarType::Scope(backptr, inner_cmap)),
                     );
                 }
                 VarType::Values(..) => {
@@ -164,16 +164,16 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
 
         let mut merged = self[0].clone();
         for i in 1..self.len() {
-            for (key, val) in self[i].clone().vars.iter() {
-                match merged.vars.get_mut(key) {
+            for (key, val) in self[i].clone().cmap.iter() {
+                match merged.cmap.get_mut(key) {
                     Some(mval) => match (*mval.clone(), *val.clone()) {
                         (
-                            VarType::Scope(backptr_a, vars_a),
-                            VarType::Scope(backptr_b, vars_b),
+                            VarType::Scope(backptr_a, cmap_a),
+                            VarType::Scope(backptr_b, cmap_b),
                         ) => {
-                            if vars_a != vars_b {
-                                let inner_vars = vec![vars_a, vars_b];
-                                match inner_vars.merge() {
+                            if cmap_a != cmap_b {
+                                let inner_cmap = vec![cmap_a, cmap_b];
+                                match inner_cmap.merge() {
                                     Ok(merged_inner) => {
                                         if backptr_a != backptr_b {
                                             todo!(
@@ -209,7 +209,7 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                                     .collect();
                                 neg = neg_union;
                             }
-                            merged.vars.insert(
+                            merged.cmap.insert(
                                 key,
                                 Box::new(VarType::Values((pos, neg))),
                             );
@@ -217,7 +217,7 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                         _ => return Err(Error::IncomparableVarTypes()),
                     },
                     None => {
-                        merged.vars.insert(key, val.clone());
+                        merged.cmap.insert(key, val.clone());
                     }
                 }
             }
@@ -226,7 +226,7 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
         // remove all negative constraints are also positive constraints
         // (intersections)
         /*
-        for (_, val) in merged.vars.iter_mut() {
+        for (_, val) in merged.cmap.iter_mut() {
             match &mut **val {
                 &mut VarType::Values((ref pos, ref mut neg)) => {
                     let intersection: HashSet<_> =
@@ -252,10 +252,10 @@ pub trait Difference<T> {
 
 impl Difference<ConstraintMap> for ConstraintMap {
     fn diff(&mut self, other: &ConstraintMap) {
-        // FIXME multi-layer vars (i.e. other w scopes)
+        // FIXME multi-layer cmap (i.e. other w scopes)
 
-        for (other_key, other_val) in other.vars.iter() {
-            match self.vars.get(other_key) {
+        for (other_key, other_val) in other.cmap.iter() {
+            match self.cmap.get(other_key) {
                 Some(self_val) => {
                     match (*self_val.clone(), *other_val.clone()) {
                         (
@@ -270,7 +270,7 @@ impl Difference<ConstraintMap> for ConstraintMap {
                                 .difference(&other_neg)
                                 .map(|x| x.clone())
                                 .collect();
-                            self.vars.insert(
+                            self.cmap.insert(
                                 other_key,
                                 Box::new(VarType::Values((diff_pos, diff_neg))),
                             );
@@ -296,16 +296,16 @@ impl Interpreter {
     pub fn interp(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         stmt: &Statement,
     ) -> Result<Option<Constraints>, Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => {
-                self.interp_seq(funcs, vars, scope, stmt_vec)
+                self.interp_seq(funcs, cmap, scope, stmt_vec)
             }
             Statement::Assignment(var, value) => {
-                self.interp_assignment(funcs, vars, scope, var, value)
+                self.interp_assignment(funcs, cmap, scope, var, value)
             }
             Statement::Print(var) => {
                 self.interp_print(var);
@@ -314,7 +314,7 @@ impl Interpreter {
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.interp_conditional(
                     funcs,
-                    vars,
+                    cmap,
                     scope,
                     &*condition,
                     &*true_branch,
@@ -322,14 +322,14 @@ impl Interpreter {
                 )
             }
             Statement::Switch(val, vec) => {
-                self.interp_switch(funcs, vars, scope, val, vec)
+                self.interp_switch(funcs, cmap, scope, val, vec)
             }
             Statement::Return(rval) => {
-                self.interp_return(funcs, vars, scope, rval)
+                self.interp_return(funcs, cmap, scope, rval)
             }
             Statement::FuncDef(..) => Ok(None),
             Statement::InvokeFunc(name, args) => {
-                self.interp_invoke(funcs, vars, scope, name, args)
+                self.interp_invoke(funcs, cmap, scope, name, args)
             }
         }
     }
@@ -337,13 +337,13 @@ impl Interpreter {
     pub fn interp_seq(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<Option<Constraints>, Error> {
         let mut last_ret = None;
         for stmt in stmt_vec.iter() {
-            let res = self.interp(&funcs, vars, scope, &*stmt);
+            let res = self.interp(&funcs, cmap, scope, &*stmt);
             if res.is_err() {
                 return res;
             }
@@ -355,14 +355,14 @@ impl Interpreter {
     pub fn interp_assignment(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         var: &'static str,
         value: &AssignmentRVal,
     ) -> Result<Option<Constraints>, Error> {
         match value {
             AssignmentRVal::RVal(RVal::Num(num)) => {
-                let res = vars.scoped_set(
+                let res = cmap.scoped_set(
                     scope,
                     var,
                     Box::new(VarType::Values((
@@ -376,11 +376,11 @@ impl Interpreter {
                 }
             }
             AssignmentRVal::RVal(RVal::Var(varname)) => {
-                match vars.scoped_get(scope, varname) {
+                match cmap.scoped_get(scope, varname) {
                     Ok(Some(val)) => match val {
                         set @ VarType::Values(_) => {
                             let res =
-                                vars.scoped_set(scope, var, Box::new(set));
+                                cmap.scoped_set(scope, var, Box::new(set));
 
                             if res.is_err() {
                                 return Err(res.err().unwrap());
@@ -390,7 +390,7 @@ impl Interpreter {
                     },
                     Ok(None) => match funcs.funcs.get(varname) {
                         Some(_) => {
-                            let res = vars.scoped_set(
+                            let res = cmap.scoped_set(
                                 scope,
                                 var,
                                 Box::new(VarType::Values((
@@ -412,9 +412,9 @@ impl Interpreter {
                 Statement::InvokeFunc(name, args) => {
                     // assume func has retval (given typechecking) but return
                     // err if none
-                    match self.interp_invoke(funcs, vars, scope, name, &args) {
+                    match self.interp_invoke(funcs, cmap, scope, name, &args) {
                         Ok(Some(constraints)) => {
-                            let res = vars.scoped_set(
+                            let res = cmap.scoped_set(
                                 scope,
                                 var,
                                 Box::new(VarType::Values(constraints)),
@@ -442,7 +442,7 @@ impl Interpreter {
     pub fn interp_bool(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         b_stmt: BooleanStatement,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
@@ -453,10 +453,10 @@ impl Interpreter {
                 Ok((b_stmt, BooleanConstraints::empty()))
             }
             BooleanStatement::Not(inner_b_stmt) => {
-                self.interp_not(funcs, vars, scope, *inner_b_stmt)
+                self.interp_not(funcs, cmap, scope, *inner_b_stmt)
             }
             BooleanStatement::Equals(lhs, rhs) => {
-                self.interp_equals(funcs, vars, scope, lhs, rhs)
+                self.interp_equals(funcs, cmap, scope, lhs, rhs)
             }
         }
     }
@@ -464,11 +464,11 @@ impl Interpreter {
     pub fn interp_not(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         b_stmt: BooleanStatement,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
-        match self.interp_bool(funcs, vars, scope, b_stmt) {
+        match self.interp_bool(funcs, cmap, scope, b_stmt) {
             Ok(b_res) => Ok((!b_res.0, b_res.1)),
             err @ Err(_) => err,
         }
@@ -477,13 +477,13 @@ impl Interpreter {
     pub fn interp_rval(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         rval: RVal,
     ) -> Result<Constraints, Error> {
         match rval.clone() {
             RVal::Num(_) => Ok((HashSet::from([rval]), HashSet::new())),
-            RVal::Var(var) => match vars.scoped_get(scope, var) {
+            RVal::Var(var) => match cmap.scoped_get(scope, var) {
                 Ok(Some(val)) => match val {
                     VarType::Values(constraints) => {
                         return Ok(constraints.clone());
@@ -511,16 +511,16 @@ impl Interpreter {
     pub fn interp_equals(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         lhs: RVal,
         rhs: RVal,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
-        let lhs_res = self.interp_rval(&funcs, &vars, scope, lhs.clone());
+        let lhs_res = self.interp_rval(&funcs, &cmap, scope, lhs.clone());
         if lhs_res.is_err() {
             return Err(lhs_res.err().unwrap());
         }
-        let rhs_res = self.interp_rval(&funcs, &vars, scope, rhs.clone());
+        let rhs_res = self.interp_rval(&funcs, &cmap, scope, rhs.clone());
         if rhs_res.is_err() {
             return Err(rhs_res.err().unwrap());
         }
@@ -569,7 +569,7 @@ impl Interpreter {
                 }
             }
         } else {
-            // make sure lhs/rhs are vars, not nums
+            // make sure lhs/rhs are cmap, not nums
             match (lhs.clone(), rhs.clone()) {
                 (RVal::Var(a), RVal::Var(b)) => {
                     // right now we know this function is only ever called by
@@ -579,14 +579,14 @@ impl Interpreter {
                     // in the true branch, we know that lhs == rhs, thus
                     // new constraints: lhs {(rhs), ()}, rhs {(lhs), ()}
                     let mut true_branch = ConstraintMap::new();
-                    true_branch.vars.insert(
+                    true_branch.cmap.insert(
                         a,
                         Box::new(VarType::Values((
                             HashSet::from([rhs.clone()]),
                             HashSet::new(),
                         ))),
                     );
-                    true_branch.vars.insert(
+                    true_branch.cmap.insert(
                         b,
                         Box::new(VarType::Values((
                             HashSet::from([lhs.clone()]),
@@ -597,14 +597,14 @@ impl Interpreter {
                     // in the false branch, we know that lhs != rhs, thus
                     // new constraints: lhs {(), (rhs)}, rhs {(), (rhs)}
                     let mut false_branch = ConstraintMap::new();
-                    false_branch.vars.insert(
+                    false_branch.cmap.insert(
                         a,
                         Box::new(VarType::Values((
                             HashSet::new(),
                             HashSet::from([rhs]),
                         ))),
                     );
-                    false_branch.vars.insert(
+                    false_branch.cmap.insert(
                         b,
                         Box::new(VarType::Values((
                             HashSet::new(),
@@ -625,37 +625,37 @@ impl Interpreter {
     pub fn interp_conditional(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         condition: &BooleanStatement,
         true_branch: &Statement,
         false_branch: &Statement,
     ) -> Result<Option<Constraints>, Error> {
-        let mut res_vars: Vec<ConstraintMap> = vec![];
+        let mut res_cmap: Vec<ConstraintMap> = vec![];
 
         // FIXME mod store if have effects
-        match self.interp_bool(funcs, vars, scope, condition.clone()) {
+        match self.interp_bool(funcs, cmap, scope, condition.clone()) {
             Ok((bool_res, bconstraints)) => {
-                let true_vars = vars.clone();
-                let false_vars = vars.clone();
+                let true_cmap = cmap.clone();
+                let false_cmap = cmap.clone();
                 if self.possible(&bool_res) {
                     match vec![
-                        true_vars.clone(),
+                        true_cmap.clone(),
                         bconstraints.true_branch.clone(),
                     ]
                     .merge()
                     {
-                        Ok(mut new_vars) => match self.interp(
+                        Ok(mut new_cmap) => match self.interp(
                             funcs,
-                            &mut new_vars,
+                            &mut new_cmap,
                             scope,
                             true_branch,
                         ) {
                             Ok(_) => {
                                 // remove true branch constraints from
-                                // resulting vars (safe b/c of SSA guarantee)
-                                new_vars.diff(&bconstraints.true_branch);
-                                res_vars.push(new_vars);
+                                // resulting cmap (safe b/c of SSA guarantee)
+                                new_cmap.diff(&bconstraints.true_branch);
+                                res_cmap.push(new_cmap);
                             }
                             err @ Err(_) => return err,
                         },
@@ -664,22 +664,22 @@ impl Interpreter {
                 }
                 if self.possible(!&bool_res) {
                     match vec![
-                        false_vars.clone(),
+                        false_cmap.clone(),
                         bconstraints.false_branch.clone(),
                     ]
                     .merge()
                     {
-                        Ok(mut new_vars) => match self.interp(
+                        Ok(mut new_cmap) => match self.interp(
                             funcs,
-                            &mut new_vars,
+                            &mut new_cmap,
                             scope,
                             false_branch,
                         ) {
                             Ok(_) => {
                                 // remove false branch constraints from
-                                // resulting vars (safe b/c of SSA guarantee)
-                                new_vars.diff(&bconstraints.false_branch);
-                                res_vars.push(new_vars);
+                                // resulting cmap (safe b/c of SSA guarantee)
+                                new_cmap.diff(&bconstraints.false_branch);
+                                res_cmap.push(new_cmap);
                             }
                             err @ Err(_) => return err,
                         },
@@ -690,9 +690,9 @@ impl Interpreter {
             Err(c_err) => return Err(c_err),
         }
 
-        match res_vars.merge() {
-            Ok(new_vars) => {
-                *vars = new_vars;
+        match res_cmap.merge() {
+            Ok(new_cmap) => {
+                *cmap = new_cmap;
                 Ok(None)
             }
             Err(err) => Err(err),
@@ -711,7 +711,7 @@ impl Interpreter {
     pub fn interp_switch(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         val: &RVal,
         vec: &Vec<(RVal, Box<Statement>)>,
@@ -721,7 +721,7 @@ impl Interpreter {
             num @ RVal::Num(_) => {
                 (HashSet::from([num.clone()]), HashSet::new())
             }
-            RVal::Var(varname) => match vars.scoped_get(scope, varname) {
+            RVal::Var(varname) => match cmap.scoped_get(scope, varname) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(constraints) => constraints.clone(),
                     _ => panic!("should not get scope here"),
@@ -750,18 +750,18 @@ impl Interpreter {
             .collect();
 
         // loop to interp all such elems
-        let mut res_vars: Vec<ConstraintMap> = Vec::new();
+        let mut res_cmap: Vec<ConstraintMap> = Vec::new();
         for (_, vec_stmt) in filtered.iter() {
-            let mut scoped_vars = vars.clone();
-            match self.interp(funcs, &mut scoped_vars, scope, &*vec_stmt) {
-                Ok(_) => res_vars.push(scoped_vars),
+            let mut scoped_cmap = cmap.clone();
+            match self.interp(funcs, &mut scoped_cmap, scope, &*vec_stmt) {
+                Ok(_) => res_cmap.push(scoped_cmap),
                 err @ Err(_) => return err,
             }
         }
 
-        match res_vars.merge() {
-            Ok(new_vars) => {
-                *vars = new_vars;
+        match res_cmap.merge() {
+            Ok(new_cmap) => {
+                *cmap = new_cmap;
                 Ok(None)
             }
             Err(err) => Err(err),
@@ -771,7 +771,7 @@ impl Interpreter {
     fn interp_return(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         rval: &RVal,
     ) -> Result<Option<Constraints>, Error> {
@@ -782,7 +782,7 @@ impl Interpreter {
                     HashSet::new(),
                 )));
             }
-            RVal::Var(varname) => match vars.scoped_get(scope, varname) {
+            RVal::Var(varname) => match cmap.scoped_get(scope, varname) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(constraints) => Ok(Some(constraints)),
                     VarType::Scope(..) => match funcs.funcs.get(varname) {
@@ -794,7 +794,7 @@ impl Interpreter {
                     },
                 },
                 Ok(None) => match funcs.funcs.get(varname) {
-                    Some(_) => panic!("func should have been a scope in vars"),
+                    Some(_) => panic!("func should have been a scope in cmap"),
                     None => return Err(Error::UndefinedSymbol(varname)),
                 },
                 Err(err) => return Err(err),
@@ -805,18 +805,18 @@ impl Interpreter {
     fn resolve_args(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         params: &Vec<&'static str>,
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
-        let mut func_vars = ConstraintMap::new();
+        let mut func_cmap = ConstraintMap::new();
         for (param, arg) in std::iter::zip(params, args) {
-            match vars.scoped_get(scope, arg) {
+            match cmap.scoped_get(scope, arg) {
                 Ok(Some(vartype)) => match vartype {
                     // add args to scope
-                    VarType::Values(constraints) => func_vars.vars.insert(
+                    VarType::Values(constraints) => func_cmap.cmap.insert(
                         param,
                         Box::new(VarType::Values(constraints.clone())),
                     ),
@@ -832,8 +832,8 @@ impl Interpreter {
             };
         }
 
-        vars.vars
-            .insert(name, Box::new(VarType::Scope(scope, func_vars)));
+        cmap.cmap
+            .insert(name, Box::new(VarType::Scope(scope, func_cmap)));
 
         Ok(())
     }
@@ -841,7 +841,7 @@ impl Interpreter {
     fn interp_indirect_invoke_helper(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         val: &RVal,
@@ -852,7 +852,7 @@ impl Interpreter {
                 Some(func_data) => {
                     let res = self.resolve_args(
                         funcs,
-                        vars,
+                        cmap,
                         scope,
                         varname,
                         &func_data.params,
@@ -864,7 +864,7 @@ impl Interpreter {
 
                     match self.interp(
                         funcs,
-                        vars,
+                        cmap,
                         Some(varname),
                         &*func_data.body,
                     ) {
@@ -881,27 +881,27 @@ impl Interpreter {
     fn interp_indirect_invoke(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         constraints: &Constraints,
         args: &Vec<&'static str>,
     ) -> Result<Option<Constraints>, Error> {
-        let mut res_vars: Vec<ConstraintMap> = vec![];
+        let mut res_cmap: Vec<ConstraintMap> = vec![];
         let mut constraints_vec: Vec<Constraints> = vec![];
         // TODO what to do with constraints.1 (neg)
         for val in constraints.0.iter() {
-            let mut vars_clone = vars.clone();
+            let mut cmap_clone = cmap.clone();
             match self.interp_indirect_invoke_helper(
                 funcs,
-                &mut vars_clone,
+                &mut cmap_clone,
                 scope,
                 name,
                 val,
                 args,
             ) {
                 Ok(constraints) => {
-                    res_vars.push(vars_clone);
+                    res_cmap.push(cmap_clone);
                     if constraints.is_some() {
                         constraints_vec.push(constraints.unwrap());
                     }
@@ -910,11 +910,11 @@ impl Interpreter {
             }
         }
 
-        let res = res_vars.merge();
+        let res = res_cmap.merge();
         if res.is_err() {
             return Err(res.err().unwrap());
         }
-        *vars = res.unwrap();
+        *cmap = res.unwrap();
 
         if constraints_vec.len() > 0 {
             return match constraints_vec.merge() {
@@ -928,7 +928,7 @@ impl Interpreter {
     fn interp_direct_invoke(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
@@ -937,7 +937,7 @@ impl Interpreter {
             Some(func_data) => {
                 let res = self.resolve_args(
                     funcs,
-                    vars,
+                    cmap,
                     scope,
                     name,
                     &func_data.params,
@@ -947,7 +947,7 @@ impl Interpreter {
                     return Err(res.err().unwrap());
                 }
 
-                match self.interp(funcs, vars, Some(name), &*func_data.body) {
+                match self.interp(funcs, cmap, Some(name), &*func_data.body) {
                     res @ Ok(_) => res,
                     err @ Err(_) => err,
                 }
@@ -959,16 +959,16 @@ impl Interpreter {
     pub fn interp_invoke(
         &self,
         funcs: &Funcs,
-        vars: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
     ) -> Result<Option<Constraints>, Error> {
-        match vars.scoped_get(scope, name) {
+        match cmap.scoped_get(scope, name) {
             Ok(Some(vartype)) => match vartype {
                 VarType::Values(constraints) => self.interp_indirect_invoke(
                     funcs,
-                    vars,
+                    cmap,
                     scope,
                     name,
                     &constraints,
@@ -977,7 +977,7 @@ impl Interpreter {
                 _ => panic!("should not get scope here"),
             },
             Ok(None) => {
-                self.interp_direct_invoke(funcs, vars, scope, name, args)
+                self.interp_direct_invoke(funcs, cmap, scope, name, args)
             }
             Err(err) => return Err(err),
         }
@@ -1002,47 +1002,47 @@ mod tests {
 
     #[test]
     fn test_merge_one() {
-        let mut vars = ConstraintMap::new();
-        vars.vars.insert(
+        let mut cmap = ConstraintMap::new();
+        cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        let vec: Vec<ConstraintMap> = vec![vars];
+        let vec: Vec<ConstraintMap> = vec![cmap];
         assert_eq!(vec[0].clone(), vec.merge().unwrap());
     }
 
     #[test]
     fn test_merge_two() {
-        let mut vars1 = ConstraintMap::new();
-        vars1.vars.insert(
+        let mut cmap1 = ConstraintMap::new();
+        cmap1.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        let mut vars2 = ConstraintMap::new();
-        vars2.vars.insert(
+        let mut cmap2 = ConstraintMap::new();
+        cmap2.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(6)]),
                 HashSet::new(),
             ))),
         );
-        let vec: Vec<ConstraintMap> = vec![vars1, vars2];
+        let vec: Vec<ConstraintMap> = vec![cmap1, cmap2];
 
-        let mut end_vars = ConstraintMap::new();
-        end_vars.vars.insert(
+        let mut end_cmap = ConstraintMap::new();
+        end_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5), RVal::Num(6)]),
                 HashSet::new(),
             ))),
         );
-        assert_eq!(end_vars, vec.merge().unwrap());
+        assert_eq!(end_cmap, vec.merge().unwrap());
     }
 
     #[test]
@@ -1050,11 +1050,11 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Print("hello");
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, ConstraintMap::new());
+        assert_eq!(cmap, ConstraintMap::new());
     }
 
     #[test]
@@ -1063,11 +1063,11 @@ mod tests {
         let stmt =
             Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -1076,7 +1076,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1088,11 +1088,11 @@ mod tests {
         ))];
         let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -1101,7 +1101,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1119,18 +1119,18 @@ mod tests {
         ];
         let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(6)]),
@@ -1139,7 +1139,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1156,18 +1156,18 @@ mod tests {
             ))])),
         ]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(6)]),
@@ -1176,7 +1176,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1187,8 +1187,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Var("y"))),
         ))]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
         assert_eq!(res.err(), Some(Error::UndefinedSymbol("y")));
     }
@@ -1207,18 +1207,18 @@ mod tests {
             )),
         ]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -1227,7 +1227,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1245,11 +1245,11 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -1258,7 +1258,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1276,11 +1276,11 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(6)]),
@@ -1289,7 +1289,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1307,11 +1307,11 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5), RVal::Num(6)]),
@@ -1320,7 +1320,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1338,11 +1338,11 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(6)]),
@@ -1351,7 +1351,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1382,25 +1382,25 @@ mod tests {
             )),
         ]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1)]),
@@ -1409,7 +1409,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1428,7 +1428,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         // note: `equals` is _shallow_, which is why it evals to false here
         let interp = Interpreter::new();
@@ -1450,10 +1450,10 @@ mod tests {
                 )),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(2)]),
@@ -1462,7 +1462,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1477,7 +1477,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1501,17 +1501,17 @@ mod tests {
                 )),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo")]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1)]),
@@ -1520,7 +1520,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1558,25 +1558,25 @@ mod tests {
             )),
         ]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3), RVal::Num(4)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1), RVal::Num(2)]),
@@ -1585,7 +1585,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1600,7 +1600,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1624,7 +1624,7 @@ mod tests {
                 )),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
         assert_eq!(
             res,
@@ -1661,11 +1661,11 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -1674,7 +1674,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1692,11 +1692,11 @@ mod tests {
             )),
         ))]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -1705,7 +1705,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1719,14 +1719,14 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = FuncDef("foo", vec![], vec![], None, body);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, ConstraintMap::new());
+        assert_eq!(cmap, ConstraintMap::new());
     }
 
     #[test]
@@ -1740,36 +1740,36 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], vec![], None, body)),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        foo_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
     fn test_funcdef_args_direct() {
         let mut funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
         let interp = Interpreter::new();
 
         let body = Box::new(Sequence(vec![
@@ -1812,44 +1812,44 @@ mod tests {
             "foo",
             FuncVal::new(vec![Type::Int()], vec!["y"], None, body.clone()),
         );
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "arg",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(0)]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -1863,7 +1863,7 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1874,36 +1874,36 @@ mod tests {
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo")]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
     fn test_funcdef_args_indirect() {
         let mut funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
         let interp = Interpreter::new();
 
         let body = Box::new(Sequence(vec![
@@ -1950,51 +1950,51 @@ mod tests {
             "foo",
             FuncVal::new(vec![Type::Int()], vec!["y"], None, body.clone()),
         );
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        foo_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        foo_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(0)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "arg",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "w",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo")]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2020,30 +2020,30 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, foo_body));
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let foo_vars = ConstraintMap::new();
-        let mut bar_vars = ConstraintMap::new();
-        bar_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let foo_cmap = ConstraintMap::new();
+        let mut bar_cmap = ConstraintMap::new();
+        bar_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_vars)));
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_cmap
+            .cmap
+            .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_cmap)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2140,40 +2140,40 @@ mod tests {
             FuncVal::new(vec![], vec![], None, qux2_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        let mut bar_vars = ConstraintMap::new();
-        let mut baz_vars = ConstraintMap::new();
-        let mut qux_vars = ConstraintMap::new();
-        let mut baz2_vars = ConstraintMap::new();
-        let mut qux2_vars = ConstraintMap::new();
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        let mut bar_cmap = ConstraintMap::new();
+        let mut baz_cmap = ConstraintMap::new();
+        let mut qux_cmap = ConstraintMap::new();
+        let mut baz2_cmap = ConstraintMap::new();
+        let mut qux2_cmap = ConstraintMap::new();
 
-        baz_vars.vars.insert(
+        baz_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1)]),
                 HashSet::new(),
             ))),
         );
-        qux_vars.vars.insert(
+        qux_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(2)]),
                 HashSet::new(),
             ))),
         );
-        baz2_vars.vars.insert(
+        baz2_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        qux2_vars.vars.insert(
+        qux2_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(4)]),
@@ -2181,14 +2181,14 @@ mod tests {
             ))),
         );
 
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
                 HashSet::new(),
             ))),
         );
-        bar_vars.vars.insert(
+        bar_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
@@ -2196,34 +2196,34 @@ mod tests {
             ))),
         );
 
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_vars)));
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars
-            .vars
-            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_vars)));
-        check_vars
-            .vars
-            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_vars)));
-        check_vars
-            .vars
-            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
-        check_vars
-            .vars
-            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
+        check_cmap
+            .cmap
+            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_cmap)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
+        check_cmap
+            .cmap
+            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_cmap)));
+        check_cmap
+            .cmap
+            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_cmap)));
+        check_cmap
+            .cmap
+            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
+        check_cmap
+            .cmap
+            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2267,51 +2267,51 @@ mod tests {
             FuncVal::new(vec![Type::Int()], vec!["y"], None, foo_body),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        let mut bar_vars = ConstraintMap::new();
-        bar_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        let mut bar_cmap = ConstraintMap::new();
+        bar_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        bar_vars.vars.insert(
+        bar_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "arg",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_vars)));
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
+        check_cmap
+            .cmap
+            .insert("bar", Box::new(VarType::Scope(Some("foo"), bar_cmap)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2448,68 +2448,68 @@ mod tests {
             FuncVal::new(vec![Type::Int()], vec!["y"], None, qux2_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        let mut bar_vars = ConstraintMap::new();
-        let mut baz_vars = ConstraintMap::new();
-        let mut qux_vars = ConstraintMap::new();
-        let mut baz2_vars = ConstraintMap::new();
-        let mut qux2_vars = ConstraintMap::new();
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        let mut bar_cmap = ConstraintMap::new();
+        let mut baz_cmap = ConstraintMap::new();
+        let mut qux_cmap = ConstraintMap::new();
+        let mut baz2_cmap = ConstraintMap::new();
+        let mut qux2_cmap = ConstraintMap::new();
 
-        baz_vars.vars.insert(
+        baz_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        baz_vars.vars.insert(
+        baz_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        qux_vars.vars.insert(
+        qux_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        qux_vars.vars.insert(
+        qux_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        baz2_vars.vars.insert(
+        baz2_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        baz2_vars.vars.insert(
+        baz2_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        qux2_vars.vars.insert(
+        qux2_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        qux2_vars.vars.insert(
+        qux2_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
@@ -2517,28 +2517,28 @@ mod tests {
             ))),
         );
 
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        bar_vars.vars.insert(
+        bar_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
                 HashSet::new(),
             ))),
         );
-        bar_vars.vars.insert(
+        bar_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
@@ -2546,32 +2546,32 @@ mod tests {
             ))),
         );
 
-        check_vars
-            .vars
-            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_vars)));
-        check_vars
-            .vars
-            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars.vars.insert(
+        check_cmap
+            .cmap
+            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_cmap)));
+        check_cmap
+            .cmap
+            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_vars)));
-        check_vars
-            .vars
-            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_vars)));
-        check_vars
-            .vars
-            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
-        check_vars.vars.insert(
+        check_cmap
+            .cmap
+            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_cmap)));
+        check_cmap
+            .cmap
+            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_cmap)));
+        check_cmap
+            .cmap
+            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_cmap)));
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
@@ -2580,7 +2580,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2603,7 +2603,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2615,34 +2615,34 @@ mod tests {
                 Box::new(InvokeFunc("bar", vec![])),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        let mut bar_vars = ConstraintMap::new();
-        foo_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        let mut bar_cmap = ConstraintMap::new();
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        bar_vars.vars.insert(
+        bar_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(6)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars
-            .vars
-            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
+        check_cmap
+            .cmap
+            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2665,7 +2665,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2684,41 +2684,41 @@ mod tests {
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        let mut bar_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        let mut bar_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
                 HashSet::new(),
             ))),
         );
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        bar_vars.vars.insert(
+        bar_cmap.cmap.insert(
             "z",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(6)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars
-            .vars
-            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
+        check_cmap
+            .cmap
+            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2732,8 +2732,8 @@ mod tests {
             Box::new(InvokeFunc("foo", vec![])),
         ]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
         assert_eq!(res, Err(Error::NotAFunction("foo")));
     }
@@ -2780,18 +2780,18 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1)]),
@@ -2800,7 +2800,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2837,18 +2837,18 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let mut cmap = ConstraintMap::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "y",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(0), RVal::Num(1)]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5), RVal::Num(4)]),
@@ -2857,7 +2857,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2868,7 +2868,7 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2881,14 +2881,14 @@ mod tests {
                 )))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        check_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(None, ConstraintMap::new())),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -2897,7 +2897,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -2927,7 +2927,7 @@ mod tests {
             ),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2946,21 +2946,21 @@ mod tests {
                 )))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        foo_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5), RVal::Num(6)]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars.vars.insert(
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5), RVal::Num(6)]),
@@ -2969,7 +2969,7 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 
     #[test]
@@ -3021,7 +3021,7 @@ mod tests {
             ),
         );
 
-        let mut vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -3061,36 +3061,36 @@ mod tests {
                 )))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut vars, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
-        let mut check_vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        foo_vars.vars.insert(
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("bar"), RVal::Var("baz")]),
                 HashSet::new(),
             ))),
         );
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars.vars.insert(
+        check_cmap
+            .cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
+        check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(None, ConstraintMap::new())),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(None, ConstraintMap::new())),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("bar"), RVal::Var("baz")]),
                 HashSet::new(),
             ))),
         );
-        check_vars.vars.insert(
+        check_cmap.cmap.insert(
             "res",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1), RVal::Num(0)]),
@@ -3099,6 +3099,6 @@ mod tests {
         );
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, check_vars);
+        assert_eq!(cmap, check_cmap);
     }
 }

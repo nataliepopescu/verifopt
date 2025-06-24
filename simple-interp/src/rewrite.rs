@@ -16,7 +16,7 @@ impl Rewriter {
     pub fn rewrite(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         stmt: &mut Statement,
     ) -> Result<(), Error> {
@@ -27,12 +27,12 @@ impl Rewriter {
             Statement::Assignment(_, _) => Ok(()),
             Statement::Return(_) => Ok(()),
             Statement::Sequence(stmt_vec) => {
-                self.rewrite_seq(funcs, vars, scope, stmt_vec)
+                self.rewrite_seq(funcs, cmap, scope, stmt_vec)
             }
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.rewrite_conditional(
                     funcs,
-                    vars,
+                    cmap,
                     scope,
                     *condition.clone(),
                     &mut (*true_branch),
@@ -40,13 +40,13 @@ impl Rewriter {
                 )
             }
             Statement::Switch(val, vec) => {
-                self.rewrite_switch(funcs, vars, scope, val.clone(), vec)
+                self.rewrite_switch(funcs, cmap, scope, val.clone(), vec)
             }
             Statement::FuncDef(name, _, _, _, body) => {
-                self.rewrite_funcdef(funcs, vars, name, body)
+                self.rewrite_funcdef(funcs, cmap, name, body)
             }
             Statement::InvokeFunc(name, args) => {
-                match self.rewrite_invoke(funcs, vars, scope, name, args) {
+                match self.rewrite_invoke(funcs, cmap, scope, name, args) {
                     Ok(res) => {
                         *stmt = res;
                         Ok(())
@@ -60,12 +60,12 @@ impl Rewriter {
     pub fn rewrite_seq(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         stmt_vec: &mut Vec<Box<Statement>>,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter_mut() {
-            let res = self.rewrite(funcs, vars, scope, stmt);
+            let res = self.rewrite(funcs, cmap, scope, stmt);
             if res.is_err() {
                 return res;
             }
@@ -76,19 +76,19 @@ impl Rewriter {
     pub fn rewrite_conditional(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         _condition: BooleanStatement,
         mut true_branch: &mut Statement,
         mut false_branch: &mut Statement,
     ) -> Result<(), Error> {
         // FIXME also rewrite condition when funcs can ret booleans
-        let res_true = self.rewrite(funcs, vars, scope, &mut true_branch);
+        let res_true = self.rewrite(funcs, cmap, scope, &mut true_branch);
         if res_true.is_err() {
             return res_true;
         }
 
-        let res_false = self.rewrite(funcs, vars, scope, &mut false_branch);
+        let res_false = self.rewrite(funcs, cmap, scope, &mut false_branch);
         if res_false.is_err() {
             return res_false;
         }
@@ -99,13 +99,13 @@ impl Rewriter {
     pub fn rewrite_switch(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         _val: RVal,
         vec: &mut Vec<(RVal, Box<Statement>)>,
     ) -> Result<(), Error> {
         for (_, switch_stmt) in vec.iter_mut() {
-            let res = self.rewrite(funcs, vars, scope, &mut (*switch_stmt));
+            let res = self.rewrite(funcs, cmap, scope, &mut (*switch_stmt));
             if res.is_err() {
                 return res;
             }
@@ -116,11 +116,11 @@ impl Rewriter {
     pub fn rewrite_funcdef(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         name: &'static str,
         body: &mut Box<Statement>,
     ) -> Result<(), Error> {
-        let res = self.rewrite(funcs, vars, Some(name), &mut (*body));
+        let res = self.rewrite(funcs, cmap, Some(name), &mut (*body));
         if res.is_err() {
             return res;
         }
@@ -156,7 +156,7 @@ impl Rewriter {
     pub fn rewrite_invoke(
         &self,
         funcs: &Funcs,
-        vars: &ConstraintMap,
+        cmap: &ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
@@ -164,7 +164,7 @@ impl Rewriter {
         match funcs.funcs.get(name) {
             Some(_) => Ok(Statement::InvokeFunc(name, args.to_vec())),
             // FIXME remove check (panic)
-            None => match vars.scoped_get(scope, name) {
+            None => match cmap.scoped_get(scope, name) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(constraints) => self
                         .rewrite_indirect_invoke(
@@ -197,9 +197,9 @@ mod tests {
         let check_stmt = stmt.clone();
 
         let funcs = Funcs::new();
-        let vars = ConstraintMap::new();
+        let cmap = ConstraintMap::new();
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &vars, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -211,8 +211,8 @@ mod tests {
         let check_stmt = stmt.clone();
 
         let funcs = Funcs::new();
-        let mut vars = ConstraintMap::new();
-        vars.vars.insert(
+        let mut cmap = ConstraintMap::new();
+        cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(5)]),
@@ -221,7 +221,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &vars, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -246,8 +246,8 @@ mod tests {
         funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
-        let mut vars = ConstraintMap::new();
-        vars.vars.insert(
+        let mut cmap = ConstraintMap::new();
+        cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo")]),
@@ -256,7 +256,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &vars, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -280,8 +280,8 @@ mod tests {
         funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
-        let mut vars = ConstraintMap::new();
-        vars.vars.insert(
+        let mut cmap = ConstraintMap::new();
+        cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo")]),
@@ -290,7 +290,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &vars, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
@@ -342,8 +342,8 @@ mod tests {
             "bar",
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
-        let mut vars = ConstraintMap::new();
-        vars.vars.insert(
+        let mut cmap = ConstraintMap::new();
+        cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("bar"), RVal::Var("foo")]),
@@ -352,7 +352,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &vars, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
 
         let switch_vec = vec![
             (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
@@ -472,36 +472,36 @@ mod tests {
             FuncVal::new(vec![], vec![], None, qux2_body.clone()),
         );
 
-        let mut vars = ConstraintMap::new();
-        let mut foo_vars = ConstraintMap::new();
-        let mut bar_vars = ConstraintMap::new();
-        let mut baz_vars = ConstraintMap::new();
-        let mut qux_vars = ConstraintMap::new();
-        let mut baz2_vars = ConstraintMap::new();
-        let mut qux2_vars = ConstraintMap::new();
+        let mut cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        let mut bar_cmap = ConstraintMap::new();
+        let mut baz_cmap = ConstraintMap::new();
+        let mut qux_cmap = ConstraintMap::new();
+        let mut baz2_cmap = ConstraintMap::new();
+        let mut qux2_cmap = ConstraintMap::new();
 
-        baz_vars.vars.insert(
+        baz_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(1)]),
                 HashSet::new(),
             ))),
         );
-        qux_vars.vars.insert(
+        qux_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(2)]),
                 HashSet::new(),
             ))),
         );
-        baz2_vars.vars.insert(
+        baz2_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(3)]),
                 HashSet::new(),
             ))),
         );
-        qux2_vars.vars.insert(
+        qux2_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Num(4)]),
@@ -509,14 +509,14 @@ mod tests {
             ))),
         );
 
-        foo_vars.vars.insert(
+        foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
                 HashSet::new(),
             ))),
         );
-        bar_vars.vars.insert(
+        bar_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
@@ -524,28 +524,28 @@ mod tests {
             ))),
         );
 
-        vars.vars.insert(
+        cmap.cmap.insert(
             "x",
             Box::new(VarType::Values((
                 HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
                 HashSet::new(),
             ))),
         );
-        vars.vars
-            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_vars)));
-        vars.vars
-            .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        vars.vars
-            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_vars)));
-        vars.vars
-            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_vars)));
-        vars.vars
-            .insert("bar", Box::new(VarType::Scope(None, bar_vars)));
-        vars.vars
-            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_vars)));
+        cmap.cmap
+            .insert("baz2", Box::new(VarType::Scope(Some("bar"), baz2_cmap)));
+        cmap.cmap
+            .insert("foo", Box::new(VarType::Scope(None, foo_cmap)));
+        cmap.cmap
+            .insert("qux", Box::new(VarType::Scope(Some("foo"), qux_cmap)));
+        cmap.cmap
+            .insert("baz", Box::new(VarType::Scope(Some("foo"), baz_cmap)));
+        cmap.cmap
+            .insert("bar", Box::new(VarType::Scope(None, bar_cmap)));
+        cmap.cmap
+            .insert("qux2", Box::new(VarType::Scope(Some("bar"), qux2_cmap)));
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &vars, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
 
         let foo_switch_vec = vec![
             (RVal::Var("baz"), Box::new(InvokeFunc("baz", vec![]))),

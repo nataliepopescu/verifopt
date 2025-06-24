@@ -4,10 +4,10 @@
 
 - [x] impl negative constraints
 
+- [x] check for/address intersections (at every merge step, i.e. branch unification)
+
 - [ ] simplify implementation where possible
     - add more small/helper functions to make code more readable
-
-- [ ] check for intersections (at every merge step, i.e. branch unification)
 
 - [ ] CHA
     - code transformation: put types on all vars

@@ -31,6 +31,10 @@ impl Merge<Constraints> for Vec<Constraints> {
                     merged.1.union(&self[i].1).map(|x| x.clone()).collect();
                 merged.1 = neg_union;
             }
+            let intersection: HashSet<_> = merged.0.intersection(&merged.1).map(|x| x.clone()).collect();
+            if !intersection.is_empty() {
+                todo!("impl: pos/neg intersection removal");
+            }
         }
 
         Ok(merged)
@@ -225,7 +229,6 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
 
         // remove all negative constraints are also positive constraints
         // (intersections)
-        /*
         for (_, val) in merged.cmap.iter_mut() {
             match &mut **val {
                 &mut VarType::Values((ref pos, ref mut neg)) => {
@@ -240,7 +243,6 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                 _ => continue,
             }
         }
-        */
 
         Ok(merged)
     }

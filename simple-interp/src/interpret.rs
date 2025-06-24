@@ -2,10 +2,6 @@ use crate::{AssignmentRVal, BooleanStatement, Error, Funcs, RVal, Statement};
 use std::collections::{HashMap, HashSet};
 
 pub type Constraints = (HashSet<RVal>, HashSet<RVal>);
-//struct Constraints {
-//    pos: HashSet<RVal>,
-//    neg: HashSet<RVal>,
-//}
 
 pub trait Merge<T> {
     fn merge(&self) -> Result<T, Error>;
@@ -43,12 +39,15 @@ impl Merge<Constraints> for Vec<Constraints> {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BooleanConstraints {
-    true_branch: Vars,
-    false_branch: Vars,
+    true_branch: ConstraintMap,
+    false_branch: ConstraintMap,
 }
 
 impl BooleanConstraints {
-    pub fn new(true_branch: Vars, false_branch: Vars) -> Self {
+    pub fn new(
+        true_branch: ConstraintMap,
+        false_branch: ConstraintMap,
+    ) -> Self {
         Self {
             true_branch,
             false_branch,
@@ -57,8 +56,8 @@ impl BooleanConstraints {
 
     pub fn empty() -> Self {
         Self {
-            true_branch: Vars::new(),
-            false_branch: Vars::new(),
+            true_branch: ConstraintMap::new(),
+            false_branch: ConstraintMap::new(),
         }
     }
 }
@@ -67,17 +66,17 @@ impl BooleanConstraints {
 pub enum VarType {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
-    Scope(Option<&'static str>, Vars),
+    Scope(Option<&'static str>, ConstraintMap),
     // sets of positive and negative constraints
     Values(Constraints),
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Vars {
+pub struct ConstraintMap {
     pub vars: HashMap<&'static str, Box<VarType>>,
 }
 
-impl Vars {
+impl ConstraintMap {
     pub fn new() -> Self {
         Self {
             vars: HashMap::<&'static str, Box<VarType>>::new(),
@@ -154,8 +153,8 @@ impl Vars {
     }
 }
 
-impl Merge<Vars> for Vec<Vars> {
-    fn merge(&self) -> Result<Vars, Error> {
+impl Merge<ConstraintMap> for Vec<ConstraintMap> {
+    fn merge(&self) -> Result<ConstraintMap, Error> {
         if self.len() == 0 {
             return Err(Error::VecSize());
         }
@@ -251,8 +250,8 @@ pub trait Difference<T> {
     fn diff(&mut self, other: &T);
 }
 
-impl Difference<Vars> for Vars {
-    fn diff(&mut self, other: &Vars) {
+impl Difference<ConstraintMap> for ConstraintMap {
+    fn diff(&mut self, other: &ConstraintMap) {
         // FIXME multi-layer vars (i.e. other w scopes)
 
         for (other_key, other_val) in other.vars.iter() {
@@ -297,7 +296,7 @@ impl Interpreter {
     pub fn interp(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         stmt: &Statement,
     ) -> Result<Option<Constraints>, Error> {
@@ -338,7 +337,7 @@ impl Interpreter {
     pub fn interp_seq(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<Option<Constraints>, Error> {
@@ -356,7 +355,7 @@ impl Interpreter {
     pub fn interp_assignment(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         var: &'static str,
         value: &AssignmentRVal,
@@ -443,7 +442,7 @@ impl Interpreter {
     pub fn interp_bool(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         b_stmt: BooleanStatement,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
@@ -465,7 +464,7 @@ impl Interpreter {
     pub fn interp_not(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         b_stmt: BooleanStatement,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
@@ -478,7 +477,7 @@ impl Interpreter {
     pub fn interp_rval(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         rval: RVal,
     ) -> Result<Constraints, Error> {
@@ -512,7 +511,7 @@ impl Interpreter {
     pub fn interp_equals(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         lhs: RVal,
         rhs: RVal,
@@ -579,7 +578,7 @@ impl Interpreter {
 
                     // in the true branch, we know that lhs == rhs, thus
                     // new constraints: lhs {(rhs), ()}, rhs {(lhs), ()}
-                    let mut true_branch = Vars::new();
+                    let mut true_branch = ConstraintMap::new();
                     true_branch.vars.insert(
                         a,
                         Box::new(VarType::Values((
@@ -597,7 +596,7 @@ impl Interpreter {
 
                     // in the false branch, we know that lhs != rhs, thus
                     // new constraints: lhs {(), (rhs)}, rhs {(), (rhs)}
-                    let mut false_branch = Vars::new();
+                    let mut false_branch = ConstraintMap::new();
                     false_branch.vars.insert(
                         a,
                         Box::new(VarType::Values((
@@ -626,13 +625,13 @@ impl Interpreter {
     pub fn interp_conditional(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         condition: &BooleanStatement,
         true_branch: &Statement,
         false_branch: &Statement,
     ) -> Result<Option<Constraints>, Error> {
-        let mut res_vars: Vec<Vars> = vec![];
+        let mut res_vars: Vec<ConstraintMap> = vec![];
 
         // FIXME mod store if have effects
         match self.interp_bool(funcs, vars, scope, condition.clone()) {
@@ -653,7 +652,7 @@ impl Interpreter {
                             true_branch,
                         ) {
                             Ok(_) => {
-                                // remove true branch constraints from 
+                                // remove true branch constraints from
                                 // resulting vars (safe b/c of SSA guarantee)
                                 new_vars.diff(&bconstraints.true_branch);
                                 res_vars.push(new_vars);
@@ -677,7 +676,7 @@ impl Interpreter {
                             false_branch,
                         ) {
                             Ok(_) => {
-                                // remove false branch constraints from 
+                                // remove false branch constraints from
                                 // resulting vars (safe b/c of SSA guarantee)
                                 new_vars.diff(&bconstraints.false_branch);
                                 res_vars.push(new_vars);
@@ -712,7 +711,7 @@ impl Interpreter {
     pub fn interp_switch(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         val: &RVal,
         vec: &Vec<(RVal, Box<Statement>)>,
@@ -751,7 +750,7 @@ impl Interpreter {
             .collect();
 
         // loop to interp all such elems
-        let mut res_vars: Vec<Vars> = Vec::new();
+        let mut res_vars: Vec<ConstraintMap> = Vec::new();
         for (_, vec_stmt) in filtered.iter() {
             let mut scoped_vars = vars.clone();
             match self.interp(funcs, &mut scoped_vars, scope, &*vec_stmt) {
@@ -772,7 +771,7 @@ impl Interpreter {
     fn interp_return(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         rval: &RVal,
     ) -> Result<Option<Constraints>, Error> {
@@ -806,13 +805,13 @@ impl Interpreter {
     fn resolve_args(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         params: &Vec<&'static str>,
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
-        let mut func_vars = Vars::new();
+        let mut func_vars = ConstraintMap::new();
         for (param, arg) in std::iter::zip(params, args) {
             match vars.scoped_get(scope, arg) {
                 Ok(Some(vartype)) => match vartype {
@@ -842,7 +841,7 @@ impl Interpreter {
     fn interp_indirect_invoke_helper(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         val: &RVal,
@@ -882,13 +881,13 @@ impl Interpreter {
     fn interp_indirect_invoke(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         constraints: &Constraints,
         args: &Vec<&'static str>,
     ) -> Result<Option<Constraints>, Error> {
-        let mut res_vars: Vec<Vars> = vec![];
+        let mut res_vars: Vec<ConstraintMap> = vec![];
         let mut constraints_vec: Vec<Constraints> = vec![];
         // TODO what to do with constraints.1 (neg)
         for val in constraints.0.iter() {
@@ -929,7 +928,7 @@ impl Interpreter {
     fn interp_direct_invoke(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
@@ -960,7 +959,7 @@ impl Interpreter {
     pub fn interp_invoke(
         &self,
         funcs: &Funcs,
-        vars: &mut Vars,
+        vars: &mut ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
@@ -997,13 +996,13 @@ mod tests {
 
     #[test]
     fn test_merge_none() {
-        let vec: Vec<Vars> = Vec::new();
+        let vec: Vec<ConstraintMap> = Vec::new();
         assert_eq!(vec.merge(), Err(Error::VecSize()));
     }
 
     #[test]
     fn test_merge_one() {
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1011,13 +1010,13 @@ mod tests {
                 HashSet::new(),
             ))),
         );
-        let vec: Vec<Vars> = vec![vars];
+        let vec: Vec<ConstraintMap> = vec![vars];
         assert_eq!(vec[0].clone(), vec.merge().unwrap());
     }
 
     #[test]
     fn test_merge_two() {
-        let mut vars1 = Vars::new();
+        let mut vars1 = ConstraintMap::new();
         vars1.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1025,7 +1024,7 @@ mod tests {
                 HashSet::new(),
             ))),
         );
-        let mut vars2 = Vars::new();
+        let mut vars2 = ConstraintMap::new();
         vars2.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1033,9 +1032,9 @@ mod tests {
                 HashSet::new(),
             ))),
         );
-        let vec: Vec<Vars> = vec![vars1, vars2];
+        let vec: Vec<ConstraintMap> = vec![vars1, vars2];
 
-        let mut end_vars = Vars::new();
+        let mut end_vars = ConstraintMap::new();
         end_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1051,11 +1050,11 @@ mod tests {
         let interp = Interpreter::new();
         let stmt = Print("hello");
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, Vars::new());
+        assert_eq!(vars, ConstraintMap::new());
     }
 
     #[test]
@@ -1064,10 +1063,10 @@ mod tests {
         let stmt =
             Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1089,10 +1088,10 @@ mod tests {
         ))];
         let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1120,10 +1119,10 @@ mod tests {
         ];
         let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1157,10 +1156,10 @@ mod tests {
             ))])),
         ]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1188,7 +1187,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Var("y"))),
         ))]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
         assert_eq!(res.err(), Some(Error::UndefinedSymbol("y")));
@@ -1208,10 +1207,10 @@ mod tests {
             )),
         ]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1246,10 +1245,10 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1277,10 +1276,10 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1308,10 +1307,10 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1339,10 +1338,10 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1383,10 +1382,10 @@ mod tests {
             )),
         ]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1429,7 +1428,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         // note: `equals` is _shallow_, which is why it evals to false here
         let interp = Interpreter::new();
@@ -1453,7 +1452,7 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "z",
             Box::new(VarType::Values((
@@ -1478,7 +1477,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1504,7 +1503,7 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "bar",
             Box::new(VarType::Values((
@@ -1559,10 +1558,10 @@ mod tests {
             )),
         ]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1601,7 +1600,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1662,10 +1661,10 @@ mod tests {
             )),
         );
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1693,10 +1692,10 @@ mod tests {
             )),
         ))]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1720,14 +1719,14 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = FuncDef("foo", vec![], vec![], None, body);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
         assert_eq!(res.unwrap(), None);
-        assert_eq!(vars, Vars::new());
+        assert_eq!(vars, ConstraintMap::new());
     }
 
     #[test]
@@ -1741,7 +1740,7 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1750,8 +1749,8 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1770,7 +1769,7 @@ mod tests {
     #[test]
     fn test_funcdef_args_direct() {
         let mut funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let interp = Interpreter::new();
 
         let body = Box::new(Sequence(vec![
@@ -1815,8 +1814,8 @@ mod tests {
         );
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "arg",
             Box::new(VarType::Values((
@@ -1864,7 +1863,7 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1877,8 +1876,8 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -1904,7 +1903,7 @@ mod tests {
     #[test]
     fn test_funcdef_args_indirect() {
         let mut funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let interp = Interpreter::new();
 
         let body = Box::new(Sequence(vec![
@@ -1953,8 +1952,8 @@ mod tests {
         );
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "y",
             Box::new(VarType::Values((
@@ -2021,14 +2020,14 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, foo_body));
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
         bar_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -2141,17 +2140,17 @@ mod tests {
             FuncVal::new(vec![], vec![], None, qux2_body.clone()),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let interp = Interpreter::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
-        let mut baz_vars = Vars::new();
-        let mut qux_vars = Vars::new();
-        let mut baz2_vars = Vars::new();
-        let mut qux2_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
+        let mut baz_vars = ConstraintMap::new();
+        let mut qux_vars = ConstraintMap::new();
+        let mut baz2_vars = ConstraintMap::new();
+        let mut qux2_vars = ConstraintMap::new();
 
         baz_vars.vars.insert(
             "x",
@@ -2268,14 +2267,14 @@ mod tests {
             FuncVal::new(vec![Type::Int()], vec!["y"], None, foo_body),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
         bar_vars.vars.insert(
             "y",
             Box::new(VarType::Values((
@@ -2449,17 +2448,17 @@ mod tests {
             FuncVal::new(vec![Type::Int()], vec!["y"], None, qux2_body.clone()),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let interp = Interpreter::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
-        let mut baz_vars = Vars::new();
-        let mut qux_vars = Vars::new();
-        let mut baz2_vars = Vars::new();
-        let mut qux2_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
+        let mut baz_vars = ConstraintMap::new();
+        let mut qux_vars = ConstraintMap::new();
+        let mut baz2_vars = ConstraintMap::new();
+        let mut qux2_vars = ConstraintMap::new();
 
         baz_vars.vars.insert(
             "x",
@@ -2604,7 +2603,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2618,9 +2617,9 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -2666,7 +2665,7 @@ mod tests {
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2687,9 +2686,9 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -2733,7 +2732,7 @@ mod tests {
             Box::new(InvokeFunc("foo", vec![])),
         ]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
         assert_eq!(res, Err(Error::NotAFunction("foo")));
@@ -2744,7 +2743,12 @@ mod tests {
         let interp = Interpreter::new();
         let switch_vec: Vec<(RVal, Box<Statement>)> = vec![];
         let stmt = Switch(RVal::Var("x"), switch_vec);
-        let res = interp.interp(&Funcs::new(), &mut Vars::new(), None, &stmt);
+        let res = interp.interp(
+            &Funcs::new(),
+            &mut ConstraintMap::new(),
+            None,
+            &stmt,
+        );
 
         assert_eq!(res, Err(Error::UndefinedSymbol("x")));
     }
@@ -2776,10 +2780,10 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -2833,10 +2837,10 @@ mod tests {
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
         check_vars.vars.insert(
             "y",
             Box::new(VarType::Values((
@@ -2864,7 +2868,7 @@ mod tests {
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2879,10 +2883,11 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        check_vars
-            .vars
-            .insert("foo", Box::new(VarType::Scope(None, Vars::new())));
+        let mut check_vars = ConstraintMap::new();
+        check_vars.vars.insert(
+            "foo",
+            Box::new(VarType::Scope(None, ConstraintMap::new())),
+        );
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -2922,7 +2927,7 @@ mod tests {
             ),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2943,8 +2948,8 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -3016,7 +3021,7 @@ mod tests {
             ),
         );
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -3058,8 +3063,8 @@ mod tests {
         ]);
         let res = interp.interp(&funcs, &mut vars, None, &stmt);
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -3070,12 +3075,14 @@ mod tests {
         check_vars
             .vars
             .insert("foo", Box::new(VarType::Scope(None, foo_vars)));
-        check_vars
-            .vars
-            .insert("bar", Box::new(VarType::Scope(None, Vars::new())));
-        check_vars
-            .vars
-            .insert("baz", Box::new(VarType::Scope(None, Vars::new())));
+        check_vars.vars.insert(
+            "bar",
+            Box::new(VarType::Scope(None, ConstraintMap::new())),
+        );
+        check_vars.vars.insert(
+            "baz",
+            Box::new(VarType::Scope(None, ConstraintMap::new())),
+        );
         check_vars.vars.insert(
             "x",
             Box::new(VarType::Values((

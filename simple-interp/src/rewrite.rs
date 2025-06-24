@@ -1,5 +1,5 @@
 use crate::func_collect::Funcs;
-use crate::interpret::{Constraints, VarType, Vars};
+use crate::interpret::{ConstraintMap, Constraints, VarType};
 use crate::{BooleanStatement, Error, RVal, Statement};
 
 pub struct Rewriter {}
@@ -16,7 +16,7 @@ impl Rewriter {
     pub fn rewrite(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         stmt: &mut Statement,
     ) -> Result<(), Error> {
@@ -60,7 +60,7 @@ impl Rewriter {
     pub fn rewrite_seq(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         stmt_vec: &mut Vec<Box<Statement>>,
     ) -> Result<(), Error> {
@@ -76,7 +76,7 @@ impl Rewriter {
     pub fn rewrite_conditional(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         _condition: BooleanStatement,
         mut true_branch: &mut Statement,
@@ -99,7 +99,7 @@ impl Rewriter {
     pub fn rewrite_switch(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         _val: RVal,
         vec: &mut Vec<(RVal, Box<Statement>)>,
@@ -116,7 +116,7 @@ impl Rewriter {
     pub fn rewrite_funcdef(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         name: &'static str,
         body: &mut Box<Statement>,
     ) -> Result<(), Error> {
@@ -156,7 +156,7 @@ impl Rewriter {
     pub fn rewrite_invoke(
         &self,
         funcs: &Funcs,
-        vars: &Vars,
+        vars: &ConstraintMap,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
@@ -197,7 +197,7 @@ mod tests {
         let check_stmt = stmt.clone();
 
         let funcs = Funcs::new();
-        let vars = Vars::new();
+        let vars = ConstraintMap::new();
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &vars, None, &mut stmt);
 
@@ -211,7 +211,7 @@ mod tests {
         let check_stmt = stmt.clone();
 
         let funcs = Funcs::new();
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -246,7 +246,7 @@ mod tests {
         funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -280,7 +280,7 @@ mod tests {
         funcs
             .funcs
             .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -342,7 +342,7 @@ mod tests {
             "bar",
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -472,13 +472,13 @@ mod tests {
             FuncVal::new(vec![], vec![], None, qux2_body.clone()),
         );
 
-        let mut vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
-        let mut baz_vars = Vars::new();
-        let mut qux_vars = Vars::new();
-        let mut baz2_vars = Vars::new();
-        let mut qux2_vars = Vars::new();
+        let mut vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
+        let mut baz_vars = ConstraintMap::new();
+        let mut qux_vars = ConstraintMap::new();
+        let mut baz2_vars = ConstraintMap::new();
+        let mut qux2_vars = ConstraintMap::new();
 
         baz_vars.vars.insert(
             "x",

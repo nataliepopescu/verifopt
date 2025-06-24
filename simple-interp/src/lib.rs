@@ -5,7 +5,7 @@ pub mod sig_collect;
 pub mod ssa;
 
 use crate::func_collect::{FuncCollector, Funcs};
-use crate::interpret::{Interpreter, Vars};
+use crate::interpret::{ConstraintMap, Interpreter};
 use crate::rewrite::Rewriter;
 use crate::sig_collect::{SigCollector, Sigs};
 use crate::ssa::{SSAChecker, Symbols};
@@ -186,7 +186,7 @@ impl SimpleInterp {
     pub fn interp(
         &self,
         mut stmt: Statement,
-    ) -> Result<(Vars, Statement), Error> {
+    ) -> Result<(ConstraintMap, Statement), Error> {
         //println!("\nOriginal program statement: \n\n{:#?}", &stmt);
 
         let mut symbols = Symbols::new();
@@ -225,7 +225,7 @@ impl SimpleInterp {
         //println!("\n1. Function symbols table (from PHASE 2)");
         //println!("\n2. Function signatures table: \n\n{:#?}", &sigs);
 
-        let mut vars = Vars::new();
+        let mut vars = ConstraintMap::new();
         let res4 = self.interpreter.interp(&funcs, &mut vars, None, &stmt);
         if res4.is_err() {
             return Err(res4.err().unwrap());
@@ -274,7 +274,7 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(vars, Vars::new());
+        assert_eq!(vars, ConstraintMap::new());
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -289,7 +289,7 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        assert_eq!(vars, Vars::new());
+        assert_eq!(vars, ConstraintMap::new());
         assert_eq!(rw_stmt, stmt);
     }
 
@@ -307,8 +307,8 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -342,8 +342,8 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt).unwrap();
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "z",
             Box::new(VarType::Values((
@@ -401,9 +401,9 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt.clone()).unwrap();
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -460,9 +460,9 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt).unwrap();
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
         foo_vars.vars.insert(
             "y",
             Box::new(VarType::Values((
@@ -535,9 +535,9 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt).unwrap();
 
-        let mut check_vars = Vars::new();
-        let foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
         bar_vars.vars.insert(
             "x",
             Box::new(VarType::Values((
@@ -726,13 +726,13 @@ mod tests {
         let si = SimpleInterp::new();
         let (vars, rw_stmt) = si.interp(stmt).unwrap();
 
-        let mut check_vars = Vars::new();
-        let mut foo_vars = Vars::new();
-        let mut bar_vars = Vars::new();
-        let mut baz_vars = Vars::new();
-        let mut qux_vars = Vars::new();
-        let mut baz2_vars = Vars::new();
-        let mut qux2_vars = Vars::new();
+        let mut check_vars = ConstraintMap::new();
+        let mut foo_vars = ConstraintMap::new();
+        let mut bar_vars = ConstraintMap::new();
+        let mut baz_vars = ConstraintMap::new();
+        let mut qux_vars = ConstraintMap::new();
+        let mut baz2_vars = ConstraintMap::new();
+        let mut qux2_vars = ConstraintMap::new();
 
         baz_vars.vars.insert(
             "x",

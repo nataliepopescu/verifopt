@@ -19,6 +19,7 @@ impl Rewriter {
         cmap: &ConstraintMap,
         scope: Option<&'static str>,
         stmt: &mut Statement,
+        sort_hashsets: bool,
     ) -> Result<(), Error> {
         match stmt {
             // FIXME impl when funcs have retvals + can print result
@@ -27,7 +28,7 @@ impl Rewriter {
             Statement::Assignment(_, _) => Ok(()),
             Statement::Return(_) => Ok(()),
             Statement::Sequence(stmt_vec) => {
-                self.rewrite_seq(funcs, cmap, scope, stmt_vec)
+                self.rewrite_seq(funcs, cmap, scope, stmt_vec, sort_hashsets)
             }
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.rewrite_conditional(
@@ -37,16 +38,19 @@ impl Rewriter {
                     *condition.clone(),
                     &mut (*true_branch),
                     &mut (*false_branch),
+                    sort_hashsets,
                 )
             }
-            Statement::Switch(val, vec) => {
-                self.rewrite_switch(funcs, cmap, scope, val.clone(), vec)
+            Statement::Switch(_, vec) => {
+                self.rewrite_switch(funcs, cmap, scope, vec,
+                sort_hashsets)
             }
             Statement::FuncDef(name, _, _, _, body) => {
-                self.rewrite_funcdef(funcs, cmap, name, body)
+                self.rewrite_funcdef(funcs, cmap, name, body, sort_hashsets)
             }
             Statement::InvokeFunc(name, args) => {
-                match self.rewrite_invoke(funcs, cmap, scope, name, args) {
+                match self.rewrite_invoke(funcs, cmap, scope, name, args,
+                sort_hashsets) {
                     Ok(res) => {
                         *stmt = res;
                         Ok(())
@@ -63,9 +67,10 @@ impl Rewriter {
         cmap: &ConstraintMap,
         scope: Option<&'static str>,
         stmt_vec: &mut Vec<Box<Statement>>,
+        sort_hashsets: bool,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter_mut() {
-            let res = self.rewrite(funcs, cmap, scope, stmt);
+            let res = self.rewrite(funcs, cmap, scope, stmt, sort_hashsets);
             if res.is_err() {
                 return res;
             }
@@ -81,14 +86,16 @@ impl Rewriter {
         _condition: BooleanStatement,
         mut true_branch: &mut Statement,
         mut false_branch: &mut Statement,
+        sort_hashsets: bool,
     ) -> Result<(), Error> {
         // FIXME also rewrite condition when funcs can ret booleans
-        let res_true = self.rewrite(funcs, cmap, scope, &mut true_branch);
+        let res_true = self.rewrite(funcs, cmap, scope, &mut true_branch, sort_hashsets);
         if res_true.is_err() {
             return res_true;
         }
 
-        let res_false = self.rewrite(funcs, cmap, scope, &mut false_branch);
+        let res_false = self.rewrite(funcs, cmap, scope, &mut false_branch,
+        sort_hashsets);
         if res_false.is_err() {
             return res_false;
         }
@@ -101,11 +108,14 @@ impl Rewriter {
         funcs: &Funcs,
         cmap: &ConstraintMap,
         scope: Option<&'static str>,
-        _val: RVal,
         vec: &mut Vec<(RVal, Box<Statement>)>,
+        sort_hashsets: bool,
     ) -> Result<(), Error> {
+        // FIXME if can switch on function call, also perform rewrite on that
+        // (omitted val argument)
         for (_, switch_stmt) in vec.iter_mut() {
-            let res = self.rewrite(funcs, cmap, scope, &mut (*switch_stmt));
+            let res = self.rewrite(funcs, cmap, scope, &mut (*switch_stmt),
+            sort_hashsets);
             if res.is_err() {
                 return res;
             }
@@ -119,8 +129,10 @@ impl Rewriter {
         cmap: &ConstraintMap,
         name: &'static str,
         body: &mut Box<Statement>,
+        sort_hashsets: bool,
     ) -> Result<(), Error> {
-        let res = self.rewrite(funcs, cmap, Some(name), &mut (*body));
+        let res = self.rewrite(funcs, cmap, Some(name), &mut (*body),
+        sort_hashsets);
         if res.is_err() {
             return res;
         }
@@ -130,24 +142,39 @@ impl Rewriter {
     fn rewrite_indirect_invoke(
         &self,
         name: &'static str,
-        set: &Constraints,
+        constraints: &Constraints,
         args: Vec<&'static str>,
+        sort_hashsets: bool,
     ) -> Result<Statement, Error> {
         let mut switch_vec = vec![];
-        // FIXME sorting set to get deterministic switch statement order for
-        // tests
-        let mut pos_vec: Vec<_> = set.0.iter().collect::<Vec<_>>();
-        let _neg_vec: Vec<_> = set.1.iter().collect::<Vec<_>>();
-        // FIXME also consider negative set
-        pos_vec.sort();
-        for rval in pos_vec.into_iter() {
-            match rval.clone() {
-                r @ RVal::Var(var) => switch_vec.push((
-                    r,
-                    Box::new(Statement::InvokeFunc(var, args.clone())),
-                )),
-                _ => panic!("IP BUG: num {:?} is not a func name", &rval),
-            };
+        // sorting constraints to get deterministic switch statement order 
+        // for tests
+        if sort_hashsets {
+            let mut pos_vec: Vec<_> = constraints.0.iter().collect::<Vec<_>>();
+            let _neg_vec: Vec<_> = constraints.1.iter().collect::<Vec<_>>();
+            pos_vec.sort();
+
+            // FIXME also consider negative set of constraints
+            for rval in pos_vec.into_iter() {
+                match rval.clone() {
+                    r @ RVal::Var(var) => switch_vec.push((
+                        r,
+                        Box::new(Statement::InvokeFunc(var, args.clone())),
+                    )),
+                    _ => panic!("IP BUG: cannot call num {:?} as func", &rval),
+                };
+            }
+        } else {
+            // FIXME also consider negative set of constraints
+            for rval in constraints.0.clone().into_iter() {
+                match rval.clone() {
+                    r @ RVal::Var(var) => switch_vec.push((
+                        r,
+                        Box::new(Statement::InvokeFunc(var, args.clone())),
+                    )),
+                    _ => panic!("IP BUG: cannot call num {:?} as func", &rval),
+                };
+            }
         }
         Ok(Statement::Switch(RVal::Var(name), switch_vec))
     }
@@ -159,6 +186,7 @@ impl Rewriter {
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
+        sort_hashsets: bool,
     ) -> Result<Statement, Error> {
         match funcs.funcs.get(name) {
             Some(_) => Ok(Statement::InvokeFunc(name, args.to_vec())),
@@ -169,6 +197,7 @@ impl Rewriter {
                             name,
                             &constraints,
                             args.to_vec(),
+                            sort_hashsets,
                         ),
                     _ => return Err(Error::NoSwitchOnFuncPtr()),
                 },
@@ -197,7 +226,7 @@ mod tests {
         let funcs = Funcs::new();
         let cmap = ConstraintMap::new();
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt, true);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -219,7 +248,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt, true);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -254,7 +283,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt, true);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -288,7 +317,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt, true);
 
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
@@ -353,7 +382,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt, true);
 
         let switch_vec = vec![
             (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
@@ -591,7 +620,7 @@ mod tests {
         );
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt);
+        let _ = rw.rewrite(&funcs, &cmap, None, &mut stmt, true);
 
         let foo_switch_vec = vec![
             (RVal::Var("baz"), Box::new(InvokeFunc("baz", vec![]))),

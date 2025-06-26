@@ -249,7 +249,9 @@ impl SimpleInterp {
         //);
         //println!("\n3. Original program statement");
 
-        let res5 = self.rewriter.rewrite(&funcs, &cmap, None, &mut stmt, true);
+        let res5 = self
+            .rewriter
+            .rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
         if res5.is_err() {
             return Err(res5.err().unwrap());
         }

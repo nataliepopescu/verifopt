@@ -141,7 +141,6 @@ impl Rewriter {
         // FIXME also consider negative set
         pos_vec.sort();
         for rval in pos_vec.into_iter() {
-            // FIXME remove check (panic)
             match rval.clone() {
                 r @ RVal::Var(var) => switch_vec.push((
                     r,
@@ -163,8 +162,7 @@ impl Rewriter {
     ) -> Result<Statement, Error> {
         match funcs.funcs.get(name) {
             Some(_) => Ok(Statement::InvokeFunc(name, args.to_vec())),
-            // FIXME remove check (panic)
-            None => match cmap.scoped_get(scope, name) {
+            None => match cmap.scoped_get(scope, name, false) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(_, constraints) => self
                         .rewrite_indirect_invoke(
@@ -172,7 +170,7 @@ impl Rewriter {
                             &constraints,
                             args.to_vec(),
                         ),
-                    _ => panic!("should not get scope here"),
+                    _ => return Err(Error::NoSwitchOnFuncPtr()),
                 },
                 Ok(None) => panic!("IP BUG: missed undef symbol {:?}", &name),
                 Err(err) => return Err(err),

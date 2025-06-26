@@ -19,7 +19,7 @@ impl Merge<Constraints> for Vec<Constraints> {
             return Ok(self[0].clone());
         }
 
-        // TODO check here if all ints vs cmap?
+        // typechecker should ensure that all values are of the same type...
         let mut merged = self[0].clone();
         for i in 1..self.len() {
             // merge positive constraints
@@ -98,6 +98,7 @@ impl ConstraintMap {
         &self,
         scope: Option<&'static str>,
         var: &'static str,
+        traverse_backptr: bool,
     ) -> Result<Option<VarType>, Error> {
         // first get the `cmap` object pertaining to `this` scope
         if scope.is_none() {
@@ -110,12 +111,17 @@ impl ConstraintMap {
         match self.cmap.get(scope.unwrap()) {
             Some(vartype) => match *vartype.clone() {
                 VarType::Scope(_, backptr, inner_cmap) => {
-                    // is var in inner_cmap? if not, recursively follow backptr
-                    // to enclosing scopes
+                    // is var in inner_cmap? if not:
+                    // - nested funcs: return None
+                    // - lambdas: recursively follow backptr to enclosing scopes
                     match inner_cmap.cmap.get(var) {
                         Some(boxed) => return Ok(Some(*boxed.clone())),
                         None => {
-                            return self.scoped_get(backptr, var);
+                            if traverse_backptr {
+                                return self.scoped_get(backptr, var, traverse_backptr);
+                            } else {
+                                return Ok(None)
+                            }
                         }
                     }
                 }
@@ -160,6 +166,7 @@ impl ConstraintMap {
             },
             None => return Err(Error::UndefinedScope(scope.unwrap())),
         }
+
         Ok(())
     }
 }
@@ -184,17 +191,15 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                             VarType::Scope(functype_b, backptr_b, cmap_b),
                         ) => {
                             if functype_a != functype_b {
-                                panic!("types differ");
+                                return Err(Error::TypesDiffer());
+                            }
+                            if backptr_a != backptr_b {
+                                return Err(Error::BackpointersDiffer());
                             }
                             if cmap_a != cmap_b {
                                 let inner_cmap = vec![cmap_a, cmap_b];
                                 match inner_cmap.merge() {
                                     Ok(merged_inner) => {
-                                        if backptr_a != backptr_b {
-                                            todo!(
-                                                "when UNEQUAL scope backptrs?"
-                                            );
-                                        }
                                         *mval = Box::new(VarType::Scope(
                                             functype_a,
                                             backptr_a,
@@ -210,7 +215,7 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                             VarType::Values(valtype_b, (pos_b, neg_b)),
                         ) => {
                             if valtype_a != valtype_b {
-                                panic!("value types differ");
+                                return Err(Error::TypesDiffer());
                             }
                             let mut pos = pos_a.clone();
                             let mut neg = neg_a.clone();
@@ -267,11 +272,11 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
 }
 
 pub trait Difference<T> {
-    fn diff(&mut self, other: &T);
+    fn diff(&mut self, other: &T) -> Result<(), Error>;
 }
 
 impl Difference<ConstraintMap> for ConstraintMap {
-    fn diff(&mut self, other: &ConstraintMap) {
+    fn diff(&mut self, other: &ConstraintMap) -> Result<(), Error> {
         // FIXME multi-layer cmap (i.e. other w scopes)
 
         for (other_key, other_val) in other.cmap.iter() {
@@ -287,7 +292,7 @@ impl Difference<ConstraintMap> for ConstraintMap {
                             ),
                         ) => {
                             if valtype_self != valtype_other {
-                                panic!("value types differ");
+                                return Err(Error::TypesDiffer());
                             }
                             let diff_pos: HashSet<_> = self_pos
                                 .difference(&other_pos)
@@ -308,11 +313,11 @@ impl Difference<ConstraintMap> for ConstraintMap {
                         _ => todo!("scopes ever?"),
                     }
                 }
-                None => panic!(
-                    "diff used wrong, should have a subset of self's keys"
-                ),
+                None => continue,
             }
         }
+
+        Ok(())
     }
 }
 
@@ -406,7 +411,7 @@ impl Interpreter {
                 }
             }
             AssignmentRVal::RVal(RVal::Var(varname)) => {
-                match cmap.scoped_get(scope, varname) {
+                match cmap.scoped_get(scope, varname, false) {
                     Ok(Some(val)) => match val {
                         set @ VarType::Values(..) => {
                             let res =
@@ -459,7 +464,7 @@ impl Interpreter {
                                         functype = stored_functype;
                                     }
                                 },
-                                None => panic!("no type"),
+                                None => return Err(Error::UndefinedSymbol(name)),
                             }
 
                             match *functype {
@@ -477,7 +482,7 @@ impl Interpreter {
                                         return Err(res.err().unwrap());
                                     }
                                 }
-                                _ => panic!("invoked is not a func"),
+                                _ => return Err(Error::NotAFunction(name)),
                             }
                         }
                         Ok(None) => return Err(Error::CannotAssignNoneRetval()),
@@ -549,7 +554,7 @@ impl Interpreter {
     ) -> Result<Constraints, Error> {
         match rval.clone() {
             RVal::Num(_) => Ok((HashSet::from([rval]), HashSet::new())),
-            RVal::Var(var) => match cmap.scoped_get(scope, var) {
+            RVal::Var(var) => match cmap.scoped_get(scope, var, false) {
                 Ok(Some(val)) => match val {
                     VarType::Values(_, constraints) => {
                         return Ok(constraints.clone());
@@ -664,13 +669,14 @@ impl Interpreter {
                                     VarType::Scope(type_b, ..),
                                 ) => {
                                     if type_a != type_b {
-                                        panic!("types don't match");
+                                        return Err(Error::TypesDiffer());
                                     }
                                     vartype = type_a;
                                 }
                             }
                         }
-                        _ => panic!("val doesn't exist"),
+                        (None, _) => return Err(Error::UndefinedSymbol(a)),
+                        (_, None) => return Err(Error::UndefinedSymbol(b)),
                     }
 
                     // in the true branch, we know that lhs == rhs, thus
@@ -751,8 +757,10 @@ impl Interpreter {
                             Ok(_) => {
                                 // remove true branch constraints from
                                 // resulting cmap (safe b/c of SSA guarantee)
-                                new_cmap.diff(&bconstraints.true_branch);
-                                res_cmap.push(new_cmap);
+                                match new_cmap.diff(&bconstraints.true_branch) {
+                                    Ok(()) => res_cmap.push(new_cmap),
+                                    Err(err) => return Err(err),
+                                }
                             }
                             err @ Err(_) => return err,
                         },
@@ -775,8 +783,11 @@ impl Interpreter {
                             Ok(_) => {
                                 // remove false branch constraints from
                                 // resulting cmap (safe b/c of SSA guarantee)
-                                new_cmap.diff(&bconstraints.false_branch);
-                                res_cmap.push(new_cmap);
+                                match new_cmap.diff(&bconstraints.false_branch)
+                                {
+                                    Ok(()) => res_cmap.push(new_cmap),
+                                    Err(err) => return Err(err),
+                                }
                             }
                             err @ Err(_) => return err,
                         },
@@ -818,10 +829,10 @@ impl Interpreter {
             num @ RVal::Num(_) => {
                 (HashSet::from([num.clone()]), HashSet::new())
             }
-            RVal::Var(varname) => match cmap.scoped_get(scope, varname) {
+            RVal::Var(varname) => match cmap.scoped_get(scope, varname, false) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(_, constraints) => constraints.clone(),
-                    _ => panic!("should not get scope here"),
+                    _ => return Err(Error::NoSwitchOnFuncPtr()),
                 },
                 Ok(None) => return Err(Error::UndefinedSymbol(varname)),
                 Err(err) => return Err(err),
@@ -879,7 +890,7 @@ impl Interpreter {
                     HashSet::new(),
                 )));
             }
-            RVal::Var(varname) => match cmap.scoped_get(scope, varname) {
+            RVal::Var(varname) => match cmap.scoped_get(scope, varname, false) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(_, constraints) => Ok(Some(constraints)),
                     VarType::Scope(..) => match funcs.funcs.get(varname) {
@@ -891,7 +902,7 @@ impl Interpreter {
                     },
                 },
                 Ok(None) => match funcs.funcs.get(varname) {
-                    Some(_) => panic!("func should have been a scope in cmap"),
+                    Some(_) => panic!("IP BUG: func should have been a scope in cmap"),
                     None => return Err(Error::UndefinedSymbol(varname)),
                 },
                 Err(err) => return Err(err),
@@ -910,7 +921,7 @@ impl Interpreter {
     ) -> Result<(), Error> {
         let mut func_cmap = ConstraintMap::new();
         for (param, arg) in std::iter::zip(funcval.params.clone(), args) {
-            match cmap.scoped_get(scope, arg) {
+            match cmap.scoped_get(scope, arg, false) {
                 Ok(Some(vartype)) => match vartype {
                     // add args to scope
                     VarType::Values(valtype, constraints) => {
@@ -922,11 +933,11 @@ impl Interpreter {
                             )),
                         )
                     }
-                    _ => panic!("should not get scope here"),
+                    _ => todo!("not impl yet (funcs as args)"),
                 },
                 Ok(None) => match funcs.funcs.get(arg) {
                     Some(_funcval) => {
-                        todo!("not impl yet");
+                        todo!("not impl yet (funcs as args)");
                     }
                     None => return Err(Error::UndefinedSymbol(arg)),
                 },
@@ -1064,7 +1075,7 @@ impl Interpreter {
         name: &'static str,
         args: &Vec<&'static str>,
     ) -> Result<Option<Constraints>, Error> {
-        match cmap.scoped_get(scope, name) {
+        match cmap.scoped_get(scope, name, false) {
             Ok(Some(vartype)) => match vartype {
                 VarType::Values(_, constraints) => self.interp_indirect_invoke(
                     funcs,

@@ -59,7 +59,6 @@ impl FuncCollector {
         rettype: &Option<Box<Type>>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
-        // FIXME remove duplicate name check (panic)
         match funcs.funcs.get(name) {
             Some(_) => {
                 panic!("SSA BUG: funcname {:?} already exists", &name)

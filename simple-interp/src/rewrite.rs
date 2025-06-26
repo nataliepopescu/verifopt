@@ -57,7 +57,7 @@ impl Rewriter {
         }
     }
 
-    pub fn rewrite_seq(
+    fn rewrite_seq(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -73,7 +73,7 @@ impl Rewriter {
         Ok(())
     }
 
-    pub fn rewrite_conditional(
+    fn rewrite_conditional(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -96,7 +96,7 @@ impl Rewriter {
         Ok(())
     }
 
-    pub fn rewrite_switch(
+    fn rewrite_switch(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -113,7 +113,7 @@ impl Rewriter {
         Ok(())
     }
 
-    pub fn rewrite_funcdef(
+    fn rewrite_funcdef(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -152,7 +152,7 @@ impl Rewriter {
         Ok(Statement::Switch(RVal::Var(name), switch_vec))
     }
 
-    pub fn rewrite_invoke(
+    fn rewrite_invoke(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,

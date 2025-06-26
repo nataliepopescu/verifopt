@@ -36,7 +36,7 @@ impl FuncCollector {
         }
     }
 
-    pub fn collect_seq(
+    fn collect_seq(
         &self,
         funcs: &mut Funcs,
         stmt_vec: &Vec<Box<Statement>>,
@@ -50,7 +50,7 @@ impl FuncCollector {
         Ok(())
     }
 
-    pub fn collect_funcdef(
+    fn collect_funcdef(
         &self,
         funcs: &mut Funcs,
         name: &'static str,

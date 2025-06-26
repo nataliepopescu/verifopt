@@ -131,6 +131,10 @@ impl SigVal {
     }
 }
 
+pub trait Merge<T> {
+    fn merge(&self) -> Result<T, Error>;
+}
+
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum BooleanStatement {

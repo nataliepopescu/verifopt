@@ -1,4 +1,4 @@
-use crate::{Error, RVal, Statement};
+use crate::{Error, Merge, RVal, Statement};
 
 use std::collections::HashMap;
 
@@ -27,11 +27,7 @@ impl FromIterator<(&'static str, Option<Box<Symbols>>)> for Symbols {
     }
 }
 
-pub trait Merge {
-    fn merge(&self) -> Result<Symbols, Error>;
-}
-
-impl Merge for Vec<Symbols> {
+impl Merge<Symbols> for Vec<Symbols> {
     fn merge(&self) -> Result<Symbols, Error> {
         if self.len() == 0 {
             return Err(Error::VecSize());
@@ -93,7 +89,7 @@ impl SSAChecker {
         }
     }
 
-    pub fn check_assignment(
+    fn check_assignment(
         &self,
         symbols: &mut Symbols,
         name: &'static str,
@@ -106,7 +102,7 @@ impl SSAChecker {
         Ok(())
     }
 
-    pub fn check_seq(
+    fn check_seq(
         &self,
         symbols: &mut Symbols,
         stmt_vec: &Vec<Box<Statement>>,
@@ -120,7 +116,7 @@ impl SSAChecker {
         Ok(())
     }
 
-    pub fn check_conditional(
+    fn check_conditional(
         &self,
         symbols: &mut Symbols,
         true_branch: &Statement,
@@ -150,7 +146,7 @@ impl SSAChecker {
         }
     }
 
-    pub fn check_switch(
+    fn check_switch(
         &self,
         symbols: &mut Symbols,
         vec: &Vec<(RVal, Box<Statement>)>,
@@ -174,7 +170,7 @@ impl SSAChecker {
         }
     }
 
-    pub fn check_funcdef(
+    fn check_funcdef(
         &self,
         symbols: &mut Symbols,
         name: &'static str,

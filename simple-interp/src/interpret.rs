@@ -1,14 +1,9 @@
 use crate::{
-    AssignmentRVal, BooleanStatement, Error, FuncVal, Funcs, RVal, Statement,
-    Type,
+    AssignmentRVal, BooleanStatement, Error, FuncVal, Funcs, Merge, RVal, Statement, Type,
 };
 use std::collections::{HashMap, HashSet};
 
 pub type Constraints = (HashSet<RVal>, HashSet<RVal>);
-
-pub trait Merge<T> {
-    fn merge(&self) -> Result<T, Error>;
-}
 
 impl Merge<Constraints> for Vec<Constraints> {
     fn merge(&self) -> Result<Constraints, Error> {
@@ -369,7 +364,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_seq(
+    fn interp_seq(
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
@@ -387,7 +382,7 @@ impl Interpreter {
         Ok(last_ret)
     }
 
-    pub fn interp_assignment(
+    fn interp_assignment(
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
@@ -496,11 +491,11 @@ impl Interpreter {
         Ok(None)
     }
 
-    pub fn interp_print(&self, var: &'static str) {
+    fn interp_print(&self, var: &'static str) {
         println!("{:#?}", var);
     }
 
-    pub fn interp_bool(
+    fn interp_bool(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -532,7 +527,7 @@ impl Interpreter {
         )
     }
 
-    pub fn interp_not(
+    fn interp_not(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -545,7 +540,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_rval(
+    fn interp_rval(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -579,7 +574,7 @@ impl Interpreter {
         (pos_vec, neg_vec)
     }
 
-    pub fn interp_equals(
+    fn interp_equals(
         &self,
         funcs: &Funcs,
         cmap: &ConstraintMap,
@@ -725,7 +720,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_conditional(
+    fn interp_conditional(
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
@@ -807,7 +802,7 @@ impl Interpreter {
         }
     }
 
-    pub fn possible(&self, possible_b: &BooleanStatement) -> bool {
+    fn possible(&self, possible_b: &BooleanStatement) -> bool {
         match possible_b {
             BooleanStatement::True() => true,
             BooleanStatement::False() => false,
@@ -816,7 +811,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_switch(
+    fn interp_switch(
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
@@ -1067,7 +1062,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interp_invoke(
+    fn interp_invoke(
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,

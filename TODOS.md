@@ -9,20 +9,24 @@
 - [x] check for/address intersections (at every merge step, i.e. branch unification)
     - [ ] write test(s) for this (existing tests don't break)
 
-- [ ] clarify/fix function scope semantics (nested funcs vs lambdas)
+- [x] clarify/fix function scope semantics (nested funcs vs lambdas)
 
 - [ ] simplify implementation where possible
-    - add more small/helper functions to make code more readable
-    - panics -> errors
+    - [ ] add more small/helper functions to make code more readable
+    - [x] panics -> errors
 
+- [ ] think of test cases that show difference between
+    - separating learned vs done
+    - combining learned vs done
 
 - [ ] CHA
-    - [ ] code transformation: put types on all vars
-        - separate pass? before/after interp?
+    - [x] code transformation: put types on all vars
+        - during interp
     - [ ] in rewrite step, use function signatures to resolve list (do this
       everywhere, for now)
 
 - [ ] conditional scopes vs SSA
+    - separate declaration from assignment -> assigning a value in a conditional 
 
 - [ ] impl traits
 
@@ -39,5 +43,7 @@
 
 ## Motivation
 
-"why now" question
+- [ ] "why now"?
+    - what about rust makes this problem tractable and/or bigger?
+        - how are ppl writing code re dynamic trait objects?
 

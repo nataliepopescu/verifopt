@@ -17,7 +17,6 @@
 - [x] clarify/fix function scope semantics (nested funcs vs lambdas)
 
 - [ ] simplify implementation where possible
-    - [ ] add more small/helper functions to make code more readable
     - [x] panics -> errors
 
 - [ ] CHA
@@ -27,19 +26,17 @@
       everywhere, for now)
     - [ ] write specific test(s) for this
 
-- [ ] conditional scopes vs SSA
-    - separate declaration from assignment -> assigning a value in a conditional 
-
-- [ ] impl traits
-
-- [ ] impl flow-sensitive function resolution
+- [x] impl flow-sensitive function resolution
     - everywhere where previously using CHA, if have useful constraints (not
       top/bottom of lattice) can use those constraints to further limit the
       possible funcs
 
-- [ ] summaries
-    - [ ] functions
-    - [ ] bool conditions?
+- [ ] function summaries
+
+- [ ] impl traits
+
+- [ ] conditional scopes vs SSA
+    - separate declaration from assignment -> assigning a value in a conditional 
 
 - [ ] ask amit/leon about rust code that heavily uses dyn
 

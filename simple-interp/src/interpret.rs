@@ -1,5 +1,6 @@
 use crate::{
-    AssignmentRVal, BooleanStatement, Error, FuncVal, Funcs, Merge, RVal, Statement, Type,
+    AssignmentRVal, BooleanStatement, Error, FuncVal, Funcs, Merge, RVal,
+    Statement, Type,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -108,14 +109,20 @@ impl ConstraintMap {
                 VarType::Scope(_, backptr, inner_cmap) => {
                     // is var in inner_cmap? if not:
                     // - nested funcs: return None
-                    // - lambdas: recursively follow backptr to enclosing scopes
+                    // - closures: recursively follow backptr to enclosing
+                    //   scopes
+                    // FIXME closures should not recurse past enclosing function
                     match inner_cmap.cmap.get(var) {
                         Some(boxed) => return Ok(Some(*boxed.clone())),
                         None => {
                             if traverse_backptr {
-                                return self.scoped_get(backptr, var, traverse_backptr);
+                                return self.scoped_get(
+                                    backptr,
+                                    var,
+                                    traverse_backptr,
+                                );
                             } else {
-                                return Ok(None)
+                                return Ok(None);
                             }
                         }
                     }
@@ -459,7 +466,9 @@ impl Interpreter {
                                         functype = stored_functype;
                                     }
                                 },
-                                None => return Err(Error::UndefinedSymbol(name)),
+                                None => {
+                                    return Err(Error::UndefinedSymbol(name));
+                                }
                             }
 
                             match *functype {
@@ -824,14 +833,16 @@ impl Interpreter {
             num @ RVal::Num(_) => {
                 (HashSet::from([num.clone()]), HashSet::new())
             }
-            RVal::Var(varname) => match cmap.scoped_get(scope, varname, false) {
-                Ok(Some(vartype)) => match vartype {
-                    VarType::Values(_, constraints) => constraints.clone(),
-                    _ => return Err(Error::NoSwitchOnFuncPtr()),
-                },
-                Ok(None) => return Err(Error::UndefinedSymbol(varname)),
-                Err(err) => return Err(err),
-            },
+            RVal::Var(varname) => {
+                match cmap.scoped_get(scope, varname, false) {
+                    Ok(Some(vartype)) => match vartype {
+                        VarType::Values(_, constraints) => constraints.clone(),
+                        _ => return Err(Error::NoSwitchOnFuncPtr()),
+                    },
+                    Ok(None) => return Err(Error::UndefinedSymbol(varname)),
+                    Err(err) => return Err(err),
+                }
+            }
         };
 
         // filter out switch cases not possible given positive constraints
@@ -885,23 +896,31 @@ impl Interpreter {
                     HashSet::new(),
                 )));
             }
-            RVal::Var(varname) => match cmap.scoped_get(scope, varname, false) {
-                Ok(Some(vartype)) => match vartype {
-                    VarType::Values(_, constraints) => Ok(Some(constraints)),
-                    VarType::Scope(..) => match funcs.funcs.get(varname) {
-                        Some(_) => Ok(Some((
-                            HashSet::from([RVal::Var(*varname)]),
-                            HashSet::new(),
-                        ))),
+            RVal::Var(varname) => {
+                match cmap.scoped_get(scope, varname, false) {
+                    Ok(Some(vartype)) => match vartype {
+                        VarType::Values(_, constraints) => {
+                            Ok(Some(constraints))
+                        }
+                        VarType::Scope(..) => match funcs.funcs.get(varname) {
+                            Some(_) => Ok(Some((
+                                HashSet::from([RVal::Var(*varname)]),
+                                HashSet::new(),
+                            ))),
+                            None => {
+                                return Err(Error::UndefinedSymbol(varname));
+                            }
+                        },
+                    },
+                    Ok(None) => match funcs.funcs.get(varname) {
+                        Some(_) => panic!(
+                            "IP BUG: func should have been a scope in cmap"
+                        ),
                         None => return Err(Error::UndefinedSymbol(varname)),
                     },
-                },
-                Ok(None) => match funcs.funcs.get(varname) {
-                    Some(_) => panic!("IP BUG: func should have been a scope in cmap"),
-                    None => return Err(Error::UndefinedSymbol(varname)),
-                },
-                Err(err) => return Err(err),
-            },
+                    Err(err) => return Err(err),
+                }
+            }
         }
     }
 
@@ -1047,8 +1066,8 @@ impl Interpreter {
     ) -> Result<Option<Constraints>, Error> {
         match funcs.funcs.get(name) {
             Some(funcval) => {
-                let res = self
-                    .resolve_args(funcs, cmap, scope, name, &funcval, args);
+                let res =
+                    self.resolve_args(funcs, cmap, scope, name, &funcval, args);
                 if res.is_err() {
                     return Err(res.err().unwrap());
                 }

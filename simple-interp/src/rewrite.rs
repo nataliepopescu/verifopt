@@ -204,7 +204,8 @@ impl Rewriter {
     ) -> Result<HashSet<&'static str>, Error> {
         match vartype {
             Type::Func(sigval) => {
-                //let sigval = SigVal::new(paramtypes.clone(), rettype.clone());
+                //let sigval = SigVal::new(paramtypes.clone(),
+                // rettype.clone());
                 match sigs.sigs.get(&sigval) {
                     Some(funcset) => Ok(funcset.clone()),
                     None => panic!("SC BUG: func sig not collected"),

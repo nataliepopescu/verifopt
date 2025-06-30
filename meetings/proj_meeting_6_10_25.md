@@ -82,12 +82,11 @@ style 2: res on spot (set of constraints about possible vals)
 - [x] collect all funcs of certain signature
 - [x] add functional function retvals
 - [x] impl negative constraints
-- [ ] impl CHA
+- [x] impl CHA
+- [x] eventually impl flow-sensitive stuff (for function res)
 - [ ] traits (before/after CHA)
-- [ ] eventually impl flow-sensitive stuff (for function res)
 - [ ] summaries
     - [ ] functions
-    - [ ] bool conditions?
 
 - [ ] ask amit/leon about rust code that heavily uses dyn
 

@@ -1,6 +1,6 @@
 use crate::func_collect::Funcs;
 use crate::interpret::{ConstraintMap, Constraints, VarType};
-use crate::{BooleanStatement, Error, RVal, SigVal, Sigs, Statement, Type};
+use crate::{BooleanStatement, Error, RVal, Sigs, Statement, Type};
 
 use std::collections::HashSet;
 
@@ -203,8 +203,8 @@ impl Rewriter {
         vartype: &Type,
     ) -> Result<HashSet<&'static str>, Error> {
         match vartype {
-            Type::Func(paramtypes, rettype) => {
-                let sigval = SigVal::new(paramtypes.clone(), rettype.clone());
+            Type::Func(sigval) => {
+                //let sigval = SigVal::new(paramtypes.clone(), rettype.clone());
                 match sigs.sigs.get(&sigval) {
                     Some(funcset) => Ok(funcset.clone()),
                     None => panic!("SC BUG: func sig not collected"),
@@ -355,7 +355,7 @@ mod tests {
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
     use crate::func_collect::Funcs;
-    use crate::{AssignmentRVal, FuncVal, Type};
+    use crate::{AssignmentRVal, FuncVal, SigVal, Type};
     use std::collections::HashSet;
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
         cmap.cmap.insert(
             "x",
             Box::new(VarType::Values(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 (HashSet::from([RVal::Var("foo")]), HashSet::new()),
             )),
         );
@@ -456,7 +456,7 @@ mod tests {
         cmap.cmap.insert(
             "x",
             Box::new(VarType::Values(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 (HashSet::from([RVal::Var("foo")]), HashSet::new()),
             )),
         );
@@ -521,7 +521,7 @@ mod tests {
         cmap.cmap.insert(
             "x",
             Box::new(VarType::Values(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 (
                     HashSet::from([RVal::Var("bar"), RVal::Var("foo")]),
                     HashSet::new(),
@@ -693,7 +693,7 @@ mod tests {
         foo_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 (
                     HashSet::from([RVal::Var("baz"), RVal::Var("qux")]),
                     HashSet::new(),
@@ -703,7 +703,7 @@ mod tests {
         bar_cmap.cmap.insert(
             "x",
             Box::new(VarType::Values(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 (
                     HashSet::from([RVal::Var("baz2"), RVal::Var("qux2")]),
                     HashSet::new(),
@@ -714,7 +714,7 @@ mod tests {
         cmap.cmap.insert(
             "x",
             Box::new(VarType::Values(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 (
                     HashSet::from([RVal::Var("foo"), RVal::Var("bar")]),
                     HashSet::new(),
@@ -724,7 +724,7 @@ mod tests {
         cmap.cmap.insert(
             "baz2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 Some("bar"),
                 baz2_cmap,
             )),
@@ -732,7 +732,7 @@ mod tests {
         cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 None,
                 foo_cmap,
             )),
@@ -740,7 +740,7 @@ mod tests {
         cmap.cmap.insert(
             "qux",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 Some("foo"),
                 qux_cmap,
             )),
@@ -748,7 +748,7 @@ mod tests {
         cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 Some("foo"),
                 baz_cmap,
             )),
@@ -756,7 +756,7 @@ mod tests {
         cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 None,
                 bar_cmap,
             )),
@@ -764,7 +764,7 @@ mod tests {
         cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
+                Box::new(Type::Func(SigVal::new(vec![], None))),
                 Some("bar"),
                 qux2_cmap,
             )),

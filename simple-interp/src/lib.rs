@@ -113,7 +113,7 @@ impl FuncVal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int(),
-    Func(Vec<Type>, Option<Box<Type>>),
+    Func(SigVal),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

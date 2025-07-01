@@ -739,6 +739,7 @@ impl Interpreter {
         false_branch: &Statement,
     ) -> Result<Option<Constraints>, Error> {
         let mut res_cmap: Vec<ConstraintMap> = vec![];
+        let mut res_retvals = vec![];
 
         // FIXME mod store if have effects
         match self.interp_bool(funcs, cmap, scope, condition.clone()) {
@@ -758,7 +759,10 @@ impl Interpreter {
                             scope,
                             true_branch,
                         ) {
-                            Ok(_) => {
+                            Ok(true_retval) => {
+                                if true_retval.is_some() {
+                                    res_retvals.push(true_retval.unwrap());
+                                }
                                 // remove true branch constraints from
                                 // resulting cmap (safe b/c of SSA guarantee)
                                 match new_cmap.diff(&bconstraints.true_branch) {
@@ -784,7 +788,10 @@ impl Interpreter {
                             scope,
                             false_branch,
                         ) {
-                            Ok(_) => {
+                            Ok(false_retval) => {
+                                if false_retval.is_some() {
+                                    res_retvals.push(false_retval.unwrap());
+                                }
                                 // remove false branch constraints from
                                 // resulting cmap (safe b/c of SSA guarantee)
                                 match new_cmap.diff(&bconstraints.false_branch)
@@ -805,7 +812,11 @@ impl Interpreter {
         match res_cmap.merge() {
             Ok(new_cmap) => {
                 *cmap = new_cmap;
-                Ok(None)
+                match res_retvals.merge() {
+                    Ok(retval) => Ok(Some(retval)),
+                    Err(Error::VecSize()) => Ok(None),
+                    Err(err) => Err(err),
+                }
             }
             Err(err) => Err(err),
         }
@@ -932,20 +943,28 @@ impl Interpreter {
         name: &'static str,
         funcval: &FuncVal,
         args: &Vec<&'static str>,
-    ) -> Result<(), Error> {
+    ) -> Result<HashMap<&'static str, Constraints>, Error> {
+        // TODO return map of args -> values for summary memoization
+        let mut args_map = HashMap::new();
         let mut func_cmap = ConstraintMap::new();
+
         for (param, arg) in std::iter::zip(funcval.params.clone(), args) {
             match cmap.scoped_get(scope, arg, false) {
                 Ok(Some(vartype)) => match vartype {
                     // add args to scope
                     VarType::Values(valtype, constraints) => {
+                        args_map.insert(
+                            param,
+                            // TODO include type, too? (i.e. use VarType?)
+                            constraints.clone(),
+                        );
                         func_cmap.cmap.insert(
                             param,
                             Box::new(VarType::Values(
                                 valtype,
                                 constraints.clone(),
                             )),
-                        )
+                        );
                     }
                     _ => todo!("not impl yet (funcs as args)"),
                 },
@@ -971,7 +990,7 @@ impl Interpreter {
             )),
         );
 
-        Ok(())
+        Ok(args_map)
     }
 
     fn interp_indirect_invoke_helper(
@@ -3444,7 +3463,7 @@ mod tests {
     }
 
     #[test]
-    fn test_negative_constraints_eq() {
+    fn test_negative_constraints_with_eq() {
         let stmt = Sequence(vec![
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
@@ -3520,7 +3539,7 @@ mod tests {
     }
 
     #[test]
-    fn test_negative_constraints_neq() {
+    fn test_negative_constraints_with_neq() {
         let stmt = Sequence(vec![
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
@@ -3592,5 +3611,57 @@ mod tests {
 
         assert_eq!(res.unwrap(), None);
         assert_eq!(cmap, check_cmap);
+    }
+
+    #[test]
+    fn test_retval_summary() {
+        let body = Box::new(Sequence(vec![Box::new(Conditional(
+            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(Return(RVal::Var("a"))),
+            Box::new(Return(RVal::Var("b"))),
+        ))]));
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef(
+                "foo",
+                vec![Type::Int(), Type::Int()],
+                vec!["a", "b"],
+                Some(Box::new(Type::Int())),
+                body.clone(),
+            )),
+            Box::new(Assignment(
+                "a",
+                Box::new(AssignmentRVal::RVal(RVal::Num(0))),
+            )),
+            Box::new(Assignment(
+                "b",
+                Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+            )),
+            Box::new(Assignment(
+                "x",
+                Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
+                    "foo",
+                    vec!["a", "b"],
+                )))),
+            )),
+        ]);
+
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "foo",
+            FuncVal::new(
+                vec![Type::Int(), Type::Int()],
+                vec!["a", "b"],
+                Some(Box::new(Type::Int())),
+                body,
+            ),
+        );
+
+        // FIXME need sigs?
+        let mut cmap = ConstraintMap::new();
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+
+        assert_eq!(res.unwrap(), None);
     }
 }

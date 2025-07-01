@@ -42,6 +42,16 @@
       possible funcs
 
 - [ ] function summaries
+    - requires something like a program dependence graph (PDG); something to
+      track not only (1) the general relationships between inputs and outputs, 
+      but also (2) the precise relationship between each input/output value
+      (i.e. fn foo(a, b) -> int { a + b } ==> the fact that the return value is 
+      exactly a + b should be captured.)
+      - note this is unlike traditional dependency analysis, which (to the best
+        of my knowledge) just tracks if variables are dependent on one another,
+        but not precisely _how_
+    - go backwards from retval?
+        - similar insight to a Brown paper i think (range analysis)
 
 - [ ] impl traits
 
@@ -49,4 +59,8 @@
     - separate declaration from assignment -> assigning a value in a conditional 
 
 - [ ] ask amit/leon about rust code that heavily uses dyn
+
+- [ ] fill in todo!s (cases not yet impl in code)
+
+- [ ] impl loops
 

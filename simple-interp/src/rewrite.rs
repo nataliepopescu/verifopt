@@ -25,11 +25,6 @@ impl Rewriter {
         sort_hashsets: bool,
     ) -> Result<(), Error> {
         match stmt {
-            // FIXME impl when funcs have retvals + can print result
-            Statement::Print(_) => Ok(()),
-            // FIXME impl when funcs have retvals + can be assigned
-            Statement::Assignment(_, _) => Ok(()),
-            Statement::Return(_) => Ok(()),
             Statement::Sequence(stmt_vec) => self.rewrite_seq(
                 funcs,
                 cmap,
@@ -84,6 +79,7 @@ impl Rewriter {
                     Err(err) => Err(err),
                 }
             }
+            _ => Ok(()),
         }
     }
 
@@ -211,6 +207,7 @@ impl Rewriter {
                 }
             }
             Type::Int() => return Err(Error::NotAFunction(name)),
+            Type::Struct() => return Err(Error::NotAFunction(name)),
         }
     }
 

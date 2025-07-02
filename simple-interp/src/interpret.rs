@@ -338,6 +338,7 @@ impl Interpreter {
         stmt: &Statement,
     ) -> Result<Option<Constraints>, Error> {
         match stmt {
+            Statement::FuncDef(..) | Statement::Struct(..) => Ok(None),
             Statement::Sequence(stmt_vec) => {
                 self.interp_seq(funcs, cmap, scope, stmt_vec)
             }
@@ -364,7 +365,6 @@ impl Interpreter {
             Statement::Return(rval) => {
                 self.interp_return(funcs, cmap, scope, rval)
             }
-            Statement::FuncDef(..) => Ok(None),
             Statement::InvokeFunc(name, args) => {
                 self.interp_invoke(funcs, cmap, scope, name, args)
             }
@@ -405,6 +405,26 @@ impl Interpreter {
                     Box::new(VarType::Values(
                         Box::new(Type::Int()),
                         (HashSet::from([RVal::Num(*num)]), HashSet::new()),
+                    )),
+                );
+
+                if res.is_err() {
+                    return Err(res.err().unwrap());
+                }
+            }
+            AssignmentRVal::RVal(RVal::Struct(struct_name, field_values)) => {
+                let res = cmap.scoped_set(
+                    scope,
+                    var,
+                    Box::new(VarType::Values(
+                        Box::new(Type::Struct()), // FIXME
+                        (
+                            HashSet::from([RVal::Struct(
+                                *struct_name,
+                                field_values.to_vec(),
+                            )]),
+                            HashSet::new(),
+                        ),
                     )),
                 );
 
@@ -571,6 +591,7 @@ impl Interpreter {
                 },
                 Err(err) => return Err(err),
             },
+            RVal::Struct(..) => Ok((HashSet::from([rval]), HashSet::new())),
         }
     }
 
@@ -843,6 +864,9 @@ impl Interpreter {
                     Err(err) => return Err(err),
                 }
             }
+            struct_inst @ RVal::Struct(..) => {
+                (HashSet::from([struct_inst.clone()]), HashSet::new())
+            }
         };
 
         // filter out switch cases not possible given positive constraints
@@ -920,6 +944,12 @@ impl Interpreter {
                     },
                     Err(err) => return Err(err),
                 }
+            }
+            struct_inst @ RVal::Struct(..) => {
+                return Ok(Some((
+                    HashSet::from([struct_inst.clone()]),
+                    HashSet::new(),
+                )));
             }
         }
     }
@@ -1114,7 +1144,7 @@ mod tests {
     use super::*;
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence,
-        Switch,
+        Struct, Switch,
     };
     use crate::func_collect::Funcs;
     use crate::{FuncVal, Type};
@@ -3562,6 +3592,40 @@ mod tests {
             Box::new(VarType::Values(
                 Box::new(Type::Int()),
                 (HashSet::from([RVal::Num(0)]), HashSet::new()),
+            )),
+        );
+
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(cmap, check_cmap);
+    }
+
+    #[test]
+    fn test_struct() {
+        let stmt = Sequence(vec![
+            Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
+            Box::new(Assignment(
+                "edgar",
+                Box::new(AssignmentRVal::RVal(RVal::Struct(
+                    "Cat",
+                    vec![RVal::Var("9")],
+                ))),
+            )),
+        ]);
+
+        let funcs = Funcs::new();
+        let mut cmap = ConstraintMap::new();
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+
+        let mut check_cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
+            "edgar",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct()),
+                (
+                    HashSet::from([RVal::Struct("Cat", vec![RVal::Var("9")])]),
+                    HashSet::new(),
+                ),
             )),
         );
 

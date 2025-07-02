@@ -73,9 +73,6 @@ impl SSAChecker {
         stmt: &Statement,
     ) -> Result<(), Error> {
         match stmt {
-            Statement::Print(_) => Ok(()),
-            Statement::InvokeFunc(..) => Ok(()),
-            Statement::Return(_) => Ok(()),
             Statement::Assignment(name, _) => {
                 self.check_assignment(symbols, name)
             }
@@ -86,6 +83,10 @@ impl SSAChecker {
             Statement::FuncDef(name, _, params, _, body) => {
                 self.check_funcdef(symbols, name, params, body)
             }
+            Statement::Struct(struct_name, _, _) => {
+                self.check_struct(symbols, struct_name)
+            }
+            _ => Ok(()),
         }
     }
 
@@ -191,6 +192,18 @@ impl SSAChecker {
         }
 
         symbols.0.insert(name, Some(Box::new(func_symbols)));
+        Ok(())
+    }
+
+    fn check_struct(
+        &self,
+        symbols: &mut Symbols,
+        struct_name: &'static str,
+    ) -> Result<(), Error> {
+        if symbols.0.get(struct_name).is_some() {
+            return Err(Error::SymbolAlreadyExists(struct_name));
+        }
+        symbols.0.insert(struct_name, None);
         Ok(())
     }
 }

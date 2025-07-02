@@ -47,12 +47,6 @@ pub enum Error {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AssignmentRVal {
-    RVal(RVal),
-    Statement(Box<Statement>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Statement {
     Sequence(Vec<Box<Statement>>),
     Assignment(&'static str, Box<AssignmentRVal>),
@@ -68,11 +62,19 @@ pub enum Statement {
         Box<Statement>,
     ),
     InvokeFunc(&'static str, Vec<&'static str>),
+    Struct(&'static str, Vec<Type>, Vec<&'static str>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AssignmentRVal {
+    RVal(RVal),
+    Statement(Box<Statement>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RVal {
     Num(i32),
+    Struct(&'static str, Vec<RVal>),
     Var(&'static str),
 }
 
@@ -81,13 +83,28 @@ impl fmt::Display for RVal {
         match self {
             RVal::Num(num) => write!(f, "{}", num),
             RVal::Var(var) => write!(f, "{}", var),
+            RVal::Struct(name, field_values) => {
+                let mut fv_string: String = "".to_owned();
+                for field_value in field_values.iter() {
+                    fv_string.push_str(&field_value.to_string());
+                }
+                write!(f, "{} : {}", name, fv_string)
+            }
         }
     }
 }
 
-// TODO add sigval field
+#[derive(Debug, Clone, PartialEq)]
+pub struct DefFuncVal {
+    // FIXME Map<str, Type>
+    paramtypes: Vec<Type>,
+    params: Vec<&'static str>,
+    rettype: Option<Box<Type>>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncVal {
+    // FIXME Map<str, Type>
     paramtypes: Vec<Type>,
     params: Vec<&'static str>,
     rettype: Option<Box<Type>>,
@@ -113,6 +130,7 @@ impl FuncVal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int(),
+    Struct(), // FIXME specific structs
     Func(Vec<Type>, Option<Box<Type>>),
 }
 

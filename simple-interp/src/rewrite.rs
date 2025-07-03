@@ -1,6 +1,8 @@
 use crate::func_collect::Funcs;
 use crate::interpret::{ConstraintMap, Constraints, VarType};
-use crate::{BooleanStatement, Error, RVal, SigVal, Sigs, Statement, Type};
+use crate::{
+    BooleanStatement, Error, FuncName, RVal, SigVal, Sigs, Statement, Type,
+};
 
 use std::collections::HashSet;
 
@@ -197,8 +199,9 @@ impl Rewriter {
         sigs: &Sigs,
         name: &'static str,
         vartype: &Type,
-    ) -> Result<HashSet<&'static str>, Error> {
+    ) -> Result<HashSet<FuncName>, Error> {
         match vartype {
+            // FIXME can further refine via traits
             Type::Func(paramtypes, rettype) => {
                 let sigval = SigVal::new(paramtypes.clone(), rettype.clone());
                 match sigs.sigs.get(&sigval) {
@@ -214,14 +217,15 @@ impl Rewriter {
     fn is_top(
         &self,
         pos_constraints: &HashSet<RVal>,
-        top: &HashSet<&'static str>,
+        top: &HashSet<FuncName>,
     ) -> bool {
-        let mut str_set = HashSet::<&'static str>::new();
+        let mut str_set = HashSet::<FuncName>::new();
 
         // check for any non-string (i.e. Num) RVals in constraints
         for rval in pos_constraints.clone().into_iter() {
             match rval {
-                RVal::Var(varname) => str_set.insert(varname),
+                // FIXME this overwrites existing trait/struct name option
+                RVal::Var(varname) => str_set.insert((varname, None)),
                 _ => return false,
             };
         }
@@ -239,7 +243,7 @@ impl Rewriter {
         name: &'static str,
         vartype: &Type,
         constraints: &Constraints,
-    ) -> Result<Option<HashSet<&'static str>>, Error> {
+    ) -> Result<Option<HashSet<FuncName>>, Error> {
         match self.cha(sigs, name, vartype) {
             Ok(all_possible) => {
                 if constraints.0.is_empty() && constraints.1.is_empty()
@@ -272,6 +276,12 @@ impl Rewriter {
             pos_vec.sort();
         }
 
+        // FIXME traits can add more substantial/useful negative constraints
+        // FIXME how will the traits impl impact this analysis/rewrite?
+        // i.e. are trait-impl-funcs represented as normal functions? b/c what
+        // if a trait-impl- and a non-trait-impl func have the same signature?
+        // using the trait will rule out the non-trait-impl func if...
+
         // if constraints == bottom (empty) OR top (all possible), use CHA
         // [this is the status quo in C++ related work]
         match self.is_top_or_bottom(sigs, name, vartype, constraints) {
@@ -283,7 +293,8 @@ impl Rewriter {
                     top_vec.sort();
                 }
 
-                for func_str in top_vec.into_iter() {
+                // FIXME use trait_struct_opt
+                for (func_str, _) in top_vec.into_iter() {
                     switch_vec.push((
                         RVal::Var(func_str),
                         Box::new(Statement::InvokeFunc(func_str, args.clone())),
@@ -323,7 +334,8 @@ impl Rewriter {
         args: &Vec<&'static str>,
         sort_hashsets: bool,
     ) -> Result<Statement, Error> {
-        match funcs.funcs.get(name) {
+        // FIXME get trait/struct name, if exists
+        match funcs.funcs.get(&(name, None)) {
             Some(_) => Ok(Statement::InvokeFunc(name, args.to_vec())),
             None => match cmap.scoped_get(scope, name, false) {
                 Ok(Some(vartype)) => match vartype {
@@ -409,9 +421,10 @@ mod tests {
         let check_stmt = stmt.clone();
 
         let mut funcs = Funcs::new();
-        funcs
-            .funcs
-            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
+        funcs.funcs.insert(
+            ("foo", None),
+            FuncVal::new(vec![], vec![], None, body.clone()),
+        );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
             "x",
@@ -422,7 +435,7 @@ mod tests {
         );
         let mut sigs = Sigs::new();
         let sigval = SigVal::new(vec![], None);
-        sigs.sigs.insert(sigval, HashSet::from(["foo"]));
+        sigs.sigs.insert(sigval, HashSet::from([("foo", None)]));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
@@ -446,9 +459,10 @@ mod tests {
         ]);
 
         let mut funcs = Funcs::new();
-        funcs
-            .funcs
-            .insert("foo", FuncVal::new(vec![], vec![], None, body.clone()));
+        funcs.funcs.insert(
+            ("foo", None),
+            FuncVal::new(vec![], vec![], None, body.clone()),
+        );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
             "x",
@@ -459,7 +473,7 @@ mod tests {
         );
         let mut sigs = Sigs::new();
         let sigval = SigVal::new(vec![], None);
-        sigs.sigs.insert(sigval, HashSet::from(["foo"]));
+        sigs.sigs.insert(sigval, HashSet::from([("foo", None)]));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
@@ -507,11 +521,11 @@ mod tests {
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
-            "foo",
+            ("foo", None),
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
         funcs.funcs.insert(
-            "bar",
+            ("bar", None),
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
         let mut cmap = ConstraintMap::new();
@@ -527,7 +541,8 @@ mod tests {
         );
         let mut sigs = Sigs::new();
         let sigval = SigVal::new(vec![], None);
-        sigs.sigs.insert(sigval, HashSet::from(["foo", "bar"]));
+        sigs.sigs
+            .insert(sigval, HashSet::from([("foo", None), ("bar", None)]));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
@@ -626,27 +641,27 @@ mod tests {
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
-            "foo",
+            ("foo", None),
             FuncVal::new(vec![], vec![], None, foo_body.clone()),
         );
         funcs.funcs.insert(
-            "bar",
+            ("bar", None),
             FuncVal::new(vec![], vec![], None, bar_body.clone()),
         );
         funcs.funcs.insert(
-            "baz",
+            ("baz", None),
             FuncVal::new(vec![], vec![], None, baz_body.clone()),
         );
         funcs.funcs.insert(
-            "qux",
+            ("qux", None),
             FuncVal::new(vec![], vec![], None, qux_body.clone()),
         );
         funcs.funcs.insert(
-            "baz2",
+            ("baz2", None),
             FuncVal::new(vec![], vec![], None, baz2_body.clone()),
         );
         funcs.funcs.insert(
-            "qux2",
+            ("qux2", None),
             FuncVal::new(vec![], vec![], None, qux2_body.clone()),
         );
 
@@ -770,7 +785,14 @@ mod tests {
         let sigval = SigVal::new(vec![], None);
         sigs.sigs.insert(
             sigval,
-            HashSet::from(["foo", "bar", "baz", "qux", "baz2", "qux2"]),
+            HashSet::from([
+                ("foo", None),
+                ("bar", None),
+                ("baz", None),
+                ("qux", None),
+                ("baz2", None),
+                ("qux2", None),
+            ]),
         );
 
         let rw = Rewriter::new();
@@ -848,6 +870,51 @@ mod tests {
             )),
             Box::new(Switch(RVal::Var("x"), switch_vec)),
         ]);
+
+        assert_eq!(stmt, check_stmt);
+    }
+
+    #[test]
+    fn test_trait_impl() {
+        let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
+
+        let funcdef = DefFuncVal::new(vec![], vec![], None);
+        let cat_funcimpl =
+            FuncVal::new(vec![], vec![], None, cat_speak_body.clone());
+
+        let stmt = Sequence(vec![
+            Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(Struct("Cat", vec![], vec![])),
+            Box::new(TraitImpl(
+                "Animal",
+                "Cat",
+                vec!["speak"],
+                vec![cat_funcimpl.clone()],
+            )),
+            Box::new(Assignment(
+                "edgar",
+                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+            )),
+        ]);
+
+        let mut funcs = Funcs::new();
+        funcs
+            .funcs
+            .insert(("speak", Some(("Animal", "Cat"))), cat_funcimpl.clone());
+
+        let mut cmap = ConstraintMap::new();
+        check_cmap.cmap.insert(
+            "edgar",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct()),
+                (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
+            )),
+        );
+
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
+
+        // TODO call func - either `self` or flexible arg type?
 
         assert_eq!(stmt, check_stmt);
     }

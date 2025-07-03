@@ -42,6 +42,10 @@
       possible funcs
 
 - [x] impl traits
+    - need to have some notion of `self`, or what type the current object is, in
+      order to call a trait-impl method on the current object
+    - either that or must pass in the `self` object as an argument, but then
+      have to deal with argument polymorphism
     - [x] impl methods (vs functions) / dot notation
     - [x] impl using trait objects
     - [ ] CHA vs fewer-constraints
@@ -58,5 +62,5 @@
 - [ ] conditional scopes vs SSA
     - separate declaration from assignment -> assigning a value in a conditional 
 
-- [ ] ask amit/leon about rust code that heavily uses dyn
+- [ ] how to simulate SSA assumption in Rust compiler?
 

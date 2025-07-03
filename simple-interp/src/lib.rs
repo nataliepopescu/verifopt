@@ -63,6 +63,13 @@ pub enum Statement {
     ),
     InvokeFunc(&'static str, Vec<&'static str>),
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
+    // traits without associated types for now
+    // FIXME support `&self` with either string or bool flag
+    // FIXME independent vecs for func names + defs/impls (current) OR use a
+    // map (trait name, func defs)
+    TraitDef(&'static str, Vec<&'static str>, Vec<DefFuncVal>),
+    // (trait name, struct name, func names, funcs impls)
+    TraitImpl(&'static str, &'static str, Vec<&'static str>, Vec<FuncVal>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,7 +101,12 @@ impl fmt::Display for RVal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// literal function name mangled with its (optional) trait / struct name (for
+// trait implementations)
+pub type TraitStructNameOpt = Option<(&'static str, &'static str)>;
+pub type FuncName = (&'static str, TraitStructNameOpt);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefFuncVal {
     // FIXME Map<str, Type>
     paramtypes: Vec<Type>,
@@ -102,7 +114,21 @@ pub struct DefFuncVal {
     rettype: Option<Box<Type>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl DefFuncVal {
+    pub fn new(
+        paramtypes: Vec<Type>,
+        params: Vec<&'static str>,
+        rettype: Option<Box<Type>>,
+    ) -> Self {
+        Self {
+            paramtypes,
+            params,
+            rettype,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncVal {
     // FIXME Map<str, Type>
     paramtypes: Vec<Type>,

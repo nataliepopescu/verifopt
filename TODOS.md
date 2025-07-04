@@ -43,11 +43,14 @@
 
 - [ ] function summaries
 
-- [ ] impl traits
+- [ ] impl traits (structs that impl traits)
     - need to have some notion of `self`, or what type the current object is, in
       order to call a trait-impl method on the current object
     - either that or must pass in the `self` object as an argument, but then
       have to deal with argument polymorphism
+
+    - [ ] impl methods (vs functions) / dot notation
+    - [ ] impl using trait objects
 
 - [ ] conditional scopes vs SSA
     - separate declaration from assignment -> assigning a value in a conditional 

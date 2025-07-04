@@ -1,5 +1,7 @@
 # Trait Objects, Generics, and VTables
 
+## Traits
+
 [trait obj](https://doc.rust-lang.org/reference/types/trait-object.html)
 
 trait object == dynamically sized type (DST)
@@ -19,6 +21,40 @@ DSTs -> fat pointers (2x size)
     - generic params have an implicit `Sized` bound, which is incompatible w
       unSized trait objects
 
+[advanced traits](https://doc.rust-lang.org/book/ch20-02-advanced-traits.html)
+- disambiguating...
+    - "Nothing in Rust prevents a trait from having a method with the same name as
+      another trait’s method, nor does Rust prevent you from implementing both
+      traits on one type. It’s also possible to implement a method directly on the
+      type with the same name as methods from traits."
+    - `Dog::baby_name()` calls non-trait `baby_name()` method on `Dog`
+    - `Animal::baby_name()` does not compile
+    - `<Dog as Animal>::baby_name()` calls `Animal` trait `baby_name()` method
+      on `Dog`
+    - in general: `<Type as Trait>::function(receiver_if_method, next_arg, ...);`
+
+### Function vs Associated Functions vs Methods
+
+[assoc funcs vs
+methods](https://www.reddit.com/r/learnrust/comments/ums8uw/difference_between_associated_function_and_method/)
+- "Note that methods can be called as associated functions, you just need to
+  pass an argument for the receiver as well. For example foo.bar() could be
+  Foo::bar(&foo)"
+    - any difference when compiled/run between these two syntaxes?
+
+[method
+syntax](https://doc.rust-lang.org/book/ch05-03-method-syntax.html#associated-functions)
+- "The &self is actually short for self: &Self"
+- "The main reason for using methods instead of functions, in addition to
+  providing method syntax and not having to repeat the type of self in every
+  method’s signature, is for organization."
+
+[dot operator](https://doc.rust-lang.org/nomicon/dot-operator.html)
+- "The dot operator will perform a lot of magic to convert types. It will perform
+  auto-referencing, auto-dereferencing, and coercion until types match."
+
+[detailed method lookup 
+mechanics](https://rustc-dev-guide.rust-lang.org/method-lookup.html)
 ## Generics
 
 generics and traits/trait objects are related b/c in order to have a generic

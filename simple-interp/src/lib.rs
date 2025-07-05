@@ -81,6 +81,7 @@ pub enum AssignmentRVal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RVal {
     Num(i32),
+    // FIXME add strings
     Struct(&'static str, Vec<RVal>),
     Var(&'static str),
 }
@@ -101,10 +102,8 @@ impl fmt::Display for RVal {
     }
 }
 
-// literal function name mangled with its (optional) trait / struct name (for
-// trait implementations)
-pub type TraitStructNameOpt = Option<(&'static str, &'static str)>;
-pub type FuncName = (&'static str, TraitStructNameOpt);
+pub type TraitStructOpt = Option<(&'static str, &'static str)>;
+pub type FuncName = &'static str;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DefFuncVal {
@@ -157,6 +156,7 @@ impl FuncVal {
 pub enum Type {
     Int(),
     Struct(), // FIXME specific structs
+    DynTrait(&'static str),
     Func(Vec<Type>, Option<Box<Type>>),
 }
 

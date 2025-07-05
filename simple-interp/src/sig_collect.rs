@@ -22,21 +22,18 @@ impl SigCollector {
     }
 
     pub fn collect(&self, funcs: &Funcs, sigs: &mut Sigs) -> Result<(), Error> {
-        for ((func_name, trait_struct_name), func) in funcs.funcs.iter() {
+        for (func_name, (tso, func)) in funcs.funcs.iter() {
             let sig =
                 SigVal::new(func.paramtypes.clone(), func.rettype.clone());
             match sigs.sigs.get(&sig) {
                 Some(existing_funcs) => {
                     let mut func_names = existing_funcs.clone();
-                    func_names.insert((func_name, *trait_struct_name));
+                    func_names.insert(func_name);
                     sigs.sigs.insert(sig, func_names);
                 }
                 None => {
-                    let mut func_names = HashSet::<(
-                        &'static str,
-                        Option<(&'static str, &'static str)>,
-                    )>::new();
-                    func_names.insert((func_name, *trait_struct_name));
+                    let mut func_names = HashSet::<&'static str>::new();
+                    func_names.insert(func_name);
                     sigs.sigs.insert(sig, func_names);
                 }
             }
@@ -60,7 +57,7 @@ mod test {
         let mut funcs = Funcs::new();
         funcs
             .funcs
-            .insert(("foo", None), FuncVal::new(vec![], vec![], None, body));
+            .insert("foo", (None, FuncVal::new(vec![], vec![], None, body)));
 
         let mut sigs = Sigs::new();
 
@@ -68,7 +65,7 @@ mod test {
         let res = sc.collect(&funcs, &mut sigs);
 
         let mut func_names = HashSet::new();
-        func_names.insert(("foo", None));
+        func_names.insert("foo");
         let mut check_sigs = Sigs::new();
         check_sigs
             .sigs
@@ -90,12 +87,12 @@ mod test {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, foo_body),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, foo_body)),
         );
         funcs.funcs.insert(
-            ("bar", None),
-            FuncVal::new(vec![], vec![], None, bar_body),
+            "bar",
+            (None, FuncVal::new(vec![], vec![], None, bar_body)),
         );
 
         let mut sigs = Sigs::new();
@@ -104,8 +101,8 @@ mod test {
         let res = sc.collect(&funcs, &mut sigs);
 
         let mut func_names = HashSet::new();
-        func_names.insert(("foo", None));
-        func_names.insert(("bar", None));
+        func_names.insert("foo");
+        func_names.insert("bar");
         let mut check_sigs = Sigs::new();
         check_sigs
             .sigs
@@ -131,31 +128,40 @@ mod test {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(
-                vec![Type::Int(), Type::Int()],
-                vec!["a", "b"],
-                Some(Box::new(Type::Int())),
-                foo_body,
+            "foo",
+            (
+                None,
+                FuncVal::new(
+                    vec![Type::Int(), Type::Int()],
+                    vec!["a", "b"],
+                    Some(Box::new(Type::Int())),
+                    foo_body,
+                ),
             ),
         );
         funcs.funcs.insert(
-            ("bar", None),
-            FuncVal::new(
-                vec![Type::Int(), Type::Int()],
-                vec!["a", "b"],
-                Some(Box::new(Type::Int())),
-                bar_body,
+            "bar",
+            (
+                None,
+                FuncVal::new(
+                    vec![Type::Int(), Type::Int()],
+                    vec!["a", "b"],
+                    Some(Box::new(Type::Int())),
+                    bar_body,
+                ),
             ),
         );
         let baz_funcarg_rettype = Box::new(Type::Int());
         funcs.funcs.insert(
-            ("baz", None),
-            FuncVal::new(
-                vec![Type::Func(vec![], Some(baz_funcarg_rettype.clone()))],
-                vec![],
+            "baz",
+            (
                 None,
-                baz_body,
+                FuncVal::new(
+                    vec![Type::Func(vec![], Some(baz_funcarg_rettype.clone()))],
+                    vec![],
+                    None,
+                    baz_body,
+                ),
             ),
         );
 
@@ -165,10 +171,10 @@ mod test {
         let res = sc.collect(&funcs, &mut sigs);
 
         let mut func_names = HashSet::new();
-        func_names.insert(("foo", None));
-        func_names.insert(("bar", None));
+        func_names.insert("foo");
+        func_names.insert("bar");
         let mut func_names2 = HashSet::new();
-        func_names2.insert(("baz", None));
+        func_names2.insert("baz");
 
         let mut check_sigs = Sigs::new();
         check_sigs.sigs.insert(
@@ -199,17 +205,16 @@ mod test {
         let mut funcs = Funcs::new();
         funcs
             .funcs
-            .insert(("speak", Some(("Animal", "Cat"))), cat_funcimpl.clone());
+            .insert("speak", (Some(("Animal", "Cat")), cat_funcimpl.clone()));
 
         let mut sigs = Sigs::new();
         let sc = SigCollector::new();
         let res = sc.collect(&funcs, &mut sigs);
 
         let mut check_sigs = Sigs::new();
-        check_sigs.sigs.insert(
-            SigVal::new(vec![], None),
-            HashSet::from([("speak", Some(("Animal", "Cat")))]),
-        );
+        check_sigs
+            .sigs
+            .insert(SigVal::new(vec![], None), HashSet::from(["speak"]));
 
         assert_eq!(res.unwrap(), ());
         assert_eq!(sigs, check_sigs);

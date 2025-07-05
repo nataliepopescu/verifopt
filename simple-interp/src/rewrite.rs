@@ -223,8 +223,7 @@ impl Rewriter {
         // check for any non-string (i.e. Num) RVals in constraints
         for rval in pos_constraints.clone().into_iter() {
             match rval {
-                // FIXME this overwrites existing trait/struct name option
-                RVal::Var(varname) => str_set.insert((varname, None)),
+                RVal::Var(varname) => str_set.insert(varname),
                 _ => return false,
             };
         }
@@ -293,7 +292,7 @@ impl Rewriter {
                 }
 
                 // FIXME use trait_struct_opt
-                for (func_str, _) in top_vec.into_iter() {
+                for func_str in top_vec.into_iter() {
                     switch_vec.push((
                         RVal::Var(func_str),
                         Box::new(Statement::InvokeFunc(func_str, args.clone())),
@@ -334,8 +333,8 @@ impl Rewriter {
         sort_hashsets: bool,
     ) -> Result<Statement, Error> {
         // FIXME get trait/struct name, if exists
-        match funcs.funcs.get(&(name, None)) {
-            Some(_) => Ok(Statement::InvokeFunc(name, args.to_vec())),
+        match funcs.funcs.get(&name) {
+            Some((tso, _)) => Ok(Statement::InvokeFunc(name, args.to_vec())),
             None => match cmap.scoped_get(scope, name, false) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(vartype, constraints) => self
@@ -422,8 +421,8 @@ mod tests {
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, body.clone()),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, body.clone())),
         );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
@@ -435,7 +434,7 @@ mod tests {
         );
         let mut sigs = Sigs::new();
         let sigval = SigVal::new(vec![], None);
-        sigs.sigs.insert(sigval, HashSet::from([("foo", None)]));
+        sigs.sigs.insert(sigval, HashSet::from(["foo"]));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
@@ -460,8 +459,8 @@ mod tests {
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, body.clone()),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, body.clone())),
         );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
@@ -473,7 +472,7 @@ mod tests {
         );
         let mut sigs = Sigs::new();
         let sigval = SigVal::new(vec![], None);
-        sigs.sigs.insert(sigval, HashSet::from([("foo", None)]));
+        sigs.sigs.insert(sigval, HashSet::from(["foo"]));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
@@ -521,12 +520,12 @@ mod tests {
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, foo_body.clone())),
         );
         funcs.funcs.insert(
-            ("bar", None),
-            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+            "bar",
+            (None, FuncVal::new(vec![], vec![], None, bar_body.clone())),
         );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
@@ -541,8 +540,7 @@ mod tests {
         );
         let mut sigs = Sigs::new();
         let sigval = SigVal::new(vec![], None);
-        sigs.sigs
-            .insert(sigval, HashSet::from([("foo", None), ("bar", None)]));
+        sigs.sigs.insert(sigval, HashSet::from(["foo"]));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
@@ -641,28 +639,28 @@ mod tests {
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, foo_body.clone())),
         );
         funcs.funcs.insert(
-            ("bar", None),
-            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+            "bar",
+            (None, FuncVal::new(vec![], vec![], None, bar_body.clone())),
         );
         funcs.funcs.insert(
-            ("baz", None),
-            FuncVal::new(vec![], vec![], None, baz_body.clone()),
+            "baz",
+            (None, FuncVal::new(vec![], vec![], None, baz_body.clone())),
         );
         funcs.funcs.insert(
-            ("qux", None),
-            FuncVal::new(vec![], vec![], None, qux_body.clone()),
+            "qux",
+            (None, FuncVal::new(vec![], vec![], None, qux_body.clone())),
         );
         funcs.funcs.insert(
-            ("baz2", None),
-            FuncVal::new(vec![], vec![], None, baz2_body.clone()),
+            "baz2",
+            (None, FuncVal::new(vec![], vec![], None, baz2_body.clone())),
         );
         funcs.funcs.insert(
-            ("qux2", None),
-            FuncVal::new(vec![], vec![], None, qux2_body.clone()),
+            "qux2",
+            (None, FuncVal::new(vec![], vec![], None, qux2_body.clone())),
         );
 
         let mut cmap = ConstraintMap::new();
@@ -785,14 +783,7 @@ mod tests {
         let sigval = SigVal::new(vec![], None);
         sigs.sigs.insert(
             sigval,
-            HashSet::from([
-                ("foo", None),
-                ("bar", None),
-                ("baz", None),
-                ("qux", None),
-                ("baz2", None),
-                ("qux2", None),
-            ]),
+            HashSet::from(["foo", "bar", "baz", "qux", "baz2", "qux2"]),
         );
 
         let rw = Rewriter::new();
@@ -900,7 +891,7 @@ mod tests {
         let mut funcs = Funcs::new();
         funcs
             .funcs
-            .insert(("speak", Some(("Animal", "Cat"))), cat_funcimpl.clone());
+            .insert("speak", (Some(("Animal", "Cat")), cat_funcimpl.clone()));
 
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
@@ -912,10 +903,8 @@ mod tests {
         );
 
         let mut sigs = Sigs::new();
-        sigs.sigs.insert(
-            SigVal::new(vec![], None),
-            HashSet::from([("speak", Some(("Animal", "Cat")))]),
-        );
+        sigs.sigs
+            .insert(SigVal::new(vec![], None), HashSet::from(["speak"]));
 
         let rw = Rewriter::new();
         let _ = rw.rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);

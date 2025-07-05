@@ -48,3 +48,8 @@ another strategy
 - probably better than names/C++ strat
 - preface to type tags/discriminator
 
+left:
+- traits
+- traits CHA
+- function summaries
+

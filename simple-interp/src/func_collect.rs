@@ -1,15 +1,15 @@
-use crate::{Error, FuncName, FuncVal, Statement, TraitStructNameOpt, Type};
+use crate::{Error, FuncName, FuncVal, Statement, TraitStructOpt, Type};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Funcs {
-    pub funcs: HashMap<FuncName, FuncVal>,
+    pub funcs: HashMap<FuncName, (TraitStructOpt, FuncVal)>,
 }
 
 impl Funcs {
     pub fn new() -> Self {
         Self {
-            funcs: HashMap::<FuncName, FuncVal>::new(),
+            funcs: HashMap::<FuncName, (TraitStructOpt, FuncVal)>::new(),
         }
     }
 }
@@ -66,27 +66,27 @@ impl FuncCollector {
         &self,
         funcs: &mut Funcs,
         func_name: &'static str,
-        trait_struct_name: TraitStructNameOpt,
+        tso: TraitStructOpt,
         paramtypes: &Vec<Type>,
         params: &Vec<&'static str>,
         rettype: &Option<Box<Type>>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
-        match funcs.funcs.get(&(func_name, trait_struct_name)) {
+        match funcs.funcs.get(&func_name) {
             Some(_) => {
-                panic!(
-                    "SSA BUG: funcname {:?} / trait_struct_name {:?} combo already exists",
-                    &func_name, &trait_struct_name
-                )
+                panic!("SSA BUG: funcname {:?} already exists", &func_name)
             }
             None => {
                 funcs.funcs.insert(
-                    (func_name, trait_struct_name),
-                    FuncVal::new(
-                        paramtypes.clone(),
-                        params.clone(),
-                        rettype.clone(),
-                        body.clone(),
+                    func_name,
+                    (
+                        tso,
+                        FuncVal::new(
+                            paramtypes.clone(),
+                            params.clone(),
+                            rettype.clone(),
+                            body.clone(),
+                        ),
                     ),
                 );
 
@@ -244,7 +244,7 @@ mod tests {
         let mut check_funcs = Funcs::new();
         check_funcs
             .funcs
-            .insert(("foo", None), FuncVal::new(vec![], vec![], None, body));
+            .insert("foo", (None, FuncVal::new(vec![], vec![], None, body)));
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
@@ -263,8 +263,8 @@ mod tests {
 
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![Type::Int()], vec!["y"], None, body),
+            "foo",
+            (None, FuncVal::new(vec![Type::Int()], vec!["y"], None, body)),
         );
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
@@ -289,8 +289,8 @@ mod tests {
 
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, body.clone()),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, body.clone())),
         );
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
@@ -317,12 +317,12 @@ mod tests {
 
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert(
-            ("bar", None),
-            FuncVal::new(vec![], vec![], None, bar_body),
+            "bar",
+            (None, FuncVal::new(vec![], vec![], None, bar_body)),
         );
         check_funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, foo_body),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, foo_body)),
         );
 
         assert_eq!(res.unwrap(), ());
@@ -403,28 +403,28 @@ mod tests {
 
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert(
-            ("foo", None),
-            FuncVal::new(vec![], vec![], None, foo_body.clone()),
+            "foo",
+            (None, FuncVal::new(vec![], vec![], None, foo_body.clone())),
         );
         check_funcs.funcs.insert(
-            ("bar", None),
-            FuncVal::new(vec![], vec![], None, bar_body.clone()),
+            "bar",
+            (None, FuncVal::new(vec![], vec![], None, bar_body.clone())),
         );
         check_funcs.funcs.insert(
-            ("baz", None),
-            FuncVal::new(vec![], vec![], None, baz_body.clone()),
+            "baz",
+            (None, FuncVal::new(vec![], vec![], None, baz_body.clone())),
         );
         check_funcs.funcs.insert(
-            ("qux", None),
-            FuncVal::new(vec![], vec![], None, qux_body.clone()),
+            "qux",
+            (None, FuncVal::new(vec![], vec![], None, qux_body.clone())),
         );
         check_funcs.funcs.insert(
-            ("baz2", None),
-            FuncVal::new(vec![], vec![], None, baz2_body.clone()),
+            "baz2",
+            (None, FuncVal::new(vec![], vec![], None, baz2_body.clone())),
         );
         check_funcs.funcs.insert(
-            ("qux2", None),
-            FuncVal::new(vec![], vec![], None, qux2_body.clone()),
+            "qux2",
+            (None, FuncVal::new(vec![], vec![], None, qux2_body.clone())),
         );
 
         assert_eq!(res.unwrap(), ());
@@ -461,7 +461,7 @@ mod tests {
         let mut check_funcs = Funcs::new();
         check_funcs
             .funcs
-            .insert(("speak", Some(("Animal", "Cat"))), cat_funcimpl.clone());
+            .insert("speak", (Some(("Animal", "Cat")), cat_funcimpl.clone()));
 
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);

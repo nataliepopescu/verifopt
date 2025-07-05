@@ -64,7 +64,7 @@ pub enum Statement {
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
     // traits without associated types for now
     // (trait name, func names, funcs defs)
-    TraitDef(&'static str, Vec<&'static str>, Vec<FuncDecl>),
+    TraitDecl(&'static str, Vec<&'static str>, Vec<FuncDecl>),
     // (trait name, struct name, func names, funcs impls)
     TraitImpl(&'static str, &'static str, Vec<&'static str>, Vec<FuncVal>),
 }

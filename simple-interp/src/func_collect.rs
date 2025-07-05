@@ -131,7 +131,7 @@ mod tests {
     use crate::BooleanStatement;
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence,
-        Struct, TraitDef, TraitImpl,
+        Struct, TraitDecl, TraitImpl,
     };
     use crate::{AssignmentRVal, FuncDecl, FuncVal, RVal};
 
@@ -439,7 +439,7 @@ mod tests {
         let cat_funcimpl = FuncVal::new(vec![], None, cat_speak_body.clone());
 
         let stmt = Sequence(vec![
-            Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(TraitImpl(
                 "Animal",
@@ -499,7 +499,11 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(TraitDef("Animal", vec!["speak"], vec![funcdecl.clone()])),
+            Box::new(TraitDecl(
+                "Animal",
+                vec!["speak"],
+                vec![funcdecl.clone()],
+            )),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
                 vec![],

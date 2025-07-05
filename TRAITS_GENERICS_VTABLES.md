@@ -33,6 +33,12 @@ DSTs -> fat pointers (2x size)
       on `Dog`
     - in general: `<Type as Trait>::function(receiver_if_method, next_arg, ...);`
 
+[trait objs](https://doc.rust-lang.org/book/ch18-02-trait-objects.html)
+- "In a struct or enum, the data in the struct fields and the behavior in impl
+  blocks are separated, whereas in other languages, the data and behavior
+  combined into one concept is often labeled an object... trait objects
+  differ from traditional objects in that we can’t add data to a trait object."
+
 ### Function vs Associated Functions vs Methods
 
 [assoc funcs vs

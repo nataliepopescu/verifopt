@@ -113,10 +113,7 @@ impl FuncDecl {
         params: Vec<(&'static str, Type)>,
         rettype: Option<Box<Type>>,
     ) -> Self {
-        Self {
-            params,
-            rettype,
-        }
+        Self { params, rettype }
     }
 }
 
@@ -165,7 +162,7 @@ impl SigVal {
 }
 
 pub trait Merge<T> {
-    fn merge(&self) -> Result<T, Error>;
+    fn merge(&self) -> Result<Option<T>, Error>;
 }
 
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
@@ -598,18 +595,8 @@ mod tests {
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef(
-                "foo",
-                vec![],
-                None,
-                check_foo_body.clone(),
-            )),
-            Box::new(FuncDef(
-                "bar",
-                vec![],
-                None,
-                check_bar_body.clone(),
-            )),
+            Box::new(FuncDef("foo", vec![], None, check_foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, check_bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(

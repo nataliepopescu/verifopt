@@ -80,7 +80,7 @@ impl SSAChecker {
             Statement::Conditional(_, true_branch, false_branch) => self
                 .check_conditional(symbols, &(*true_branch), &(*false_branch)),
             Statement::Switch(_, vec) => self.check_switch(symbols, vec),
-            Statement::FuncDef(name, _, params, _, body) => {
+            Statement::FuncDef(name, params, _, body) => {
                 self.check_funcdef(symbols, name, params, body)
             }
             Statement::Struct(struct_name, _, _) => {
@@ -175,7 +175,7 @@ impl SSAChecker {
         &self,
         symbols: &mut Symbols,
         name: &'static str,
-        params: &Vec<&'static str>,
+        params: &Vec<(&'static str, crate::Type)>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
         if symbols.0.get(name).is_some() {
@@ -183,7 +183,7 @@ impl SSAChecker {
         }
 
         let mut func_symbols = Symbols::new();
-        for argname in params.iter() {
+        for (argname, _) in params.iter() {
             func_symbols.0.insert(argname, None);
         }
         let res = self.check(&mut func_symbols, body);
@@ -285,8 +285,7 @@ mod tests {
         ));
         let stmt = Sequence(vec![Box::new(FuncDef(
             "foo",
-            vec![Type::Int()],
-            vec!["x"],
+            vec![("x", Type::Int())],
             None,
             body.clone(),
         ))]);
@@ -313,8 +312,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -329,7 +328,6 @@ mod tests {
         let body = Box::new(FuncDef(
             "baz",
             vec![],
-            vec![],
             None,
             Box::new(Assignment(
                 "x",
@@ -337,8 +335,8 @@ mod tests {
             )),
         ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], None, body.clone())),
+            Box::new(FuncDef("bar", vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -442,8 +440,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -458,8 +456,8 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -475,8 +473,8 @@ mod tests {
         ]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(

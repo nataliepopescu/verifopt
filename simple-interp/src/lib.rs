@@ -56,18 +56,15 @@ pub enum Statement {
     Return(RVal),
     FuncDef(
         &'static str,
-        Vec<Type>,
-        Vec<&'static str>,
+        Vec<(&'static str, Type)>,
         Option<Box<Type>>,
         Box<Statement>,
     ),
     InvokeFunc(&'static str, Vec<&'static str>),
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
     // traits without associated types for now
-    // FIXME support `&self` with either string or bool flag
-    // FIXME independent vecs for func names + defs/impls (current) OR use a
-    // map (trait name, func defs)
-    TraitDef(&'static str, Vec<&'static str>, Vec<DefFuncVal>),
+    // (trait name, func names, funcs defs)
+    TraitDef(&'static str, Vec<&'static str>, Vec<FuncDecl>),
     // (trait name, struct name, func names, funcs impls)
     TraitImpl(&'static str, &'static str, Vec<&'static str>, Vec<FuncVal>),
 }
@@ -81,7 +78,7 @@ pub enum AssignmentRVal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RVal {
     Num(i32),
-    // FIXME add strings
+    // TODO add strings
     Struct(&'static str, Vec<RVal>),
     Var(&'static str),
 }
@@ -106,21 +103,17 @@ pub type TraitStructOpt = Option<(&'static str, &'static str)>;
 pub type FuncName = &'static str;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DefFuncVal {
-    // FIXME Map<str, Type>
-    paramtypes: Vec<Type>,
-    params: Vec<&'static str>,
+pub struct FuncDecl {
+    params: Vec<(&'static str, Type)>,
     rettype: Option<Box<Type>>,
 }
 
-impl DefFuncVal {
+impl FuncDecl {
     pub fn new(
-        paramtypes: Vec<Type>,
-        params: Vec<&'static str>,
+        params: Vec<(&'static str, Type)>,
         rettype: Option<Box<Type>>,
     ) -> Self {
         Self {
-            paramtypes,
             params,
             rettype,
         }
@@ -129,22 +122,18 @@ impl DefFuncVal {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncVal {
-    // FIXME Map<str, Type>
-    paramtypes: Vec<Type>,
-    params: Vec<&'static str>,
+    params: Vec<(&'static str, Type)>,
     rettype: Option<Box<Type>>,
     body: Box<Statement>,
 }
 
 impl FuncVal {
     pub fn new(
-        paramtypes: Vec<Type>,
-        params: Vec<&'static str>,
+        params: Vec<(&'static str, Type)>,
         rettype: Option<Box<Type>>,
         body: Box<Statement>,
     ) -> Self {
         Self {
-            paramtypes,
             params,
             rettype,
             body,
@@ -155,7 +144,7 @@ impl FuncVal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Int(),
-    Struct(), // FIXME specific structs
+    Struct(&'static str),
     DynTrait(&'static str),
     Func(Vec<Type>, Option<Box<Type>>),
 }
@@ -335,7 +324,7 @@ mod tests {
             "x",
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
-        let stmt = FuncDef("foo", vec![], vec![], None, body.clone());
+        let stmt = FuncDef("foo", vec![], None, body.clone());
 
         let si = SimpleInterp::new();
         let rw_stmt = si.interp(stmt.clone()).unwrap();
@@ -350,7 +339,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ))]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(FuncDef("foo", vec![], None, body)),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
 
@@ -367,7 +356,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ))]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], None, body.clone())),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -381,7 +370,7 @@ mod tests {
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(FuncDef("foo", vec![], None, body)),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -404,8 +393,8 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
+            Box::new(FuncDef("foo", vec![], None, foo_body)),
+            Box::new(FuncDef("bar", vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(InvokeFunc("foo", vec![])),
@@ -431,8 +420,8 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -455,8 +444,8 @@ mod tests {
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
+            Box::new(FuncDef("foo", vec![], None, foo_body)),
+            Box::new(FuncDef("bar", vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -481,11 +470,11 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(InvokeFunc("bar", vec![])),
         ]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
         let check_stmt = stmt.clone();
@@ -515,8 +504,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -531,8 +520,8 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -548,8 +537,8 @@ mod tests {
         ]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -569,8 +558,8 @@ mod tests {
             (RVal::Var("qux"), Box::new(InvokeFunc("qux", vec![]))),
         ];
         let check_foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -589,8 +578,8 @@ mod tests {
             (RVal::Var("qux2"), Box::new(InvokeFunc("qux2", vec![]))),
         ];
         let check_bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -612,13 +601,11 @@ mod tests {
             Box::new(FuncDef(
                 "foo",
                 vec![],
-                vec![],
                 None,
                 check_foo_body.clone(),
             )),
             Box::new(FuncDef(
                 "bar",
-                vec![],
                 vec![],
                 None,
                 check_bar_body.clone(),

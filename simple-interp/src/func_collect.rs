@@ -28,10 +28,9 @@ impl FuncCollector {
     ) -> Result<(), Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => self.collect_seq(funcs, stmt_vec),
-            Statement::FuncDef(name, paramtypes, params, rettype, body) => self
-                .collect_funcdef(
-                    funcs, name, None, paramtypes, params, rettype, body,
-                ),
+            Statement::FuncDef(name, params, rettype, body) => {
+                self.collect_funcdef(funcs, name, None, params, rettype, body)
+            }
             Statement::TraitImpl(
                 trait_name,
                 struct_name,
@@ -67,8 +66,7 @@ impl FuncCollector {
         funcs: &mut Funcs,
         func_name: &'static str,
         tso: TraitStructOpt,
-        paramtypes: &Vec<Type>,
-        params: &Vec<&'static str>,
+        params: &Vec<(&'static str, Type)>,
         rettype: &Option<Box<Type>>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
@@ -82,7 +80,6 @@ impl FuncCollector {
                     (
                         tso,
                         FuncVal::new(
-                            paramtypes.clone(),
                             params.clone(),
                             rettype.clone(),
                             body.clone(),
@@ -108,7 +105,6 @@ impl FuncCollector {
                 funcs,
                 func_name,
                 Some((trait_name, struct_name)),
-                &func_impl.paramtypes,
                 &func_impl.params,
                 &func_impl.rettype,
                 &func_impl.body,
@@ -130,7 +126,7 @@ mod tests {
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Struct,
         TraitDef, TraitImpl,
     };
-    use crate::{AssignmentRVal, DefFuncVal, FuncVal, RVal};
+    use crate::{AssignmentRVal, FuncDecl, FuncVal, RVal};
 
     #[test]
     fn test_print() {
@@ -237,14 +233,14 @@ mod tests {
             "x",
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
-        let stmt = FuncDef("foo", vec![], vec![], None, body.clone());
+        let stmt = FuncDef("foo", vec![], None, body.clone());
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
         check_funcs
             .funcs
-            .insert("foo", (None, FuncVal::new(vec![], vec![], None, body)));
+            .insert("foo", (None, FuncVal::new(vec![], None, body)));
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
@@ -257,14 +253,14 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let stmt =
-            FuncDef("foo", vec![Type::Int()], vec!["y"], None, body.clone());
+            FuncDef("foo", vec![("y", Type::Int())], None, body.clone());
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert(
             "foo",
-            (None, FuncVal::new(vec![Type::Int()], vec!["y"], None, body)),
+            (None, FuncVal::new(vec![("y", Type::Int())], None, body)),
         );
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
@@ -278,7 +274,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], None, body.clone())),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -288,10 +284,9 @@ mod tests {
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
-        check_funcs.funcs.insert(
-            "foo",
-            (None, FuncVal::new(vec![], vec![], None, body.clone())),
-        );
+        check_funcs
+            .funcs
+            .insert("foo", (None, FuncVal::new(vec![], None, body.clone())));
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
@@ -303,11 +298,11 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(InvokeFunc("bar", vec![])),
         ]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
 
@@ -316,14 +311,12 @@ mod tests {
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
-        check_funcs.funcs.insert(
-            "bar",
-            (None, FuncVal::new(vec![], vec![], None, bar_body)),
-        );
-        check_funcs.funcs.insert(
-            "foo",
-            (None, FuncVal::new(vec![], vec![], None, foo_body)),
-        );
+        check_funcs
+            .funcs
+            .insert("bar", (None, FuncVal::new(vec![], None, bar_body)));
+        check_funcs
+            .funcs
+            .insert("foo", (None, FuncVal::new(vec![], None, foo_body)));
 
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
@@ -348,8 +341,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -364,8 +357,8 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -381,8 +374,8 @@ mod tests {
         ]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -404,27 +397,27 @@ mod tests {
         let mut check_funcs = Funcs::new();
         check_funcs.funcs.insert(
             "foo",
-            (None, FuncVal::new(vec![], vec![], None, foo_body.clone())),
+            (None, FuncVal::new(vec![], None, foo_body.clone())),
         );
         check_funcs.funcs.insert(
             "bar",
-            (None, FuncVal::new(vec![], vec![], None, bar_body.clone())),
+            (None, FuncVal::new(vec![], None, bar_body.clone())),
         );
         check_funcs.funcs.insert(
             "baz",
-            (None, FuncVal::new(vec![], vec![], None, baz_body.clone())),
+            (None, FuncVal::new(vec![], None, baz_body.clone())),
         );
         check_funcs.funcs.insert(
             "qux",
-            (None, FuncVal::new(vec![], vec![], None, qux_body.clone())),
+            (None, FuncVal::new(vec![], None, qux_body.clone())),
         );
         check_funcs.funcs.insert(
             "baz2",
-            (None, FuncVal::new(vec![], vec![], None, baz2_body.clone())),
+            (None, FuncVal::new(vec![], None, baz2_body.clone())),
         );
         check_funcs.funcs.insert(
             "qux2",
-            (None, FuncVal::new(vec![], vec![], None, qux2_body.clone())),
+            (None, FuncVal::new(vec![], None, qux2_body.clone())),
         );
 
         assert_eq!(res.unwrap(), ());
@@ -435,9 +428,8 @@ mod tests {
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
-        let funcdef = DefFuncVal::new(vec![], vec![], None);
-        let cat_funcimpl =
-            FuncVal::new(vec![], vec![], None, cat_speak_body.clone());
+        let funcdef = FuncDecl::new(vec![], None);
+        let cat_funcimpl = FuncVal::new(vec![], None, cat_speak_body.clone());
 
         let stmt = Sequence(vec![
             Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),

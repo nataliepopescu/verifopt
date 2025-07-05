@@ -23,8 +23,9 @@ impl SigCollector {
 
     pub fn collect(&self, funcs: &Funcs, sigs: &mut Sigs) -> Result<(), Error> {
         for (func_name, (tso, func)) in funcs.funcs.iter() {
+            let (_, paramtypes): (Vec<&'static str>, Vec<crate::Type>) = func.params.clone().into_iter().unzip();
             let sig =
-                SigVal::new(func.paramtypes.clone(), func.rettype.clone());
+                SigVal::new(paramtypes, func.rettype.clone());
             match sigs.sigs.get(&sig) {
                 Some(existing_funcs) => {
                     let mut func_names = existing_funcs.clone();
@@ -57,7 +58,7 @@ mod test {
         let mut funcs = Funcs::new();
         funcs
             .funcs
-            .insert("foo", (None, FuncVal::new(vec![], vec![], None, body)));
+            .insert("foo", (None, FuncVal::new(vec![], None, body)));
 
         let mut sigs = Sigs::new();
 
@@ -88,11 +89,11 @@ mod test {
         ));
         funcs.funcs.insert(
             "foo",
-            (None, FuncVal::new(vec![], vec![], None, foo_body)),
+            (None, FuncVal::new(vec![], None, foo_body)),
         );
         funcs.funcs.insert(
             "bar",
-            (None, FuncVal::new(vec![], vec![], None, bar_body)),
+            (None, FuncVal::new(vec![], None, bar_body)),
         );
 
         let mut sigs = Sigs::new();
@@ -132,8 +133,7 @@ mod test {
             (
                 None,
                 FuncVal::new(
-                    vec![Type::Int(), Type::Int()],
-                    vec!["a", "b"],
+                    vec![("a", Type::Int()), ("b", Type::Int())],
                     Some(Box::new(Type::Int())),
                     foo_body,
                 ),
@@ -144,8 +144,7 @@ mod test {
             (
                 None,
                 FuncVal::new(
-                    vec![Type::Int(), Type::Int()],
-                    vec!["a", "b"],
+                    vec![("a", Type::Int()), ("b", Type::Int())],
                     Some(Box::new(Type::Int())),
                     bar_body,
                 ),
@@ -157,8 +156,8 @@ mod test {
             (
                 None,
                 FuncVal::new(
-                    vec![Type::Func(vec![], Some(baz_funcarg_rettype.clone()))],
-                    vec![],
+                    // FIXME func name?
+                    vec![("func", Type::Func(vec![], Some(baz_funcarg_rettype.clone())))],
                     None,
                     baz_body,
                 ),
@@ -200,7 +199,7 @@ mod test {
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
         let cat_funcimpl =
-            FuncVal::new(vec![], vec![], None, cat_speak_body.clone());
+            FuncVal::new(vec![], None, cat_speak_body.clone());
 
         let mut funcs = Funcs::new();
         funcs

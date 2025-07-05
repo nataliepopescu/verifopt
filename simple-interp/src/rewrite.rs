@@ -56,7 +56,7 @@ impl Rewriter {
                 vec,
                 sort_hashsets,
             ),
-            Statement::FuncDef(name, _, _, _, body) => self.rewrite_funcdef(
+            Statement::FuncDef(name, _, _, body) => self.rewrite_funcdef(
                 funcs,
                 cmap,
                 sigs,
@@ -363,7 +363,7 @@ mod tests {
         Switch, TraitDef, TraitImpl,
     };
     use crate::func_collect::Funcs;
-    use crate::{AssignmentRVal, DefFuncVal, FuncVal, Type};
+    use crate::{AssignmentRVal, FuncDecl, FuncVal, Type};
     use std::collections::HashSet;
 
     #[test]
@@ -410,7 +410,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ))]));
         let mut stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], None, body.clone())),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -422,7 +422,7 @@ mod tests {
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
             "foo",
-            (None, FuncVal::new(vec![], vec![], None, body.clone())),
+            (None, FuncVal::new(vec![], None, body.clone())),
         );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
@@ -449,7 +449,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ))]));
         let mut stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", vec![], None, body.clone())),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -460,7 +460,7 @@ mod tests {
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
             "foo",
-            (None, FuncVal::new(vec![], vec![], None, body.clone())),
+            (None, FuncVal::new(vec![], None, body.clone())),
         );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
@@ -480,7 +480,7 @@ mod tests {
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(FuncDef("foo", vec![], None, body)),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -502,8 +502,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(6))),
         ))]));
         let mut stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -521,11 +521,11 @@ mod tests {
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
             "foo",
-            (None, FuncVal::new(vec![], vec![], None, foo_body.clone())),
+            (None, FuncVal::new(vec![], None, foo_body.clone())),
         );
         funcs.funcs.insert(
             "bar",
-            (None, FuncVal::new(vec![], vec![], None, bar_body.clone())),
+            (None, FuncVal::new(vec![], None, bar_body.clone())),
         );
         let mut cmap = ConstraintMap::new();
         cmap.cmap.insert(
@@ -550,8 +550,8 @@ mod tests {
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -588,8 +588,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -604,8 +604,8 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -621,8 +621,8 @@ mod tests {
         ]));
 
         let mut stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -640,27 +640,27 @@ mod tests {
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
             "foo",
-            (None, FuncVal::new(vec![], vec![], None, foo_body.clone())),
+            (None, FuncVal::new(vec![], None, foo_body.clone())),
         );
         funcs.funcs.insert(
             "bar",
-            (None, FuncVal::new(vec![], vec![], None, bar_body.clone())),
+            (None, FuncVal::new(vec![], None, bar_body.clone())),
         );
         funcs.funcs.insert(
             "baz",
-            (None, FuncVal::new(vec![], vec![], None, baz_body.clone())),
+            (None, FuncVal::new(vec![], None, baz_body.clone())),
         );
         funcs.funcs.insert(
             "qux",
-            (None, FuncVal::new(vec![], vec![], None, qux_body.clone())),
+            (None, FuncVal::new(vec![], None, qux_body.clone())),
         );
         funcs.funcs.insert(
             "baz2",
-            (None, FuncVal::new(vec![], vec![], None, baz2_body.clone())),
+            (None, FuncVal::new(vec![], None, baz2_body.clone())),
         );
         funcs.funcs.insert(
             "qux2",
-            (None, FuncVal::new(vec![], vec![], None, qux2_body.clone())),
+            (None, FuncVal::new(vec![], None, qux2_body.clone())),
         );
 
         let mut cmap = ConstraintMap::new();
@@ -794,8 +794,8 @@ mod tests {
             (RVal::Var("qux"), Box::new(InvokeFunc("qux", vec![]))),
         ];
         let check_foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -814,8 +814,8 @@ mod tests {
             (RVal::Var("qux2"), Box::new(InvokeFunc("qux2", vec![]))),
         ];
         let check_bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -837,13 +837,11 @@ mod tests {
             Box::new(FuncDef(
                 "foo",
                 vec![],
-                vec![],
                 None,
                 check_foo_body.clone(),
             )),
             Box::new(FuncDef(
                 "bar",
-                vec![],
                 vec![],
                 None,
                 check_bar_body.clone(),
@@ -869,9 +867,9 @@ mod tests {
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
-        let funcdef = DefFuncVal::new(vec![], vec![], None);
+        let funcdef = FuncDecl::new(vec![], None);
         let cat_funcimpl =
-            FuncVal::new(vec![], vec![], None, cat_speak_body.clone());
+            FuncVal::new(vec![], None, cat_speak_body.clone());
 
         let mut stmt = Sequence(vec![
             Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
@@ -897,7 +895,7 @@ mod tests {
         cmap.cmap.insert(
             "edgar",
             Box::new(VarType::Values(
-                Box::new(Type::Struct()),
+                Box::new(Type::Struct("Cat")),
                 (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
             )),
         );

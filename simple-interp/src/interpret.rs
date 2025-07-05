@@ -343,7 +343,7 @@ impl Interpreter {
         match stmt {
             Statement::FuncDef(..)
             | Statement::Struct(..)
-            | Statement::TraitDef(..)
+            | Statement::TraitDecl(..)
             | Statement::TraitImpl(..) => Ok(None),
             Statement::Sequence(stmt_vec) => {
                 self.interp_seq(funcs, cmap, scope, stmt_vec)
@@ -1207,7 +1207,7 @@ mod tests {
     use super::*;
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence,
-        Struct, Switch, TraitDef, TraitImpl,
+        Struct, Switch, TraitDecl, TraitImpl,
     };
     use crate::func_collect::Funcs;
     use crate::{FuncDecl, FuncVal, Type};
@@ -3716,7 +3716,7 @@ mod tests {
         let cat_funcimpl = FuncVal::new(vec![], None, cat_speak_body.clone());
 
         let stmt = Sequence(vec![
-            Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(TraitImpl(
                 "Animal",
@@ -3766,7 +3766,7 @@ mod tests {
         );
 
         let stmt = Sequence(vec![
-            Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(TraitImpl(
                 "Animal",
@@ -3840,7 +3840,7 @@ mod tests {
         );
 
         let stmt = Sequence(vec![
-            Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(Struct("Dog", vec![], vec![])),
             Box::new(TraitImpl(

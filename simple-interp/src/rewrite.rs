@@ -360,7 +360,7 @@ mod tests {
     use super::*;
     use crate::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Struct,
-        Switch, TraitDef, TraitImpl,
+        Switch, TraitDecl, TraitImpl,
     };
     use crate::func_collect::Funcs;
     use crate::{AssignmentRVal, FuncDecl, FuncVal, Type};
@@ -861,7 +861,7 @@ mod tests {
         let cat_funcimpl = FuncVal::new(vec![], None, cat_speak_body.clone());
 
         let mut stmt = Sequence(vec![
-            Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(TraitImpl(
                 "Animal",

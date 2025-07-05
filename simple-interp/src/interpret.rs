@@ -3784,7 +3784,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dyn_traits() {
+    fn test_dyn_traits_single_impl() {
         let funcdef = DefFuncVal::new(
             vec![Type::DynTrait("Animal")],
             vec!["animal"],
@@ -3799,19 +3799,7 @@ mod tests {
             cat_speak_body.clone(),
         );
 
-        let foo_body = Box::new(Sequence(vec![Box::new(InvokeFunc(
-            "speak",
-            vec!["animal"],
-        ))]));
-
         let stmt = Sequence(vec![
-            Box::new(FuncDef(
-                "foo",
-                vec![Type::DynTrait("Animal")],
-                vec!["animal"],
-                None,
-                foo_body.clone(),
-            )),
             Box::new(TraitDef("Animal", vec!["speak"], vec![funcdef.clone()])),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(TraitImpl(
@@ -3824,31 +3812,30 @@ mod tests {
                 "cat",
                 Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
             )),
-            Box::new(InvokeFunc("foo", vec!["cat"])),
+            Box::new(InvokeFunc("speak", vec!["cat"])),
         ]);
 
         let mut funcs = Funcs::new();
         funcs
             .funcs
             .insert("speak", (Some(("Animal", "Cat")), cat_funcimpl.clone()));
-        funcs.funcs.insert(
-            "foo",
-            (
-                None,
-                FuncVal::new(
-                    vec![Type::DynTrait("Animal")],
-                    vec!["animal"],
-                    None,
-                    foo_body.clone(),
-                ),
-            ),
-        );
 
         let mut cmap = ConstraintMap::new();
         let interp = Interpreter::new();
         let res = interp.interp(&funcs, &mut cmap, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
+        let mut speak_cmap = ConstraintMap::new();
+        speak_cmap.cmap.insert(
+            "animal",
+            Box::new(VarType::Values(
+                Box::new(Type::DynTrait("Animal")),
+                (
+                    HashSet::from([RVal::Var("cat")]),
+                    HashSet::new(),
+                ),
+            )),
+        );
         check_cmap.cmap.insert(
             "cat",
             Box::new(VarType::Values(
@@ -3856,6 +3843,20 @@ mod tests {
                 (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
             )),
         );
+        check_cmap.cmap.insert(
+            "speak",
+            Box::new(VarType::Scope(
+                Box::new(Type::Func(
+                    vec![Type::DynTrait("Animal")],
+                    None,
+                )),
+                None,
+                speak_cmap,
+            )),
+        );
+
+        println!("cmap: {:#?}", &cmap);
+        println!("check: {:#?}", &check_cmap);
 
         assert_eq!(res.unwrap(), None);
         assert_eq!(cmap, check_cmap);

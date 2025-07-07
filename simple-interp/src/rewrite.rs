@@ -2,7 +2,7 @@ use crate::func_collect::Funcs;
 use crate::interpret::{ConstraintMap, Constraints, Traits, VarType};
 use crate::{
     BooleanStatement, Error, FuncVal, RVal, SigVal, Sigs, Statement,
-    TraitStructOpt, Type,
+    TraitStructOpt, TraitStructTup, Type,
 };
 
 use std::collections::HashSet;
@@ -236,24 +236,6 @@ impl Rewriter {
         }
     }
 
-    fn cha_traits(
-        &self,
-        traits: &Traits,
-        trait_name: &'static str,
-        vartype: &Type,
-    ) -> Result<(&'static str, HashSet<&'static str>), Error> {
-        match vartype {
-            Type::DynTrait(trait_name) => match traits.traits.get(trait_name) {
-                Some(impl_types) => Ok((
-                    trait_name,
-                    HashSet::from_iter(impl_types.into_iter().map(|x| *x)),
-                )),
-                None => return Err(Error::UndefinedTrait(trait_name)),
-            },
-            _ => return Err(Error::NotATrait(trait_name)),
-        }
-    }
-
     fn is_top(
         &self,
         pos_constraints: &HashSet<RVal>,
@@ -285,11 +267,11 @@ impl Rewriter {
         constraints: &Constraints,
     ) -> Result<Option<HashSet<&'static str>>, Error> {
         match self.cha(sigs, func_name, vartype) {
-            Ok(all_possible) => {
+            Ok(all_impls) => {
                 if constraints.0.is_empty() && constraints.1.is_empty()
-                    || self.is_top(&constraints.0, &all_possible)
+                    || self.is_top(&constraints.0, &all_impls)
                 {
-                    return Ok(Some(all_possible));
+                    return Ok(Some(all_impls));
                 }
                 Ok(None)
             }
@@ -299,21 +281,32 @@ impl Rewriter {
 
     fn is_top_or_bottom_traits(
         &self,
-        traits: &Traits,
         trait_name: &'static str,
         vartype: &Type,
+        funcvec: &Vec<(TraitStructOpt, FuncVal)>,
         constraints: &Constraints,
     ) -> Result<Option<(&'static str, HashSet<&'static str>)>, Error> {
-        match self.cha_traits(traits, trait_name, vartype) {
-            Ok((trait_name, all_possible)) => {
+        match vartype {
+            Type::DynTrait(trait_name) => {
+                let (tso_vec, _): (Vec<TraitStructOpt>, Vec<FuncVal>) =
+                    funcvec.into_iter().map(|x| x.clone()).unzip();
+                let ts_vec = tso_vec
+                    .into_iter()
+                    .filter(|x| x.is_some())
+                    .map(|x| x.unwrap())
+                    .collect::<Vec<TraitStructTup>>();
+                let (_, all_impls_vec): (Vec<&'static str>, Vec<&'static str>) =
+                    ts_vec.into_iter().unzip();
+                let all_impls = HashSet::from_iter(all_impls_vec);
+
                 if constraints.0.is_empty() && constraints.1.is_empty()
-                    || self.is_top(&constraints.0, &all_possible)
+                    || self.is_top(&constraints.0, &all_impls)
                 {
-                    return Ok(Some((trait_name, all_possible)));
+                    return Ok(Some((trait_name, all_impls)));
                 }
                 Ok(None)
             }
-            Err(err) => return Err(err),
+            _ => return Err(Error::NotATrait(trait_name)),
         }
     }
 
@@ -411,9 +404,9 @@ impl Rewriter {
 
                     // FIXME use funcvec or traits data structure?
                     match self.is_top_or_bottom_traits(
-                        traits,
                         name,
                         &vartype,
+                        funcvec,
                         &constraints,
                     ) {
                         Ok(Some((trait_name, top))) => {

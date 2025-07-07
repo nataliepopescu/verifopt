@@ -79,6 +79,19 @@ pub enum VarType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Traits {
+    pub traits: HashMap<&'static str, Vec<&'static str>>,
+}
+
+impl Traits {
+    pub fn new() -> Self {
+        Self {
+            traits: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintMap {
     pub cmap: HashMap<&'static str, Box<VarType>>,
 }
@@ -337,19 +350,29 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         stmt: &Statement,
     ) -> Result<Option<Constraints>, Error> {
         match stmt {
-            Statement::FuncDef(..)
-            | Statement::Struct(..)
-            | Statement::TraitDecl(..)
-            | Statement::TraitImpl(..) => Ok(None),
+            Statement::FuncDef(..) | Statement::Struct(..) => Ok(None),
+            Statement::TraitDecl(trait_name, _, _) => {
+                self.interp_traitdecl(funcs, cmap, traits, scope, trait_name)
+            }
+            Statement::TraitImpl(trait_name, struct_name, _, _) => self
+                .interp_traitimpl(
+                    funcs,
+                    cmap,
+                    traits,
+                    scope,
+                    trait_name,
+                    struct_name,
+                ),
             Statement::Sequence(stmt_vec) => {
-                self.interp_seq(funcs, cmap, scope, stmt_vec)
+                self.interp_seq(funcs, cmap, traits, scope, stmt_vec)
             }
             Statement::Assignment(var, value) => {
-                self.interp_assignment(funcs, cmap, scope, var, value)
+                self.interp_assignment(funcs, cmap, traits, scope, var, value)
             }
             Statement::Print(var) => {
                 self.interp_print(var);
@@ -359,6 +382,7 @@ impl Interpreter {
                 self.interp_conditional(
                     funcs,
                     cmap,
+                    traits,
                     scope,
                     &*condition,
                     &*true_branch,
@@ -366,14 +390,15 @@ impl Interpreter {
                 )
             }
             Statement::Switch(val, vec) => {
-                self.interp_switch(funcs, cmap, scope, val, vec)
+                self.interp_switch(funcs, cmap, traits, scope, val, vec)
             }
             Statement::Return(rval) => {
-                self.interp_return(funcs, cmap, scope, rval)
+                self.interp_return(funcs, cmap, traits, scope, rval)
             }
             Statement::InvokeFunc(name, args) => {
-                self.interp_invoke(funcs, cmap, scope, name, args)
+                self.interp_invoke(funcs, cmap, traits, scope, name, args)
             }
+            Statement::InvokeTraitFunc(..) => Ok(None),
         }
     }
 
@@ -381,12 +406,13 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<Option<Constraints>, Error> {
         let mut last_ret = None;
         for stmt in stmt_vec.iter() {
-            let res = self.interp(&funcs, cmap, scope, &*stmt);
+            let res = self.interp(&funcs, cmap, traits, scope, &*stmt);
             if res.is_err() {
                 return res;
             }
@@ -399,6 +425,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         var: &'static str,
         value: &AssignmentRVal,
@@ -490,7 +517,9 @@ impl Interpreter {
                 Statement::InvokeFunc(name, args) => {
                     // assume func has retval (given typechecking) but return
                     // err if none
-                    match self.interp_invoke(funcs, cmap, scope, name, &args) {
+                    match self
+                        .interp_invoke(funcs, cmap, traits, scope, name, &args)
+                    {
                         Ok(Some(constraints)) => {
                             let functype;
                             match cmap.cmap.get(name) {
@@ -776,6 +805,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         condition: &BooleanStatement,
         true_branch: &Statement,
@@ -799,6 +829,7 @@ impl Interpreter {
                         Ok(Some(mut new_cmap)) => match self.interp(
                             funcs,
                             &mut new_cmap,
+                            traits,
                             scope,
                             true_branch,
                         ) {
@@ -830,6 +861,7 @@ impl Interpreter {
                         Ok(Some(mut new_cmap)) => match self.interp(
                             funcs,
                             &mut new_cmap,
+                            traits,
                             scope,
                             false_branch,
                         ) {
@@ -883,6 +915,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         val: &RVal,
         vec: &Vec<(RVal, Box<Statement>)>,
@@ -931,7 +964,13 @@ impl Interpreter {
         let mut res_cmap: Vec<ConstraintMap> = Vec::new();
         for (_, vec_stmt) in filtered.iter() {
             let mut scoped_cmap = cmap.clone();
-            match self.interp(funcs, &mut scoped_cmap, scope, &*vec_stmt) {
+            match self.interp(
+                funcs,
+                &mut scoped_cmap,
+                traits,
+                scope,
+                &*vec_stmt,
+            ) {
                 Ok(_) => res_cmap.push(scoped_cmap),
                 err @ Err(_) => return err,
             }
@@ -951,6 +990,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         rval: &RVal,
     ) -> Result<Option<Constraints>, Error> {
@@ -1052,6 +1092,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         name: &'static str,
         val: &RVal,
@@ -1073,6 +1114,7 @@ impl Interpreter {
                         match self.interp(
                             funcs,
                             cmap,
+                            traits,
                             Some(varname),
                             &*funcval.body,
                         ) {
@@ -1102,6 +1144,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         name: &'static str,
         constraints: &Constraints,
@@ -1115,6 +1158,7 @@ impl Interpreter {
             match self.interp_indirect_invoke_helper(
                 funcs,
                 &mut cmap_clone,
+                traits,
                 scope,
                 name,
                 val,
@@ -1151,6 +1195,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
@@ -1166,7 +1211,13 @@ impl Interpreter {
                         return Err(res.err().unwrap());
                     }
 
-                    match self.interp(funcs, cmap, Some(name), &*funcval.body) {
+                    match self.interp(
+                        funcs,
+                        cmap,
+                        traits,
+                        Some(name),
+                        &*funcval.body,
+                    ) {
                         Ok(constraints) => {
                             if constraints.is_some() {
                                 results_vec.push(constraints.unwrap());
@@ -1191,6 +1242,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         name: &'static str,
         args: &Vec<&'static str>,
@@ -1200,6 +1252,7 @@ impl Interpreter {
                 VarType::Values(_, constraints) => self.interp_indirect_invoke(
                     funcs,
                     cmap,
+                    traits,
                     scope,
                     name,
                     &constraints,
@@ -1207,10 +1260,48 @@ impl Interpreter {
                 ),
                 _ => panic!("should not get scope here"),
             },
-            Ok(None) => {
-                self.interp_direct_invoke(funcs, cmap, scope, name, args)
-            }
+            Ok(None) => self
+                .interp_direct_invoke(funcs, cmap, traits, scope, name, args),
             Err(err) => return Err(err),
+        }
+    }
+
+    fn interp_traitdecl(
+        &self,
+        funcs: &Funcs,
+        cmap: &mut ConstraintMap,
+        traits: &mut Traits,
+        scope: Option<&'static str>,
+        trait_name: &'static str,
+    ) -> Result<Option<Constraints>, Error> {
+        match traits.traits.get(trait_name) {
+            Some(_) => {
+                panic!("trait with name {} already declared", &trait_name)
+            }
+            None => {
+                traits.traits.insert(trait_name, vec![]);
+                Ok(None)
+            }
+        }
+    }
+
+    fn interp_traitimpl(
+        &self,
+        funcs: &Funcs,
+        cmap: &mut ConstraintMap,
+        traits: &mut Traits,
+        scope: Option<&'static str>,
+        trait_name: &'static str,
+        struct_name: &'static str,
+    ) -> Result<Option<Constraints>, Error> {
+        match traits.traits.get(trait_name) {
+            Some(trait_vec) => {
+                let mut updated_trait_vec = trait_vec.clone();
+                updated_trait_vec.push(struct_name);
+                traits.traits.insert(trait_name, updated_trait_vec);
+                Ok(None)
+            }
+            None => panic!("trait {} does not exist", &trait_name),
         }
     }
 }
@@ -1282,7 +1373,8 @@ mod tests {
         let stmt = Print("hello");
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         assert_eq!(res.unwrap(), None);
         assert_eq!(cmap, ConstraintMap::new());
@@ -1295,7 +1387,8 @@ mod tests {
             Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1320,7 +1413,8 @@ mod tests {
         let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1351,7 +1445,8 @@ mod tests {
         let stmt = Sequence(stmt_vec);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1388,7 +1483,8 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1419,7 +1515,8 @@ mod tests {
         ))]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         assert_eq!(res.err(), Some(Error::UndefinedSymbol("y")));
     }
@@ -1439,7 +1536,8 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1477,7 +1575,8 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1508,7 +1607,8 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1539,7 +1639,8 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1570,7 +1671,8 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1614,7 +1716,8 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1660,6 +1763,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         // note: `equals` is _shallow_, which is why it evals to false here
         let interp = Interpreter::new();
@@ -1681,7 +1785,7 @@ mod tests {
                 )),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1709,6 +1813,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1732,7 +1837,7 @@ mod tests {
                 )),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let foo_type = Type::Func(vec![], None);
 
@@ -1792,7 +1897,8 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1834,6 +1940,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -1857,7 +1964,7 @@ mod tests {
                 )),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         assert_eq!(
             res,
@@ -1895,7 +2002,8 @@ mod tests {
         );
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1926,7 +2034,8 @@ mod tests {
         ))]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -1954,10 +2063,11 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = FuncDef("foo", vec![], None, body);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         assert_eq!(res.unwrap(), None);
         assert_eq!(cmap, ConstraintMap::new());
@@ -1976,13 +2086,14 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
             Box::new(FuncDef("foo", vec![], None, body)),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -2010,6 +2121,7 @@ mod tests {
     fn test_funcdef_args_direct() {
         let mut funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
 
         let body = Box::new(Sequence(vec![
@@ -2054,7 +2166,7 @@ mod tests {
                 FuncVal::new(vec![("y", Type::Int())], None, body.clone()),
             )],
         );
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -2112,6 +2224,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2122,7 +2235,7 @@ mod tests {
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let foo_type = Type::Func(vec![], None);
         let mut check_cmap = ConstraintMap::new();
@@ -2158,6 +2271,7 @@ mod tests {
     fn test_funcdef_args_indirect() {
         let mut funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
 
         let body = Box::new(Sequence(vec![
@@ -2206,7 +2320,7 @@ mod tests {
                 FuncVal::new(vec![("y", Type::Int())], None, body.clone()),
             )],
         );
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let foo_type = Type::Func(vec![Type::Int()], None);
         let mut check_cmap = ConstraintMap::new();
@@ -2283,9 +2397,10 @@ mod tests {
             .insert("foo", vec![(None, FuncVal::new(vec![], None, foo_body))]);
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let foo_cmap = ConstraintMap::new();
@@ -2413,8 +2528,9 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -2583,9 +2699,10 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -2786,8 +2903,9 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -2980,6 +3098,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -2991,7 +3110,7 @@ mod tests {
                 Box::new(InvokeFunc("bar", vec![])),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -3052,6 +3171,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -3070,7 +3190,7 @@ mod tests {
             )),
             Box::new(InvokeFunc("x", vec![])),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -3132,7 +3252,8 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         assert_eq!(res, Err(Error::NotAFunction("foo")));
     }
@@ -3145,6 +3266,7 @@ mod tests {
         let res = interp.interp(
             &Funcs::new(),
             &mut ConstraintMap::new(),
+            &mut Traits::new(),
             None,
             &stmt,
         );
@@ -3180,7 +3302,8 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -3237,7 +3360,8 @@ mod tests {
         ]);
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -3272,6 +3396,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -3284,7 +3409,7 @@ mod tests {
                 )))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -3333,6 +3458,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -3345,7 +3471,7 @@ mod tests {
                 )))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -3432,6 +3558,7 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
@@ -3468,7 +3595,7 @@ mod tests {
                 )))),
             )),
         ]);
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut foo_cmap = ConstraintMap::new();
@@ -3570,8 +3697,9 @@ mod tests {
 
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -3645,8 +3773,9 @@ mod tests {
 
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -3700,8 +3829,9 @@ mod tests {
 
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -3750,8 +3880,9 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         check_cmap.cmap.insert(
@@ -3801,8 +3932,9 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut speak_cmap = ConstraintMap::new();
@@ -3920,8 +4052,9 @@ mod tests {
         );
 
         let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
         let interp = Interpreter::new();
-        let res = interp.interp(&funcs, &mut cmap, None, &stmt);
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
         let mut check_cmap = ConstraintMap::new();
         let mut speak_cmap = ConstraintMap::new();
@@ -3971,7 +4104,11 @@ mod tests {
             )),
         );
 
+        let mut check_traits = Traits::new();
+        check_traits.traits.insert("Animal", vec!["Cat", "Dog"]);
+
         assert_eq!(res.unwrap(), None);
         assert_eq!(cmap, check_cmap);
+        assert_eq!(traits, check_traits);
     }
 }

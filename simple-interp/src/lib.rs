@@ -5,7 +5,7 @@ pub mod sig_collect;
 pub mod ssa;
 
 use crate::func_collect::{FuncCollector, Funcs};
-use crate::interpret::{ConstraintMap, Interpreter};
+use crate::interpret::{ConstraintMap, Interpreter, Traits};
 use crate::rewrite::Rewriter;
 use crate::sig_collect::{SigCollector, Sigs};
 use crate::ssa::{SSAChecker, Symbols};
@@ -16,30 +16,38 @@ use std::ops::Not;
 
 #[derive(Clone, Debug, PartialEq, Error)]
 pub enum Error {
-    #[error("Scope {0} is undefined,")]
+    #[error("Scope {0} is undefined.")]
     UndefinedScope(&'static str),
-    #[error("{0} is not a scope.")]
-    NotAScope(&'static str),
     #[error("Symbol {0} is undefined.")]
     UndefinedSymbol(&'static str),
-    #[error("VarTypes cannot be compared.")]
-    IncomparableVarTypes(),
-    #[error("{0} cannot be compared to {1}.")]
-    IncomparableTypes(RVal, RVal),
-    #[error("Inconsistent return types.")]
-    InconsistentReturnTypes(),
-    #[error("Invalid RVal for Assignment.")]
-    InvalidAssignmentRVal(),
-    #[error("Cannot assign var to a return value of None.")]
-    CannotAssignNoneRetval(),
-    #[error("{0} is not a function.")]
-    NotAFunction(&'static str),
+    #[error("Trait {0} is undefined.")]
+    UndefinedTrait(&'static str),
+
     #[error("Symbol {0} already exists.")]
     SymbolAlreadyExists(&'static str),
-    #[error("Attempting to merge constraints of different types.")]
-    TypesDiffer(),
+
     #[error("Scope backpointers differ.")]
     BackpointersDiffer(),
+    #[error("{0} cannot be compared to {1}.")]
+    IncomparableTypes(RVal, RVal),
+    #[error("VarTypes cannot be compared.")]
+    IncomparableVarTypes(),
+    #[error("Inconsistent return types.")]
+    InconsistentReturnTypes(),
+    #[error("Attempting to merge constraints of different types.")]
+    TypesDiffer(),
+
+    #[error("{0} is not a function.")]
+    NotAFunction(&'static str),
+    #[error("{0} is not a scope.")]
+    NotAScope(&'static str),
+    #[error("{0} is not a trait.")]
+    NotATrait(&'static str),
+
+    #[error("Cannot assign var to a return value of None.")]
+    CannotAssignNoneRetval(),
+    #[error("Invalid RVal for Assignment.")]
+    InvalidAssignmentRVal(),
     #[error("Switching on a function pointer, not a value.")]
     NoSwitchOnFuncPtr(),
     #[error("Cannot perform merge on Vec with no elements.")]
@@ -61,9 +69,10 @@ pub enum Statement {
         Box<Statement>,
     ),
     InvokeFunc(&'static str, Vec<&'static str>),
+    InvokeTraitFunc(&'static str, TraitStructTup, Vec<&'static str>),
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
     // traits without associated types for now
-    // (trait name, func names, funcs defs)
+    // (trait name, func names, funcs decls)
     TraitDecl(&'static str, Vec<&'static str>, Vec<FuncDecl>),
     // (trait name, struct name, func names, funcs impls)
     TraitImpl(&'static str, &'static str, Vec<&'static str>, Vec<FuncVal>),
@@ -99,7 +108,8 @@ impl fmt::Display for RVal {
     }
 }
 
-pub type TraitStructOpt = Option<(&'static str, &'static str)>;
+pub type TraitStructTup = (&'static str, &'static str);
+pub type TraitStructOpt = Option<TraitStructTup>;
 pub type FuncName = &'static str;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -264,7 +274,14 @@ impl SimpleInterp {
         //println!("\n2. Function signatures table: \n\n{:#?}", &sigs);
 
         let mut cmap = ConstraintMap::new();
-        let res4 = self.interpreter.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res4 = self.interpreter.interp(
+            &funcs,
+            &mut cmap,
+            &mut traits,
+            None,
+            &stmt,
+        );
         if res4.is_err() {
             return Err(res4.err().unwrap());
         }
@@ -281,7 +298,7 @@ impl SimpleInterp {
 
         let res5 = self
             .rewriter
-            .rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
+            .rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
         if res5.is_err() {
             return Err(res5.err().unwrap());
         }

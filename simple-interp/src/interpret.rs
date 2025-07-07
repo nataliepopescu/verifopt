@@ -782,6 +782,7 @@ impl Interpreter {
         false_branch: &Statement,
     ) -> Result<Option<Constraints>, Error> {
         let mut res_cmap: Vec<ConstraintMap> = vec![];
+        let mut res_constraints: Vec<Constraints> = vec![];
 
         // FIXME mod store if have effects
         match self.interp_bool(funcs, cmap, scope, condition.clone()) {
@@ -801,12 +802,16 @@ impl Interpreter {
                             scope,
                             true_branch,
                         ) {
-                            Ok(_) => {
+                            Ok(true_constraints_opt) => {
                                 // remove true branch constraints from
                                 // resulting cmap (safe b/c of SSA guarantee)
                                 match new_cmap.diff(&bconstraints.true_branch) {
                                     Ok(()) => res_cmap.push(new_cmap),
                                     Err(err) => return Err(err),
+                                }
+                                if true_constraints_opt.is_some() {
+                                    res_constraints
+                                        .push(true_constraints_opt.unwrap());
                                 }
                             }
                             err @ Err(_) => return err,
@@ -828,13 +833,17 @@ impl Interpreter {
                             scope,
                             false_branch,
                         ) {
-                            Ok(_) => {
+                            Ok(false_constraints_opt) => {
                                 // remove false branch constraints from
                                 // resulting cmap (safe b/c of SSA guarantee)
                                 match new_cmap.diff(&bconstraints.false_branch)
                                 {
                                     Ok(()) => res_cmap.push(new_cmap),
                                     Err(err) => return Err(err),
+                                }
+                                if false_constraints_opt.is_some() {
+                                    res_constraints
+                                        .push(false_constraints_opt.unwrap());
                                 }
                             }
                             err @ Err(_) => return err,
@@ -850,9 +859,13 @@ impl Interpreter {
         match res_cmap.merge() {
             Ok(Some(new_cmap)) => {
                 *cmap = new_cmap;
-                Ok(None)
             }
-            Ok(None) => Ok(None),
+            Ok(None) => {}
+            Err(err) => return Err(err),
+        }
+
+        match res_constraints.merge() {
+            res @ Ok(_) => res,
             Err(err) => Err(err),
         }
     }
@@ -3822,7 +3835,7 @@ mod tests {
 
     #[test]
     fn test_dyn_traits_two_impl() {
-        let funcdef =
+        let funcdecl =
             FuncDecl::new(vec![("animal", Type::DynTrait("Animal"))], None);
 
         let cat_speak_body = Box::new(Print("meow"));
@@ -3839,8 +3852,30 @@ mod tests {
             dog_speak_body.clone(),
         );
 
+        let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
+            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
+                "Cat",
+                vec![],
+            )))])),
+            Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
+                "Dog",
+                vec![],
+            )))])),
+        ))]));
+
         let stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl(
+                "Animal",
+                vec!["speak"],
+                vec![funcdecl.clone()],
+            )),
+            Box::new(FuncDef(
+                "giveMeAnAnimal",
+                vec![],
+                Some(Box::new(Type::DynTrait("Animal"))),
+                gmaa.clone(),
+            )),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(Struct("Dog", vec![], vec![])),
             Box::new(TraitImpl(
@@ -3856,19 +3891,32 @@ mod tests {
                 vec![dog_speak.clone()],
             )),
             Box::new(Assignment(
-                "cat",
-                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+                "specific_animal",
+                Box::new(AssignmentRVal::Statement(Box::new(
+                    Statement::InvokeFunc("giveMeAnAnimal", vec![]),
+                ))),
             )),
-            Box::new(InvokeFunc("speak", vec!["cat"])),
+            Box::new(InvokeFunc("speak", vec!["specific_animal"])),
         ]);
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
             "speak",
             vec![
-                (Some(("Animal", "Cat")), cat_speak.clone()),
                 (Some(("Animal", "Dog")), dog_speak.clone()),
+                (Some(("Animal", "Cat")), cat_speak.clone()),
             ],
+        );
+        funcs.funcs.insert(
+            "giveMeAnAnimal",
+            vec![(
+                None,
+                FuncVal::new(
+                    vec![],
+                    Some(Box::new(Type::DynTrait("Animal"))),
+                    gmaa.clone(),
+                ),
+            )],
         );
 
         let mut cmap = ConstraintMap::new();
@@ -3881,21 +3929,13 @@ mod tests {
             "animal",
             Box::new(VarType::Values(
                 Box::new(Type::DynTrait("Animal")),
-                (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
-            )),
-        );
-        check_cmap.cmap.insert(
-            "cat",
-            Box::new(VarType::Values(
-                Box::new(Type::Struct("Cat")),
-                (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
-            )),
-        );
-        check_cmap.cmap.insert(
-            "dog",
-            Box::new(VarType::Values(
-                Box::new(Type::Struct("Dog")),
-                (HashSet::from([RVal::Struct("Dog", vec![])]), HashSet::new()),
+                (
+                    HashSet::from([
+                        RVal::Struct("Cat", vec![]),
+                        RVal::Struct("Dog", vec![]),
+                    ]),
+                    HashSet::new(),
+                ),
             )),
         );
         check_cmap.cmap.insert(
@@ -3904,6 +3944,30 @@ mod tests {
                 Box::new(Type::Func(vec![Type::DynTrait("Animal")], None)),
                 None,
                 speak_cmap,
+            )),
+        );
+        check_cmap.cmap.insert(
+            "giveMeAnAnimal",
+            Box::new(VarType::Scope(
+                Box::new(Type::Func(
+                    vec![],
+                    Some(Box::new(Type::DynTrait("Animal"))),
+                )),
+                None,
+                ConstraintMap::new(),
+            )),
+        );
+        check_cmap.cmap.insert(
+            "specific_animal",
+            Box::new(VarType::Values(
+                Box::new(Type::DynTrait("Animal")),
+                (
+                    HashSet::from([
+                        RVal::Struct("Cat", vec![]),
+                        RVal::Struct("Dog", vec![]),
+                    ]),
+                    HashSet::new(),
+                ),
             )),
         );
 

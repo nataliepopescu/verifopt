@@ -375,8 +375,7 @@ impl Interpreter {
                 self.interp_assignment(funcs, cmap, traits, scope, var, value)
             }
             Statement::Print(var) => {
-                self.interp_print(var);
-                Ok(None)
+                self.interp_print(var)
             }
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.interp_conditional(
@@ -563,8 +562,8 @@ impl Interpreter {
         Ok(None)
     }
 
-    fn interp_print(&self, var: &'static str) {
-        println!("{:#?}", var);
+    fn interp_print(&self, _var: &'static str) -> Result<Option<Constraints>, Error> {
+        Ok(None)
     }
 
     fn interp_bool(
@@ -3995,6 +3994,17 @@ mod tests {
             cat_speak_body.clone(),
         );
 
+        // 1. rust has typeof (not exposed) - use for func lookup (runtime types)
+        // - could just stop here
+        // 2. then can opt per callsite (specific call that has same effect as
+        // lookup) 
+        // - could potentially do CHA
+        // - separate compilation complicates switch-statement construction
+        // 2.1 OR vtable
+        // unclear _when_ this happens, so unclear if we will have access to
+        // rust's version of its dynamic type table (assuming we wont't have
+        // access)
+
         let dog_speak_body = Box::new(Print("woof"));
         let dog_speak = FuncVal::new(
             true,
@@ -4003,15 +4013,35 @@ mod tests {
             dog_speak_body.clone(),
         );
 
+        // still too little uncertainty
+        // would have to enum all possible Ints (for "age")
+        // imagine giveMeANum func
+        // can also have a special "don't know" value for each type
+        // potential: ~ranges (i.e. "idk but...") - many representations
+        // also: idk but i know what somefunc() on this returns
+
+        // special "idk" val at every level
+        // is this enough to not lose precision?
+        // if come across it, start to add "idk but"s
+        // as a sys paper: heavily grounded in waht do ppl want/need
+
+        // Animal::idk
+        // - ^ don't need to know about Cat / Dog
+        // - since we have access to this, is there a good reason to use this?
+        // Cat::idk
+        // Cat::age::idk
+        // think about the tradeoffs... may not actually change analysis
+        // precision; maybe impact storage (Animal ~= less complex)
+        // start less complex, expand when learn more
         let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
             Box::new(BooleanStatement::TrueOrFalse()),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Cat",
-                vec![],
+                vec![RVal::Num(0)],
             )))])),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Dog",
-                vec![],
+                vec![RVal::Num(0)],
             )))])),
         ))]));
 
@@ -4028,8 +4058,8 @@ mod tests {
                 Some(Box::new(Type::DynTrait("Animal"))),
                 gmaa.clone(),
             )),
-            Box::new(Struct("Cat", vec![], vec![])),
-            Box::new(Struct("Dog", vec![], vec![])),
+            Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
+            Box::new(Struct("Dog", vec![Type::Int()], vec!["age"])),
             Box::new(TraitImpl(
                 "Animal",
                 "Cat",
@@ -4080,7 +4110,10 @@ mod tests {
         let mut check_cmap = ConstraintMap::new();
         // FIXME two speaks...
         // CMAP might need to be modified for funcvecs
-        let mut speak_cmap = ConstraintMap::new();
+
+        let mut cat_speak_cmap = ConstraintMap::new();
+        let mut dog_speak_cmap = ConstraintMap::new();
+
         speak_cmap.cmap.insert(
             "self",
             Box::new(VarType::Values(

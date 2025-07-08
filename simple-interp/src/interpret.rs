@@ -73,7 +73,7 @@ impl BooleanConstraints {
 pub enum VarType {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
-    Scope(Box<Type>, Option<&'static str>, ConstraintMap),
+    Scope(Option<&'static str>, Box<Type>, ConstraintMap),
     // sets of positive and negative constraints
     Values(Box<Type>, Constraints),
 }
@@ -119,7 +119,7 @@ impl ConstraintMap {
 
         match self.cmap.get(scope.unwrap()) {
             Some(vartype) => match *vartype.clone() {
-                VarType::Scope(_, backptr, inner_cmap) => {
+                VarType::Scope(backptr, _, inner_cmap) => {
                     // is var in inner_cmap? if not:
                     // - nested funcs: return None
                     // - closures: recursively follow backptr to enclosing
@@ -524,7 +524,7 @@ impl Interpreter {
                             match cmap.cmap.get(name) {
                                 Some(val) => match *val.clone() {
                                     VarType::Values(stored_functype, _)
-                                    | VarType::Scope(stored_functype, ..) => {
+                                    | VarType::Scope(_, stored_functype, _) => {
                                         functype = stored_functype;
                                     }
                                 },
@@ -729,15 +729,15 @@ impl Interpreter {
                                 )
                                 | (
                                     VarType::Values(type_a, _),
-                                    VarType::Scope(type_b, ..),
+                                    VarType::Scope(_, type_b, _),
                                 )
                                 | (
-                                    VarType::Scope(type_a, ..),
+                                    VarType::Scope(_, type_a, _),
                                     VarType::Values(type_b, _),
                                 )
                                 | (
-                                    VarType::Scope(type_a, ..),
-                                    VarType::Scope(type_b, ..),
+                                    VarType::Scope(_, type_a, _),
+                                    VarType::Scope(_, type_b, _),
                                 ) => {
                                     if type_a != type_b {
                                         return Err(Error::TypesDiffer());
@@ -1078,8 +1078,8 @@ impl Interpreter {
         cmap.cmap.insert(
             name,
             Box::new(VarType::Scope(
-                Box::new(Type::Func(paramtypes, funcval.rettype.clone())),
                 scope,
+                Box::new(Type::Func(paramtypes, funcval.rettype.clone())),
                 func_cmap,
             )),
         );
@@ -2106,8 +2106,8 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 foo_cmap,
             )),
         );
@@ -2201,8 +2201,8 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 None,
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 foo_cmap,
             )),
         );
@@ -2257,8 +2257,8 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 foo_cmap,
             )),
         );
@@ -2364,8 +2364,8 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 None,
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 foo_cmap,
             )),
         );
@@ -2416,16 +2416,16 @@ mod tests {
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![], None)),
                 bar_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 foo_cmap,
             )),
         );
@@ -2604,48 +2604,48 @@ mod tests {
         check_cmap.cmap.insert(
             "baz2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("bar"),
+                Box::new(Type::Func(vec![], None)),
                 baz2_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 foo_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "qux",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![], None)),
                 qux_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![], None)),
                 baz_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 bar_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("bar"),
+                Box::new(Type::Func(vec![], None)),
                 qux2_cmap,
             )),
         );
@@ -2741,16 +2741,16 @@ mod tests {
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 bar_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 None,
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 foo_cmap,
             )),
         );
@@ -3019,24 +3019,24 @@ mod tests {
         check_cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 baz_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 None,
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 bar_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 None,
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 foo_cmap,
             )),
         );
@@ -3053,24 +3053,24 @@ mod tests {
         check_cmap.cmap.insert(
             "qux",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 qux_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "baz2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 Some("bar"),
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 baz2_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Int()], None)),
                 Some("bar"),
+                Box::new(Type::Func(vec![Type::Int()], None)),
                 qux2_cmap,
             )),
         );
@@ -3141,16 +3141,16 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 foo_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 bar_cmap,
             )),
         );
@@ -3231,16 +3231,16 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 foo_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 bar_cmap,
             )),
         );
@@ -3424,8 +3424,8 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 None,
+                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 ConstraintMap::new(),
             )),
         );
@@ -3494,8 +3494,8 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 None,
+                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 foo_cmap,
             )),
         );
@@ -3627,6 +3627,7 @@ mod tests {
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
+                None,
                 Box::new(Type::Func(
                     vec![],
                     Some(Box::new(Type::Func(
@@ -3634,23 +3635,22 @@ mod tests {
                         Some(Box::new(Type::Int())),
                     ))),
                 )),
-                None,
                 foo_cmap,
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 None,
+                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 ConstraintMap::new(),
             )),
         );
         check_cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 None,
+                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
                 ConstraintMap::new(),
             )),
         );
@@ -3971,8 +3971,8 @@ mod tests {
         check_cmap.cmap.insert(
             "speak",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
                 None,
+                Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
                 speak_cmap,
             )),
         );
@@ -4113,15 +4113,25 @@ mod tests {
 
         let mut cat_speak_cmap = ConstraintMap::new();
         let mut dog_speak_cmap = ConstraintMap::new();
-
-        speak_cmap.cmap.insert(
+        cat_speak_cmap.cmap.insert(
             "self",
             Box::new(VarType::Values(
-                Box::new(Type::DynTrait("Animal")),
+                Box::new(Type::Struct("Cat")),
                 (
                     HashSet::from([
-                        RVal::Struct("Cat", vec![]),
-                        RVal::Struct("Dog", vec![]),
+                        RVal::Struct("Cat", vec![RVal::Num(0)]),
+                    ]),
+                    HashSet::new(),
+                ),
+            )),
+        );
+        dog_speak_cmap.cmap.insert(
+            "self",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct("Dog")),
+                (
+                    HashSet::from([
+                        RVal::Struct("Dog", vec![RVal::Num(0)]),
                     ]),
                     HashSet::new(),
                 ),
@@ -4130,19 +4140,27 @@ mod tests {
         check_cmap.cmap.insert(
             "speak",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::DynTrait("Animal")], None)),
                 None,
-                speak_cmap,
+                vec![
+                    (
+                        Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
+                        cat_speak_cmap,
+                    ),
+                    (
+                        Box::new(Type::Func(vec![Type::Struct("Dog")], None)),
+                        dog_speak_cmap,
+                    ),
+                ],
             )),
         );
         check_cmap.cmap.insert(
             "giveMeAnAnimal",
             Box::new(VarType::Scope(
+                None,
                 Box::new(Type::Func(
                     vec![],
                     Some(Box::new(Type::DynTrait("Animal"))),
                 )),
-                None,
                 ConstraintMap::new(),
             )),
         );
@@ -4152,8 +4170,8 @@ mod tests {
                 Box::new(Type::DynTrait("Animal")),
                 (
                     HashSet::from([
-                        RVal::Struct("Cat", vec![]),
-                        RVal::Struct("Dog", vec![]),
+                        RVal::Struct("Cat", vec![RVal::Num(0)]),
+                        RVal::Struct("Dog", vec![RVal::Num(0)]),
                     ]),
                     HashSet::new(),
                 ),

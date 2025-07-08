@@ -80,7 +80,7 @@ impl SSAChecker {
             Statement::Conditional(_, true_branch, false_branch) => self
                 .check_conditional(symbols, &(*true_branch), &(*false_branch)),
             Statement::Switch(_, vec) => self.check_switch(symbols, vec),
-            Statement::FuncDef(name, params, _, body) => {
+            Statement::FuncDef(name, _, params, _, body) => {
                 self.check_funcdef(symbols, name, params, body)
             }
             Statement::Struct(struct_name, _, _) => {
@@ -290,6 +290,7 @@ mod tests {
         ));
         let stmt = Sequence(vec![Box::new(FuncDef(
             "foo",
+            false,
             vec![("x", Type::Int())],
             None,
             body.clone(),
@@ -317,8 +318,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], None, body.clone())),
-            Box::new(FuncDef("foo", vec![], None, body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -332,6 +333,7 @@ mod tests {
     fn test_nested_funcdefs() {
         let body = Box::new(FuncDef(
             "baz",
+            false, 
             vec![],
             None,
             Box::new(Assignment(
@@ -340,8 +342,8 @@ mod tests {
             )),
         ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], None, body.clone())),
-            Box::new(FuncDef("bar", vec![], None, body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -445,8 +447,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -461,8 +463,8 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -478,8 +480,8 @@ mod tests {
         ]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -530,10 +532,11 @@ mod tests {
     #[test]
     fn test_dyn_traits_two_impl() {
         let funcdef =
-            FuncDecl::new(vec![("animal", Type::DynTrait("Animal"))], None);
+            FuncDecl::new(true, vec![("animal", Type::DynTrait("Animal"))], None);
 
         let cat_speak_body = Box::new(Print("meow"));
         let cat_speak = FuncVal::new(
+            true,
             vec![("animal", Type::DynTrait("Animal"))],
             None,
             cat_speak_body.clone(),
@@ -541,6 +544,7 @@ mod tests {
 
         let dog_speak_body = Box::new(Print("woof"));
         let dog_speak = FuncVal::new(
+            true,
             vec![("animal", Type::DynTrait("Animal"))],
             None,
             dog_speak_body.clone(),

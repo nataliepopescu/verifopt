@@ -480,7 +480,7 @@ impl Interpreter {
                     },
                     Ok(None) => match funcs.funcs.get(varname) {
                         Some(funcvec) => {
-                            for (tso, funcval) in funcvec.iter() {
+                            for (_tso, funcval) in funcvec.iter() {
                                 let (_, paramtypes): (
                                     Vec<&'static str>,
                                     Vec<Type>,
@@ -990,7 +990,7 @@ impl Interpreter {
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
-        traits: &mut Traits,
+        _traits: &mut Traits,
         scope: Option<&'static str>,
         rval: &RVal,
     ) -> Result<Option<Constraints>, Error> {
@@ -1008,7 +1008,7 @@ impl Interpreter {
                             Ok(Some(constraints))
                         }
                         VarType::Scope(..) => match funcs.funcs.get(varname) {
-                            Some(funcvec) => Ok(Some((
+                            Some(_funcvec) => Ok(Some((
                                 HashSet::from([RVal::Var(*varname)]),
                                 HashSet::new(),
                             ))),
@@ -1103,7 +1103,7 @@ impl Interpreter {
                 Some(funcvec) => {
                     let mut constraints_vec = vec![];
 
-                    for (tso, funcval) in funcvec.iter() {
+                    for (_tso, funcval) in funcvec.iter() {
                         let res = self.resolve_args(
                             funcs, cmap, scope, varname, &funcval, args,
                         );
@@ -1204,7 +1204,7 @@ impl Interpreter {
             Some(funcvec) => {
                 let mut results_vec = vec![];
 
-                for (tso, funcval) in funcvec.iter() {
+                for (_tso, funcval) in funcvec.iter() {
                     let res = self
                         .resolve_args(funcs, cmap, scope, name, &funcval, args);
                     if res.is_err() {
@@ -1268,10 +1268,10 @@ impl Interpreter {
 
     fn interp_traitdecl(
         &self,
-        funcs: &Funcs,
-        cmap: &mut ConstraintMap,
+        _funcs: &Funcs,
+        _cmap: &mut ConstraintMap,
         traits: &mut Traits,
-        scope: Option<&'static str>,
+        _scope: Option<&'static str>,
         trait_name: &'static str,
     ) -> Result<Option<Constraints>, Error> {
         match traits.traits.get(trait_name) {
@@ -1287,10 +1287,10 @@ impl Interpreter {
 
     fn interp_traitimpl(
         &self,
-        funcs: &Funcs,
-        cmap: &mut ConstraintMap,
+        _funcs: &Funcs,
+        _cmap: &mut ConstraintMap,
         traits: &mut Traits,
-        scope: Option<&'static str>,
+        _scope: Option<&'static str>,
         trait_name: &'static str,
         struct_name: &'static str,
     ) -> Result<Option<Constraints>, Error> {

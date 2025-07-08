@@ -23,7 +23,7 @@ impl SigCollector {
 
     pub fn collect(&self, funcs: &Funcs, sigs: &mut Sigs) -> Result<(), Error> {
         for (func_name, funcvec) in funcs.funcs.iter() {
-            for (tso, func) in funcvec.iter() {
+            for (_tso, func) in funcvec.iter() {
                 // FIXME differentiate tso?
                 let (_, paramtypes): (Vec<&'static str>, Vec<crate::Type>) =
                     func.params.clone().into_iter().unzip();

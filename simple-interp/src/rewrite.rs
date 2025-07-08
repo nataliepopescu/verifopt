@@ -247,7 +247,7 @@ impl Rewriter {
         for rval in pos_constraints.clone().into_iter() {
             match rval {
                 RVal::Var(varname) => str_set.insert(varname),
-                RVal::Struct(structname, fields) => str_set.insert(structname),
+                RVal::Struct(structname, _) => str_set.insert(structname),
                 _ => return false,
             };
         }
@@ -313,7 +313,7 @@ impl Rewriter {
     fn rewrite_indirect_invoke(
         &self,
         sigs: &Sigs,
-        traits: &Traits,
+        _traits: &Traits,
         name: &'static str,
         constraints: &Constraints,
         vartype: &Type,
@@ -375,11 +375,11 @@ impl Rewriter {
     // FIXME merge trait_invoke w indirect_invoke ?
     fn rewrite_trait_invoke(
         &self,
-        funcs: &Funcs,
+        _funcs: &Funcs,
         cmap: &ConstraintMap,
-        sigs: &Sigs,
-        traits: &Traits,
-        scope: Option<&'static str>,
+        _sigs: &Sigs,
+        _traits: &Traits,
+        _scope: Option<&'static str>,
         name: &'static str,
         funcvec: &Vec<(TraitStructOpt, FuncVal)>,
         args: &Vec<&'static str>,

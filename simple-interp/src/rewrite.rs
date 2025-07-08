@@ -890,48 +890,48 @@ mod tests {
         cmap.cmap.insert(
             "baz2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("bar"),
+                Box::new(Type::Func(vec![], None)),
                 baz2_cmap,
             )),
         );
         cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 foo_cmap,
             )),
         );
         cmap.cmap.insert(
             "qux",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![], None)),
                 qux_cmap,
             )),
         );
         cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("foo"),
+                Box::new(Type::Func(vec![], None)),
                 baz_cmap,
             )),
         );
         cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 None,
+                Box::new(Type::Func(vec![], None)),
                 bar_cmap,
             )),
         );
         cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![], None)),
                 Some("bar"),
+                Box::new(Type::Func(vec![], None)),
                 qux2_cmap,
             )),
         );
@@ -1171,19 +1171,19 @@ mod tests {
         cmap.cmap.insert(
             "speak",
             Box::new(VarType::Scope(
-                Box::new(Type::Func(vec![Type::DynTrait("Animal")], None)),
                 None,
+                Box::new(Type::Func(vec![Type::DynTrait("Animal")], None)),
                 speak_cmap,
             )),
         );
         cmap.cmap.insert(
             "giveMeAnAnimal",
             Box::new(VarType::Scope(
+                None,
                 Box::new(Type::Func(
                     vec![],
                     Some(Box::new(Type::DynTrait("Animal"))),
                 )),
-                None,
                 ConstraintMap::new(),
             )),
         );

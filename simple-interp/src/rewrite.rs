@@ -891,48 +891,42 @@ mod tests {
             "baz2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                Box::new(Type::Func(vec![], None)),
-                baz2_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), baz2_cmap)],
             )),
         );
         cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
             )),
         );
         cmap.cmap.insert(
             "qux",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![], None)),
-                qux_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), qux_cmap)],
             )),
         );
         cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![], None)),
-                baz_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), baz_cmap)],
             )),
         );
         cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                bar_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), bar_cmap)],
             )),
         );
         cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                Box::new(Type::Func(vec![], None)),
-                qux2_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), qux2_cmap)],
             )),
         );
         let mut sigs = Sigs::new();
@@ -992,8 +986,20 @@ mod tests {
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", false, vec![], None, check_foo_body.clone())),
-            Box::new(FuncDef("bar", false, vec![], None, check_bar_body.clone())),
+            Box::new(FuncDef(
+                "foo",
+                false,
+                vec![],
+                None,
+                check_foo_body.clone(),
+            )),
+            Box::new(FuncDef(
+                "bar",
+                false,
+                vec![],
+                None,
+                check_bar_body.clone(),
+            )),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -1016,7 +1022,12 @@ mod tests {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
         let funcdef = FuncDecl::new(true, vec![], None);
-        let cat_funcimpl = FuncVal::new(true, vec![("self", Type::Struct("Cat"))], None, cat_speak_body.clone());
+        let cat_funcimpl = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Cat"))],
+            None,
+            cat_speak_body.clone(),
+        );
 
         let mut stmt = Sequence(vec![
             Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
@@ -1103,7 +1114,7 @@ mod tests {
             )),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
-                false, 
+                false,
                 vec![],
                 Some(Box::new(Type::DynTrait("Animal"))),
                 gmaa.clone(),
@@ -1144,7 +1155,7 @@ mod tests {
             vec![(
                 None,
                 FuncVal::new(
-                    false, 
+                    false,
                     vec![],
                     Some(Box::new(Type::DynTrait("Animal"))),
                     gmaa.clone(),
@@ -1172,19 +1183,23 @@ mod tests {
             "speak",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![Type::DynTrait("Animal")], None)),
-                speak_cmap,
+                vec![(
+                    Box::new(Type::Func(vec![Type::DynTrait("Animal")], None)),
+                    speak_cmap,
+                )],
             )),
         );
         cmap.cmap.insert(
             "giveMeAnAnimal",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(
-                    vec![],
-                    Some(Box::new(Type::DynTrait("Animal"))),
-                )),
-                ConstraintMap::new(),
+                vec![(
+                    Box::new(Type::Func(
+                        vec![],
+                        Some(Box::new(Type::DynTrait("Animal"))),
+                    )),
+                    ConstraintMap::new(),
+                )],
             )),
         );
         cmap.cmap.insert(
@@ -1243,7 +1258,7 @@ mod tests {
             )),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
-                false, 
+                false,
                 vec![],
                 Some(Box::new(Type::DynTrait("Animal"))),
                 gmaa.clone(),

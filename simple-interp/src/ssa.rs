@@ -333,7 +333,7 @@ mod tests {
     fn test_nested_funcdefs() {
         let body = Box::new(FuncDef(
             "baz",
-            false, 
+            false,
             vec![],
             None,
             Box::new(Assignment(
@@ -531,8 +531,11 @@ mod tests {
 
     #[test]
     fn test_dyn_traits_two_impl() {
-        let funcdef =
-            FuncDecl::new(true, vec![("animal", Type::DynTrait("Animal"))], None);
+        let funcdef = FuncDecl::new(
+            true,
+            vec![("animal", Type::DynTrait("Animal"))],
+            None,
+        );
 
         let cat_speak_body = Box::new(Print("meow"));
         let cat_speak = FuncVal::new(

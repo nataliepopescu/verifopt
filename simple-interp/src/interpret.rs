@@ -73,7 +73,7 @@ impl BooleanConstraints {
 pub enum VarType {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
-    Scope(Option<&'static str>, Box<Type>, ConstraintMap),
+    Scope(Option<&'static str>, Vec<(Box<Type>, ConstraintMap)>),
     // sets of positive and negative constraints
     Values(Box<Type>, Constraints),
 }
@@ -119,13 +119,16 @@ impl ConstraintMap {
 
         match self.cmap.get(scope.unwrap()) {
             Some(vartype) => match *vartype.clone() {
-                VarType::Scope(backptr, _, inner_cmap) => {
+                VarType::Scope(backptr, instance_vec) => {
+                    if instance_vec.len() != 1 {
+                        todo!("not impl yet (scope vec)");
+                    }
                     // is var in inner_cmap? if not:
                     // - nested funcs: return None
                     // - closures: recursively follow backptr to enclosing
                     //   scopes
                     // FIXME closures should not recurse past enclosing function
-                    match inner_cmap.cmap.get(var) {
+                    match instance_vec[0].1.cmap.get(var) {
                         Some(boxed) => return Ok(Some(*boxed.clone())),
                         None => {
                             if traverse_backptr {
@@ -164,15 +167,18 @@ impl ConstraintMap {
 
         match self.cmap.get(scope.unwrap()) {
             Some(vartype) => match *vartype.clone() {
-                VarType::Scope(functype, backptr, mut inner_cmap) => {
-                    if inner_cmap.cmap.get(var).is_some() {
+                VarType::Scope(backptr, mut instance_vec) => {
+                    if instance_vec.len() != 1 {
+                        todo!("not impl yet (scope vec)");
+                    }
+                    if instance_vec[0].1.cmap.get(var).is_some() {
                         return Err(Error::SymbolAlreadyExists(var));
                     }
                     // modify scope w new var
-                    inner_cmap.cmap.insert(var, value);
+                    instance_vec[0].1.cmap.insert(var, value);
                     self.cmap.insert(
                         scope.unwrap(),
-                        Box::new(VarType::Scope(functype, backptr, inner_cmap)),
+                        Box::new(VarType::Scope(backptr, instance_vec)),
                     );
                 }
                 VarType::Values(..) => {
@@ -202,29 +208,49 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                     // mismatched types should be caught by typechecker
                     Some(mval) => match (*mval.clone(), *val.clone()) {
                         (
-                            VarType::Scope(functype_a, backptr_a, cmap_a),
-                            VarType::Scope(functype_b, backptr_b, cmap_b),
+                            VarType::Scope(backptr_a, mut instance_vec_a),
+                            VarType::Scope(backptr_b, mut instance_vec_b),
                         ) => {
-                            if functype_a != functype_b {
-                                return Err(Error::TypesDiffer());
+                            if instance_vec_a.len() != 1
+                                || instance_vec_b.len() != 1
+                            {
+                                todo!("not impl yet (scope vec)");
                             }
+
+                            let functype_a = instance_vec_a[0].0.clone();
+                            let functype_b = instance_vec_b[0].0.clone();
+                            let cmap_a = instance_vec_a[0].1.clone();
+                            let cmap_b = instance_vec_b[0].1.clone();
+
                             if backptr_a != backptr_b {
                                 return Err(Error::BackpointersDiffer());
                             }
-                            if cmap_a != cmap_b {
-                                let inner_cmap = vec![cmap_a, cmap_b];
-                                match inner_cmap.merge() {
-                                    Ok(Some(merged_inner)) => {
-                                        *mval = Box::new(VarType::Scope(
-                                            functype_a,
-                                            backptr_a,
-                                            merged_inner,
-                                        ));
+                            if functype_a != functype_b {
+                                if cmap_a != cmap_b {
+                                    instance_vec_a.append(&mut instance_vec_b);
+                                    *mval = Box::new(VarType::Scope(
+                                        backptr_a,
+                                        instance_vec_a,
+                                    ));
+                                }
+                            } else {
+                                if cmap_a != cmap_b {
+                                    let inner_cmap = vec![cmap_a, cmap_b];
+                                    match inner_cmap.merge() {
+                                        Ok(Some(merged_inner)) => {
+                                            *mval = Box::new(VarType::Scope(
+                                                backptr_a,
+                                                vec![(
+                                                    functype_a,
+                                                    merged_inner,
+                                                )],
+                                            ));
+                                        }
+                                        Ok(None) => {
+                                            todo!("got none for inner cmap")
+                                        }
+                                        err @ Err(_) => return err,
                                     }
-                                    Ok(None) => {
-                                        todo!("got none for inner cmap")
-                                    }
-                                    err @ Err(_) => return err,
                                 }
                             }
                         }
@@ -374,9 +400,7 @@ impl Interpreter {
             Statement::Assignment(var, value) => {
                 self.interp_assignment(funcs, cmap, traits, scope, var, value)
             }
-            Statement::Print(var) => {
-                self.interp_print(var)
-            }
+            Statement::Print(var) => self.interp_print(var),
             Statement::Conditional(condition, true_branch, false_branch) => {
                 self.interp_conditional(
                     funcs,
@@ -523,9 +547,14 @@ impl Interpreter {
                             let functype;
                             match cmap.cmap.get(name) {
                                 Some(val) => match *val.clone() {
-                                    VarType::Values(stored_functype, _)
-                                    | VarType::Scope(_, stored_functype, _) => {
+                                    VarType::Values(stored_functype, _) => {
                                         functype = stored_functype;
+                                    }
+                                    VarType::Scope(_, inst_vec) => {
+                                        if inst_vec.len() != 1 {
+                                            todo!("not impl yet (scope vec)");
+                                        }
+                                        functype = inst_vec[0].0.clone();
                                     }
                                 },
                                 None => {
@@ -562,7 +591,10 @@ impl Interpreter {
         Ok(None)
     }
 
-    fn interp_print(&self, _var: &'static str) -> Result<Option<Constraints>, Error> {
+    fn interp_print(
+        &self,
+        _var: &'static str,
+    ) -> Result<Option<Constraints>, Error> {
         Ok(None)
     }
 
@@ -726,23 +758,52 @@ impl Interpreter {
                                 (
                                     VarType::Values(type_a, _),
                                     VarType::Values(type_b, _),
-                                )
-                                | (
-                                    VarType::Values(type_a, _),
-                                    VarType::Scope(_, type_b, _),
-                                )
-                                | (
-                                    VarType::Scope(_, type_a, _),
-                                    VarType::Values(type_b, _),
-                                )
-                                | (
-                                    VarType::Scope(_, type_a, _),
-                                    VarType::Scope(_, type_b, _),
                                 ) => {
                                     if type_a != type_b {
                                         return Err(Error::TypesDiffer());
                                     }
                                     vartype = type_a;
+                                }
+                                (
+                                    VarType::Values(type_a, _),
+                                    VarType::Scope(_, inst_vec_b), /* type_b, _), */
+                                ) => {
+                                    if inst_vec_b.len() != 1 {
+                                        todo!("not impl yet (scope vec)");
+                                    }
+
+                                    if type_a != inst_vec_b[0].0 {
+                                        return Err(Error::TypesDiffer());
+                                    }
+                                    vartype = type_a;
+                                }
+                                (
+                                    VarType::Scope(_, inst_vec_a), /* type_a, _), */
+                                    VarType::Values(type_b, _),
+                                ) => {
+                                    if inst_vec_a.len() != 1 {
+                                        todo!("not impl yet (scope vec)");
+                                    }
+
+                                    if type_b != inst_vec_a[0].0 {
+                                        return Err(Error::TypesDiffer());
+                                    }
+                                    vartype = type_b;
+                                }
+                                (
+                                    VarType::Scope(_, inst_vec_a), /* type_a, _), */
+                                    VarType::Scope(_, inst_vec_b), /* type_b, _), */
+                                ) => {
+                                    if inst_vec_a.len() != 1
+                                        || inst_vec_b.len() != 1
+                                    {
+                                        todo!("not impl yet (scope vec)");
+                                    }
+
+                                    if inst_vec_a[0].0 != inst_vec_b[0].0 {
+                                        return Err(Error::TypesDiffer());
+                                    }
+                                    vartype = inst_vec_a[0].0.clone();
                                 }
                             }
                         }
@@ -1046,21 +1107,42 @@ impl Interpreter {
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
         let mut func_cmap = ConstraintMap::new();
+        println!("IN RESARGS");
+        println!("FUNCVAL: {:?}", &funcval);
         for ((param_name, param_type), arg) in
             std::iter::zip(funcval.params.clone(), args)
         {
+            println!("param_name: {:?}", &param_name);
+            println!("param_type: {:?}", &param_type);
+            println!("arg: {:?}", &arg);
             match cmap.scoped_get(scope, arg, false) {
-                Ok(Some(vartype)) => match vartype {
-                    // add args to scope
-                    VarType::Values(_, constraints) => func_cmap.cmap.insert(
-                        param_name,
-                        Box::new(VarType::Values(
-                            Box::new(param_type),
-                            constraints.clone(),
-                        )),
-                    ),
-                    _ => todo!("not impl yet (funcs as args)"),
-                },
+                Ok(Some(vartype)) => {
+                    println!("vartype: {:?}", &vartype);
+                    match vartype {
+                        // add args to scope
+                        VarType::Values(valstype, constraints) => {
+                            // FIXME prune constraints that are either redundant
+                            // or invalid, given a trait param_type
+                            //
+                            // if the "bad" constraint is pos, then remove it
+                            // - i.e. if param_type is a Struct(Cat), but have a
+                            // value constraint of ({Struct(Dog)}, {}), remove
+                            // pos-Struct(Dog)
+                            //
+                            // TODO neg example?
+                            println!("valstype: {:?}", &valstype);
+                            println!("constraints: {:?}", &constraints);
+                            func_cmap.cmap.insert(
+                                param_name,
+                                Box::new(VarType::Values(
+                                    Box::new(param_type),
+                                    constraints.clone(),
+                                )),
+                            )
+                        }
+                        _ => todo!("not impl yet (funcs as args)"),
+                    }
+                }
                 Ok(None) => match funcs.funcs.get(arg) {
                     Some(_funcvec) => {
                         todo!("not impl yet (funcs as args)");
@@ -1075,14 +1157,44 @@ impl Interpreter {
 
         let (_, paramtypes): (Vec<&'static str>, Vec<Type>) =
             funcval.params.clone().into_iter().unzip();
-        cmap.cmap.insert(
-            name,
-            Box::new(VarType::Scope(
-                scope,
-                Box::new(Type::Func(paramtypes, funcval.rettype.clone())),
-                func_cmap,
-            )),
-        );
+        match cmap.cmap.get(name) {
+            Some(vartype) => match *vartype.clone() {
+                VarType::Scope(existing_scope, existing_inst_vecs) => {
+                    if existing_scope != scope {
+                        panic!("scopes differ, include in vec");
+                    }
+
+                    let mut new_inst_vecs = existing_inst_vecs.clone();
+                    new_inst_vecs.push((
+                        Box::new(Type::Func(
+                            paramtypes,
+                            funcval.rettype.clone(),
+                        )),
+                        func_cmap,
+                    ));
+                    cmap.cmap.insert(
+                        name,
+                        Box::new(VarType::Scope(scope, new_inst_vecs)),
+                    );
+                }
+                _ => panic!("got values when expected scope"),
+            },
+            None => {
+                cmap.cmap.insert(
+                    name,
+                    Box::new(VarType::Scope(
+                        scope,
+                        vec![(
+                            Box::new(Type::Func(
+                                paramtypes,
+                                funcval.rettype.clone(),
+                            )),
+                            func_cmap,
+                        )],
+                    )),
+                );
+            }
+        }
 
         Ok(())
     }
@@ -1202,17 +1314,25 @@ impl Interpreter {
         match funcs.funcs.get(&name) {
             Some(funcvec) => {
                 let mut results_vec = vec![];
+                let mut cmap_vec = vec![];
 
-                for (_tso, funcval) in funcvec.iter() {
-                    let res = self
-                        .resolve_args(funcs, cmap, scope, name, &funcval, args);
+                for (_, funcval) in funcvec.iter() {
+                    let mut cmap_clone = cmap.clone();
+                    let res = self.resolve_args(
+                        funcs,
+                        &mut cmap_clone,
+                        scope,
+                        name,
+                        &funcval,
+                        args,
+                    );
                     if res.is_err() {
                         return Err(res.err().unwrap());
                     }
 
                     match self.interp(
                         funcs,
-                        cmap,
+                        &mut cmap_clone,
                         traits,
                         Some(name),
                         &*funcval.body,
@@ -1221,9 +1341,20 @@ impl Interpreter {
                             if constraints.is_some() {
                                 results_vec.push(constraints.unwrap());
                             }
+                            cmap_vec.push(cmap_clone);
                         }
                         err @ Err(_) => return err,
                     }
+                }
+
+                match cmap_vec.merge() {
+                    Ok(Some(new_cmap)) => {
+                        println!("old cmap: {:?}", &cmap);
+                        println!("new cmap: {:?}", &new_cmap);
+                        *cmap = new_cmap;
+                    }
+                    Ok(None) => {}
+                    Err(err) => return Err(err),
                 }
 
                 match results_vec.merge() {
@@ -1246,6 +1377,9 @@ impl Interpreter {
         name: &'static str,
         args: &Vec<&'static str>,
     ) -> Result<Option<Constraints>, Error> {
+        println!("\nINVOKING");
+        println!("name: {:?}", &name);
+        println!("args: {:?}", &args);
         match cmap.scoped_get(scope, name, false) {
             Ok(Some(vartype)) => match vartype {
                 VarType::Values(_, constraints) => self.interp_indirect_invoke(
@@ -2107,8 +2241,7 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
             )),
         );
 
@@ -2147,7 +2280,7 @@ mod tests {
         let stmt = Sequence(vec![
             Box::new(FuncDef(
                 "foo",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 body.clone(),
@@ -2163,7 +2296,12 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    body.clone(),
+                ),
             )],
         );
         let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
@@ -2202,8 +2340,7 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), foo_cmap)],
             )),
         );
 
@@ -2258,8 +2395,7 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
             )),
         );
 
@@ -2298,7 +2434,7 @@ mod tests {
         let stmt = Sequence(vec![
             Box::new(FuncDef(
                 "foo",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 body.clone(),
@@ -2318,7 +2454,12 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    body.clone(),
+                ),
             )],
         );
         let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
@@ -2365,8 +2506,7 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), foo_cmap)],
             )),
         );
 
@@ -2390,12 +2530,14 @@ mod tests {
         ]);
 
         let mut funcs = Funcs::new();
-        funcs
-            .funcs
-            .insert("bar", vec![(None, FuncVal::new(false, vec![], None, bar_body))]);
-        funcs
-            .funcs
-            .insert("foo", vec![(None, FuncVal::new(false, vec![], None, foo_body))]);
+        funcs.funcs.insert(
+            "bar",
+            vec![(None, FuncVal::new(false, vec![], None, bar_body))],
+        );
+        funcs.funcs.insert(
+            "foo",
+            vec![(None, FuncVal::new(false, vec![], None, foo_body))],
+        );
 
         let mut cmap = ConstraintMap::new();
         let mut traits = Traits::new();
@@ -2417,16 +2559,14 @@ mod tests {
             "bar",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![], None)),
-                bar_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), bar_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
             )),
         );
 
@@ -2605,48 +2745,42 @@ mod tests {
             "baz2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                Box::new(Type::Func(vec![], None)),
-                baz2_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), baz2_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "qux",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![], None)),
-                qux_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), qux_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![], None)),
-                baz_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), baz_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                bar_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), bar_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                Box::new(Type::Func(vec![], None)),
-                qux2_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), qux2_cmap)],
             )),
         );
 
@@ -2663,7 +2797,7 @@ mod tests {
         let foo_body = Box::new(Sequence(vec![
             Box::new(FuncDef(
                 "bar",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 bar_body.clone(),
@@ -2673,7 +2807,7 @@ mod tests {
         let stmt = Sequence(vec![
             Box::new(FuncDef(
                 "foo",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 foo_body.clone(),
@@ -2742,16 +2876,14 @@ mod tests {
             "bar",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                bar_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), bar_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), foo_cmap)],
             )),
         );
 
@@ -2780,14 +2912,14 @@ mod tests {
         let foo_body = Box::new(Sequence(vec![
             Box::new(FuncDef(
                 "baz",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 baz_body.clone(),
             )),
             Box::new(FuncDef(
                 "qux",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 qux_body.clone(),
@@ -2808,14 +2940,14 @@ mod tests {
         let bar_body = Box::new(Sequence(vec![
             Box::new(FuncDef(
                 "baz2",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 baz2_body.clone(),
             )),
             Box::new(FuncDef(
                 "qux2",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 qux2_body.clone(),
@@ -2837,14 +2969,14 @@ mod tests {
         let stmt = Sequence(vec![
             Box::new(FuncDef(
                 "foo",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 foo_body.clone(),
             )),
             Box::new(FuncDef(
                 "bar",
-                false, 
+                false,
                 vec![("y", Type::Int())],
                 None,
                 bar_body.clone(),
@@ -2872,42 +3004,72 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, foo_body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    foo_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "bar",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, bar_body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    bar_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "baz",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, baz_body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    baz_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "qux",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, qux_body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    qux_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "baz2",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, baz2_body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    baz2_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "qux2",
             vec![(
                 None,
-                FuncVal::new(false, vec![("y", Type::Int())], None, qux2_body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    qux2_body.clone(),
+                ),
             )],
         );
 
@@ -3020,24 +3182,21 @@ mod tests {
             "baz",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                baz_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), baz_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                bar_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), bar_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), foo_cmap)],
             )),
         );
         check_cmap.cmap.insert(
@@ -3054,24 +3213,27 @@ mod tests {
             "qux",
             Box::new(VarType::Scope(
                 Some("foo"),
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                qux_cmap,
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), qux_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "baz2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                baz2_cmap,
+                vec![(
+                    Box::new(Type::Func(vec![Type::Int()], None)),
+                    baz2_cmap,
+                )],
             )),
         );
         check_cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                Box::new(Type::Func(vec![Type::Int()], None)),
-                qux2_cmap,
+                vec![(
+                    Box::new(Type::Func(vec![Type::Int()], None)),
+                    qux2_cmap,
+                )],
             )),
         );
         check_cmap.cmap.insert(
@@ -3142,16 +3304,14 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                bar_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), bar_cmap)],
             )),
         );
 
@@ -3232,16 +3392,14 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                foo_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], None)),
-                bar_cmap,
+                vec![(Box::new(Type::Func(vec![], None)), bar_cmap)],
             )),
         );
 
@@ -3400,7 +3558,12 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(false, vec![], Some(Box::new(Type::Int())), body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![],
+                    Some(Box::new(Type::Int())),
+                    body.clone(),
+                ),
             )],
         );
 
@@ -3409,7 +3572,13 @@ mod tests {
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", false, vec![], Some(Box::new(Type::Int())), body)),
+            Box::new(FuncDef(
+                "foo",
+                false,
+                vec![],
+                Some(Box::new(Type::Int())),
+                body,
+            )),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
@@ -3425,8 +3594,10 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
-                ConstraintMap::new(),
+                vec![(
+                    Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
+                    ConstraintMap::new(),
+                )],
             )),
         );
         check_cmap.cmap.insert(
@@ -3462,7 +3633,12 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(false, vec![], Some(Box::new(Type::Int())), body.clone()),
+                FuncVal::new(
+                    false,
+                    vec![],
+                    Some(Box::new(Type::Int())),
+                    body.clone(),
+                ),
             )],
         );
 
@@ -3471,7 +3647,13 @@ mod tests {
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", false, vec![], Some(Box::new(Type::Int())), body)),
+            Box::new(FuncDef(
+                "foo",
+                false,
+                vec![],
+                Some(Box::new(Type::Int())),
+                body,
+            )),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
@@ -3495,8 +3677,10 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
-                foo_cmap,
+                vec![(
+                    Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
+                    foo_cmap,
+                )],
             )),
         );
         check_cmap.cmap.insert(
@@ -3537,7 +3721,7 @@ mod tests {
             vec![(
                 None,
                 FuncVal::new(
-                    false, 
+                    false,
                     vec![],
                     Some(Box::new(Type::Func(vec![], Some(rettype.clone())))),
                     foo_body.clone(),
@@ -3549,7 +3733,7 @@ mod tests {
             vec![(
                 None,
                 FuncVal::new(
-                    false, 
+                    false,
                     vec![],
                     Some(Box::new(Type::Int())),
                     bar_body.clone(),
@@ -3561,7 +3745,7 @@ mod tests {
             vec![(
                 None,
                 FuncVal::new(
-                    false, 
+                    false,
                     vec![],
                     Some(Box::new(Type::Int())),
                     baz_body.clone(),
@@ -3576,21 +3760,21 @@ mod tests {
         let stmt = Sequence(vec![
             Box::new(FuncDef(
                 "foo",
-                false, 
+                false,
                 vec![],
                 Some(Box::new(Type::Func(vec![], Some(Box::new(Type::Int()))))),
                 foo_body,
             )),
             Box::new(FuncDef(
                 "bar",
-                false, 
+                false,
                 vec![],
                 Some(Box::new(Type::Int())),
                 bar_body,
             )),
             Box::new(FuncDef(
                 "baz",
-                false, 
+                false,
                 vec![],
                 Some(Box::new(Type::Int())),
                 baz_body,
@@ -3628,30 +3812,36 @@ mod tests {
             "foo",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(
-                    vec![],
-                    Some(Box::new(Type::Func(
+                vec![(
+                    Box::new(Type::Func(
                         vec![],
-                        Some(Box::new(Type::Int())),
-                    ))),
-                )),
-                foo_cmap,
+                        Some(Box::new(Type::Func(
+                            vec![],
+                            Some(Box::new(Type::Int())),
+                        ))),
+                    )),
+                    foo_cmap,
+                )],
             )),
         );
         check_cmap.cmap.insert(
             "bar",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
-                ConstraintMap::new(),
+                vec![(
+                    Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
+                    ConstraintMap::new(),
+                )],
             )),
         );
         check_cmap.cmap.insert(
             "baz",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
-                ConstraintMap::new(),
+                vec![(
+                    Box::new(Type::Func(vec![], Some(Box::new(Type::Int())))),
+                    ConstraintMap::new(),
+                )],
             )),
         );
         check_cmap.cmap.insert(
@@ -3870,8 +4060,14 @@ mod tests {
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
-        let funcdef = FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
-        let cat_funcimpl = FuncVal::new(true, vec![("self", Type::Struct("Cat"))], None, cat_speak_body.clone());
+        let funcdef =
+            FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+        let cat_funcimpl = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Cat"))],
+            None,
+            cat_speak_body.clone(),
+        );
 
         let stmt = Sequence(vec![
             Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
@@ -3917,17 +4113,32 @@ mod tests {
         let funcdef =
             FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
 
-        let cat_speak_body = Box::new(Print("meow"));
+        let cat_speak_body = Box::new(Assignment(
+            "spoken",
+            Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+        ));
         let cat_funcimpl = FuncVal::new(
-            true, 
+            true,
             vec![("self", Type::Struct("Cat"))],
             None,
             cat_speak_body.clone(),
         );
 
+        let gmaa = Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
+            "Cat",
+            vec![RVal::Num(0)],
+        )))]));
+
         let stmt = Sequence(vec![
             Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
-            Box::new(Struct("Cat", vec![], vec![])),
+            Box::new(FuncDef(
+                "giveMeAnAnimal",
+                false,
+                vec![],
+                Some(Box::new(Type::DynTrait("Animal"))),
+                gmaa.clone(),
+            )),
+            Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
             Box::new(TraitImpl(
                 "Animal",
                 "Cat",
@@ -3935,10 +4146,12 @@ mod tests {
                 vec![cat_funcimpl.clone()],
             )),
             Box::new(Assignment(
-                "cat",
-                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+                "specific_animal",
+                Box::new(AssignmentRVal::Statement(Box::new(
+                    Statement::InvokeFunc("giveMeAnAnimal", vec![]),
+                ))),
             )),
-            Box::new(InvokeFunc("speak", vec!["cat"])),
+            Box::new(InvokeFunc("speak", vec!["specific_animal"])),
         ]);
 
         let mut funcs = Funcs::new();
@@ -3946,11 +4159,26 @@ mod tests {
             "speak",
             vec![(Some(("Animal", "Cat")), cat_funcimpl.clone())],
         );
+        funcs.funcs.insert(
+            "giveMeAnAnimal",
+            vec![(
+                None,
+                FuncVal::new(
+                    false,
+                    vec![],
+                    Some(Box::new(Type::DynTrait("Animal"))),
+                    gmaa.clone(),
+                ),
+            )],
+        );
 
         let mut cmap = ConstraintMap::new();
         let mut traits = Traits::new();
         let interp = Interpreter::new();
         let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
+
+        let mut check_traits = Traits::new();
+        check_traits.traits.insert("Animal", vec!["Cat"]);
 
         let mut check_cmap = ConstraintMap::new();
         let mut speak_cmap = ConstraintMap::new();
@@ -3958,27 +4186,56 @@ mod tests {
             "self",
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Cat")),
-                (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
+                (
+                    HashSet::from([RVal::Struct("Cat", vec![RVal::Num(0)])]),
+                    HashSet::new(),
+                ),
             )),
         );
-        check_cmap.cmap.insert(
-            "cat",
+        speak_cmap.cmap.insert(
+            "spoken",
             Box::new(VarType::Values(
-                Box::new(Type::Struct("Cat")),
-                (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
+                Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(1)]), HashSet::new()),
             )),
         );
         check_cmap.cmap.insert(
             "speak",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
-                speak_cmap,
+                vec![(
+                    Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
+                    speak_cmap,
+                )],
+            )),
+        );
+        check_cmap.cmap.insert(
+            "giveMeAnAnimal",
+            Box::new(VarType::Scope(
+                None,
+                vec![(
+                    Box::new(Type::Func(
+                        vec![],
+                        Some(Box::new(Type::DynTrait("Animal"))),
+                    )),
+                    ConstraintMap::new(),
+                )],
+            )),
+        );
+        check_cmap.cmap.insert(
+            "specific_animal",
+            Box::new(VarType::Values(
+                Box::new(Type::DynTrait("Animal")),
+                (
+                    HashSet::from([RVal::Struct("Cat", vec![RVal::Num(0)])]),
+                    HashSet::new(),
+                ),
             )),
         );
 
         assert_eq!(res.unwrap(), None);
         assert_eq!(cmap, check_cmap);
+        assert_eq!(traits, check_traits);
     }
 
     #[test]
@@ -3986,7 +4243,10 @@ mod tests {
         let funcdecl =
             FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
 
-        let cat_speak_body = Box::new(Print("meow"));
+        let cat_speak_body = Box::new(Assignment(
+            "spoken",
+            Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+        ));
         let cat_speak = FuncVal::new(
             true,
             vec![("self", Type::Struct("Cat"))],
@@ -3994,18 +4254,10 @@ mod tests {
             cat_speak_body.clone(),
         );
 
-        // 1. rust has typeof (not exposed) - use for func lookup (runtime types)
-        // - could just stop here
-        // 2. then can opt per callsite (specific call that has same effect as
-        // lookup) 
-        // - could potentially do CHA
-        // - separate compilation complicates switch-statement construction
-        // 2.1 OR vtable
-        // unclear _when_ this happens, so unclear if we will have access to
-        // rust's version of its dynamic type table (assuming we wont't have
-        // access)
-
-        let dog_speak_body = Box::new(Print("woof"));
+        let dog_speak_body = Box::new(Assignment(
+            "spoken",
+            Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+        ));
         let dog_speak = FuncVal::new(
             true,
             vec![("self", Type::Struct("Dog"))],
@@ -4013,26 +4265,6 @@ mod tests {
             dog_speak_body.clone(),
         );
 
-        // still too little uncertainty
-        // would have to enum all possible Ints (for "age")
-        // imagine giveMeANum func
-        // can also have a special "don't know" value for each type
-        // potential: ~ranges (i.e. "idk but...") - many representations
-        // also: idk but i know what somefunc() on this returns
-
-        // special "idk" val at every level
-        // is this enough to not lose precision?
-        // if come across it, start to add "idk but"s
-        // as a sys paper: heavily grounded in waht do ppl want/need
-
-        // Animal::idk
-        // - ^ don't need to know about Cat / Dog
-        // - since we have access to this, is there a good reason to use this?
-        // Cat::idk
-        // Cat::age::idk
-        // think about the tradeoffs... may not actually change analysis
-        // precision; maybe impact storage (Animal ~= less complex)
-        // start less complex, expand when learn more
         let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
             Box::new(BooleanStatement::TrueOrFalse()),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
@@ -4053,7 +4285,7 @@ mod tests {
             )),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
-                false, 
+                false,
                 vec![],
                 Some(Box::new(Type::DynTrait("Animal"))),
                 gmaa.clone(),
@@ -4107,48 +4339,61 @@ mod tests {
         let interp = Interpreter::new();
         let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
 
-        let mut check_cmap = ConstraintMap::new();
-        // FIXME two speaks...
-        // CMAP might need to be modified for funcvecs
+        let mut check_traits = Traits::new();
+        check_traits.traits.insert("Animal", vec!["Cat", "Dog"]);
 
+        let mut check_cmap = ConstraintMap::new();
         let mut cat_speak_cmap = ConstraintMap::new();
         let mut dog_speak_cmap = ConstraintMap::new();
-        cat_speak_cmap.cmap.insert(
-            "self",
-            Box::new(VarType::Values(
-                Box::new(Type::Struct("Cat")),
-                (
-                    HashSet::from([
-                        RVal::Struct("Cat", vec![RVal::Num(0)]),
-                    ]),
-                    HashSet::new(),
-                ),
-            )),
-        );
+
         dog_speak_cmap.cmap.insert(
             "self",
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Dog")),
                 (
-                    HashSet::from([
-                        RVal::Struct("Dog", vec![RVal::Num(0)]),
-                    ]),
+                    HashSet::from([RVal::Struct("Dog", vec![RVal::Num(0)])]),
                     HashSet::new(),
                 ),
             )),
         );
+        dog_speak_cmap.cmap.insert(
+            "spoken",
+            Box::new(VarType::Values(
+                Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(1)]), HashSet::new()),
+            )),
+        );
+
+        cat_speak_cmap.cmap.insert(
+            "self",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct("Cat")),
+                (
+                    HashSet::from([RVal::Struct("Cat", vec![RVal::Num(0)])]),
+                    HashSet::new(),
+                ),
+            )),
+        );
+        cat_speak_cmap.cmap.insert(
+            "spoken",
+            Box::new(VarType::Values(
+                Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(1)]), HashSet::new()),
+            )),
+        );
+
         check_cmap.cmap.insert(
             "speak",
             Box::new(VarType::Scope(
                 None,
                 vec![
                     (
-                        Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
-                        cat_speak_cmap,
-                    ),
-                    (
                         Box::new(Type::Func(vec![Type::Struct("Dog")], None)),
                         dog_speak_cmap,
+                    ),
+                    (
+                        Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
+                        cat_speak_cmap,
                     ),
                 ],
             )),
@@ -4157,11 +4402,13 @@ mod tests {
             "giveMeAnAnimal",
             Box::new(VarType::Scope(
                 None,
-                Box::new(Type::Func(
-                    vec![],
-                    Some(Box::new(Type::DynTrait("Animal"))),
-                )),
-                ConstraintMap::new(),
+                vec![(
+                    Box::new(Type::Func(
+                        vec![],
+                        Some(Box::new(Type::DynTrait("Animal"))),
+                    )),
+                    ConstraintMap::new(),
+                )],
             )),
         );
         check_cmap.cmap.insert(
@@ -4177,9 +4424,6 @@ mod tests {
                 ),
             )),
         );
-
-        let mut check_traits = Traits::new();
-        check_traits.traits.insert("Animal", vec!["Cat", "Dog"]);
 
         assert_eq!(res.unwrap(), None);
         assert_eq!(cmap, check_cmap);

@@ -59,9 +59,10 @@ mod test {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let mut funcs = Funcs::new();
-        funcs
-            .funcs
-            .insert("foo", vec![(None, FuncVal::new(false, vec![], None, body))]);
+        funcs.funcs.insert(
+            "foo",
+            vec![(None, FuncVal::new(false, vec![], None, body))],
+        );
 
         let mut sigs = Sigs::new();
 
@@ -90,12 +91,14 @@ mod test {
             "y",
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
-        funcs
-            .funcs
-            .insert("foo", vec![(None, FuncVal::new(false, vec![], None, foo_body))]);
-        funcs
-            .funcs
-            .insert("bar", vec![(None, FuncVal::new(false, vec![], None, bar_body))]);
+        funcs.funcs.insert(
+            "foo",
+            vec![(None, FuncVal::new(false, vec![], None, foo_body))],
+        );
+        funcs.funcs.insert(
+            "bar",
+            vec![(None, FuncVal::new(false, vec![], None, bar_body))],
+        );
 
         let mut sigs = Sigs::new();
 
@@ -134,7 +137,7 @@ mod test {
             vec![(
                 None,
                 FuncVal::new(
-                    false, 
+                    false,
                     vec![("a", Type::Int()), ("b", Type::Int())],
                     Some(Box::new(Type::Int())),
                     foo_body,
@@ -146,7 +149,7 @@ mod test {
             vec![(
                 None,
                 FuncVal::new(
-                    false, 
+                    false,
                     vec![("a", Type::Int()), ("b", Type::Int())],
                     Some(Box::new(Type::Int())),
                     bar_body,
@@ -159,7 +162,7 @@ mod test {
             vec![(
                 None,
                 FuncVal::new(
-                    false, 
+                    false,
                     vec![(
                         "func",
                         Type::Func(vec![], Some(baz_funcarg_rettype.clone())),
@@ -204,7 +207,8 @@ mod test {
     #[test]
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
-        let cat_funcimpl = FuncVal::new(true, vec![], None, cat_speak_body.clone());
+        let cat_funcimpl =
+            FuncVal::new(true, vec![], None, cat_speak_body.clone());
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(

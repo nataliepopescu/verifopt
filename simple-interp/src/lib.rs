@@ -126,7 +126,11 @@ impl FuncDecl {
         params: Vec<(&'static str, Type)>,
         rettype: Option<Box<Type>>,
     ) -> Self {
-        Self { is_method, params, rettype }
+        Self {
+            is_method,
+            params,
+            rettype,
+        }
     }
 }
 
@@ -619,8 +623,20 @@ mod tests {
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", false, vec![], None, check_foo_body.clone())),
-            Box::new(FuncDef("bar", false, vec![], None, check_bar_body.clone())),
+            Box::new(FuncDef(
+                "foo",
+                false,
+                vec![],
+                None,
+                check_foo_body.clone(),
+            )),
+            Box::new(FuncDef(
+                "bar",
+                false,
+                vec![],
+                None,
+                check_bar_body.clone(),
+            )),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(

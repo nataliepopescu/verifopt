@@ -88,16 +88,21 @@ pub enum AssignmentRVal {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RVal {
     Num(i32),
+    IdkNum(),
     // TODO add strings
     Struct(&'static str, Vec<RVal>),
+    IdkStruct(&'static str),
     Var(&'static str),
+    IdkVar(),
 }
 
 impl fmt::Display for RVal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RVal::Num(num) => write!(f, "{}", num),
+            RVal::IdkNum() => write!(f, "IDK-Num"),
             RVal::Var(var) => write!(f, "{}", var),
+            RVal::IdkVar() => write!(f, "IDK-Var"),
             RVal::Struct(name, field_values) => {
                 let mut fv_string: String = "".to_owned();
                 for field_value in field_values.iter() {
@@ -105,6 +110,7 @@ impl fmt::Display for RVal {
                 }
                 write!(f, "{} : {}", name, fv_string)
             }
+            RVal::IdkStruct(name) => write!(f, "IDK-Struct({})", name),
         }
     }
 }
@@ -165,6 +171,7 @@ pub enum Type {
     DynTrait(&'static str),
     // FIXME add is_method bool?
     Func(Vec<Type>, Option<Box<Type>>),
+    Idk(),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

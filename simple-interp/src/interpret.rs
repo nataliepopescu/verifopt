@@ -1097,31 +1097,65 @@ impl Interpreter {
         }
     }
 
+    // if arg_type == trait and param_type == struct that impls that trait,
+    // prune arg_constraints
+    fn prune(
+        &self, 
+        traits: &mut Traits,
+        param_type: &Type,
+        arg_type: &Type,
+        arg_constraints: &mut Constraints,
+    ) -> () {
+        match arg_type {
+            Type::DynTrait(trait_name) => match traits.traits.get(trait_name) {
+                Some(structs) => match param_type {
+                    Type::Struct(struct_name) => {
+                        if structs.contains(&struct_name) {
+                            for pos_constraint in arg_constraints.0.clone().iter() {
+                                match pos_constraint {
+                                    RVal::Struct(c_struct_name, _) => {
+                                        // remove if any struct type other than
+                                        // that of param_type
+                                        if c_struct_name != struct_name {
+                                            arg_constraints.0.remove(&pos_constraint);
+                                        }
+                                    }
+                                    _ => continue,
+                                }
+                            }
+                            ()
+                        } else {
+                            panic!("struct {} does not impl trait {}", &struct_name, &trait_name);
+                        }
+                    },
+                    _ => (),
+                },
+                None => panic!("trait {} not implemented", &trait_name),
+            },
+            _ => (),
+        }
+    }
+
     fn resolve_args(
         &self,
         funcs: &Funcs,
         cmap: &mut ConstraintMap,
+        traits: &mut Traits,
         scope: Option<&'static str>,
         name: &'static str,
         funcval: &FuncVal,
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
         let mut func_cmap = ConstraintMap::new();
-        println!("IN RESARGS");
-        println!("FUNCVAL: {:?}", &funcval);
         for ((param_name, param_type), arg) in
             std::iter::zip(funcval.params.clone(), args)
         {
-            println!("param_name: {:?}", &param_name);
-            println!("param_type: {:?}", &param_type);
-            println!("arg: {:?}", &arg);
             match cmap.scoped_get(scope, arg, false) {
                 Ok(Some(vartype)) => {
-                    println!("vartype: {:?}", &vartype);
                     match vartype {
                         // add args to scope
-                        VarType::Values(valstype, constraints) => {
-                            // FIXME prune constraints that are either redundant
+                        VarType::Values(valstype, mut constraints) => {
+                            // prune constraints that are either redundant
                             // or invalid, given a trait param_type
                             //
                             // if the "bad" constraint is pos, then remove it
@@ -1130,8 +1164,8 @@ impl Interpreter {
                             // pos-Struct(Dog)
                             //
                             // TODO neg example?
-                            println!("valstype: {:?}", &valstype);
-                            println!("constraints: {:?}", &constraints);
+                            self.prune(traits, &param_type, &valstype, &mut constraints);
+
                             func_cmap.cmap.insert(
                                 param_name,
                                 Box::new(VarType::Values(
@@ -1216,7 +1250,7 @@ impl Interpreter {
 
                     for (_tso, funcval) in funcvec.iter() {
                         let res = self.resolve_args(
-                            funcs, cmap, scope, varname, &funcval, args,
+                            funcs, cmap, traits, scope, varname, &funcval, args,
                         );
                         if res.is_err() {
                             return Err(res.err().unwrap());
@@ -1321,6 +1355,7 @@ impl Interpreter {
                     let res = self.resolve_args(
                         funcs,
                         &mut cmap_clone,
+                        traits,
                         scope,
                         name,
                         &funcval,
@@ -1349,8 +1384,6 @@ impl Interpreter {
 
                 match cmap_vec.merge() {
                     Ok(Some(new_cmap)) => {
-                        println!("old cmap: {:?}", &cmap);
-                        println!("new cmap: {:?}", &new_cmap);
                         *cmap = new_cmap;
                     }
                     Ok(None) => {}
@@ -1377,9 +1410,6 @@ impl Interpreter {
         name: &'static str,
         args: &Vec<&'static str>,
     ) -> Result<Option<Constraints>, Error> {
-        println!("\nINVOKING");
-        println!("name: {:?}", &name);
-        println!("args: {:?}", &args);
         match cmap.scoped_get(scope, name, false) {
             Ok(Some(vartype)) => match vartype {
                 VarType::Values(_, constraints) => self.interp_indirect_invoke(

@@ -468,6 +468,20 @@ impl Interpreter {
                     return Err(res.err().unwrap());
                 }
             }
+            AssignmentRVal::RVal(RVal::IdkNum()) => {
+                let res = cmap.scoped_set(
+                    scope,
+                    var,
+                    Box::new(VarType::Values(
+                        Box::new(Type::Int()),
+                        (HashSet::from([RVal::IdkNum()]), HashSet::new()),
+                    )),
+                );
+
+                if res.is_err() {
+                    return Err(res.err().unwrap());
+                }
+            }
             AssignmentRVal::RVal(RVal::Struct(struct_name, field_values)) => {
                 let res = cmap.scoped_set(
                     scope,
@@ -479,6 +493,23 @@ impl Interpreter {
                                 *struct_name,
                                 field_values.to_vec(),
                             )]),
+                            HashSet::new(),
+                        ),
+                    )),
+                );
+
+                if res.is_err() {
+                    return Err(res.err().unwrap());
+                }
+            }
+            AssignmentRVal::RVal(RVal::IdkStruct(struct_name)) => {
+                let res = cmap.scoped_set(
+                    scope,
+                    var,
+                    Box::new(VarType::Values(
+                        Box::new(Type::Struct(*struct_name)),
+                        (
+                            HashSet::from([RVal::IdkStruct(*struct_name)]),
                             HashSet::new(),
                         ),
                     )),
@@ -535,6 +566,20 @@ impl Interpreter {
                     },
                     Err(err) => return Err(err),
                 };
+            }
+            AssignmentRVal::RVal(RVal::IdkVar()) => {
+                let res = cmap.scoped_set(
+                    scope,
+                    var,
+                    Box::new(VarType::Values(
+                        Box::new(Type::Idk()),
+                        (HashSet::from([RVal::IdkVar()]), HashSet::new()),
+                    )),
+                );
+
+                if res.is_err() {
+                    return Err(res.err().unwrap());
+                }
             }
             AssignmentRVal::Statement(stmt) => match *stmt.clone() {
                 Statement::InvokeFunc(name, args) => {
@@ -651,7 +696,11 @@ impl Interpreter {
         rval: RVal,
     ) -> Result<Constraints, Error> {
         match rval.clone() {
-            RVal::Num(_) => Ok((HashSet::from([rval]), HashSet::new())),
+            RVal::Num(_)
+            | RVal::IdkNum()
+            | RVal::Struct(..)
+            | RVal::IdkStruct(_)
+            | RVal::IdkVar() => Ok((HashSet::from([rval]), HashSet::new())),
             RVal::Var(var) => match cmap.scoped_get(scope, var, false) {
                 Ok(Some(val)) => match val {
                     VarType::Values(_, constraints) => {
@@ -669,7 +718,6 @@ impl Interpreter {
                 },
                 Err(err) => return Err(err),
             },
-            RVal::Struct(..) => Ok((HashSet::from([rval]), HashSet::new())),
         }
     }
 
@@ -982,9 +1030,11 @@ impl Interpreter {
     ) -> Result<Option<Constraints>, Error> {
         // FIXME mod store if have effects
         let resolved_constraints = match val {
-            num @ RVal::Num(_) => {
-                (HashSet::from([num.clone()]), HashSet::new())
-            }
+            RVal::Num(_)
+            | RVal::IdkNum()
+            | RVal::Struct(..)
+            | RVal::IdkStruct(_)
+            | RVal::IdkVar() => (HashSet::from([val.clone()]), HashSet::new()),
             RVal::Var(varname) => {
                 match cmap.scoped_get(scope, varname, false) {
                     Ok(Some(vartype)) => match vartype {
@@ -996,9 +1046,6 @@ impl Interpreter {
                     }
                     Err(err) => return Err(err),
                 }
-            }
-            struct_inst @ RVal::Struct(..) => {
-                (HashSet::from([struct_inst.clone()]), HashSet::new())
             }
         };
 
@@ -1055,9 +1102,13 @@ impl Interpreter {
         rval: &RVal,
     ) -> Result<Option<Constraints>, Error> {
         match rval {
-            num @ RVal::Num(_) => {
+            RVal::Num(_)
+            | RVal::IdkNum()
+            | RVal::Struct(..)
+            | RVal::IdkStruct(_)
+            | RVal::IdkVar() => {
                 return Ok(Some((
-                    HashSet::from([num.clone()]),
+                    HashSet::from([rval.clone()]),
                     HashSet::new(),
                 )));
             }
@@ -1088,19 +1139,13 @@ impl Interpreter {
                     Err(err) => return Err(err),
                 }
             }
-            struct_inst @ RVal::Struct(..) => {
-                return Ok(Some((
-                    HashSet::from([struct_inst.clone()]),
-                    HashSet::new(),
-                )));
-            }
         }
     }
 
     // if arg_type == trait and param_type == struct that impls that trait,
     // prune arg_constraints
     fn prune(
-        &self, 
+        &self,
         traits: &mut Traits,
         param_type: &Type,
         arg_type: &Type,
@@ -1111,13 +1156,18 @@ impl Interpreter {
                 Some(structs) => match param_type {
                     Type::Struct(struct_name) => {
                         if structs.contains(&struct_name) {
-                            for pos_constraint in arg_constraints.0.clone().iter() {
+                            for pos_constraint in
+                                arg_constraints.0.clone().iter()
+                            {
                                 match pos_constraint {
-                                    RVal::Struct(c_struct_name, _) => {
+                                    RVal::Struct(c_struct_name, _)
+                                    | RVal::IdkStruct(c_struct_name) => {
                                         // remove if any struct type other than
                                         // that of param_type
                                         if c_struct_name != struct_name {
-                                            arg_constraints.0.remove(&pos_constraint);
+                                            arg_constraints
+                                                .0
+                                                .remove(&pos_constraint);
                                         }
                                     }
                                     _ => continue,
@@ -1125,9 +1175,12 @@ impl Interpreter {
                             }
                             ()
                         } else {
-                            panic!("struct {} does not impl trait {}", &struct_name, &trait_name);
+                            panic!(
+                                "struct {} does not impl trait {}",
+                                &struct_name, &trait_name
+                            );
                         }
-                    },
+                    }
                     _ => (),
                 },
                 None => panic!("trait {} not implemented", &trait_name),
@@ -1164,7 +1217,12 @@ impl Interpreter {
                             // pos-Struct(Dog)
                             //
                             // TODO neg example?
-                            self.prune(traits, &param_type, &valstype, &mut constraints);
+                            self.prune(
+                                traits,
+                                &param_type,
+                                &valstype,
+                                &mut constraints,
+                            );
 
                             func_cmap.cmap.insert(
                                 param_name,
@@ -4154,10 +4212,8 @@ mod tests {
             cat_speak_body.clone(),
         );
 
-        let gmaa = Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
-            "Cat",
-            vec![RVal::Num(0)],
-        )))]));
+        let gmaa =
+            Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))]));
 
         let stmt = Sequence(vec![
             Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
@@ -4216,10 +4272,7 @@ mod tests {
             "self",
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Cat")),
-                (
-                    HashSet::from([RVal::Struct("Cat", vec![RVal::Num(0)])]),
-                    HashSet::new(),
-                ),
+                (HashSet::from([RVal::IdkStruct("Cat")]), HashSet::new()),
             )),
         );
         speak_cmap.cmap.insert(
@@ -4256,10 +4309,7 @@ mod tests {
             "specific_animal",
             Box::new(VarType::Values(
                 Box::new(Type::DynTrait("Animal")),
-                (
-                    HashSet::from([RVal::Struct("Cat", vec![RVal::Num(0)])]),
-                    HashSet::new(),
-                ),
+                (HashSet::from([RVal::IdkStruct("Cat")]), HashSet::new()),
             )),
         );
 
@@ -4297,14 +4347,8 @@ mod tests {
 
         let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
             Box::new(BooleanStatement::TrueOrFalse()),
-            Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
-                "Cat",
-                vec![RVal::Num(0)],
-            )))])),
-            Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
-                "Dog",
-                vec![RVal::Num(0)],
-            )))])),
+            Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))])),
+            Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Dog")))])),
         ))]));
 
         let stmt = Sequence(vec![
@@ -4380,10 +4424,7 @@ mod tests {
             "self",
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Dog")),
-                (
-                    HashSet::from([RVal::Struct("Dog", vec![RVal::Num(0)])]),
-                    HashSet::new(),
-                ),
+                (HashSet::from([RVal::IdkStruct("Dog")]), HashSet::new()),
             )),
         );
         dog_speak_cmap.cmap.insert(
@@ -4398,10 +4439,7 @@ mod tests {
             "self",
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Cat")),
-                (
-                    HashSet::from([RVal::Struct("Cat", vec![RVal::Num(0)])]),
-                    HashSet::new(),
-                ),
+                (HashSet::from([RVal::IdkStruct("Cat")]), HashSet::new()),
             )),
         );
         cat_speak_cmap.cmap.insert(
@@ -4447,8 +4485,8 @@ mod tests {
                 Box::new(Type::DynTrait("Animal")),
                 (
                     HashSet::from([
-                        RVal::Struct("Cat", vec![RVal::Num(0)]),
-                        RVal::Struct("Dog", vec![RVal::Num(0)]),
+                        RVal::IdkStruct("Cat"),
+                        RVal::IdkStruct("Dog"),
                     ]),
                     HashSet::new(),
                 ),

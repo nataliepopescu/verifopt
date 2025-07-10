@@ -41,7 +41,11 @@
       top/bottom of lattice) can use those constraints to further limit the
       possible funcs
 
+<<<<<<< HEAD
 - [x] impl traits (structs that impl traits)
+=======
+- [ ] impl traits (structs that impl traits)
+>>>>>>> f0afe83 (update meeting notes)
     - need to have some notion of `self`, or what type the current object is, in
       order to call a trait-impl method on the current object
     - either that or must pass in the `self` object as an argument, but then

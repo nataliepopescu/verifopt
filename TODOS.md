@@ -41,8 +41,6 @@
       top/bottom of lattice) can use those constraints to further limit the
       possible funcs
 
-- [ ] function summaries
-
 - [ ] impl traits (structs that impl traits)
     - need to have some notion of `self`, or what type the current object is, in
       order to call a trait-impl method on the current object
@@ -51,11 +49,18 @@
 
     - [ ] impl methods (vs functions) / dot notation
     - [ ] impl using trait objects
+    - [ ] CHA vs fewer-constraints
+
+- [ ] more code org/cleanup
+    - [ ] indirect func calls vs trait func calls (code path)
+    - [ ] interpreter.rs is 5k LOC - how best to split up
+
+- [ ] function summaries?
+
+- [ ] ask amit/leon about rust code that heavily uses dyn
 
 - [ ] conditional scopes vs SSA
     - separate declaration from assignment -> assigning a value in a conditional 
-
-- [ ] ask amit/leon about rust code that heavily uses dyn
 
 - [ ] how to simulate SSA assumption in Rust compiler?
 

@@ -40,6 +40,7 @@
 
 - OR...
 
+```
 Animal { fn speak }
 Cat { fn speak }
 Dog { fn speak }
@@ -49,19 +50,20 @@ fn callSpeak(x: &dyn Trait Animal) { x.speak() }
 y = Cat{}
 
 callSpeak(y)
+```
 
 - CHA enums for Cat/Dog/...
 - vs monomorph
 
+```
 fn CallThespeak(x ) { switch(x) { case Cat : Cat::speak(x);  case Dog: Dog::speak(x); };
 y = Cat{}, CallTheSpeak(y)
 fn CallThespeak'(x : Cat) {Cat::speak(x);};
 y = Cat{}, CallTheSpeak'(y)
-
+```
 
 - want some sort of type ID
-- won't be switcing on vtable address bc ideally that won't be emitted at all
-
+- won't be switching on vtable address bc ideally that won't be emitted at all
 
 add strong barrier
 - raw exec (no context)

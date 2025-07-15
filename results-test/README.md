@@ -7,14 +7,19 @@ from in
 run: 
 
 ```sh
-scrapy crawl -a category=top -a x=5 get-crates
+scrapy crawl -a category=top -a x=N get-crates
 ```
+
+each page contains 50 entries, so can only download multiples of 50. to download
+50 crates then set N=1, 100 then N=2, 150 then N=3, and so on...
 
 ## Run regex tool
 
 recommended: create a `venv` before running
 
 ```sh
-python tool.py <path>
+python driver.py -d <path>
 ```
+
+where <path> is a directory containing multiple projects or crates
 

@@ -44,6 +44,18 @@
 - [ ] function summaries
 
 - [ ] impl traits
+    - [ ] impl methods (vs functions) / dot notation
+    - [ ] impl using trait objects
+    - [ ] CHA vs fewer-constraints
+
+- [ ] more code org/cleanup
+    - [ ] indirect func calls vs trait func calls (code path)
+    - [ ] interpreter.rs is 5k LOC - how best to split up
+
+- [ ] empirical confidence
+    - [ ] ask amit/leon about rust code that heavily uses dyn
+
+- [ ] function summaries?
 
 - [ ] conditional scopes vs SSA
     - separate declaration from assignment -> assigning a value in a conditional 

@@ -49,85 +49,30 @@ flow-sensitive
 - essentially very similar to the structure of the interpreter we are building,
   except no rewriting, just accumulating info
 
+### initial results
+
+from flow-insensitive tool, in the top 50 (most downloaded) crates or so, 
+see one of:
+- no `dyn Trait`s
+- `dyn Trait`s where the `Trait` is not implemented in the current crate
+    - would probably make more sense to look at full _projects_ rather than
+      individual crates
+- `dyn Trait`s where each `Trait` is only implemented once in the current crate
+
+exceptions (TODO confirm manually)
+- `rand-0.9.1`: 7 impls of `RngCore`
+- `indexmap-2.10.0`: 20 impls of `Iterator`
+- `itertools-0.14.0`: ~40-50 impls of `Iterator`
+- `log-0.4.27`: 4 impls for `Log`, 4 impls for `VisitSource`, 8 impls for `Source`
+- `aho-corasick-1.1.3`: 1 impl for `AcAutomaton`, 8 impls for `PrefilterI`,
+  4 impls for `SearcherT`
+- `bytes-1.10.1`: 7 impls for `Buf`, 4 impls for `BufMut`
+
+TODO `impl Trait for Generic` pattern?
+
+tool failed on `regex-automata`, `unicode-ident` (fix)
+
+double check `syn` results (`for` as a trait == wrong)
 
 
-
-# Old/Mistaken
-
-## grep `dyn` in top 250 most-downloaded crates on crates.io
-
-using spider from
-[bencher_scrape](https://github.com/nataliepopescu/bencher_scrape):
-
-```sh
-scrapy crawl -a category=top -a x=1 get-crates
-```
-
-<name>-<version> (<num `dyn` instances>)
-
-15 crates: 
-- prost-derive-0.14.1       (1)
-- digest-0.11.0-rc.0        (5)
-- tracing-subscriber-0.3.19 (1)
-- async-trait-0.1.88        (1)
-- env_logger-0.11.8         (1)
-- clap_builder-4.5.41       (1)
-- log-0.4.27                (1)
-- autocfg-1.5.0             (3)
-- tokio-macros-2.5.0        (1)
-- syn-2.0.104               (2)
-- anyhow-1.0.98             (1)
-- tracing-core-0.1.34       (4)
-- crossbeam-channel-0.5.15  (1)
-- rustc-demangle-0.1.25     (1)
-- thiserror-impl-2.0.12     (2)
-
-jk, somehow my grep didn't catch a lot of `dyn`s (`grep 'dyn '` misses many more 
-than `grep 'dyn'` (without the trailing space), but also many valid ones??)
-- `grep -rn 'dyn ' .` instead
-- the `-w` is problematic (don't fully understand)
-
-### [prost-derive-0.14.1](https://crates.io/crates/prost-derive)
-
-crate description:
-- encoding/decoding for Rust types annotated with `prost`
-- [prost](https://crates.io/crates/prost) = protocol buffers impl for Rust
-
-short example of usage:
-[snazzy](https://github.com/danburkert/snazzy/blob/master/src/lib.rs)
-- proto-derive is not directly interacted with, but this example simply shows 
-  where its functionality comes into play (`encode`/`decode` calls)
-
-dependencies with `dyn` (at least in top 250): 
-- anyhow-1.0.1
-- syn-2
-
-#### `dyn` location: `src/field/map.rs:326`
-
-pattern:
-`struct DebugWrapperName<'a>(&'a dyn Debug);`
-- what does this mean? what implements the `Debug` trait? ah yes, typically
-  derived (`#[derive(Debug)]`)
-- so, `DebugWrapperName` is a wrapper around any (?) type that implements
-  `Debug`, to improve debugging output
-
-in `debug()` of `impl Field`
-- wraps "map" for nicer Debug
-
-within a `quote!` block
-- [quote](https://crates.io/crates/quote)
-    - turns rust syntax tree data structures (ASTs) into tokens of source code
-    - `quote!` == procedural macro (token stream -> code/manipulation -> token stream)
-
-considerations
-- `dyn` is within a proc macro block: when are proc macros evaluated? (would make
-  sense for this to be very early, so not likely a concern, but good to confirm)
-    - would actually be crazy for them to not be evaluated/resolved/expanded
-      before type checking, so I think this is a safe assumption
-    - however, this does further motivate at least a Rust front-end tool
-    - confirmed, macro expansion happens around the lexing/parsing compiler steps
-- this crate's `dyn` is within a debugging function
-    - could still be interesting in terms of performance overhead, but less
-      motivating in terms of genuine use cases (i.e. do we really care about
-      optimizing debugging in this way? unlikely)
 

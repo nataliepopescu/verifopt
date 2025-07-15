@@ -5,14 +5,18 @@ import re
 dyn_traits = set()
 dyn_trait_impls = {}
 
+# FIXME not storing dyn <trait> + <...> (additional trait bounds)
+
 def search_file_for_dyn(filename):
     with open(filename) as file:
         for line in file: 
             line = line.rstrip()
             comment_match = re.search("^\s*[/]{2,3}", line)
             if not comment_match: 
-                dyn_match = re.search("dyn ([A-Za-z]+)", line)
+                dyn_match = re.search("dyn ([A-Za-z:]+)", line)
                 if dyn_match:
+                    #print("line: ", line)
+                    #print("DYN MATCH: ", dyn_match.group(1))
                     traitname = dyn_match.group(1)
                     dyn_traits.add(traitname)
 
@@ -32,6 +36,7 @@ def search_file_for_impl(filename):
                 if impl_match and impl_match.group(2) in dyn_traits:
                     dyn_trait = impl_match.group(2)
                     dyn_trait_impl = impl_match.group(4)
+                    #print("IMPL MATCH: ", dyn_trait, dyn_trait_impl)
                     if dyn_trait in dyn_trait_impls:
                         updated = dyn_trait_impls[dyn_trait]
                         updated.append(dyn_trait_impl)
@@ -55,6 +60,8 @@ if __name__ == "__main__":
     else: 
         search_file_for_dyn(abspath)
         search_file_for_impl(abspath)
+
+    print(dyn_traits)
 
     print(dyn_trait_impls)
 

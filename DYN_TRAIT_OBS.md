@@ -3,40 +3,6 @@
 Goal: gain empirical confidence for the potential effectiveness of verifopt's
 technique on real world code
 
-## grep `dyn` in top 250 most-downloaded crates on crates.io
-
-```sh
-$ grep -rn 'dyn ' .
-$ grep -rn 'dyn ' ./src
-$ grep -rn '[/][/].*dyn ' ./src | wc -l # num dyns in comments/docs
-```
-
-2835 usages total (including tests, benchmarks, comments, etc)
-
-lets look at one crate at a time
-
-```sh
-wget https://crates.op/api/v1/crates/<name>/<version>/download
-tar -C <dirname> -xf download
-rm -f download
-```
-
-table that counts the numbers of `dyn`s per crate:
-
-| crate | total | in `src/` | in uncommented code |
-| --- | --- | --- | --- |
-| syn | 18 | 10 | 4 |
-| hashnrown | 9 | 9 | 5 |
-
-### [syn-2.0.104](https://crates.io/crates/syn)
-
-#### `src/punctuated.rs` (4)
-
-### [hashbrown-0.15.4](https://crates.io/crates/hashbrown)
-
-#### `src/raw/mod.rs` (5)
-
-
 ## potential grep/regex tool(s)
 
 flow-insensitive

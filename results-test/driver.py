@@ -40,8 +40,9 @@ if __name__ == "__main__":
         else: 
             print("none? ", output)
 
-    print("\nGroup 1 (", len(group1), "): ", group1)
-    print("\nGroup 2 (", len(group2), "): ", group2)
-    print("\nGroup 3 (", len(group3), "): ", group3)
-    print("\nGroup 4 (", len(group4), "): ", group4)
+    total = len(group1) + len(group2) + len(group3) + len(group4)
+    print("\nGroup 1 (", len(group1), "/", (100*len(group1)/total), "% ): ", group1)
+    print("\nGroup 2 (", len(group2), "/", (100*len(group2)/total), "% ): ", group2)
+    print("\nGroup 3 (", len(group3), "/", (100*len(group3)/total), "% ): ", group3)
+    print("\nGroup 4 (", len(group4), "/", (100*len(group4)/total), "% ): ", group4)
 

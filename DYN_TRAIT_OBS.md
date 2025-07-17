@@ -147,18 +147,169 @@ invalid:
 
 #### Group 3
 
+- [x] thiserror (18 -> 14)
+    - 1-4
+        - tests
+    - 5-6, 8, 10, 12, 14
+        - trait method ret type
+    - 7, 9, 11, 13, 15-18
+        - impl trait for dyn trait (`Error` == trait)
+- [x] rand_core (3 -> 1)
+    - 1
+        - ret type
+        - impl trait for struct
+    - 2-3
+        - test nested funcs
+        - arg type
+- [x] syn (10)
+    - 1-6
+        - in tests
+    - 7, 10
+        - struct field type
+    - 8
+        - in trait decl
+        - trait method return type
+    - 9
+        - in impl trait for type block
+        - trait method return type
+- [x] cc (37) - note, cc is a _build-time_ dep
+    - 1-3
+        - struct impl block
+        - method arg type
+    - 4-5
+        - function arg type
+    - 6
+        - in struct impl block (nested in cfg module)
+        - method arg type
+    - 7-37
+        - function arg type (nest in cfg module)
+- [x] either (2)
+    - 1-2
+        - in impl trait for enum block
+        - trait method return type
 
 #### Group 4
+
+- [x] bytes (10 -> 0)
+    - 1-5
+        - tests
+    - 6-8
+        - benchmarks
+    - 9-10
+        - unused funcs?
+        - comment: The existence of this function makes the compiler catch if
+          the Buf trait is "object-safe" or not.
+- [x] rand (3 -> 0)
+    - 1-3
+        - in tests
+- [x] indexmap (4 -> 2)
+    - 1-2
+        - in tests
+    - 3-4
+        - impl trait for type
+        - method return type
+- [x] aho-corasick (12)
+    - 1-4, 9, 12
+        - struct field type
+    - 5, 10-11
+        - match statement return type
+    - 6
+        - struct impl block
+        - method return type
+    - 7
+        - impl trait for dyn trait
+    - 8
+        - impl trait for dyn trait
+        - unsafe
+- [x] regex-automata (39 -> 18)
+    - 1-7, 12 (8)
+        - in tests
+    - 8-11, 19-24, 26, 38-39 (13)
+        - line starts with "#"
+    - 13, 16, 18, 27, 33, 36-37
+        - impl trait for type
+        - method ret type
+    - 14, 35
+        - field type
+    - 15
+        - match statement return type
+    - 17
+        - in macro def
+        - func ret type
+    - 25, 31
+        - type assertion
+    - 28
+        - function ret type
+    - 34
+        - type
+        - boxed func type where arg == `dyn Fn`
+    - 29-30, 32
+        - in struct impl block
+        - assoc func ret type
+- [x] itertools (11 -> 6)
+    - 1-5
+        - in tests
+    - 6-7, 10-11
+        - generic type constraints
+        - dyn in the arg type portion
+        - in function signature
+    - 8-9
+        - closure argument
+- [x] log (43 -> 37)
+    - 11-13, 27-29
+        - in tests
+    - 1, 6-7, 9
+        - function arg type
+    - 15, 34-35
+        - trait decl func arg
+    - 16-26, 36-37
+        - trait def func arg
+    - 30-32
+        - struct impl block
+        - method arg type
+    - 38-39
+        - trait def func arg
+        - nested
+    - 42-43
+        - nested mod
+        - assoc func arg type
+    - 10
+        - function ret type
+    - 4-5, 33
+        - struct impl block
+        - method return type
+    - 8
+        - generic type constraints
+        - dyn in the ret type portion
+        - in function signature
+    - 2
+        - type assertion
+    - 3
+        - struct field type
+    - 14
+        - type
+    - 40-41
+        - enum type
 
 ### categories
 
 note some intersections between want/don't want filings
 
-valid arg types: 
+valid arg types (excluding generic constraints/closure args):
 - Group 2: 5
+- Group 3: 37 (all cc crate)
+- Group 4: 27
 
 valid return types: 
 - Group 2: 21
+- Group 3: 15
+- Group 4: 17
+
+compiled crates list (to search app deps for):
+- serde_json
+- once_cell
+- cc (build-time dep, though)
+- log
 
 #### want
 
@@ -167,48 +318,85 @@ valid return types:
         - hashbrown 1-5 (unsafe)
         - parking_lot (cold)
         - *serde_json 4*, 6 (6=cold)
-    - Group 3
-    - Group 4
+    - Group 3 (4)
+        - cc 1-3, 6
+    - Group 4 (3)
+        - *log 30-32*
 
-- struct method return types
-    - Group 2 (1)
-        - *serde_derive*
+- assoc func arg type (might have put some of these in above category)
+    - Group 2
     - Group 3
-    - Group 4
+    - Group 4 (2)
+        - *log 42-43*
 
 - function arg type
     - Group 2 (2)
         - *once_cell 1-2*
-    - Group 3
-    - Group 4
+    - Group 3 (33)
+        - cc 4-5, 7-37
+    - Group 4 (4)
+        - *log 1, 6-7, 9*
 
-- function return type
-    - Group 2 (3)
-        - *thiserror-impl 2-3*
-        - *clap*
-    - Group 3
-    - Group 4
-
-- trait decl/impl arg types
+- trait decl/def arg types
     - Group 2 (3 - 1 = 2)
         - *serde_json 2-3*, 5 (5=cold)
     - Group 3
-    - Group 4
+    - Group 4 (18)
+        - *log 15-26, 34-39*
+
+#### unsure
+
+- struct method return types
+    - Group 2 (1)
+        - serde_derive
+    - Group 3
+    - Group 4 (4)
+        - aho-corasick 6
+        - log 4-5, 33
+
+- function return type
+    - Group 2 (3)
+        - thiserror-impl 2-3
+        - clap
+    - Group 3
+    - Group 4 (1)
+        - log 10
 
 - trait decl/impl return types
     - Group 2 (18 - 1 = 17)
-        - *digest 1-2*
-        - *time 1-13*
+        - digest 1-2
+        - time 1-13
         - serde_json 1 (unsafe)
-        - *base64 2*
-    - Group 3
-    - Group 4
+        - base64 2
+    - Group 3 (11)
+        - thiserr 5-6, 8, 10, 12, 14
+        - rand_core 1
+        - syn 8-9
+        - either 1-2
+    - Group 4 (12)
+        - indexmap 3-4
+        - regex-automata 13, 16, 18, 27, 29-30, 32-33, 36-37
 
-- trait impl for dyn trait decl
+- trait impl for dyn trait (top-level line)
     - Group 2 (1)
         - digest 3
+    - Group 3 (8)
+        - thiserror 7, 9, 11, 13, 15-18
+    - Group 4 (2 - 1 = 1)
+        - aho-corasick 7-8 (8=unsafe)
+
+- generic type constraint, arg type
+    - Group 2
     - Group 3
-    - Group 4
+    - Group 4 (5)
+        - itertools 6-7, 10-11
+        - log 8
+
+- closure arg type
+    - Group 2
+    - Group 3
+    - Group 4 (2)
+        - itertools 8-9
 
 #### don't want
 
@@ -226,19 +414,22 @@ valid return types:
     - Group 3
     - Group 4
 
-- as a type / type cast
+- as a type / type cast / type assertion
     - Group 2 (3)
         - proc-macro2
         - rand_chacha
         - base64 1
-    - Group 3
-    - Group 4
+    - Group 3 (2)
+        - syn 7, 10
+    - Group 4 (22)
+        - aho-corasick 1-5, 9-12
+        - regex-automata 14-15, 17, 25, 28, 31, 34-35
+        - log 2-3, 14, 40-41
 
+- in tests
 
+- unused funcs?
 
-
-
-
-
+- `#[inline(always)]`?
 
 

@@ -11,19 +11,23 @@ class State:
 
     def __init__(self, rootdir):
         self.rootdir = rootdir
+        self.dyn_matches = 0
         self.dyn_traits = set()
         self.dyn_trait_impls = {}
 
     def search_file_for_dyn(self, filename):
         with open(filename) as file:
-            for line in file: 
+            #for line in file: 
+            for line_num, line in enumerate(file, start=1):
                 line = line.rstrip()
                 comment_match = re.search("^\s*[/]{2,3}", line)
                 if not comment_match: 
-                    dyn_match = re.search("dyn ([A-Za-z:]+)", line)
+                    dyn_match = re.search("dyn ([A-Za-z:_]+)", line)
                     if dyn_match:
-                        #print("line: ", line)
-                        #print("~~MATCH: ", dyn_match.group(1))
+                        print("file: ", filename, ":", line_num)
+                        print("line: ", line)
+                        print("~~MATCH: ", dyn_match.group(1))
+                        self.dyn_matches += 1
                         traitname = dyn_match.group(1)
                         self.dyn_traits.add(traitname)
     
@@ -88,7 +92,8 @@ if __name__ == "__main__":
         #print("\n-----IMPL SEARCH\n")
         s.search_file_for_impl()
 
-    #print("\n-----TOTAL\n")
+    print("\n-----TOTAL\n")
+    print("num dyn matches: ", s.dyn_matches, "\n")
     if bool(s.dyn_traits) and bool(s.dyn_trait_impls):
         group4 = False
         for impl in s.dyn_trait_impls:
@@ -114,9 +119,9 @@ if __name__ == "__main__":
         #    print(impl, ": \t", len(s.dyn_trait_impls[impl]))
     else:
         print("group 2")
-        #print("Traits: ", s.dyn_traits)
-        #print("Impls: ", s.dyn_trait_impls)
-        #for impl in s.dyn_trait_impls:
-        #    print(impl, ": \t", len(s.dyn_trait_impls[impl]))
+        print("Traits: ", s.dyn_traits)
+        print("Impls: ", s.dyn_trait_impls)
+        for impl in s.dyn_trait_impls:
+            print(impl, ": \t", len(s.dyn_trait_impls[impl]))
 
 

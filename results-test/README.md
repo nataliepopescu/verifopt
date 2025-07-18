@@ -25,7 +25,7 @@ python driver.py -d <path>
 
 where <path> is a directory containing multiple projects or crates
 
-## On a single crate
+### On a single crate
 
 ```sh
 python tool.py -d <path>

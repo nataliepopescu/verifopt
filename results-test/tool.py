@@ -25,20 +25,21 @@ class State:
                     dyn_match = re.search("dyn ([A-Za-z:_]+)", line)
                     if dyn_match:
                         self.dyn_matches += 1
-                        print("~~MATCH (", self.dyn_matches, ") : ", dyn_match.group(1))
-                        print("file: ", filename, ":", line_num)
-                        print("line: ", line)
-                        print()
+                        #print("~~MATCH (", self.dyn_matches, ") : ", dyn_match.group(1))
+                        #print("file: ", filename, ":", line_num)
+                        #print("line: ", line)
+                        #print()
                         traitname = dyn_match.group(1)
                         self.dyn_traits.add(traitname)
     
     def search_dyn(self):
         for root, subdirs, files in os.walk(self.rootdir):
-            # TODO if in tests/ or benches/ dir, skip
             for filename in files:
                 if not filename.endswith(".rs"):
                     continue
                 absfilename = root + "/" + filename
+                if "tests/" in absfilename or "benches/" in absfilename:
+                    continue
                 self.search_file_for_dyn(absfilename)
     
     def search_file_for_impl(self, filename):
@@ -55,11 +56,11 @@ class State:
                         dyn_trait = impl_match.group(2)
                         dyn_trait_impl = impl_match.group(4)
                         self.impl_matches += 1
-                        print("~~MATCH (", self.impl_matches, ") : ", dyn_trait_impl)
-                        print("TRAIT: ", dyn_trait)
-                        print("file: ", filename, ":", line_num)
-                        print("line: ", line)
-                        print()
+                        #print("~~MATCH (", self.impl_matches, ") : ", dyn_trait_impl)
+                        #print("TRAIT: ", dyn_trait)
+                        #print("file: ", filename, ":", line_num)
+                        #print("line: ", line)
+                        #print()
                         if dyn_trait in self.dyn_trait_impls:
                             updated = self.dyn_trait_impls[dyn_trait]
                             updated.add(dyn_trait_impl)
@@ -69,11 +70,12 @@ class State:
     
     def search_impl(self): 
         for root, subdirs, files in os.walk(self.rootdir):
-            # TODO if in tests/ or benches/ dir, skip
             for filename in files:
                 if not filename.endswith(".rs"):
                     continue
                 absfilename = root + "/" + filename
+                if "tests/" in absfilename or "benches/" in absfilename:
+                    continue
                 self.search_file_for_impl(absfilename)
 
 def arg_parse():
@@ -91,19 +93,19 @@ if __name__ == "__main__":
     s = State(abspath)
 
     if os.path.isdir(abspath):
-        print("\n-----DYN SEARCH\n")
+        #print("\n-----DYN SEARCH\n")
         s.search_dyn()
-        print("\n-----IMPL SEARCH\n")
+        #print("\n-----IMPL SEARCH\n")
         s.search_impl()
     else: 
-        print("\n-----DYN SEARCH\n")
+        #print("\n-----DYN SEARCH\n")
         s.search_file_for_dyn()
-        print("\n-----IMPL SEARCH\n")
+        #print("\n-----IMPL SEARCH\n")
         s.search_file_for_impl()
 
-    print("\n-----TOTAL\n")
-    print("num dyn matches: ", s.dyn_matches, "\n")
-    print("num impl matches: ", s.impl_matches, "\n")
+    #print("\n-----TOTAL\n")
+    #print("num dyn matches: ", s.dyn_matches, "\n")
+    #print("num impl matches: ", s.impl_matches, "\n")
     if bool(s.dyn_traits) and bool(s.dyn_trait_impls):
         group4 = False
         for impl in s.dyn_trait_impls:

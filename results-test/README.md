@@ -13,13 +13,23 @@ scrapy crawl -a category=top -a x=N get-crates
 each page contains 50 entries, so can only download multiples of 50. to download
 50 crates then set N=1, 100 then N=2, 150 then N=3, and so on...
 
-## Run regex tool
+## Run regex tool 
 
 recommended: create a `venv` before running
+
+### On many crates
 
 ```sh
 python driver.py -d <path>
 ```
 
 where <path> is a directory containing multiple projects or crates
+
+## On a single crate
+
+```sh
+python tool.py -d <path>
+```
+
+where <path> points to the crate to search
 

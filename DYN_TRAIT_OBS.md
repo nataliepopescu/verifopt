@@ -55,10 +55,28 @@ valid return types:
 - Group 4: 17
 
 compiled crates list (to search app deps for):
-- serde_json
-- once_cell
-- cc (build-time dep, though)
-- log
+- serde_json (2-4; 3 total)
+    - 2: `fn invalid_type(unexp: de::Unexpected, exp: &dyn de::Expected) -> Self
+      {...}`
+    - 3: `fn invalid_value(unexp: de::Unexpected, exp: &dyn de::Expected) ->
+      Self {...}`
+    - 4: `fn invalid_type(self, exp: &dyn Expected) -> Error {...}`
+- once_cell (1-2; 2 total)
+    - 1: `fn initialize_inner(state: &AtomicU8, init: &mut dyn FnMut() -> bool)
+      {...}`
+    - 2: `fn initialize_or_wait(queue: &AtomicPtr<Waiter>, mut init: Option<&mut
+      dyn FnMut() -> bool>) {`
+- cc (1-37; 37 total) (build-time dep, though)
+- log (1, 6-7, 9, 15-26, 30-32, 34-39, 42-43; 27 total)
+    - 1: `pub fn capture_error<'a>(v: &'a (dyn std::error::Error + 'static)) ->
+      Value<'a> {...}`
+    - 6: `pub fn set_boxed_logger(logger: Box<dyn Log>) -> Result<(),
+      SetLoggerError> {...}`
+    - 15: `fn visit<'kvs>(&'kvs self, visitor: &mut dyn VisitSource<'kvs>) ->
+      Result<(), Error>;`
+    - 30: `pub fn from_dyn_debug(value: &'v dyn fmt::Debug) -> Self {...}`
+    - 34: `fn visit_error(&mut self, err: &(dyn std::error::Error + 'static)) ->
+      Result<(), Error> {...}`
 
 #### want
 

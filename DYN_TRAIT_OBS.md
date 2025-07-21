@@ -56,27 +56,10 @@ valid return types:
 
 compiled crates list (to search app deps for):
 - serde_json (2-4; 3 total)
-    - 2: `fn invalid_type(unexp: de::Unexpected, exp: &dyn de::Expected) -> Self
-      {...}`
-    - 3: `fn invalid_value(unexp: de::Unexpected, exp: &dyn de::Expected) ->
-      Self {...}`
-    - 4: `fn invalid_type(self, exp: &dyn Expected) -> Error {...}`
 - once_cell (1-2; 2 total)
-    - 1: `fn initialize_inner(state: &AtomicU8, init: &mut dyn FnMut() -> bool)
-      {...}`
-    - 2: `fn initialize_or_wait(queue: &AtomicPtr<Waiter>, mut init: Option<&mut
-      dyn FnMut() -> bool>) {`
 - cc (1-37; 37 total) (build-time dep, though)
-- log (1, 6-7, 9, 15-26, 30-32, 34-39, 42-43; 27 total)
-    - 1: `pub fn capture_error<'a>(v: &'a (dyn std::error::Error + 'static)) ->
-      Value<'a> {...}`
-    - 6: `pub fn set_boxed_logger(logger: Box<dyn Log>) -> Result<(),
-      SetLoggerError> {...}`
-    - 15: `fn visit<'kvs>(&'kvs self, visitor: &mut dyn VisitSource<'kvs>) ->
-      Result<(), Error>;`
-    - 30: `pub fn from_dyn_debug(value: &'v dyn fmt::Debug) -> Self {...}`
-    - 34: `fn visit_error(&mut self, err: &(dyn std::error::Error + 'static)) ->
-      Result<(), Error> {...}`
+- log (1, 6-7, 9, 15-26, 30-32, 34-39, 42-43; 27 "want") / (4; 1 "unsure") / (28 total)
+- aho-corasick (6; 1 "unsure")
 
 #### want
 
@@ -216,7 +199,10 @@ pub fn all_fields(&'a self) -> Box<dyn Iterator<Item = &'a Field<'a>> + 'a> {...
       struct instance
     - `Iter` implements the `Iterator` trait
     - but why not just use a return type of `Iter` without `dyn`?
-- `all_fields` is then used to chain iterator methods
+- `all_fields` is then used with iterator methods
+    - `any`, a for loop, `all`, and `filter_map` in-crate
+
+TODO how does verifopt help here?
 
 ##### how would verifopt help?
 
@@ -230,11 +216,22 @@ fn build_auto(
 ```
 
 - builder pattern
-- is `dyn` because the `Arc` can contain one of two types: `DFA` or `NFA`
+- is `dyn` because the `Arc` can contain one of two (three) types: `DFA` or
+  `NFA` (contiguous or noncontiguous)
 
-##### how would verifopt help?
+- where is retval used (/ where is `build_auto` called)?
+    - in `build` to construct an instance of aho-corasick automaton when
+      self.kind == None (`new()` calls `default()`, from the derived `Default`
+      trait, which, for `Option` types, turns out to be None, so the common case
+      may indeed fall in this category)
+        - triggers some automatic decision based on input patterns/other
+          configurations (impl prioritizes DFA, then contig NFA, then noncontig NFA)
+            - this indeed sounds like it hinges on dynamic information (config), and is 
+              not a developer workaround for big generics? although I'm not
+              completely sure
+    - TODO who uses the aho-corasick crate??
 
-#### log 4
+#### log 4 [solved]
 
 ```rust
 pub fn key_values(&self) -> &dyn kv::Source {
@@ -249,8 +246,12 @@ pub fn key_values(&self) -> &dyn kv::Source {
     - `Source` is a trait, with several in-crate implementations ('BTreeMap', 
       'HashMap', 'Rc', 'Arc', 'Vec', 'Box', 'Option', 'OnePair')
         - visitor pattern
+        - `fn visit<'kvs>(&'kvs self, visitor: &mut dyn VisitSource<'kvs>) -> Result<(), Error>;`
 
-##### how would verifopt help?
+- where is `key_values()` used?
+    - in tests :( - TODO who uses the `log` crate??
+    - chained w `visit(&mut visitor)`, which has a `dyn` arg that we've already
+      caught
 
 #### log 5
 

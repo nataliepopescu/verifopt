@@ -201,7 +201,90 @@ compiled crates list (to search app deps for):
 
 ------------------------------------------
 
-### individual uses
+### notes on more complicated uses ("unsure" category above)
+
+#### serde_derive [unsolved]
+
+```rust
+pub fn all_fields(&'a self) -> Box<dyn Iterator<Item = &'a Field<'a>> + 'a> {...}
+```
+
+- getting all fields of `Data` (either a struct or enum)
+- `iter()` on a `Vec` probably returns a `dyn` type
+    - [iter](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.iter)
+      returns an [Iter](https://doc.rust-lang.org/std/slice/struct.Iter.html)
+      struct instance
+    - `Iter` implements the `Iterator` trait
+    - but why not just use a return type of `Iter` without `dyn`?
+- `all_fields` is then used to chain iterator methods
+
+##### how would verifopt help?
+
+#### aho-corasick 6 [solved]
+
+```rust
+fn build_auto(
+    &self,
+    nfa: noncontiguous::NFA,
+) -> (Arc<dyn AcAutomaton>, AhoCorasickKind) {
+```
+
+- builder pattern
+- is `dyn` because the `Arc` can contain one of two types: `DFA` or `NFA`
+
+##### how would verifopt help?
+
+#### log 4
+
+```rust
+pub fn key_values(&self) -> &dyn kv::Source {
+    self.key_values.0
+}
+```
+
+- `self` == `Record` with `key_values: KeyValues<'a>,`
+- `struct KeyValues<'a>(&'a dyn kv::Source);`
+- thus, returning a `dyn` value
+    - but why does `KeyValues` need to be `dyn`?
+    - `Source` is a trait, with several in-crate implementations ('BTreeMap', 
+      'HashMap', 'Rc', 'Arc', 'Vec', 'Box', 'Option', 'OnePair')
+        - visitor pattern
+
+##### how would verifopt help?
+
+#### log 5
+
+#### log 33
+
+
+
+
+
+
+
+
+------------------------------------------
+
+### patterns / solutions
+
+[rust design
+patterns](https://rust-unofficial.github.io/patterns/patterns/index.html)
+- strategy pattern (in rust) can be simply replaced by traits
+
+visitor pattern
+- i.e. traversing AST (as the toy interpreter does)
+- for heterogenous data (vs iterator which operates on homogenous data)
+- good for separating collection traversal from the operations performed on each object
+
+builder pattern
+
+iterator pattern
+
+wrapper pattern
+
+------------------------------------------
+
+### individual use notes
 
 TODO actually don't want `dyn` return types (unless double counting `dyn` arg
 types)?

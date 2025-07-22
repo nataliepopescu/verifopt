@@ -51,7 +51,7 @@ class State:
                 comment_match = re.search("^[/]{2,3}", line)
                 pound_match = re.search("^[#]", line)
                 if not comment_match and not pound_match: 
-                    impl_match = re.search("impl([<][A-Za-z,'\s]+[>])? ([A-Za-z]+)([<][A-Za-z,'\s]+[>])? for ([A-Za-z]+)", line)
+                    impl_match = re.search("impl([<][A-Za-z,'\s]+[>])? ([A-Za-z]+)([<][A-Za-z,'\s]+[>])? for ([A-Za-z:_]+([<][A-Za-z,'\s]+[>])?)", line)
                     if impl_match and impl_match.group(2) in self.dyn_traits:
                         dyn_trait = impl_match.group(2)
                         dyn_trait_impl = impl_match.group(4)

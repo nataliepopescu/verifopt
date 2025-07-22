@@ -3,12 +3,14 @@
 Goal: gain empirical confidence for the potential effectiveness of verifopt's
 technique on real world code
 
-## potential grep/regex tool(s)
+## grep/regex tool(s)
 
 flow-insensitive
 1. grep for all `dyn` + remember which trait name the `dyn` is bound to
 2. then grep for all `impl <trait-name> for...` instances to get a CHA count
 (total number of possible implementations)
+3. gets more complicated when usages are exported to external apps/libraries
+	- currently doing this by hand just to get a better understanding
 
 flow-sensitive
 - would need to happen in the compiler, i'd think...
@@ -29,16 +31,6 @@ Group 3: (5) `dyn Trait`s where each `Trait` is only implemented _once_ in the c
 
 Group 4: (7) `dyn Trait`s where at least one `Trait` is implemented more than once in
   the current crate
-- `rand-0.9.1`: 7 impls of `RngCore`
-- `indexmap-2.10.0`: 20 impls of `Iterator`
-- `itertools-0.14.0`: 56 impls of `Iterator`
-- `log-0.4.27`: 4 impls for `Log`, 4 impls for `VisitSource`, 8 impls for `Source`
-- `aho-corasick-1.1.3`: 1 impl for `AcAutomaton`, 8 impls for `PrefilterI`,
-  4 impls for `SearcherT`
-- `bytes-1.10.1`: 7 impls for `Buf`, 4 impls for `BufMut`
-- `regex-automata-0.4.9`: 5 impls for `PrefilterI`, 4 impls for `Strategy`
-
-double check `syn` results (`for` as a trait == wrong)
 
 ### categories / some synthesis
 

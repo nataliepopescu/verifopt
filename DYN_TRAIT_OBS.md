@@ -46,27 +46,77 @@ valid return types:
 - Group 3: 15
 - Group 4: 17
 
-compiled crates list (to search app deps for):
+compiled crates list (to search app deps for) - from dyn argtypes:
 - serde_json (2-4; 3 total)
 - once_cell (1-2; 2 total)
 - cc (1-37; 37 total) (build-time dep, though)
+
 - log (1, 6-7, 9, 15-26, 30-32, 34-39, 42-43; 27 total)
+    - `dyn Source`
+        - 5: `log::RecordBuilder::key_values` struct method
+            - [search results]()
+            - [open-telemetry/opentelemetry-rust/opentelemetry-appender-log/src/lib.rs](https://github.com/open-telemetry/opentelemetry-rust/blob/e9ca158af50fae29b5530e72ae0785d451abd3db/opentelemetry-appender-log/src/lib.rs#L928)
+                - `&[(x, y)]` (slice of pairs)
+    - `dyn Log`
+        - 6: `log::set_boxed_logger`
+            - [search
+              results](https://github.com/search?q=language%3ARust+Log%3A%3Aset_boxed_logger%28+AND+log&type=code)
+            - [gdzie44/BugStalker/src/log.rs](https://github.com/godzie44/BugStalker/blob/a9f1092c8622bfdb2bfba5b790701480bb19b4e4/src/log.rs#L28)
+                - `impl Log for NopLogger`
+                - `impl Log for ProxyLogger`
+            - [cloudhead/rx/src/logger.rs](https://github.com/cloudhead/rx/blob/1bcbe90527ad0bb89c99cec40667f6b961ec8d9e/src/logger.rs#L40)
+                - `impl Log for Logger`
+            - [walles/riff/src/logging.rs](https://github.com/walles/riff/blob/87869b91276c113075f57d37a98b8ba91990b3d6/src/logging.rs#L50)
+                - `impl Log for BufferLogger`
+        - 7: `log::set_logger`
+            - [search
+              results](https://github.com/search?q=language%3ARust+Log%3A%3Aset_logger%28+AND+log&type=code)
+                - possible case where only a single `impl` in app
+                - however, 3-4 `impls` within `log` crate itself
+                - the question: what actually ends up getting used at runtime?
+            - [redox/kernel/src/log.rs](https://github.com/redox-os/kernel/blob/66ea2b46eec537b313e977f6b2159af1553965e8/src/log.rs#L51)
+                - `impl Log for RedoxLogger`
+            - [Nike-Inc/aws-greengrass-core-sdk-rust/src/log.rs](https://github.com/Nike-Inc/aws-greengrass-core-sdk-rust/blob/89fb49583e871882ffbd83af50761d5b1691df94/src/log.rs#L46)
+                - `impl Log for GCLogger`
+            - [oknozor/illumiation/src/logger.rs](https://github.com/oknozor/illumination/blob/1f0c985eebab930126809e1aa3c9a8992daee3e8/src/logger.rs)
+                - `impl Log for SimpleLogger`
+        - 9: `log::set_logger_racy`
+            - [search
+              results](https://github.com/search?q=language%3ARust+Log%3A%3Aset_logger_racy%28+AND+log&type=code)
+
+compiled crates list (to search app deps for) - from dyn rettypes:
 
 - log (4, 8, 10; 3 "unsure")
-    - `key_values` func
-    - `set_logger` func
-    - `set_boxed_logger` func
+    - `dyn Source`
+        - `log::Record::key_values` struct method
+            - [search
+              results](https://github.com/search?q=key_values%28+AND+log%3A%3ARecord+language%3ARust+&type=code)
+                - 8 `impl`s in-crate
+                - largely used with visit(..)
+            - deny
+	    	- sentry-rust
+            - AI-Studio
+            - grafbase
+    - `dyn Log`
+        - `log::logger()` can unsafely return a static mut - ignore? 
+
 - aho-corasick (6; 1 "unsure")
-    - `build` func
+    - `ahocorasick::AhoCorasick::build` struct method
 - time (1-13; 13 "unsure")
-    - `shrink` func
-    - `std::error::Error::source` func
+    - `quickcheck::arbitrary::Arbitrary::shrink` trait method on `Date`, `Duration`, `Time`, `PrimitiveDateTime`, `UtcOffset`, `OffsetDateTime`, `UtcDateTime`, and `Weekday`
+    - `std::error::Error::source` trait method on (a) `Format` enum, (b)
+      `TryFromParsed` enum, (c) `Error` enum, and (d) `Parsed` enum
 - base64 (1 "unsure")
-    - `std::error::Error::source` func
+    - `std::error::Error::source` trait method on `DecodeSliceError` enum
 - thiserror (all but really just 2, 4, 6, 8, 10; 5 "unsure")
-    - `as_dyn_error` func
-- rand_core (1)
-    - `std::error::Error::source` func
+    - `thiserror::aserror::AsDynError::as_dyn_error` trait func on `Error` (+? `Send`, `Sync`, `UnwindSafe`, and `'a`)
+- rand_core (1; 1 "unsure")
+    - `std::error::Error::source` trait method on `OsError` struct
+- syn (2-3; 2 "unsure")
+	- `syn::punctuated::IterTrait::clone_box` trait method on complex type (`DoubleEndedIterator + ExactSizeIterator + Clone + TrivialDrop + 'a`)
+- either (1-2; 2 "unsure")
+    - `std::error::Error::source` trait method on `Either` enum
+    - `std::error::Error::cause` trait method on `Either` enum
 
 #### want
 
@@ -154,6 +204,17 @@ compiled crates list (to search app deps for):
     - Group 4 (2)
         - itertools 8-9
 
+- as a type / type cast / type assertion
+    - Group 2 (3)
+        - proc-macro2
+        - rand_chacha
+    - Group 3 (2)
+        - syn 1, 4 (old: 7, 10)
+    - Group 4 (22)
+        - aho-corasick 1-5, 9-12
+        - regex-automata 14-15, 17, 25, 28, 31, 34-35
+        - log 2-3, 14, 40-41
+
 #### don't want
 
 - in unsafe struct method
@@ -170,22 +231,13 @@ compiled crates list (to search app deps for):
     - Group 3
     - Group 4
 
-- as a type / type cast / type assertion
-    - Group 2 (3)
-        - proc-macro2
-        - rand_chacha
-    - Group 3 (2)
-        - syn 1, 4 (old: 7, 10)
-    - Group 4 (22)
-        - aho-corasick 1-5, 9-12
-        - regex-automata 14-15, 17, 25, 28, 31, 34-35
-        - log 2-3, 14, 40-41
-
-- in tests
+- in tests, examples, or benchmarks
 
 - unused funcs?
+    - i forgot what i meant by this
 
 - `#[inline(always)]`?
+    - how does this interact w `dyn`?
 
 ------------------------------------------
 
@@ -242,6 +294,15 @@ fn build_auto(
               completely sure
     - TODO who uses the aho-corasick crate??
 
+##### 7 [solved]
+
+```rust
+impl crate::automaton::private::Sealed for Arc<dyn AcAutomaton> {}
+```
+
+- super trait? no functions though so don't see how verifopt will have an effect
+  here
+
 
 
 
@@ -282,6 +343,12 @@ where
   closure that takes no arguments and returns some `dyn Log` thing
 - see below (log 10) for implementors of trait `Log`
 
+```rust
+pub fn set_logger(logger: &'static dyn Log) -> Result<(), SetLoggerError> {...}
+...
+pub fn set_boxed_logger(logger: Box<dyn Log>) -> Result<(), SetLoggerError> {...}
+```
+
 ##### 10 [solved]
 
 ```rust
@@ -305,6 +372,7 @@ pub fn logger() -> &'static dyn Log {
 - how is `set_logger` used? will determine what kinds of `dyn Log` are used
     - various logging structs that impl the `Log` trait
     - in-crate we have `NopLogger`, `GlobalLogger`, `std::boxed::Box<T>`, and `std::sync::Arc<T>`
+        - however, `GlobalLogger` is defined in a `private_api.rs` file
     - TODO who uses the log crate??
 
 ##### 33 [unsolved]
@@ -425,7 +493,8 @@ fn box_clone(&self) -> Box<dyn DynDigest> {
     Box::new(self.clone())
 }
 ```
-calls `Box::new(self.clone())`, which digest 3 implements
+
+- calls `Box::new(self.clone())`, which digest 3 implements
 
 ##### 3
 
@@ -454,6 +523,8 @@ fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {...}
 
 - impl `shrink` function from `Arbitrary` trait declared in [quickcheck crate](https://crates.io/crates/quickcheck)
 	- default impl returns an empty iterator
+	- impl for `Date`, `Duration`, `Time`, `PrimitiveDateTime`, `UtcOffset`, 
+      `OffsetDateTime`, `UtcDateTime`, and `Weekday`
 
 return types
 - 1: `FlatMap`
@@ -487,6 +558,7 @@ return types
     - `fn source(&self) -> Option<&(dyn std::error::Error + 'static)>;`
 
 - TODO where is `std::error::Error::source` used??
+    - on `DecodeSliceError` enum
 
 
 
@@ -529,14 +601,14 @@ pub trait AsDynError<'a>: Sealed {
     - `fn source(&self) -> Option<&(dyn std::error::Error + 'static)>;`
 
 - TODO where is `std::error::Error::source` used??
-
+    - on `OsError` struct
 
 
 
 
 #### syn
 
-##### 2
+##### 2 [solved]
 
 ```rust
 trait IterTrait<'a, T: 'a>: Iterator<Item = &'a T> + DoubleEndedIterator + ExactSizeIterator {                                                                         
@@ -544,9 +616,88 @@ trait IterTrait<'a, T: 'a>: Iterator<Item = &'a T> + DoubleEndedIterator + Exact
 }
 ```
 
+- TODO where is `clone_box` used?
+	- not in current crate
+
 ##### 3
 
 - impl above trait func `clone_box`, body = `Box::new(NoDrop::new(self.clone()))`
+for `I` where:
+
+```rust
+I: DoubleEndedIterator<Item = &'a T>                                                                                                                               
+    + ExactSizeIterator<Item = &'a T>                                                                                                                              
+    + Clone                                                                                                                                                        
+    + TrivialDrop                                                                                                                                                  
+    + 'a,
+```
+
+##### 4
+
+```rust
+pub struct IterMut<'a, T: 'a> {
+    inner: Box<NoDrop<dyn IterMutTrait<'a, T, Item = &'a mut T> + 'a>>,
+}
+```
+
+
+
+
+#### either
+
+##### 1
+
+- also implementing `std::error::Error` trait
+    - `fn source(&self) -> Option<&(dyn std::error::Error + 'static)>;`
+
+- TODO where is `std::error::Error::source` used??
+    - on `Either` enum
+
+##### 2
+
+- also implementing this deprecated method: `fn cause(&self) -> Option<&dyn Error>;`
+    - according to
+      [docs](https://doc.rust-lang.org/std/error/trait.Error.html#method.cause), 
+      `cause` is replaced by `source`
+
+- TODO where is `std::error::Error::source` used??
+    - on `Either` enum
+
+
+
+
+
+
+
+
+------
+HERE
+
+
+
+#### aho-corasick 1-5, 9-12
+
+#### log 2-3, 14, 40-41
+
+#### indexmap
+
+##### 3
+##### 4
+
+#### regex-automata
+
+#### itertools
+
+##### 6
+##### 7
+##### 8
+##### 9
+##### 10
+##### 11
+
+#### proc-macro2
+
+#### rand_chacha
 
 
 

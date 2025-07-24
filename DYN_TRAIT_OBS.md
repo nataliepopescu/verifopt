@@ -46,7 +46,11 @@ valid return types:
 - Group 3: 15
 - Group 4: 17
 
-compiled crates list (to search app deps for) - from dyn argtypes:
+high-level motivation fit (better performance is useful here): 
+- logging
+- error handling
+
+compiled crates list from dyn ARG types (to search app deps for):
 - serde_json (2-4; 3 total)
 - once_cell (1-2; 2 total)
 - cc (1-37; 37 total) (build-time dep, though)
@@ -61,6 +65,9 @@ compiled crates list (to search app deps for) - from dyn argtypes:
         - 6: `log::set_boxed_logger`
             - [search
               results](https://github.com/search?q=language%3ARust+Log%3A%3Aset_boxed_logger%28+AND+log&type=code)
+                - possible case where only a single `impl` in app
+                - however, 3-4 `impls` within `log` crate itself
+                - the question: what actually ends up getting used at runtime?
             - [gdzie44/BugStalker/src/log.rs](https://github.com/godzie44/BugStalker/blob/a9f1092c8622bfdb2bfba5b790701480bb19b4e4/src/log.rs#L28)
                 - `impl Log for NopLogger`
                 - `impl Log for ProxyLogger`
@@ -83,8 +90,27 @@ compiled crates list (to search app deps for) - from dyn argtypes:
         - 9: `log::set_logger_racy`
             - [search
               results](https://github.com/search?q=language%3ARust+Log%3A%3Aset_logger_racy%28+AND+log&type=code)
+                - possible case where only a single `impl` in app
+                - however, 3-4 `impls` within `log` crate itself
+                - the question: what actually ends up getting used at runtime?
+    - `dyn VisitSource`
+        - [search
+          results](https://github.com/search?q=.visit%28+AND+%22use+log%22+language%3ARust+&type=code)
+            - possible case where only a single `impl` in app
+            - however, 4 `impls` within `log` crate itself
+        - [denoland/deno/ext/telemetry/lib.rs](https://github.com/denoland/deno/blob/3a5ba56801dfbe3508212903429c44071d1d3f15/ext/telemetry/lib.rs#L991)
+            - `impl VisitSource for Visitor`
+            - only within `handle_log` function (perhaps a final step in the
+              logging process)
+        - [rust-cli/env-logger/src/fmt/kv.rs](https://github.com/rust-cli/env_logger/blob/8b81e467b719777cc28850ffb879de8b403e0a1d/src/fmt/kv.rs#L36)
+            - `impl VisitSource for DefaultVisitSource`
+        - [emabee/flexi_logger/src/formats.rs](https://github.com/emabee/flexi_logger/blob/8955956c4f2fc9122c63cd41ba2799aa64379f6d/src/formats.rs#L20)
+            - `impl VisitSource for KvStream`
+    - `dyn error::Error`
+    - `dyn fmt::Display`
+    - `dyn fmt::Debug`
 
-compiled crates list (to search app deps for) - from dyn rettypes:
+compiled crates list from dyn RET types (to search app deps for):
 
 - log (4, 8, 10; 3 "unsure")
     - `dyn Source`
@@ -99,6 +125,8 @@ compiled crates list (to search app deps for) - from dyn rettypes:
             - grafbase
     - `dyn Log`
         - `log::logger()` can unsafely return a static mut - ignore? 
+    - `dyn VisitSource`
+    - `dyn error::Error`
 
 - aho-corasick (6; 1 "unsure")
     - `ahocorasick::AhoCorasick::build` struct method

@@ -1,4 +1,5 @@
-use crate::{Error, Merge, RVal, Type};
+use crate::statement::{Merge, RVal, Type};
+use crate::error::Error;
 
 use std::collections::{HashMap, HashSet};
 

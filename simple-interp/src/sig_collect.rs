@@ -1,5 +1,6 @@
-use crate::{Error, Funcs, SigVal};
-use crate::sigs::Sigs;
+use crate::funcs::Funcs;
+use crate::error::Error;
+use crate::sigs::{Sigs, SigVal};
 use std::collections::HashSet;
 
 pub struct SigCollector {}
@@ -13,7 +14,7 @@ impl SigCollector {
         for (func_name, funcvec) in funcs.funcs.iter() {
             for (_tso, func) in funcvec.iter() {
                 // FIXME differentiate tso?
-                let (_, paramtypes): (Vec<&'static str>, Vec<crate::Type>) =
+                let (_, paramtypes): (Vec<&'static str>, Vec<crate::statement::Type>) =
                     func.params.clone().into_iter().unzip();
                 let sig = SigVal::new(paramtypes, func.rettype.clone());
                 match sigs.sigs.get(&sig) {

@@ -1,4 +1,4 @@
-use crate::{FuncName, FuncVal, TraitStructOpt};
+use crate::statement::{FuncName, FuncVal, TraitStructOpt};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]

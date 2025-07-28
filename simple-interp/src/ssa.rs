@@ -1,4 +1,5 @@
-use crate::{Error, Merge, RVal, Statement};
+use crate::statement::{Merge, RVal, Statement};
+use crate::error::Error;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -176,7 +177,7 @@ impl SSAChecker {
         &self,
         symbols: &mut Symbols,
         name: &'static str,
-        params: &Vec<(&'static str, crate::Type)>,
+        params: &Vec<(&'static str, crate::statement::Type)>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
         if symbols.0.get(name).is_some() {

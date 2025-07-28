@@ -1,9 +1,10 @@
 use crate::constraints::{BooleanConstraints, Constraints, ConstraintMap, Difference, VarType};
 use crate::traits::Traits;
-use crate::{
-    AssignmentRVal, BooleanStatement, Error, 
-    FuncVal, Funcs, Merge, RVal, Statement, Type
+use crate::funcs::Funcs;
+use crate::statement::{
+    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement, Type
 };
+use crate::error::Error;
 use std::collections::HashSet;
 
 pub struct Interpreter {}

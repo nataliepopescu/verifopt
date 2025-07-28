@@ -1,4 +1,5 @@
-use crate::{Error, FuncVal, Statement, Type};
+use crate::statement::{FuncVal, Statement, Type};
+use crate::error::Error;
 use crate::funcs::Funcs;
 
 pub struct FuncCollector {}

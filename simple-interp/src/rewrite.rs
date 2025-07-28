@@ -1,10 +1,11 @@
 use crate::funcs::Funcs;
+use crate::sigs::{SigVal, Sigs};
 use crate::constraints::{ConstraintMap, Constraints, VarType};
-use crate::{
-    BooleanStatement, 
-    Error, FuncVal, RVal, SigVal, Sigs, Statement,
-    Traits, TraitStructOpt, TraitStructTup, Type,
+use crate::statement::{
+    BooleanStatement, FuncVal, RVal, Statement, TraitStructOpt, TraitStructTup, Type,
 };
+use crate::traits::Traits;
+use crate::error::Error;
 
 use std::collections::HashSet;
 

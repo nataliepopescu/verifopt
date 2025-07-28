@@ -1,5 +1,5 @@
-use crate::statement::{Merge, RVal, Statement};
 use crate::error::Error;
+use crate::statement::{Merge, RVal, Statement};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]

@@ -41,4 +41,3 @@ pub enum Error {
     #[error("Cannot perform merge on Vec with no elements.")]
     VecSize(),
 }
-

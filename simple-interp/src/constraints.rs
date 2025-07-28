@@ -1,5 +1,5 @@
-use crate::statement::{Merge, RVal, Type};
 use crate::error::Error;
+use crate::statement::{Merge, RVal, Type};
 
 use std::collections::{HashMap, HashSet};
 
@@ -359,4 +359,3 @@ impl Difference<ConstraintMap> for ConstraintMap {
         Ok(())
     }
 }
-

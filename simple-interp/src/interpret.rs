@@ -1,10 +1,12 @@
-use crate::constraints::{BooleanConstraints, Constraints, ConstraintMap, Difference, VarType};
-use crate::traits::Traits;
-use crate::funcs::Funcs;
-use crate::statement::{
-    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement, Type
+use crate::constraints::{
+    BooleanConstraints, ConstraintMap, Constraints, Difference, VarType,
 };
 use crate::error::Error;
+use crate::funcs::Funcs;
+use crate::statement::{
+    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement, Type,
+};
+use crate::traits::Traits;
 use std::collections::HashSet;
 
 pub struct Interpreter {}
@@ -315,7 +317,9 @@ impl Interpreter {
         b_stmt: BooleanStatement,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
         match self.interp_bool(funcs, cmap, scope, b_stmt) {
-            Ok(b_res) => Ok((!b_res.0, BooleanConstraints::flip_constraints(b_res.1))),
+            Ok(b_res) => {
+                Ok((!b_res.0, BooleanConstraints::flip_constraints(b_res.1)))
+            }
             err @ Err(_) => err,
         }
     }

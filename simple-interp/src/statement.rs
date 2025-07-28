@@ -166,4 +166,3 @@ impl Not for &BooleanStatement {
         }
     }
 }
-

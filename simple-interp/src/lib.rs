@@ -1,23 +1,23 @@
 pub mod constraints;
 pub mod error;
-pub mod funcs;
 pub mod func_collect;
+pub mod funcs;
 pub mod interpret;
 pub mod rewrite;
-pub mod sigs;
 pub mod sig_collect;
+pub mod sigs;
 pub mod ssa;
 pub mod statement;
 pub mod traits;
 
 use crate::constraints::ConstraintMap;
 use crate::error::Error;
-use crate::funcs::Funcs;
 use crate::func_collect::FuncCollector;
+use crate::funcs::Funcs;
 use crate::interpret::Interpreter;
 use crate::rewrite::Rewriter;
-use crate::sigs::Sigs;
 use crate::sig_collect::SigCollector;
+use crate::sigs::Sigs;
 use crate::ssa::{SSAChecker, Symbols};
 use crate::statement::Statement;
 use crate::traits::Traits;

@@ -4,7 +4,8 @@ use crate::constraints::{
 use crate::error::Error;
 use crate::funcs::Funcs;
 use crate::statement::{
-    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement, Type,
+    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement,
+    TraitStructOpt, Type,
 };
 use crate::traits::Traits;
 use std::collections::HashSet;
@@ -79,13 +80,82 @@ impl Interpreter {
     ) -> Result<Option<Constraints>, Error> {
         let mut last_ret = None;
         for stmt in stmt_vec.iter() {
-            let res = self.interp(&funcs, cmap, traits, scope, &*stmt);
-            if res.is_err() {
-                return res;
-            }
-            last_ret = res.unwrap();
+            let res = self.interp(&funcs, cmap, traits, scope, &*stmt)?;
+            last_ret = res;
         }
         Ok(last_ret)
+    }
+
+    fn assign_funcvec(
+        &self,
+        cmap: &mut ConstraintMap,
+        scope: Option<&'static str>,
+        var: &'static str,
+        varname: &'static str,
+        funcvec: &Vec<(TraitStructOpt, FuncVal)>,
+    ) -> Result<(), Error> {
+        for (_, funcval) in funcvec.iter() {
+            let (_, paramtypes): (Vec<&'static str>, Vec<Type>) =
+                funcval.params.clone().into_iter().unzip();
+            let functype = Type::Func(paramtypes, funcval.rettype.clone());
+            cmap.scoped_set(
+                scope,
+                var,
+                Box::new(VarType::Values(
+                    Box::new(functype),
+                    (HashSet::from([RVal::Var(varname)]), HashSet::new()),
+                )),
+            )?
+        }
+        Ok(())
+    }
+
+    fn assign_invoke(
+        &self,
+        funcs: &Funcs,
+        cmap: &mut ConstraintMap,
+        traits: &mut Traits,
+        scope: Option<&'static str>,
+        var: &'static str,
+        name: &'static str,
+        args: &Vec<&'static str>,
+    ) -> Result<(), Error> {
+        match self.interp_invoke(funcs, cmap, traits, scope, name, &args) {
+            Ok(Some(constraints)) => {
+                let functype;
+                match cmap.cmap.get(name) {
+                    Some(val) => match *val.clone() {
+                        VarType::Values(stored_functype, _) => {
+                            functype = stored_functype;
+                        }
+                        VarType::Scope(_, inst_vec) => {
+                            if inst_vec.len() != 1 {
+                                todo!("not impl yet (scope vec)");
+                            }
+                            functype = inst_vec[0].0.clone();
+                        }
+                    },
+                    None => {
+                        return Err(Error::UndefinedSymbol(name));
+                    }
+                }
+
+                match *functype {
+                    Type::Func(_, rettype) => cmap.scoped_set(
+                        scope,
+                        var,
+                        Box::new(VarType::Values(
+                            rettype.unwrap(),
+                            constraints,
+                        )),
+                    )?,
+                    _ => return Err(Error::NotAFunction(name)),
+                }
+            }
+            Ok(None) => return Err(Error::CannotAssignNoneRetval()),
+            Err(err) => return Err(err),
+        }
+        Ok(())
     }
 
     fn interp_assignment(
@@ -98,36 +168,24 @@ impl Interpreter {
         value: &AssignmentRVal,
     ) -> Result<Option<Constraints>, Error> {
         match value {
-            AssignmentRVal::RVal(RVal::Num(num)) => {
-                let res = cmap.scoped_set(
-                    scope,
-                    var,
-                    Box::new(VarType::Values(
-                        Box::new(Type::Int()),
-                        (HashSet::from([RVal::Num(*num)]), HashSet::new()),
-                    )),
-                );
-
-                if res.is_err() {
-                    return Err(res.err().unwrap());
-                }
-            }
-            AssignmentRVal::RVal(RVal::IdkNum()) => {
-                let res = cmap.scoped_set(
-                    scope,
-                    var,
-                    Box::new(VarType::Values(
-                        Box::new(Type::Int()),
-                        (HashSet::from([RVal::IdkNum()]), HashSet::new()),
-                    )),
-                );
-
-                if res.is_err() {
-                    return Err(res.err().unwrap());
-                }
-            }
+            AssignmentRVal::RVal(RVal::Num(num)) => cmap.scoped_set(
+                scope,
+                var,
+                Box::new(VarType::Values(
+                    Box::new(Type::Int()),
+                    (HashSet::from([RVal::Num(*num)]), HashSet::new()),
+                )),
+            )?,
+            AssignmentRVal::RVal(RVal::IdkNum()) => cmap.scoped_set(
+                scope,
+                var,
+                Box::new(VarType::Values(
+                    Box::new(Type::Int()),
+                    (HashSet::from([RVal::IdkNum()]), HashSet::new()),
+                )),
+            )?,
             AssignmentRVal::RVal(RVal::Struct(struct_name, field_values)) => {
-                let res = cmap.scoped_set(
+                cmap.scoped_set(
                     scope,
                     var,
                     Box::new(VarType::Values(
@@ -140,14 +198,10 @@ impl Interpreter {
                             HashSet::new(),
                         ),
                     )),
-                );
-
-                if res.is_err() {
-                    return Err(res.err().unwrap());
-                }
+                )?
             }
-            AssignmentRVal::RVal(RVal::IdkStruct(struct_name)) => {
-                let res = cmap.scoped_set(
+            AssignmentRVal::RVal(RVal::IdkStruct(struct_name)) => cmap
+                .scoped_set(
                     scope,
                     var,
                     Box::new(VarType::Values(
@@ -157,53 +211,19 @@ impl Interpreter {
                             HashSet::new(),
                         ),
                     )),
-                );
-
-                if res.is_err() {
-                    return Err(res.err().unwrap());
-                }
-            }
+                )?,
             AssignmentRVal::RVal(RVal::Var(varname)) => {
                 match cmap.scoped_get(scope, varname, false) {
                     Ok(Some(val)) => match val {
                         set @ VarType::Values(..) => {
-                            let res =
-                                cmap.scoped_set(scope, var, Box::new(set));
-
-                            if res.is_err() {
-                                return Err(res.err().unwrap());
-                            }
+                            cmap.scoped_set(scope, var, Box::new(set))?
                         }
                         _ => todo!("not impl yet"),
                     },
                     Ok(None) => match funcs.funcs.get(varname) {
-                        Some(funcvec) => {
-                            for (_tso, funcval) in funcvec.iter() {
-                                let (_, paramtypes): (
-                                    Vec<&'static str>,
-                                    Vec<Type>,
-                                ) = funcval.params.clone().into_iter().unzip();
-                                let functype = Type::Func(
-                                    paramtypes,
-                                    funcval.rettype.clone(),
-                                );
-                                let res = cmap.scoped_set(
-                                    scope,
-                                    var,
-                                    Box::new(VarType::Values(
-                                        Box::new(functype),
-                                        (
-                                            HashSet::from([RVal::Var(varname)]),
-                                            HashSet::new(),
-                                        ),
-                                    )),
-                                );
-
-                                if res.is_err() {
-                                    return Err(res.err().unwrap());
-                                }
-                            }
-                        }
+                        Some(funcvec) => self.assign_funcvec(
+                            cmap, scope, var, varname, funcvec,
+                        )?,
                         None => {
                             return Err(Error::UndefinedSymbol(varname));
                         }
@@ -211,67 +231,21 @@ impl Interpreter {
                     Err(err) => return Err(err),
                 };
             }
-            AssignmentRVal::RVal(RVal::IdkVar()) => {
-                let res = cmap.scoped_set(
-                    scope,
-                    var,
-                    Box::new(VarType::Values(
-                        Box::new(Type::Idk()),
-                        (HashSet::from([RVal::IdkVar()]), HashSet::new()),
-                    )),
-                );
-
-                if res.is_err() {
-                    return Err(res.err().unwrap());
-                }
-            }
+            AssignmentRVal::RVal(RVal::IdkVar()) => cmap.scoped_set(
+                scope,
+                var,
+                Box::new(VarType::Values(
+                    Box::new(Type::Idk()),
+                    (HashSet::from([RVal::IdkVar()]), HashSet::new()),
+                )),
+            )?,
             AssignmentRVal::Statement(stmt) => match *stmt.clone() {
                 Statement::InvokeFunc(name, args) => {
                     // assume func has retval (given typechecking) but return
                     // err if none
-                    match self
-                        .interp_invoke(funcs, cmap, traits, scope, name, &args)
-                    {
-                        Ok(Some(constraints)) => {
-                            let functype;
-                            match cmap.cmap.get(name) {
-                                Some(val) => match *val.clone() {
-                                    VarType::Values(stored_functype, _) => {
-                                        functype = stored_functype;
-                                    }
-                                    VarType::Scope(_, inst_vec) => {
-                                        if inst_vec.len() != 1 {
-                                            todo!("not impl yet (scope vec)");
-                                        }
-                                        functype = inst_vec[0].0.clone();
-                                    }
-                                },
-                                None => {
-                                    return Err(Error::UndefinedSymbol(name));
-                                }
-                            }
-
-                            match *functype {
-                                Type::Func(_, rettype) => {
-                                    let res = cmap.scoped_set(
-                                        scope,
-                                        var,
-                                        Box::new(VarType::Values(
-                                            rettype.unwrap(),
-                                            constraints,
-                                        )),
-                                    );
-
-                                    if res.is_err() {
-                                        return Err(res.err().unwrap());
-                                    }
-                                }
-                                _ => return Err(Error::NotAFunction(name)),
-                            }
-                        }
-                        Ok(None) => return Err(Error::CannotAssignNoneRetval()),
-                        err @ Err(_) => return err,
-                    }
+                    self.assign_invoke(
+                        funcs, cmap, traits, scope, var, name, &args,
+                    )?
                 }
                 _ => return Err(Error::InvalidAssignmentRVal()),
             },
@@ -366,7 +340,170 @@ impl Interpreter {
         (pos_vec, neg_vec)
     }
 
-    // FIXME cleanup
+    fn single_constraint_compare(
+        &self,
+        lhs_vecs: &(Vec<RVal>, Vec<RVal>),
+        rhs_vecs: &(Vec<RVal>, Vec<RVal>),
+    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+        match (lhs_vecs.0[0].clone(), rhs_vecs.0[0].clone()) {
+            (RVal::Num(lnum), RVal::Num(rnum)) => {
+                if lnum == rnum {
+                    return Ok((
+                        BooleanStatement::True(),
+                        BooleanConstraints::empty(),
+                    ));
+                } else {
+                    return Ok((
+                        BooleanStatement::False(),
+                        BooleanConstraints::empty(),
+                    ));
+                }
+            }
+            (RVal::Var(lfp), RVal::Var(rfp)) => {
+                if lfp == rfp {
+                    return Ok((
+                        BooleanStatement::True(),
+                        BooleanConstraints::empty(),
+                    ));
+                } else {
+                    return Ok((
+                        BooleanStatement::False(),
+                        BooleanConstraints::empty(),
+                    ));
+                }
+            }
+            (_, _) => {
+                return Err(Error::IncomparableTypes(
+                    lhs_vecs.0[0].clone(),
+                    rhs_vecs.0[0].clone(),
+                ));
+            }
+        }
+    }
+
+    fn many_constraints_compare(
+        &self,
+        cmap: &ConstraintMap,
+        lhs: RVal,
+        rhs: RVal,
+    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+        match (lhs.clone(), rhs.clone()) {
+            // FIXME impl for nums
+            (RVal::Var(a), RVal::Var(b)) => {
+                // right now we know this function is only ever called by
+                // the equality comparison, but in the future we'll need a
+                // check which operator we're evaluating TODO
+
+                let vartype;
+                // get types of each var + make sure they're the same
+                match (cmap.cmap.get(a), cmap.cmap.get(b)) {
+                    (Some(val_a), Some(val_b)) => {
+                        match (*val_a.clone(), *val_b.clone()) {
+                            (
+                                VarType::Values(type_a, _),
+                                VarType::Values(type_b, _),
+                            ) => {
+                                if type_a != type_b {
+                                    return Err(Error::TypesDiffer());
+                                }
+                                vartype = type_a;
+                            }
+                            (
+                                VarType::Values(type_a, _),
+                                VarType::Scope(_, inst_vec_b), /* type_b, _), */
+                            ) => {
+                                if inst_vec_b.len() != 1 {
+                                    todo!("not impl yet (scope vec)");
+                                }
+
+                                if type_a != inst_vec_b[0].0 {
+                                    return Err(Error::TypesDiffer());
+                                }
+                                vartype = type_a;
+                            }
+                            (
+                                VarType::Scope(_, inst_vec_a), /* type_a, _), */
+                                VarType::Values(type_b, _),
+                            ) => {
+                                if inst_vec_a.len() != 1 {
+                                    todo!("not impl yet (scope vec)");
+                                }
+
+                                if type_b != inst_vec_a[0].0 {
+                                    return Err(Error::TypesDiffer());
+                                }
+                                vartype = type_b;
+                            }
+                            (
+                                VarType::Scope(_, inst_vec_a), /* type_a, _), */
+                                VarType::Scope(_, inst_vec_b), /* type_b, _), */
+                            ) => {
+                                if inst_vec_a.len() != 1
+                                    || inst_vec_b.len() != 1
+                                {
+                                    todo!("not impl yet (scope vec)");
+                                }
+
+                                if inst_vec_a[0].0 != inst_vec_b[0].0 {
+                                    return Err(Error::TypesDiffer());
+                                }
+                                vartype = inst_vec_a[0].0.clone();
+                            }
+                        }
+                    }
+                    (None, _) => {
+                        return Err(Error::UndefinedSymbol(a));
+                    }
+                    (_, None) => {
+                        return Err(Error::UndefinedSymbol(b));
+                    }
+                }
+
+                // in the true branch, we know that lhs == rhs, thus
+                // new constraints: lhs {(rhs), ()}, rhs {(lhs), ()}
+                let mut true_branch = ConstraintMap::new();
+                true_branch.cmap.insert(
+                    a,
+                    Box::new(VarType::Values(
+                        vartype.clone(),
+                        (HashSet::from([rhs.clone()]), HashSet::new()),
+                    )),
+                );
+                true_branch.cmap.insert(
+                    b,
+                    Box::new(VarType::Values(
+                        vartype.clone(),
+                        (HashSet::from([lhs.clone()]), HashSet::new()),
+                    )),
+                );
+
+                // in the false branch, we know that lhs != rhs, thus
+                // new constraints: lhs {(), (rhs)}, rhs {(), (rhs)}
+                let mut false_branch = ConstraintMap::new();
+                false_branch.cmap.insert(
+                    a,
+                    Box::new(VarType::Values(
+                        vartype.clone(),
+                        (HashSet::new(), HashSet::from([rhs])),
+                    )),
+                );
+                false_branch.cmap.insert(
+                    b,
+                    Box::new(VarType::Values(
+                        vartype,
+                        (HashSet::new(), HashSet::from([lhs])),
+                    )),
+                );
+
+                return Ok((
+                    BooleanStatement::TrueOrFalse(),
+                    BooleanConstraints::new(true_branch, false_branch),
+                ));
+            }
+            _ => todo!("not impl yet"),
+        }
+    }
+
     fn interp_equals(
         &self,
         funcs: &Funcs,
@@ -375,174 +512,28 @@ impl Interpreter {
         lhs: RVal,
         rhs: RVal,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
-        let lhs_res = self.interp_rval(&funcs, &cmap, scope, lhs.clone());
-        if lhs_res.is_err() {
-            return Err(lhs_res.err().unwrap());
-        }
-        let rhs_res = self.interp_rval(&funcs, &cmap, scope, rhs.clone());
-        if rhs_res.is_err() {
-            return Err(rhs_res.err().unwrap());
-        }
+        let lhs_vecs = self.constraints_to_vecs(&self.interp_rval(
+            &funcs,
+            &cmap,
+            scope,
+            lhs.clone(),
+        )?);
+        let rhs_vecs = self.constraints_to_vecs(&self.interp_rval(
+            &funcs,
+            &cmap,
+            scope,
+            rhs.clone(),
+        )?);
 
-        let lhs_vecs = self.constraints_to_vecs(&lhs_res.unwrap());
-        let rhs_vecs = self.constraints_to_vecs(&rhs_res.unwrap());
-
-        // eval if if only a single positive constraint
+        // eval directly if only a single positive constraint
         if lhs_vecs.0.len() == 1
             && lhs_vecs.1.len() == 0
             && rhs_vecs.0.len() == 1
             && rhs_vecs.1.len() == 0
         {
-            match (lhs_vecs.0[0].clone(), rhs_vecs.0[0].clone()) {
-                (RVal::Num(lnum), RVal::Num(rnum)) => {
-                    if lnum == rnum {
-                        return Ok((
-                            BooleanStatement::True(),
-                            BooleanConstraints::empty(),
-                        ));
-                    } else {
-                        return Ok((
-                            BooleanStatement::False(),
-                            BooleanConstraints::empty(),
-                        ));
-                    }
-                }
-                (RVal::Var(lfp), RVal::Var(rfp)) => {
-                    if lfp == rfp {
-                        return Ok((
-                            BooleanStatement::True(),
-                            BooleanConstraints::empty(),
-                        ));
-                    } else {
-                        return Ok((
-                            BooleanStatement::False(),
-                            BooleanConstraints::empty(),
-                        ));
-                    }
-                }
-                (_, _) => {
-                    return Err(Error::IncomparableTypes(
-                        lhs_vecs.0[0].clone(),
-                        rhs_vecs.0[0].clone(),
-                    ));
-                }
-            }
+            return self.single_constraint_compare(&lhs_vecs, &rhs_vecs);
         } else {
-            match (lhs.clone(), rhs.clone()) {
-                // FIXME impl for nums
-                (RVal::Var(a), RVal::Var(b)) => {
-                    // right now we know this function is only ever called by
-                    // the equality comparison, but in the future we'll need a
-                    // check which operator we're evaluating TODO
-
-                    let vartype;
-                    // get types of each var + make sure they're the same
-                    match (cmap.cmap.get(a), cmap.cmap.get(b)) {
-                        (Some(val_a), Some(val_b)) => {
-                            match (*val_a.clone(), *val_b.clone()) {
-                                (
-                                    VarType::Values(type_a, _),
-                                    VarType::Values(type_b, _),
-                                ) => {
-                                    if type_a != type_b {
-                                        return Err(Error::TypesDiffer());
-                                    }
-                                    vartype = type_a;
-                                }
-                                (
-                                    VarType::Values(type_a, _),
-                                    VarType::Scope(_, inst_vec_b), /* type_b, _), */
-                                ) => {
-                                    if inst_vec_b.len() != 1 {
-                                        todo!("not impl yet (scope vec)");
-                                    }
-
-                                    if type_a != inst_vec_b[0].0 {
-                                        return Err(Error::TypesDiffer());
-                                    }
-                                    vartype = type_a;
-                                }
-                                (
-                                    VarType::Scope(_, inst_vec_a), /* type_a, _), */
-                                    VarType::Values(type_b, _),
-                                ) => {
-                                    if inst_vec_a.len() != 1 {
-                                        todo!("not impl yet (scope vec)");
-                                    }
-
-                                    if type_b != inst_vec_a[0].0 {
-                                        return Err(Error::TypesDiffer());
-                                    }
-                                    vartype = type_b;
-                                }
-                                (
-                                    VarType::Scope(_, inst_vec_a), /* type_a, _), */
-                                    VarType::Scope(_, inst_vec_b), /* type_b, _), */
-                                ) => {
-                                    if inst_vec_a.len() != 1
-                                        || inst_vec_b.len() != 1
-                                    {
-                                        todo!("not impl yet (scope vec)");
-                                    }
-
-                                    if inst_vec_a[0].0 != inst_vec_b[0].0 {
-                                        return Err(Error::TypesDiffer());
-                                    }
-                                    vartype = inst_vec_a[0].0.clone();
-                                }
-                            }
-                        }
-                        (None, _) => {
-                            return Err(Error::UndefinedSymbol(a));
-                        }
-                        (_, None) => {
-                            return Err(Error::UndefinedSymbol(b));
-                        }
-                    }
-
-                    // in the true branch, we know that lhs == rhs, thus
-                    // new constraints: lhs {(rhs), ()}, rhs {(lhs), ()}
-                    let mut true_branch = ConstraintMap::new();
-                    true_branch.cmap.insert(
-                        a,
-                        Box::new(VarType::Values(
-                            vartype.clone(),
-                            (HashSet::from([rhs.clone()]), HashSet::new()),
-                        )),
-                    );
-                    true_branch.cmap.insert(
-                        b,
-                        Box::new(VarType::Values(
-                            vartype.clone(),
-                            (HashSet::from([lhs.clone()]), HashSet::new()),
-                        )),
-                    );
-
-                    // in the false branch, we know that lhs != rhs, thus
-                    // new constraints: lhs {(), (rhs)}, rhs {(), (rhs)}
-                    let mut false_branch = ConstraintMap::new();
-                    false_branch.cmap.insert(
-                        a,
-                        Box::new(VarType::Values(
-                            vartype.clone(),
-                            (HashSet::new(), HashSet::from([rhs])),
-                        )),
-                    );
-                    false_branch.cmap.insert(
-                        b,
-                        Box::new(VarType::Values(
-                            vartype,
-                            (HashSet::new(), HashSet::from([lhs])),
-                        )),
-                    );
-
-                    return Ok((
-                        BooleanStatement::TrueOrFalse(),
-                        BooleanConstraints::new(true_branch, false_branch),
-                    ));
-                }
-                _ => todo!("not impl yet"),
-            }
+            return self.many_constraints_compare(cmap, lhs, rhs);
         }
     }
 
@@ -944,12 +935,9 @@ impl Interpreter {
                     let mut constraints_vec = vec![];
 
                     for (_tso, funcval) in funcvec.iter() {
-                        let res = self.resolve_args(
+                        self.resolve_args(
                             funcs, cmap, traits, scope, varname, &funcval, args,
-                        );
-                        if res.is_err() {
-                            return Err(res.err().unwrap());
-                        }
+                        )?;
 
                         match self.interp(
                             funcs,
@@ -1014,19 +1002,13 @@ impl Interpreter {
             }
         }
 
-        let res = res_cmap.merge();
-        if res.is_err() {
-            return Err(res.err().unwrap());
-        }
-        if res.as_ref().unwrap().is_some() {
-            *cmap = res.unwrap().unwrap();
+        let res = res_cmap.merge()?;
+        if res.is_some() {
+            *cmap = res.unwrap();
         }
 
         if constraints_vec.len() > 0 {
-            return match constraints_vec.merge() {
-                Ok(constraints) => Ok(constraints),
-                Err(err) => Err(err),
-            };
+            return Ok(constraints_vec.merge()?);
         }
         Ok(None)
     }
@@ -1047,7 +1029,7 @@ impl Interpreter {
 
                 for (_, funcval) in funcvec.iter() {
                     let mut cmap_clone = cmap.clone();
-                    let res = self.resolve_args(
+                    self.resolve_args(
                         funcs,
                         &mut cmap_clone,
                         traits,
@@ -1055,10 +1037,7 @@ impl Interpreter {
                         name,
                         &funcval,
                         args,
-                    );
-                    if res.is_err() {
-                        return Err(res.err().unwrap());
-                    }
+                    )?;
 
                     match self.interp(
                         funcs,

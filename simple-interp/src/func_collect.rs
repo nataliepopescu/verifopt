@@ -40,10 +40,7 @@ impl FuncCollector {
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter() {
-            let res = self.collect(funcs, &*stmt);
-            if res.is_err() {
-                return res;
-            }
+            self.collect(funcs, &*stmt)?;
         }
         Ok(())
     }

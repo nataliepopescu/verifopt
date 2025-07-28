@@ -45,10 +45,7 @@ impl SimpleInterp {
         //println!("\nOriginal program statement: \n\n{:#?}", &stmt);
 
         let mut symbols = Symbols::new();
-        let res1 = self.ssa_checker.check(&mut symbols, &stmt);
-        if res1.is_err() {
-            return Err(res1.err().unwrap());
-        }
+        self.ssa_checker.check(&mut symbols, &stmt)?;
 
         //println!("\n-----------------------------------");
         //println!("PHASE 1: SSA Check");
@@ -57,10 +54,7 @@ impl SimpleInterp {
         //println!("\n2. Original program statement");
 
         let mut funcs = Funcs::new();
-        let res2 = self.func_collector.collect(&mut funcs, &stmt);
-        if res2.is_err() {
-            return Err(res2.err().unwrap());
-        }
+        self.func_collector.collect(&mut funcs, &stmt)?;
 
         //println!("\n-----------------------------------");
         //println!("PHASE 2: Function Collection");
@@ -69,10 +63,7 @@ impl SimpleInterp {
         //println!("\n2. Original program statement");
 
         let mut sigs = Sigs::new();
-        let res3 = self.sig_collector.collect(&funcs, &mut sigs);
-        if res3.is_err() {
-            return Err(res3.err().unwrap());
-        }
+        self.sig_collector.collect(&funcs, &mut sigs)?;
 
         //println!("\n-----------------------------------");
         //println!("PHASE 3: Signature Collection");
@@ -82,16 +73,13 @@ impl SimpleInterp {
 
         let mut cmap = ConstraintMap::new();
         let mut traits = Traits::new();
-        let res4 = self.interpreter.interp(
+        self.interpreter.interp(
             &funcs,
             &mut cmap,
             &mut traits,
             None,
             &stmt,
-        );
-        if res4.is_err() {
-            return Err(res4.err().unwrap());
-        }
+        )?;
 
         //println!("\n-----------------------------------");
         //println!("PHASE 4: Flow Interpretation");
@@ -103,12 +91,9 @@ impl SimpleInterp {
         //);
         //println!("\n3. Original program statement");
 
-        let res5 = self
+        self
             .rewriter
-            .rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
-        if res5.is_err() {
-            return Err(res5.err().unwrap());
-        }
+            .rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true)?;
 
         //println!("\n-----------------------------------");
         //println!("PHASE 5: Switch-Case Rewrite");

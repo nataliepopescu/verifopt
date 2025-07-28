@@ -106,7 +106,7 @@ impl Rewriter {
         sort_hashsets: bool,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter_mut() {
-            let res = self.rewrite(
+            self.rewrite(
                 funcs,
                 cmap,
                 sigs,
@@ -114,10 +114,7 @@ impl Rewriter {
                 scope,
                 stmt,
                 sort_hashsets,
-            );
-            if res.is_err() {
-                return res;
-            }
+            )?;
         }
         Ok(())
     }
@@ -135,7 +132,7 @@ impl Rewriter {
         sort_hashsets: bool,
     ) -> Result<(), Error> {
         // FIXME also rewrite condition when funcs can ret booleans
-        let res_true = self.rewrite(
+        self.rewrite(
             funcs,
             cmap,
             sigs,
@@ -143,12 +140,9 @@ impl Rewriter {
             scope,
             &mut true_branch,
             sort_hashsets,
-        );
-        if res_true.is_err() {
-            return res_true;
-        }
+        )?;
 
-        let res_false = self.rewrite(
+        self.rewrite(
             funcs,
             cmap,
             sigs,
@@ -156,10 +150,7 @@ impl Rewriter {
             scope,
             &mut false_branch,
             sort_hashsets,
-        );
-        if res_false.is_err() {
-            return res_false;
-        }
+        )?;
 
         Ok(())
     }
@@ -178,7 +169,7 @@ impl Rewriter {
         // FIXME if can switch on function call, also perform rewrite on that
         // (omitted val argument)
         for (_, switch_stmt) in vec.iter_mut() {
-            let res = self.rewrite(
+            self.rewrite(
                 funcs,
                 cmap,
                 sigs,
@@ -186,10 +177,7 @@ impl Rewriter {
                 scope,
                 &mut (*switch_stmt),
                 sort_hashsets,
-            );
-            if res.is_err() {
-                return res;
-            }
+            )?;
         }
         Ok(())
     }
@@ -204,7 +192,7 @@ impl Rewriter {
         body: &mut Box<Statement>,
         sort_hashsets: bool,
     ) -> Result<(), Error> {
-        let res = self.rewrite(
+        self.rewrite(
             funcs,
             cmap,
             sigs,
@@ -212,10 +200,8 @@ impl Rewriter {
             Some(name),
             &mut (*body),
             sort_hashsets,
-        );
-        if res.is_err() {
-            return res;
-        }
+        )?;
+
         Ok(())
     }
 

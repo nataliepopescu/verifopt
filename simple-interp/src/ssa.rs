@@ -109,10 +109,7 @@ impl SSAChecker {
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter() {
-            let res = self.check(symbols, &(*stmt));
-            if res.is_err() {
-                return res;
-            }
+            self.check(symbols, &(*stmt))?;
         }
         Ok(())
     }
@@ -126,16 +123,10 @@ impl SSAChecker {
         let mut res_symbols = vec![];
         let mut symbols_clone = symbols.clone();
 
-        let res_true = self.check(symbols, true_branch);
-        if res_true.is_err() {
-            return res_true;
-        }
+        self.check(symbols, true_branch)?;
         res_symbols.push(symbols.clone());
 
-        let res_false = self.check(&mut symbols_clone, false_branch);
-        if res_false.is_err() {
-            return res_false;
-        }
+        self.check(&mut symbols_clone, false_branch)?;
         res_symbols.push(symbols_clone);
 
         match res_symbols.merge() {
@@ -156,10 +147,7 @@ impl SSAChecker {
         let mut res_scopes = vec![];
         for (_, switch_stmt) in vec.iter() {
             let mut scoped_symbols = symbols.clone();
-            let res = self.check(&mut scoped_symbols, &(*switch_stmt));
-            if res.is_err() {
-                return res;
-            }
+            self.check(&mut scoped_symbols, &(*switch_stmt))?;
             res_scopes.push(scoped_symbols);
         }
 
@@ -188,10 +176,7 @@ impl SSAChecker {
         for (argname, _) in params.iter() {
             func_symbols.0.insert(argname, None);
         }
-        let res = self.check(&mut func_symbols, body);
-        if res.is_err() {
-            return res;
-        }
+        self.check(&mut func_symbols, body)?;
 
         symbols.0.insert(name, Some(Box::new(func_symbols)));
         Ok(())

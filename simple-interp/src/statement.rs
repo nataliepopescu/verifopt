@@ -8,7 +8,7 @@ pub enum Statement {
     Sequence(Vec<Box<Statement>>),
     Assignment(&'static str, Box<AssignmentRVal>),
     Print(&'static str),
-    Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
+    Conditional(Box<BStatement>, Box<Statement>, Box<Statement>),
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
     Return(RVal),
     FuncDef(
@@ -106,11 +106,11 @@ pub enum Type {
 
 // intentionally skipping Or, And, Xor, and GreaterThan for simplicity
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum BooleanStatement {
+pub enum BStatement {
     True(),
     False(),
     TrueOrFalse(),
-    Not(Box<BooleanStatement>),
+    Not(Box<BStatement>),
     Equals(RVal, RVal),
 }
 
@@ -137,30 +137,30 @@ impl fmt::Display for RVal {
     }
 }
 
-impl Not for BooleanStatement {
+impl Not for BStatement {
     type Output = Self;
 
     fn not(self) -> Self::Output {
         match self {
-            BooleanStatement::True() => BooleanStatement::False(),
-            BooleanStatement::False() => BooleanStatement::True(),
-            BooleanStatement::TrueOrFalse() => BooleanStatement::TrueOrFalse(),
-            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
+            BStatement::True() => BStatement::False(),
+            BStatement::False() => BStatement::True(),
+            BStatement::TrueOrFalse() => BStatement::TrueOrFalse(),
+            BStatement::Not(_) | BStatement::Equals(_, _) => {
                 panic!("not implemented yet")
             }
         }
     }
 }
 
-impl Not for &BooleanStatement {
+impl Not for &BStatement {
     type Output = Self;
 
     fn not(self) -> Self::Output {
         match self {
-            BooleanStatement::True() => &BooleanStatement::False(),
-            BooleanStatement::False() => &BooleanStatement::True(),
-            BooleanStatement::TrueOrFalse() => &BooleanStatement::TrueOrFalse(),
-            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
+            BStatement::True() => &BStatement::False(),
+            BStatement::False() => &BStatement::True(),
+            BStatement::TrueOrFalse() => &BStatement::TrueOrFalse(),
+            BStatement::Not(_) | BStatement::Equals(_, _) => {
                 panic!("not implemented yet (&)")
             }
         }

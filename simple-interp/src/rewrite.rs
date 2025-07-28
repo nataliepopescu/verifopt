@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::funcs::Funcs;
 use crate::sigs::{SigVal, Sigs};
 use crate::statement::{
-    BooleanStatement, FuncVal, RVal, Statement, TraitStructOpt, TraitStructTup, Type,
+    BStatement, FuncVal, RVal, Statement, TraitStructOpt, TraitStructTup, Type,
 };
 use crate::traits::Traits;
 
@@ -110,7 +110,7 @@ impl Rewriter {
         sigs: &Sigs,
         traits: &Traits,
         scope: Option<&'static str>,
-        _condition: BooleanStatement,
+        _condition: BStatement,
         mut true_branch: &mut Statement,
         mut false_branch: &mut Statement,
         sort_hashsets: bool,
@@ -623,7 +623,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -672,7 +672,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -710,7 +710,7 @@ mod tests {
             Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
             Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
@@ -726,7 +726,7 @@ mod tests {
             Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
             Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
@@ -743,7 +743,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -911,7 +911,7 @@ mod tests {
             Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
             Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
@@ -931,7 +931,7 @@ mod tests {
             Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
             Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
@@ -951,7 +951,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, check_foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, check_bar_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -1044,7 +1044,7 @@ mod tests {
         );
 
         let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Cat",
                 vec![],

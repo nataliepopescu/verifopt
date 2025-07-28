@@ -112,7 +112,7 @@ mod tests {
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence, Struct,
         TraitDecl, TraitImpl,
     };
-    use crate::statement::{AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, RVal};
+    use crate::statement::{AssignmentRVal, BStatement, FuncDecl, FuncVal, RVal};
 
     #[test]
     fn test_print() {
@@ -334,7 +334,7 @@ mod tests {
             Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
             Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
@@ -350,7 +350,7 @@ mod tests {
             Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
             Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
@@ -367,7 +367,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -477,7 +477,7 @@ mod tests {
         );
 
         let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Cat",
                 vec![],

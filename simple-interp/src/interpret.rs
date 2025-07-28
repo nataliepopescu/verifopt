@@ -1,11 +1,8 @@
-use crate::constraints::{
-    BooleanConstraints, ConstraintMap, Constraints, Difference, VarType,
-};
+use crate::constraints::{BConstraints, ConstraintMap, Constraints, Difference, VarType};
 use crate::error::Error;
 use crate::funcs::Funcs;
 use crate::statement::{
-    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement, TraitStructOpt,
-    Type,
+    AssignmentRVal, BStatement, FuncVal, Merge, RVal, Statement, TraitStructOpt, Type,
 };
 use crate::traits::Traits;
 use std::collections::HashSet;
@@ -249,18 +246,16 @@ impl Interpreter {
         funcs: &Funcs,
         cmap: &ConstraintMap,
         scope: Option<&'static str>,
-        b_stmt: BooleanStatement,
-    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+        b_stmt: BStatement,
+    ) -> Result<(BStatement, BConstraints), Error> {
         match b_stmt {
-            BooleanStatement::True()
-            | BooleanStatement::False()
-            | BooleanStatement::TrueOrFalse() => {
-                Ok((b_stmt, BooleanConstraints::empty()))
+            BStatement::True() | BStatement::False() | BStatement::TrueOrFalse() => {
+                Ok((b_stmt, BConstraints::empty()))
             }
-            BooleanStatement::Not(inner_b_stmt) => {
+            BStatement::Not(inner_b_stmt) => {
                 self.interp_not(funcs, cmap, scope, *inner_b_stmt)
             }
-            BooleanStatement::Equals(lhs, rhs) => {
+            BStatement::Equals(lhs, rhs) => {
                 self.interp_equals(funcs, cmap, scope, lhs, rhs)
             }
         }
@@ -271,10 +266,10 @@ impl Interpreter {
         funcs: &Funcs,
         cmap: &ConstraintMap,
         scope: Option<&'static str>,
-        b_stmt: BooleanStatement,
-    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+        b_stmt: BStatement,
+    ) -> Result<(BStatement, BConstraints), Error> {
         match self.interp_bool(funcs, cmap, scope, b_stmt) {
-            Ok(b_res) => Ok((!b_res.0, BooleanConstraints::flip_constraints(b_res.1))),
+            Ok(b_res) => Ok((!b_res.0, BConstraints::flip_constraints(b_res.1))),
             err @ Err(_) => err,
         }
     }
@@ -320,20 +315,20 @@ impl Interpreter {
         &self,
         lhs_vecs: &(Vec<RVal>, Vec<RVal>),
         rhs_vecs: &(Vec<RVal>, Vec<RVal>),
-    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+    ) -> Result<(BStatement, BConstraints), Error> {
         match (lhs_vecs.0[0].clone(), rhs_vecs.0[0].clone()) {
             (RVal::Num(lnum), RVal::Num(rnum)) => {
                 if lnum == rnum {
-                    return Ok((BooleanStatement::True(), BooleanConstraints::empty()));
+                    return Ok((BStatement::True(), BConstraints::empty()));
                 } else {
-                    return Ok((BooleanStatement::False(), BooleanConstraints::empty()));
+                    return Ok((BStatement::False(), BConstraints::empty()));
                 }
             }
             (RVal::Var(lfp), RVal::Var(rfp)) => {
                 if lfp == rfp {
-                    return Ok((BooleanStatement::True(), BooleanConstraints::empty()));
+                    return Ok((BStatement::True(), BConstraints::empty()));
                 } else {
-                    return Ok((BooleanStatement::False(), BooleanConstraints::empty()));
+                    return Ok((BStatement::False(), BConstraints::empty()));
                 }
             }
             (_, _) => {
@@ -350,7 +345,7 @@ impl Interpreter {
         cmap: &ConstraintMap,
         lhs: RVal,
         rhs: RVal,
-    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+    ) -> Result<(BStatement, BConstraints), Error> {
         match (lhs.clone(), rhs.clone()) {
             // FIXME impl for nums
             (RVal::Var(a), RVal::Var(b)) => {
@@ -455,8 +450,8 @@ impl Interpreter {
                 );
 
                 return Ok((
-                    BooleanStatement::TrueOrFalse(),
-                    BooleanConstraints::new(true_branch, false_branch),
+                    BStatement::TrueOrFalse(),
+                    BConstraints::new(true_branch, false_branch),
                 ));
             }
             _ => todo!("not impl yet"),
@@ -470,7 +465,7 @@ impl Interpreter {
         scope: Option<&'static str>,
         lhs: RVal,
         rhs: RVal,
-    ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
+    ) -> Result<(BStatement, BConstraints), Error> {
         let lhs_vecs = self.constraints_to_vecs(&self.interp_rval(
             &funcs,
             &cmap,
@@ -502,7 +497,7 @@ impl Interpreter {
         cmap: &mut ConstraintMap,
         traits: &mut Traits,
         scope: Option<&'static str>,
-        condition: &BooleanStatement,
+        condition: &BStatement,
         true_branch: &Statement,
         false_branch: &Statement,
     ) -> Result<Option<Constraints>, Error> {
@@ -588,11 +583,11 @@ impl Interpreter {
         }
     }
 
-    fn possible(&self, possible_b: &BooleanStatement) -> bool {
+    fn possible(&self, possible_b: &BStatement) -> bool {
         match possible_b {
-            BooleanStatement::True() => true,
-            BooleanStatement::False() => false,
-            BooleanStatement::TrueOrFalse() => true,
+            BStatement::True() => true,
+            BStatement::False() => false,
+            BStatement::TrueOrFalse() => true,
             _ => panic!("boolean statement not fully evaluated"),
         }
     }
@@ -1310,7 +1305,7 @@ mod tests {
     fn test_conditional_true() {
         let interp = Interpreter::new();
         let stmt = Conditional(
-            Box::new(BooleanStatement::True()),
+            Box::new(BStatement::True()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -1342,7 +1337,7 @@ mod tests {
     fn test_conditional_false() {
         let interp = Interpreter::new();
         let stmt = Conditional(
-            Box::new(BooleanStatement::False()),
+            Box::new(BStatement::False()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -1374,7 +1369,7 @@ mod tests {
     fn test_conditional_uncertain() {
         let interp = Interpreter::new();
         let stmt = Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -1406,7 +1401,7 @@ mod tests {
     fn test_conditional_not() {
         let interp = Interpreter::new();
         let stmt = Conditional(
-            Box::new(BooleanStatement::Not(Box::new(BooleanStatement::True()))),
+            Box::new(BStatement::Not(Box::new(BStatement::True()))),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -1447,7 +1442,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(3))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
+                Box::new(BStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1515,7 +1510,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, foo_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("foo"), RVal::Var("bar"))),
+                Box::new(BStatement::Equals(RVal::Var("foo"), RVal::Var("bar"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1564,7 +1559,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("foo"), RVal::Var("bar"))),
+                Box::new(BStatement::Equals(RVal::Var("foo"), RVal::Var("bar"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1608,7 +1603,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(3))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "y",
                     Box::new(AssignmentRVal::RVal(RVal::Num(3))),
@@ -1619,7 +1614,7 @@ mod tests {
                 )),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
+                Box::new(BStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1685,7 +1680,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("foo"), RVal::Var("x"))),
+                Box::new(BStatement::Equals(RVal::Var("foo"), RVal::Var("x"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1708,9 +1703,9 @@ mod tests {
     fn test_nested_conditional() {
         let interp = Interpreter::new();
         let stmt = Conditional(
-            Box::new(BooleanStatement::True()),
+            Box::new(BStatement::True()),
             Box::new(Conditional(
-                Box::new(BooleanStatement::True()),
+                Box::new(BStatement::True()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -1721,7 +1716,7 @@ mod tests {
                 )),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::True()),
+                Box::new(BStatement::True()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Num(7))),
@@ -1754,7 +1749,7 @@ mod tests {
     fn test_conditional_scope() {
         let interp = Interpreter::new();
         let stmt = Sequence(vec![Box::new(Conditional(
-            Box::new(BooleanStatement::True()),
+            Box::new(BStatement::True()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -1861,7 +1856,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
+                Box::new(BStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(0))),
@@ -2007,7 +2002,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
+                Box::new(BStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(0))),
@@ -2179,7 +2174,7 @@ mod tests {
             Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
             Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
@@ -2195,7 +2190,7 @@ mod tests {
             Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
             Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
@@ -2212,7 +2207,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -2508,7 +2503,7 @@ mod tests {
                 qux_body.clone(),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
@@ -2536,7 +2531,7 @@ mod tests {
                 qux2_body.clone(),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
@@ -2565,7 +2560,7 @@ mod tests {
                 bar_body.clone(),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -2823,7 +2818,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body)),
             Box::new(FuncDef("bar", false, vec![], None, bar_body)),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(InvokeFunc("foo", vec![])),
                 Box::new(InvokeFunc("bar", vec![])),
             )),
@@ -2894,7 +2889,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body)),
             Box::new(FuncDef("bar", false, vec![], None, bar_body)),
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -3060,7 +3055,7 @@ mod tests {
         ];
         let stmt = Sequence(vec![
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -3159,7 +3154,7 @@ mod tests {
         let mut funcs = Funcs::new();
         let body = Box::new(Sequence(vec![
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -3238,7 +3233,7 @@ mod tests {
         let baz_body = Box::new(Return(RVal::Num(1)));
         let foo_body = Box::new(Sequence(vec![
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
@@ -3401,7 +3396,7 @@ mod tests {
     fn test_negative_constraints_eq() {
         let stmt = Sequence(vec![
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -3416,7 +3411,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(3))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("f"))),
+                Box::new(BStatement::Equals(RVal::Var("x"), RVal::Var("f"))),
                 Box::new(Assignment(
                     "g",
                     Box::new(AssignmentRVal::RVal(RVal::Var("x"))),
@@ -3475,7 +3470,7 @@ mod tests {
     fn test_negative_constraints_neq() {
         let stmt = Sequence(vec![
             Box::new(Conditional(
-                Box::new(BooleanStatement::TrueOrFalse()),
+                Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
                     "x",
                     Box::new(AssignmentRVal::RVal(RVal::Num(5))),
@@ -3490,7 +3485,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(3))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Not(Box::new(BooleanStatement::Equals(
+                Box::new(BStatement::Not(Box::new(BStatement::Equals(
                     RVal::Var("x"),
                     RVal::Var("f"),
                 )))),
@@ -3785,7 +3780,7 @@ mod tests {
         );
 
         let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))])),
             Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Dog")))])),
         ))]));

@@ -44,12 +44,12 @@ impl Merge<Constraints> for Vec<Constraints> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct BooleanConstraints {
+pub struct BConstraints {
     pub true_branch: ConstraintMap,
     pub false_branch: ConstraintMap,
 }
 
-impl BooleanConstraints {
+impl BConstraints {
     pub fn new(true_branch: ConstraintMap, false_branch: ConstraintMap) -> Self {
         Self {
             true_branch,
@@ -64,8 +64,8 @@ impl BooleanConstraints {
         }
     }
 
-    pub fn flip_constraints(bconstraints: BooleanConstraints) -> BooleanConstraints {
-        BooleanConstraints::new(bconstraints.false_branch, bconstraints.true_branch)
+    pub fn flip_constraints(bconstraints: BConstraints) -> BConstraints {
+        BConstraints::new(bconstraints.false_branch, bconstraints.true_branch)
     }
 }
 

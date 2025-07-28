@@ -2,7 +2,7 @@ use simple_interp::SimpleInterp;
 use simple_interp::statement::Statement::{
     Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
 };
-use simple_interp::statement::{AssignmentRVal, BooleanStatement, RVal};
+use simple_interp::statement::{AssignmentRVal, BStatement, RVal};
 
 #[test]
 fn test_print() {
@@ -91,7 +91,7 @@ fn test_direct_invoke_uncertain() {
         Box::new(FuncDef("foo", false, vec![], None, foo_body)),
         Box::new(FuncDef("bar", false, vec![], None, bar_body)),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(InvokeFunc("foo", vec![])),
             Box::new(InvokeFunc("bar", vec![])),
         )),
@@ -118,7 +118,7 @@ fn test_indirect_invoke_uncertain() {
         Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
         Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -142,7 +142,7 @@ fn test_indirect_invoke_uncertain() {
         Box::new(FuncDef("foo", false, vec![], None, foo_body)),
         Box::new(FuncDef("bar", false, vec![], None, bar_body)),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -202,7 +202,7 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
         Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
@@ -218,7 +218,7 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
         Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
@@ -235,7 +235,7 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
         Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -256,7 +256,7 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
         Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
@@ -276,7 +276,7 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
         Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
@@ -296,7 +296,7 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(FuncDef("foo", false, vec![], None, check_foo_body.clone())),
         Box::new(FuncDef("bar", false, vec![], None, check_bar_body.clone())),
         Box::new(Conditional(
-            Box::new(BooleanStatement::TrueOrFalse()),
+            Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),

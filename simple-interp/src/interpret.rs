@@ -1167,12 +1167,12 @@ impl Interpreter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Statement::{
+    use crate::funcs::Funcs;
+    use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence,
         Struct, Switch, TraitDecl, TraitImpl,
     };
-    use crate::func_collect::Funcs;
-    use crate::{FuncDecl, FuncVal, Type};
+    use crate::statement::{FuncDecl, FuncVal, Type};
 
     #[test]
     fn test_merge_none() {

@@ -118,12 +118,13 @@ impl FuncCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::BooleanStatement;
-    use crate::Statement::{
+    use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence,
         Struct, TraitDecl, TraitImpl,
     };
-    use crate::{AssignmentRVal, FuncDecl, FuncVal, RVal};
+    use crate::statement::{
+        AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, RVal,
+    };
 
     #[test]
     fn test_print() {

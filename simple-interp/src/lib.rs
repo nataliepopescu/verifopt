@@ -125,9 +125,10 @@ impl SimpleInterp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Statement::{
+    use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
+    use crate::statement::{AssignmentRVal, BooleanStatement, RVal};
 
     #[test]
     fn test_print() {

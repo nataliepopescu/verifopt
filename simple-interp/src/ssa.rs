@@ -213,12 +213,13 @@ impl SSAChecker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Statement::{
+    use crate::error::Error;
+    use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Struct,
         Switch, TraitDecl, TraitImpl,
     };
-    use crate::{
-        AssignmentRVal, BooleanStatement, Error, FuncDecl, FuncVal, Type,
+    use crate::statement::{
+        AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, Type,
     };
 
     #[test]

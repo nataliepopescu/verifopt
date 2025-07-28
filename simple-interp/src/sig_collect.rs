@@ -40,8 +40,8 @@ impl SigCollector {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Statement::{Assignment, Print, Sequence};
-    use crate::{AssignmentRVal, FuncVal, RVal, Type};
+    use crate::statement::Statement::{Assignment, Print, Sequence};
+    use crate::statement::{AssignmentRVal, FuncVal, RVal, Type};
 
     #[test]
     fn test_funcdef() {

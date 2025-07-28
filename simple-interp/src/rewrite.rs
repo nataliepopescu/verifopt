@@ -507,12 +507,12 @@ impl Rewriter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Statement::{
+    use crate::funcs::Funcs;
+    use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print,
         Return, Sequence, Struct, Switch, TraitDecl, TraitImpl,
     };
-    use crate::func_collect::Funcs;
-    use crate::{AssignmentRVal, FuncDecl, FuncVal, Type};
+    use crate::statement::{AssignmentRVal, FuncDecl, FuncVal, Type};
     use std::collections::HashSet;
 
     #[test]

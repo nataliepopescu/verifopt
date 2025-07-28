@@ -1,8 +1,9 @@
-use crate::func_collect::Funcs;
-use crate::interpret::{ConstraintMap, Constraints, Traits, VarType};
+use crate::funcs::Funcs;
+use crate::constraints::{ConstraintMap, Constraints, VarType};
 use crate::{
-    BooleanStatement, Error, FuncVal, RVal, SigVal, Sigs, Statement,
-    TraitStructOpt, TraitStructTup, Type,
+    BooleanStatement, 
+    Error, FuncVal, RVal, SigVal, Sigs, Statement,
+    Traits, TraitStructOpt, TraitStructTup, Type,
 };
 
 use std::collections::HashSet;

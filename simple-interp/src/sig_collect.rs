@@ -1,18 +1,6 @@
-use crate::{Error, FuncName, Funcs, SigVal};
-use std::collections::{HashMap, HashSet};
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Sigs {
-    pub sigs: HashMap<SigVal, HashSet<FuncName>>,
-}
-
-impl Sigs {
-    pub fn new() -> Self {
-        Self {
-            sigs: HashMap::<SigVal, HashSet<FuncName>>::new(),
-        }
-    }
-}
+use crate::{Error, Funcs, SigVal};
+use crate::sigs::Sigs;
+use std::collections::HashSet;
 
 pub struct SigCollector {}
 

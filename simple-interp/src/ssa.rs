@@ -1,5 +1,4 @@
 use crate::{Error, Merge, RVal, Statement};
-
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]

@@ -1,5 +1,5 @@
-use crate::{Error, Merge, RVal, Statement};
-
+use crate::error::Error;
+use crate::statement::{Merge, RVal, Statement};
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,12 +28,12 @@ impl FromIterator<(&'static str, Option<Box<Symbols>>)> for Symbols {
 }
 
 impl Merge<Symbols> for Vec<Symbols> {
-    fn merge(&self) -> Result<Symbols, Error> {
+    fn merge(&self) -> Result<Option<Symbols>, Error> {
         if self.len() == 0 {
-            return Err(Error::VecSize());
+            return Ok(None);
         }
         if self.len() == 1 {
-            return Ok(self[0].clone());
+            return Ok(Some(self[0].clone()));
         }
 
         let mut merged = self[0].clone();
@@ -56,7 +56,7 @@ impl Merge<Symbols> for Vec<Symbols> {
             }
         }
 
-        Ok(merged)
+        Ok(Some(merged))
     }
 }
 
@@ -73,9 +73,6 @@ impl SSAChecker {
         stmt: &Statement,
     ) -> Result<(), Error> {
         match stmt {
-            Statement::Print(_) => Ok(()),
-            Statement::InvokeFunc(..) => Ok(()),
-            Statement::Return(_) => Ok(()),
             Statement::Assignment(name, _) => {
                 self.check_assignment(symbols, name)
             }
@@ -86,6 +83,10 @@ impl SSAChecker {
             Statement::FuncDef(name, _, params, _, body) => {
                 self.check_funcdef(symbols, name, params, body)
             }
+            Statement::Struct(struct_name, _, _) => {
+                self.check_struct(symbols, struct_name)
+            }
+            _ => Ok(()),
         }
     }
 
@@ -138,10 +139,11 @@ impl SSAChecker {
         res_symbols.push(symbols_clone);
 
         match res_symbols.merge() {
-            Ok(new_symbols) => {
+            Ok(Some(new_symbols)) => {
                 *symbols = new_symbols;
                 Ok(())
             }
+            Ok(None) => Ok(()),
             Err(err) => Err(err),
         }
     }
@@ -162,10 +164,11 @@ impl SSAChecker {
         }
 
         match res_scopes.merge() {
-            Ok(new_symbols) => {
+            Ok(Some(new_symbols)) => {
                 *symbols = new_symbols;
                 Ok(())
             }
+            Ok(None) => Ok(()),
             Err(err) => Err(err),
         }
     }
@@ -174,7 +177,7 @@ impl SSAChecker {
         &self,
         symbols: &mut Symbols,
         name: &'static str,
-        params: &Vec<&'static str>,
+        params: &Vec<(&'static str, crate::statement::Type)>,
         body: &Box<Statement>,
     ) -> Result<(), Error> {
         if symbols.0.get(name).is_some() {
@@ -182,7 +185,7 @@ impl SSAChecker {
         }
 
         let mut func_symbols = Symbols::new();
-        for argname in params.iter() {
+        for (argname, _) in params.iter() {
             func_symbols.0.insert(argname, None);
         }
         let res = self.check(&mut func_symbols, body);
@@ -193,15 +196,31 @@ impl SSAChecker {
         symbols.0.insert(name, Some(Box::new(func_symbols)));
         Ok(())
     }
+
+    fn check_struct(
+        &self,
+        symbols: &mut Symbols,
+        struct_name: &'static str,
+    ) -> Result<(), Error> {
+        if symbols.0.get(struct_name).is_some() {
+            return Err(Error::SymbolAlreadyExists(struct_name));
+        }
+        symbols.0.insert(struct_name, None);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, Sequence, Switch,
+    use crate::error::Error;
+    use crate::statement::Statement::{
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Struct,
+        Switch, TraitDecl, TraitImpl,
     };
-    use crate::{AssignmentRVal, BooleanStatement, Error, Type};
+    use crate::statement::{
+        AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, Type,
+    };
 
     #[test]
     fn test_merge_vars() {
@@ -213,7 +232,7 @@ mod tests {
 
         let mut end_symb = Symbols::new();
         end_symb.0.insert("x", None);
-        assert_eq!(end_symb, vec.merge().unwrap());
+        assert_eq!(end_symb, vec.merge().unwrap().unwrap());
     }
 
     #[test]
@@ -228,7 +247,7 @@ mod tests {
 
         let mut end_symb = Symbols::new();
         end_symb.0.insert("foo", Some(Box::new(body)));
-        assert_eq!(end_symb, vec.merge().unwrap());
+        assert_eq!(end_symb, vec.merge().unwrap().unwrap());
     }
 
     #[test]
@@ -272,8 +291,8 @@ mod tests {
         ));
         let stmt = Sequence(vec![Box::new(FuncDef(
             "foo",
-            vec![Type::Int()],
-            vec!["x"],
+            false,
+            vec![("x", Type::Int())],
             None,
             body.clone(),
         ))]);
@@ -300,8 +319,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -315,7 +334,7 @@ mod tests {
     fn test_nested_funcdefs() {
         let body = Box::new(FuncDef(
             "baz",
-            vec![],
+            false,
             vec![],
             None,
             Box::new(Assignment(
@@ -324,8 +343,8 @@ mod tests {
             )),
         ));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, body.clone())),
         ]);
 
         let sc = SSAChecker::new();
@@ -429,8 +448,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -445,8 +464,8 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -462,8 +481,8 @@ mod tests {
         ]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -508,5 +527,66 @@ mod tests {
         check_symbols.0.insert("x", None);
 
         assert_eq!(res.unwrap(), ());
+        assert_eq!(check_symbols, symbols);
+    }
+
+    #[test]
+    fn test_dyn_traits_two_impl() {
+        let funcdef = FuncDecl::new(
+            true,
+            vec![("animal", Type::DynTrait("Animal"))],
+            None,
+        );
+
+        let cat_speak_body = Box::new(Print("meow"));
+        let cat_speak = FuncVal::new(
+            true,
+            vec![("animal", Type::DynTrait("Animal"))],
+            None,
+            cat_speak_body.clone(),
+        );
+
+        let dog_speak_body = Box::new(Print("woof"));
+        let dog_speak = FuncVal::new(
+            true,
+            vec![("animal", Type::DynTrait("Animal"))],
+            None,
+            dog_speak_body.clone(),
+        );
+
+        let stmt = Sequence(vec![
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(Struct("Cat", vec![], vec![])),
+            Box::new(Struct("Dog", vec![], vec![])),
+            Box::new(TraitImpl(
+                "Animal",
+                "Cat",
+                vec!["speak"],
+                vec![cat_speak.clone()],
+            )),
+            Box::new(TraitImpl(
+                "Animal",
+                "Dog",
+                vec!["speak"],
+                vec![dog_speak.clone()],
+            )),
+            Box::new(Assignment(
+                "cat",
+                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+            )),
+            Box::new(InvokeFunc("speak", vec!["cat"])),
+        ]);
+
+        let sc = SSAChecker::new();
+        let mut symbols = Symbols::new();
+        let res = sc.check(&mut symbols, &stmt);
+
+        let mut check_symbols = Symbols::new();
+        check_symbols.0.insert("Cat", None);
+        check_symbols.0.insert("Dog", None);
+        check_symbols.0.insert("cat", None);
+
+        assert_eq!(res.unwrap(), ());
+        assert_eq!(check_symbols, symbols);
     }
 }

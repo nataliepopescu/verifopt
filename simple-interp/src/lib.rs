@@ -1,179 +1,26 @@
+pub mod constraints;
+pub mod error;
 pub mod func_collect;
+pub mod funcs;
 pub mod interpret;
 pub mod rewrite;
 pub mod sig_collect;
+pub mod sigs;
 pub mod ssa;
+pub mod statement;
+pub mod traits;
 
-use crate::func_collect::{FuncCollector, Funcs};
-use crate::interpret::{ConstraintMap, Interpreter};
+use crate::constraints::ConstraintMap;
+use crate::error::Error;
+use crate::func_collect::FuncCollector;
+use crate::funcs::Funcs;
+use crate::interpret::Interpreter;
 use crate::rewrite::Rewriter;
-use crate::sig_collect::{SigCollector, Sigs};
+use crate::sig_collect::SigCollector;
+use crate::sigs::Sigs;
 use crate::ssa::{SSAChecker, Symbols};
-use thiserror::Error;
-
-use std::fmt;
-use std::ops::Not;
-
-#[derive(Clone, Debug, PartialEq, Error)]
-pub enum Error {
-    #[error("Scope {0} is undefined,")]
-    UndefinedScope(&'static str),
-    #[error("{0} is not a scope.")]
-    NotAScope(&'static str),
-    #[error("Symbol {0} is undefined.")]
-    UndefinedSymbol(&'static str),
-    #[error("VarTypes cannot be compared.")]
-    IncomparableVarTypes(),
-    #[error("{0} cannot be compared to {1}.")]
-    IncomparableTypes(RVal, RVal),
-    #[error("Inconsistent return types.")]
-    InconsistentReturnTypes(),
-    #[error("Invalid RVal for Assignment.")]
-    InvalidAssignmentRVal(),
-    #[error("Cannot assign var to a return value of None.")]
-    CannotAssignNoneRetval(),
-    #[error("{0} is not a function.")]
-    NotAFunction(&'static str),
-    #[error("Symbol {0} already exists.")]
-    SymbolAlreadyExists(&'static str),
-    #[error("Attempting to merge constraints of different types.")]
-    TypesDiffer(),
-    #[error("Scope backpointers differ.")]
-    BackpointersDiffer(),
-    #[error("Switching on a function pointer, not a value.")]
-    NoSwitchOnFuncPtr(),
-    #[error("Cannot perform merge on Vec with no elements.")]
-    VecSize(),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum AssignmentRVal {
-    RVal(RVal),
-    Statement(Box<Statement>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Statement {
-    Sequence(Vec<Box<Statement>>),
-    Assignment(&'static str, Box<AssignmentRVal>),
-    Print(&'static str),
-    Conditional(Box<BooleanStatement>, Box<Statement>, Box<Statement>),
-    Switch(RVal, Vec<(RVal, Box<Statement>)>),
-    Return(RVal),
-    FuncDef(
-        &'static str,
-        Vec<Type>,
-        Vec<&'static str>,
-        Option<Box<Type>>,
-        Box<Statement>,
-    ),
-    InvokeFunc(&'static str, Vec<&'static str>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum RVal {
-    Num(i32),
-    Var(&'static str),
-}
-
-impl fmt::Display for RVal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RVal::Num(num) => write!(f, "{}", num),
-            RVal::Var(var) => write!(f, "{}", var),
-        }
-    }
-}
-
-// TODO add sigval field
-#[derive(Debug, Clone, PartialEq)]
-pub struct FuncVal {
-    paramtypes: Vec<Type>,
-    params: Vec<&'static str>,
-    rettype: Option<Box<Type>>,
-    body: Box<Statement>,
-}
-
-impl FuncVal {
-    pub fn new(
-        paramtypes: Vec<Type>,
-        params: Vec<&'static str>,
-        rettype: Option<Box<Type>>,
-        body: Box<Statement>,
-    ) -> Self {
-        Self {
-            paramtypes,
-            params,
-            rettype,
-            body,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Type {
-    Int(),
-    Func(Vec<Type>, Option<Box<Type>>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SigVal {
-    paramtypes: Vec<Type>,
-    rettype: Option<Box<Type>>,
-}
-
-impl SigVal {
-    pub fn new(paramtypes: Vec<Type>, rettype: Option<Box<Type>>) -> Self {
-        Self {
-            paramtypes,
-            rettype,
-        }
-    }
-}
-
-pub trait Merge<T> {
-    fn merge(&self) -> Result<T, Error>;
-}
-
-// intentionally skipping Or, And, Xor, and GreaterThan for simplicity
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum BooleanStatement {
-    True(),
-    False(),
-    TrueOrFalse(),
-    Not(Box<BooleanStatement>),
-    Equals(RVal, RVal),
-}
-
-impl Not for BooleanStatement {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        match self {
-            BooleanStatement::True() => BooleanStatement::False(),
-            BooleanStatement::False() => BooleanStatement::True(),
-            BooleanStatement::TrueOrFalse() => BooleanStatement::TrueOrFalse(),
-            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
-                panic!("not implemented yet")
-            }
-        }
-    }
-}
-
-impl Not for &BooleanStatement {
-    type Output = Self;
-
-    fn not(self) -> Self::Output {
-        match self {
-            BooleanStatement::True() => &BooleanStatement::False(),
-            BooleanStatement::False() => &BooleanStatement::True(),
-            BooleanStatement::TrueOrFalse() => &BooleanStatement::TrueOrFalse(),
-            BooleanStatement::Not(_) | BooleanStatement::Equals(_, _) => {
-                panic!("not implemented yet (&)")
-            }
-        }
-    }
-}
+use crate::statement::Statement;
+use crate::traits::Traits;
 
 pub struct SimpleInterp {
     ssa_checker: SSAChecker,
@@ -234,7 +81,14 @@ impl SimpleInterp {
         //println!("\n2. Function signatures table: \n\n{:#?}", &sigs);
 
         let mut cmap = ConstraintMap::new();
-        let res4 = self.interpreter.interp(&funcs, &mut cmap, None, &stmt);
+        let mut traits = Traits::new();
+        let res4 = self.interpreter.interp(
+            &funcs,
+            &mut cmap,
+            &mut traits,
+            None,
+            &stmt,
+        );
         if res4.is_err() {
             return Err(res4.err().unwrap());
         }
@@ -251,7 +105,7 @@ impl SimpleInterp {
 
         let res5 = self
             .rewriter
-            .rewrite(&funcs, &cmap, &sigs, None, &mut stmt, true);
+            .rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
         if res5.is_err() {
             return Err(res5.err().unwrap());
         }
@@ -271,9 +125,10 @@ impl SimpleInterp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Statement::{
+    use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
     };
+    use crate::statement::{AssignmentRVal, BooleanStatement, RVal};
 
     #[test]
     fn test_print() {
@@ -291,7 +146,7 @@ mod tests {
             "x",
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
-        let stmt = FuncDef("foo", vec![], vec![], None, body.clone());
+        let stmt = FuncDef("foo", false, vec![], None, body.clone());
 
         let si = SimpleInterp::new();
         let rw_stmt = si.interp(stmt.clone()).unwrap();
@@ -306,7 +161,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ))]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(FuncDef("foo", false, vec![], None, body)),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
 
@@ -323,7 +178,7 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ))]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, body.clone())),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -337,7 +192,7 @@ mod tests {
         let switch_vec =
             vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, body)),
+            Box::new(FuncDef("foo", false, vec![], None, body)),
             Box::new(Assignment(
                 "x",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -360,8 +215,8 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
+            Box::new(FuncDef("foo", false, vec![], None, foo_body)),
+            Box::new(FuncDef("bar", false, vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(InvokeFunc("foo", vec![])),
@@ -387,8 +242,8 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -411,8 +266,8 @@ mod tests {
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body)),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body)),
+            Box::new(FuncDef("foo", false, vec![], None, foo_body)),
+            Box::new(FuncDef("bar", false, vec![], None, bar_body)),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -437,11 +292,11 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(InvokeFunc("bar", vec![])),
         ]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
         let check_stmt = stmt.clone();
@@ -471,8 +326,8 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -487,8 +342,8 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -504,8 +359,8 @@ mod tests {
         ]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef("foo", vec![], vec![], None, foo_body.clone())),
-            Box::new(FuncDef("bar", vec![], vec![], None, bar_body.clone())),
+            Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -525,8 +380,8 @@ mod tests {
             (RVal::Var("qux"), Box::new(InvokeFunc("qux", vec![]))),
         ];
         let check_foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz", vec![], vec![], None, baz_body.clone())),
-            Box::new(FuncDef("qux", vec![], vec![], None, qux_body.clone())),
+            Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
+            Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -545,8 +400,8 @@ mod tests {
             (RVal::Var("qux2"), Box::new(InvokeFunc("qux2", vec![]))),
         ];
         let check_bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef("baz2", vec![], vec![], None, baz2_body.clone())),
-            Box::new(FuncDef("qux2", vec![], vec![], None, qux2_body.clone())),
+            Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
+            Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -567,14 +422,14 @@ mod tests {
         let check_stmt = Sequence(vec![
             Box::new(FuncDef(
                 "foo",
-                vec![],
+                false,
                 vec![],
                 None,
                 check_foo_body.clone(),
             )),
             Box::new(FuncDef(
                 "bar",
-                vec![],
+                false,
                 vec![],
                 None,
                 check_bar_body.clone(),

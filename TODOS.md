@@ -41,11 +41,9 @@
       top/bottom of lattice) can use those constraints to further limit the
       possible funcs
 
-- [ ] function summaries
-
-- [ ] impl traits
-    - [ ] impl methods (vs functions) / dot notation
-    - [ ] impl using trait objects
+- [x] impl traits
+    - [x] impl methods (vs functions) / dot notation
+    - [x] impl using trait objects
     - [ ] CHA vs fewer-constraints
 
 - [ ] more code org/cleanup

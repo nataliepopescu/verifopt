@@ -4,8 +4,8 @@ use crate::constraints::{
 use crate::error::Error;
 use crate::funcs::Funcs;
 use crate::statement::{
-    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement,
-    TraitStructOpt, Type,
+    AssignmentRVal, BooleanStatement, FuncVal, Merge, RVal, Statement, TraitStructOpt,
+    Type,
 };
 use crate::traits::Traits;
 use std::collections::HashSet;
@@ -30,15 +30,9 @@ impl Interpreter {
             Statement::TraitDecl(trait_name, _, _) => {
                 self.interp_traitdecl(funcs, cmap, traits, scope, trait_name)
             }
-            Statement::TraitImpl(trait_name, struct_name, _, _) => self
-                .interp_traitimpl(
-                    funcs,
-                    cmap,
-                    traits,
-                    scope,
-                    trait_name,
-                    struct_name,
-                ),
+            Statement::TraitImpl(trait_name, struct_name, _, _) => {
+                self.interp_traitimpl(funcs, cmap, traits, scope, trait_name, struct_name)
+            }
             Statement::Sequence(stmt_vec) => {
                 self.interp_seq(funcs, cmap, traits, scope, stmt_vec)
             }
@@ -46,8 +40,8 @@ impl Interpreter {
                 self.interp_assignment(funcs, cmap, traits, scope, var, value)
             }
             Statement::Print(var) => self.interp_print(var),
-            Statement::Conditional(condition, true_branch, false_branch) => {
-                self.interp_conditional(
+            Statement::Conditional(condition, true_branch, false_branch) => self
+                .interp_conditional(
                     funcs,
                     cmap,
                     traits,
@@ -55,8 +49,7 @@ impl Interpreter {
                     &*condition,
                     &*true_branch,
                     &*false_branch,
-                )
-            }
+                ),
             Statement::Switch(val, vec) => {
                 self.interp_switch(funcs, cmap, traits, scope, val, vec)
             }
@@ -144,10 +137,7 @@ impl Interpreter {
                     Type::Func(_, rettype) => cmap.scoped_set(
                         scope,
                         var,
-                        Box::new(VarType::Values(
-                            rettype.unwrap(),
-                            constraints,
-                        )),
+                        Box::new(VarType::Values(rettype.unwrap(), constraints)),
                     )?,
                     _ => return Err(Error::NotAFunction(name)),
                 }
@@ -184,8 +174,8 @@ impl Interpreter {
                     (HashSet::from([RVal::IdkNum()]), HashSet::new()),
                 )),
             )?,
-            AssignmentRVal::RVal(RVal::Struct(struct_name, field_values)) => {
-                cmap.scoped_set(
+            AssignmentRVal::RVal(RVal::Struct(struct_name, field_values)) => cmap
+                .scoped_set(
                     scope,
                     var,
                     Box::new(VarType::Values(
@@ -198,20 +188,18 @@ impl Interpreter {
                             HashSet::new(),
                         ),
                     )),
-                )?
-            }
-            AssignmentRVal::RVal(RVal::IdkStruct(struct_name)) => cmap
-                .scoped_set(
-                    scope,
-                    var,
-                    Box::new(VarType::Values(
-                        Box::new(Type::Struct(*struct_name)),
-                        (
-                            HashSet::from([RVal::IdkStruct(*struct_name)]),
-                            HashSet::new(),
-                        ),
-                    )),
                 )?,
+            AssignmentRVal::RVal(RVal::IdkStruct(struct_name)) => cmap.scoped_set(
+                scope,
+                var,
+                Box::new(VarType::Values(
+                    Box::new(Type::Struct(*struct_name)),
+                    (
+                        HashSet::from([RVal::IdkStruct(*struct_name)]),
+                        HashSet::new(),
+                    ),
+                )),
+            )?,
             AssignmentRVal::RVal(RVal::Var(varname)) => {
                 match cmap.scoped_get(scope, varname, false) {
                     Ok(Some(val)) => match val {
@@ -221,9 +209,9 @@ impl Interpreter {
                         _ => todo!("not impl yet"),
                     },
                     Ok(None) => match funcs.funcs.get(varname) {
-                        Some(funcvec) => self.assign_funcvec(
-                            cmap, scope, var, varname, funcvec,
-                        )?,
+                        Some(funcvec) => {
+                            self.assign_funcvec(cmap, scope, var, varname, funcvec)?
+                        }
                         None => {
                             return Err(Error::UndefinedSymbol(varname));
                         }
@@ -243,9 +231,7 @@ impl Interpreter {
                 Statement::InvokeFunc(name, args) => {
                     // assume func has retval (given typechecking) but return
                     // err if none
-                    self.assign_invoke(
-                        funcs, cmap, traits, scope, var, name, &args,
-                    )?
+                    self.assign_invoke(funcs, cmap, traits, scope, var, name, &args)?
                 }
                 _ => return Err(Error::InvalidAssignmentRVal()),
             },
@@ -254,10 +240,7 @@ impl Interpreter {
         Ok(None)
     }
 
-    fn interp_print(
-        &self,
-        _var: &'static str,
-    ) -> Result<Option<Constraints>, Error> {
+    fn interp_print(&self, _var: &'static str) -> Result<Option<Constraints>, Error> {
         Ok(None)
     }
 
@@ -291,9 +274,7 @@ impl Interpreter {
         b_stmt: BooleanStatement,
     ) -> Result<(BooleanStatement, BooleanConstraints), Error> {
         match self.interp_bool(funcs, cmap, scope, b_stmt) {
-            Ok(b_res) => {
-                Ok((!b_res.0, BooleanConstraints::flip_constraints(b_res.1)))
-            }
+            Ok(b_res) => Ok((!b_res.0, BooleanConstraints::flip_constraints(b_res.1))),
             err @ Err(_) => err,
         }
     }
@@ -319,9 +300,7 @@ impl Interpreter {
                     _ => todo!("should be a func"),
                 },
                 Ok(None) => match funcs.funcs.get(&var) {
-                    Some(_funcvec) => {
-                        Ok((HashSet::from([rval]), HashSet::new()))
-                    }
+                    Some(_funcvec) => Ok((HashSet::from([rval]), HashSet::new())),
                     None => {
                         return Err(Error::UndefinedSymbol(var));
                     }
@@ -331,10 +310,7 @@ impl Interpreter {
         }
     }
 
-    fn constraints_to_vecs(
-        &self,
-        constraints: &Constraints,
-    ) -> (Vec<RVal>, Vec<RVal>) {
+    fn constraints_to_vecs(&self, constraints: &Constraints) -> (Vec<RVal>, Vec<RVal>) {
         let pos_vec: Vec<_> = constraints.0.clone().into_iter().collect();
         let neg_vec: Vec<_> = constraints.1.clone().into_iter().collect();
         (pos_vec, neg_vec)
@@ -348,28 +324,16 @@ impl Interpreter {
         match (lhs_vecs.0[0].clone(), rhs_vecs.0[0].clone()) {
             (RVal::Num(lnum), RVal::Num(rnum)) => {
                 if lnum == rnum {
-                    return Ok((
-                        BooleanStatement::True(),
-                        BooleanConstraints::empty(),
-                    ));
+                    return Ok((BooleanStatement::True(), BooleanConstraints::empty()));
                 } else {
-                    return Ok((
-                        BooleanStatement::False(),
-                        BooleanConstraints::empty(),
-                    ));
+                    return Ok((BooleanStatement::False(), BooleanConstraints::empty()));
                 }
             }
             (RVal::Var(lfp), RVal::Var(rfp)) => {
                 if lfp == rfp {
-                    return Ok((
-                        BooleanStatement::True(),
-                        BooleanConstraints::empty(),
-                    ));
+                    return Ok((BooleanStatement::True(), BooleanConstraints::empty()));
                 } else {
-                    return Ok((
-                        BooleanStatement::False(),
-                        BooleanConstraints::empty(),
-                    ));
+                    return Ok((BooleanStatement::False(), BooleanConstraints::empty()));
                 }
             }
             (_, _) => {
@@ -399,10 +363,7 @@ impl Interpreter {
                 match (cmap.cmap.get(a), cmap.cmap.get(b)) {
                     (Some(val_a), Some(val_b)) => {
                         match (*val_a.clone(), *val_b.clone()) {
-                            (
-                                VarType::Values(type_a, _),
-                                VarType::Values(type_b, _),
-                            ) => {
+                            (VarType::Values(type_a, _), VarType::Values(type_b, _)) => {
                                 if type_a != type_b {
                                     return Err(Error::TypesDiffer());
                                 }
@@ -438,9 +399,7 @@ impl Interpreter {
                                 VarType::Scope(_, inst_vec_a), /* type_a, _), */
                                 VarType::Scope(_, inst_vec_b), /* type_b, _), */
                             ) => {
-                                if inst_vec_a.len() != 1
-                                    || inst_vec_b.len() != 1
-                                {
+                                if inst_vec_a.len() != 1 || inst_vec_b.len() != 1 {
                                     todo!("not impl yet (scope vec)");
                                 }
 
@@ -556,11 +515,8 @@ impl Interpreter {
                 let true_cmap = cmap.clone();
                 let false_cmap = cmap.clone();
                 if self.possible(&bool_res) {
-                    match vec![
-                        true_cmap.clone(),
-                        bconstraints.true_branch.clone(),
-                    ]
-                    .merge()
+                    match vec![true_cmap.clone(), bconstraints.true_branch.clone()]
+                        .merge()
                     {
                         Ok(Some(mut new_cmap)) => match self.interp(
                             funcs,
@@ -577,8 +533,7 @@ impl Interpreter {
                                     Err(err) => return Err(err),
                                 }
                                 if true_constraints_opt.is_some() {
-                                    res_constraints
-                                        .push(true_constraints_opt.unwrap());
+                                    res_constraints.push(true_constraints_opt.unwrap());
                                 }
                             }
                             err @ Err(_) => return err,
@@ -588,11 +543,8 @@ impl Interpreter {
                     }
                 }
                 if self.possible(!&bool_res) {
-                    match vec![
-                        false_cmap.clone(),
-                        bconstraints.false_branch.clone(),
-                    ]
-                    .merge()
+                    match vec![false_cmap.clone(), bconstraints.false_branch.clone()]
+                        .merge()
                     {
                         Ok(Some(mut new_cmap)) => match self.interp(
                             funcs,
@@ -604,14 +556,12 @@ impl Interpreter {
                             Ok(false_constraints_opt) => {
                                 // remove false branch constraints from
                                 // resulting cmap (safe b/c of SSA guarantee)
-                                match new_cmap.diff(&bconstraints.false_branch)
-                                {
+                                match new_cmap.diff(&bconstraints.false_branch) {
                                     Ok(()) => res_cmap.push(new_cmap),
                                     Err(err) => return Err(err),
                                 }
                                 if false_constraints_opt.is_some() {
-                                    res_constraints
-                                        .push(false_constraints_opt.unwrap());
+                                    res_constraints.push(false_constraints_opt.unwrap());
                                 }
                             }
                             err @ Err(_) => return err,
@@ -663,49 +613,37 @@ impl Interpreter {
             | RVal::Struct(..)
             | RVal::IdkStruct(_)
             | RVal::IdkVar() => (HashSet::from([val.clone()]), HashSet::new()),
-            RVal::Var(varname) => {
-                match cmap.scoped_get(scope, varname, false) {
-                    Ok(Some(vartype)) => match vartype {
-                        VarType::Values(_, constraints) => constraints.clone(),
-                        _ => return Err(Error::NoSwitchOnFuncPtr()),
-                    },
-                    Ok(None) => {
-                        return Err(Error::UndefinedSymbol(varname));
-                    }
-                    Err(err) => return Err(err),
+            RVal::Var(varname) => match cmap.scoped_get(scope, varname, false) {
+                Ok(Some(vartype)) => match vartype {
+                    VarType::Values(_, constraints) => constraints.clone(),
+                    _ => return Err(Error::NoSwitchOnFuncPtr()),
+                },
+                Ok(None) => {
+                    return Err(Error::UndefinedSymbol(varname));
                 }
-            }
+                Err(err) => return Err(err),
+            },
         };
 
         // filter out switch cases not possible given positive constraints
         let mut filtered: Vec<_> = vec
             .clone()
             .into_iter()
-            .filter(|(case_value, _)| {
-                resolved_constraints.0.contains(case_value)
-            })
+            .filter(|(case_value, _)| resolved_constraints.0.contains(case_value))
             .collect();
 
         // filter out switch cases not possible given negative constraints
         filtered = filtered
             .clone()
             .into_iter()
-            .filter(|(case_value, _)| {
-                !resolved_constraints.1.contains(case_value)
-            })
+            .filter(|(case_value, _)| !resolved_constraints.1.contains(case_value))
             .collect();
 
         // loop to interp all such elems
         let mut res_cmap: Vec<ConstraintMap> = Vec::new();
         for (_, vec_stmt) in filtered.iter() {
             let mut scoped_cmap = cmap.clone();
-            match self.interp(
-                funcs,
-                &mut scoped_cmap,
-                traits,
-                scope,
-                &*vec_stmt,
-            ) {
+            match self.interp(funcs, &mut scoped_cmap, traits, scope, &*vec_stmt) {
                 Ok(_) => res_cmap.push(scoped_cmap),
                 err @ Err(_) => return err,
             }
@@ -735,38 +673,29 @@ impl Interpreter {
             | RVal::Struct(..)
             | RVal::IdkStruct(_)
             | RVal::IdkVar() => {
-                return Ok(Some((
-                    HashSet::from([rval.clone()]),
-                    HashSet::new(),
-                )));
+                return Ok(Some((HashSet::from([rval.clone()]), HashSet::new())));
             }
-            RVal::Var(varname) => {
-                match cmap.scoped_get(scope, varname, false) {
-                    Ok(Some(vartype)) => match vartype {
-                        VarType::Values(_, constraints) => {
-                            Ok(Some(constraints))
-                        }
-                        VarType::Scope(..) => match funcs.funcs.get(varname) {
-                            Some(_funcvec) => Ok(Some((
-                                HashSet::from([RVal::Var(*varname)]),
-                                HashSet::new(),
-                            ))),
-                            None => {
-                                return Err(Error::UndefinedSymbol(varname));
-                            }
-                        },
-                    },
-                    Ok(None) => match funcs.funcs.get(varname) {
-                        Some(_) => panic!(
-                            "IP BUG: func should have been a scope in cmap"
-                        ),
+            RVal::Var(varname) => match cmap.scoped_get(scope, varname, false) {
+                Ok(Some(vartype)) => match vartype {
+                    VarType::Values(_, constraints) => Ok(Some(constraints)),
+                    VarType::Scope(..) => match funcs.funcs.get(varname) {
+                        Some(_funcvec) => Ok(Some((
+                            HashSet::from([RVal::Var(*varname)]),
+                            HashSet::new(),
+                        ))),
                         None => {
                             return Err(Error::UndefinedSymbol(varname));
                         }
                     },
-                    Err(err) => return Err(err),
-                }
-            }
+                },
+                Ok(None) => match funcs.funcs.get(varname) {
+                    Some(_) => panic!("IP BUG: func should have been a scope in cmap"),
+                    None => {
+                        return Err(Error::UndefinedSymbol(varname));
+                    }
+                },
+                Err(err) => return Err(err),
+            },
         }
     }
 
@@ -784,18 +713,14 @@ impl Interpreter {
                 Some(structs) => match param_type {
                     Type::Struct(struct_name) => {
                         if structs.contains(&struct_name) {
-                            for pos_constraint in
-                                arg_constraints.0.clone().iter()
-                            {
+                            for pos_constraint in arg_constraints.0.clone().iter() {
                                 match pos_constraint {
                                     RVal::Struct(c_struct_name, _)
                                     | RVal::IdkStruct(c_struct_name) => {
                                         // remove if any struct type other than
                                         // that of param_type
                                         if c_struct_name != struct_name {
-                                            arg_constraints
-                                                .0
-                                                .remove(&pos_constraint);
+                                            arg_constraints.0.remove(&pos_constraint);
                                         }
                                     }
                                     _ => continue,
@@ -845,12 +770,7 @@ impl Interpreter {
                             // pos-Struct(Dog)
                             //
                             // TODO neg example?
-                            self.prune(
-                                traits,
-                                &param_type,
-                                &valstype,
-                                &mut constraints,
-                            );
+                            self.prune(traits, &param_type, &valstype, &mut constraints);
 
                             func_cmap.cmap.insert(
                                 param_name,
@@ -886,16 +806,11 @@ impl Interpreter {
 
                     let mut new_inst_vecs = existing_inst_vecs.clone();
                     new_inst_vecs.push((
-                        Box::new(Type::Func(
-                            paramtypes,
-                            funcval.rettype.clone(),
-                        )),
+                        Box::new(Type::Func(paramtypes, funcval.rettype.clone())),
                         func_cmap,
                     ));
-                    cmap.cmap.insert(
-                        name,
-                        Box::new(VarType::Scope(scope, new_inst_vecs)),
-                    );
+                    cmap.cmap
+                        .insert(name, Box::new(VarType::Scope(scope, new_inst_vecs)));
                 }
                 _ => panic!("got values when expected scope"),
             },
@@ -905,10 +820,7 @@ impl Interpreter {
                     Box::new(VarType::Scope(
                         scope,
                         vec![(
-                            Box::new(Type::Func(
-                                paramtypes,
-                                funcval.rettype.clone(),
-                            )),
+                            Box::new(Type::Func(paramtypes, funcval.rettype.clone())),
                             func_cmap,
                         )],
                     )),
@@ -1097,8 +1009,7 @@ impl Interpreter {
                 ),
                 _ => panic!("should not get scope here"),
             },
-            Ok(None) => self
-                .interp_direct_invoke(funcs, cmap, traits, scope, name, args),
+            Ok(None) => self.interp_direct_invoke(funcs, cmap, traits, scope, name, args),
             Err(err) => return Err(err),
         }
     }
@@ -1148,8 +1059,8 @@ mod tests {
     use super::*;
     use crate::funcs::Funcs;
     use crate::statement::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence,
-        Struct, Switch, TraitDecl, TraitImpl,
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence, Struct,
+        Switch, TraitDecl, TraitImpl,
     };
     use crate::statement::{FuncDecl, FuncVal, Type};
 
@@ -1220,8 +1131,7 @@ mod tests {
     #[test]
     fn test_assign_num() {
         let interp = Interpreter::new();
-        let stmt =
-            Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
+        let stmt = Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
         let mut traits = Traits::new();
@@ -1537,10 +1447,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(3))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("x"),
-                    RVal::Var("y"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1608,10 +1515,7 @@ mod tests {
             Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
             Box::new(FuncDef("bar", false, vec![], None, foo_body.clone())),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("foo"),
-                    RVal::Var("bar"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("foo"), RVal::Var("bar"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1660,10 +1564,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("foo"),
-                    RVal::Var("bar"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("foo"), RVal::Var("bar"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1718,10 +1619,7 @@ mod tests {
                 )),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("x"),
-                    RVal::Var("y"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1787,10 +1685,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("foo"),
-                    RVal::Var("x"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("foo"), RVal::Var("x"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(1))),
@@ -1966,10 +1861,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("x"),
-                    RVal::Var("y"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(0))),
@@ -2000,12 +1892,7 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, body.clone()),
             )],
         );
         let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
@@ -2120,10 +2007,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(5))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("x"),
-                    RVal::Var("y"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("y"))),
                 Box::new(Assignment(
                     "z",
                     Box::new(AssignmentRVal::RVal(RVal::Num(0))),
@@ -2158,12 +2042,7 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, body.clone()),
             )],
         );
         let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
@@ -2708,72 +2587,42 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    foo_body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, foo_body.clone()),
             )],
         );
         funcs.funcs.insert(
             "bar",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    bar_body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, bar_body.clone()),
             )],
         );
         funcs.funcs.insert(
             "baz",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    baz_body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, baz_body.clone()),
             )],
         );
         funcs.funcs.insert(
             "qux",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    qux_body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, qux_body.clone()),
             )],
         );
         funcs.funcs.insert(
             "baz2",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    baz2_body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, baz2_body.clone()),
             )],
         );
         funcs.funcs.insert(
             "qux2",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![("y", Type::Int())],
-                    None,
-                    qux2_body.clone(),
-                ),
+                FuncVal::new(false, vec![("y", Type::Int())], None, qux2_body.clone()),
             )],
         );
 
@@ -2924,20 +2773,14 @@ mod tests {
             "baz2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                vec![(
-                    Box::new(Type::Func(vec![Type::Int()], None)),
-                    baz2_cmap,
-                )],
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), baz2_cmap)],
             )),
         );
         check_cmap.cmap.insert(
             "qux2",
             Box::new(VarType::Scope(
                 Some("bar"),
-                vec![(
-                    Box::new(Type::Func(vec![Type::Int()], None)),
-                    qux2_cmap,
-                )],
+                vec![(Box::new(Type::Func(vec![Type::Int()], None)), qux2_cmap)],
             )),
         );
         check_cmap.cmap.insert(
@@ -3262,12 +3105,7 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![],
-                    Some(Box::new(Type::Int())),
-                    body.clone(),
-                ),
+                FuncVal::new(false, vec![], Some(Box::new(Type::Int())), body.clone()),
             )],
         );
 
@@ -3337,12 +3175,7 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new(
-                    false,
-                    vec![],
-                    Some(Box::new(Type::Int())),
-                    body.clone(),
-                ),
+                FuncVal::new(false, vec![], Some(Box::new(Type::Int())), body.clone()),
             )],
         );
 
@@ -3492,10 +3325,7 @@ mod tests {
             )),
             Box::new(Assignment(
                 "res",
-                Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
-                    "x",
-                    vec![],
-                )))),
+                Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc("x", vec![])))),
             )),
         ]);
         let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
@@ -3519,10 +3349,7 @@ mod tests {
                 vec![(
                     Box::new(Type::Func(
                         vec![],
-                        Some(Box::new(Type::Func(
-                            vec![],
-                            Some(Box::new(Type::Int())),
-                        ))),
+                        Some(Box::new(Type::Func(vec![], Some(Box::new(Type::Int()))))),
                     )),
                     foo_cmap,
                 )],
@@ -3589,10 +3416,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(3))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Equals(
-                    RVal::Var("x"),
-                    RVal::Var("f"),
-                )),
+                Box::new(BooleanStatement::Equals(RVal::Var("x"), RVal::Var("f"))),
                 Box::new(Assignment(
                     "g",
                     Box::new(AssignmentRVal::RVal(RVal::Var("x"))),
@@ -3666,9 +3490,10 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Num(3))),
             )),
             Box::new(Conditional(
-                Box::new(BooleanStatement::Not(Box::new(
-                    BooleanStatement::Equals(RVal::Var("x"), RVal::Var("f")),
-                ))),
+                Box::new(BooleanStatement::Not(Box::new(BooleanStatement::Equals(
+                    RVal::Var("x"),
+                    RVal::Var("f"),
+                )))),
                 Box::new(Assignment(
                     "g",
                     Box::new(AssignmentRVal::RVal(RVal::Var("x"))),
@@ -3764,8 +3589,7 @@ mod tests {
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
-        let funcdef =
-            FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+        let funcdef = FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
         let cat_funcimpl = FuncVal::new(
             true,
             vec![("self", Type::Struct("Cat"))],
@@ -3814,8 +3638,7 @@ mod tests {
 
     #[test]
     fn test_dyn_traits_single_impl() {
-        let funcdef =
-            FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+        let funcdef = FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
 
         let cat_speak_body = Box::new(Assignment(
             "spoken",
@@ -3828,8 +3651,7 @@ mod tests {
             cat_speak_body.clone(),
         );
 
-        let gmaa =
-            Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))]));
+        let gmaa = Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))]));
 
         let stmt = Sequence(vec![
             Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
@@ -3849,9 +3671,10 @@ mod tests {
             )),
             Box::new(Assignment(
                 "specific_animal",
-                Box::new(AssignmentRVal::Statement(Box::new(
-                    Statement::InvokeFunc("giveMeAnAnimal", vec![]),
-                ))),
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
             )),
             Box::new(InvokeFunc("speak", vec!["specific_animal"])),
         ]);
@@ -3968,11 +3791,7 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(TraitDecl(
-                "Animal",
-                vec!["speak"],
-                vec![funcdecl.clone()],
-            )),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
                 false,
@@ -3996,9 +3815,10 @@ mod tests {
             )),
             Box::new(Assignment(
                 "specific_animal",
-                Box::new(AssignmentRVal::Statement(Box::new(
-                    Statement::InvokeFunc("giveMeAnAnimal", vec![]),
-                ))),
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
             )),
             Box::new(InvokeFunc("speak", vec!["specific_animal"])),
         ]);
@@ -4100,10 +3920,7 @@ mod tests {
             Box::new(VarType::Values(
                 Box::new(Type::DynTrait("Animal")),
                 (
-                    HashSet::from([
-                        RVal::IdkStruct("Cat"),
-                        RVal::IdkStruct("Dog"),
-                    ]),
+                    HashSet::from([RVal::IdkStruct("Cat"), RVal::IdkStruct("Dog")]),
                     HashSet::new(),
                 ),
             )),

@@ -12,9 +12,7 @@ impl Symbols {
 }
 
 impl FromIterator<(&'static str, Option<Box<Symbols>>)> for Symbols {
-    fn from_iter<
-        I: IntoIterator<Item = (&'static str, Option<Box<Symbols>>)>,
-    >(
+    fn from_iter<I: IntoIterator<Item = (&'static str, Option<Box<Symbols>>)>>(
         iter: I,
     ) -> Self {
         let mut s = Symbols::new();
@@ -67,18 +65,13 @@ impl SSAChecker {
         Self {}
     }
 
-    pub fn check(
-        &self,
-        symbols: &mut Symbols,
-        stmt: &Statement,
-    ) -> Result<(), Error> {
+    pub fn check(&self, symbols: &mut Symbols, stmt: &Statement) -> Result<(), Error> {
         match stmt {
-            Statement::Assignment(name, _) => {
-                self.check_assignment(symbols, name)
-            }
+            Statement::Assignment(name, _) => self.check_assignment(symbols, name),
             Statement::Sequence(stmt_vec) => self.check_seq(symbols, stmt_vec),
-            Statement::Conditional(_, true_branch, false_branch) => self
-                .check_conditional(symbols, &(*true_branch), &(*false_branch)),
+            Statement::Conditional(_, true_branch, false_branch) => {
+                self.check_conditional(symbols, &(*true_branch), &(*false_branch))
+            }
             Statement::Switch(_, vec) => self.check_switch(symbols, vec),
             Statement::FuncDef(name, _, params, _, body) => {
                 self.check_funcdef(symbols, name, params, body)
@@ -200,12 +193,10 @@ mod tests {
     use super::*;
     use crate::error::Error;
     use crate::statement::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Struct,
-        Switch, TraitDecl, TraitImpl,
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Struct, Switch,
+        TraitDecl, TraitImpl,
     };
-    use crate::statement::{
-        AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, Type,
-    };
+    use crate::statement::{AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, Type};
 
     #[test]
     fn test_merge_vars() {
@@ -517,11 +508,8 @@ mod tests {
 
     #[test]
     fn test_dyn_traits_two_impl() {
-        let funcdef = FuncDecl::new(
-            true,
-            vec![("animal", Type::DynTrait("Animal"))],
-            None,
-        );
+        let funcdef =
+            FuncDecl::new(true, vec![("animal", Type::DynTrait("Animal"))], None);
 
         let cat_speak_body = Box::new(Print("meow"));
         let cat_speak = FuncVal::new(

@@ -3,8 +3,7 @@ use crate::error::Error;
 use crate::funcs::Funcs;
 use crate::sigs::{SigVal, Sigs};
 use crate::statement::{
-    BooleanStatement, FuncVal, RVal, Statement, TraitStructOpt, TraitStructTup,
-    Type,
+    BooleanStatement, FuncVal, RVal, Statement, TraitStructOpt, TraitStructTup, Type,
 };
 use crate::traits::Traits;
 
@@ -41,8 +40,8 @@ impl Rewriter {
                 stmt_vec,
                 sort_hashsets,
             ),
-            Statement::Conditional(condition, true_branch, false_branch) => {
-                self.rewrite_conditional(
+            Statement::Conditional(condition, true_branch, false_branch) => self
+                .rewrite_conditional(
                     funcs,
                     cmap,
                     sigs,
@@ -52,8 +51,7 @@ impl Rewriter {
                     &mut (*true_branch),
                     &mut (*false_branch),
                     sort_hashsets,
-                )
-            }
+                ),
             Statement::Switch(val, vec) => self.rewrite_switch(
                 funcs,
                 cmap,
@@ -64,15 +62,9 @@ impl Rewriter {
                 vec,
                 sort_hashsets,
             ),
-            Statement::FuncDef(name, _, _, _, body) => self.rewrite_funcdef(
-                funcs,
-                cmap,
-                sigs,
-                traits,
-                name,
-                body,
-                sort_hashsets,
-            ),
+            Statement::FuncDef(name, _, _, _, body) => {
+                self.rewrite_funcdef(funcs, cmap, sigs, traits, name, body, sort_hashsets)
+            }
             Statement::InvokeFunc(name, args) => {
                 match self.rewrite_invoke(
                     funcs,
@@ -106,15 +98,7 @@ impl Rewriter {
         sort_hashsets: bool,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter_mut() {
-            self.rewrite(
-                funcs,
-                cmap,
-                sigs,
-                traits,
-                scope,
-                stmt,
-                sort_hashsets,
-            )?;
+            self.rewrite(funcs, cmap, sigs, traits, scope, stmt, sort_hashsets)?;
         }
         Ok(())
     }
@@ -348,10 +332,7 @@ impl Rewriter {
                             r,
                             Box::new(Statement::InvokeFunc(var, args.clone())),
                         )),
-                        _ => panic!(
-                            "IP BUG: cannot call num {:?} as func",
-                            &rval
-                        ),
+                        _ => panic!("IP BUG: cannot call num {:?} as func", &rval),
                     };
                 }
             }
@@ -495,8 +476,8 @@ mod tests {
     use super::*;
     use crate::funcs::Funcs;
     use crate::statement::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print,
-        Return, Sequence, Struct, Switch, TraitDecl, TraitImpl,
+        Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
+        Sequence, Struct, Switch, TraitDecl, TraitImpl,
     };
     use crate::statement::{AssignmentRVal, FuncDecl, FuncVal, Type};
     use std::collections::HashSet;
@@ -511,16 +492,14 @@ mod tests {
         let sigs = Sigs::new();
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
         assert_eq!(check_stmt, stmt);
     }
 
     #[test]
     fn test_assignment() {
-        let mut stmt =
-            Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
+        let mut stmt = Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
         let check_stmt = stmt.clone();
 
         let funcs = Funcs::new();
@@ -536,8 +515,7 @@ mod tests {
         let traits = Traits::new();
 
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -577,8 +555,7 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
         assert_eq!(check_stmt, stmt);
     }
@@ -617,11 +594,9 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
-        let switch_vec =
-            vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
+        let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
         let check_stmt = Sequence(vec![
             Box::new(FuncDef("foo", false, vec![], None, body)),
             Box::new(Assignment(
@@ -687,8 +662,7 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
         let switch_vec = vec![
             (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
@@ -927,8 +901,7 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
         let foo_switch_vec = vec![
             (RVal::Var("baz"), Box::new(InvokeFunc("baz", vec![]))),
@@ -975,20 +948,8 @@ mod tests {
             (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
         ];
         let check_stmt = Sequence(vec![
-            Box::new(FuncDef(
-                "foo",
-                false,
-                vec![],
-                None,
-                check_foo_body.clone(),
-            )),
-            Box::new(FuncDef(
-                "bar",
-                false,
-                vec![],
-                None,
-                check_bar_body.clone(),
-            )),
+            Box::new(FuncDef("foo", false, vec![], None, check_foo_body.clone())),
+            Box::new(FuncDef("bar", false, vec![], None, check_bar_body.clone())),
             Box::new(Conditional(
                 Box::new(BooleanStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -1054,8 +1015,7 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
         // TODO call func - either `self` or flexible arg type?
 
@@ -1096,11 +1056,7 @@ mod tests {
         ))]));
 
         let mut stmt = Sequence(vec![
-            Box::new(TraitDecl(
-                "Animal",
-                vec!["speak"],
-                vec![funcdecl.clone()],
-            )),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
                 false,
@@ -1124,9 +1080,10 @@ mod tests {
             )),
             Box::new(Assignment(
                 "specific_animal",
-                Box::new(AssignmentRVal::Statement(Box::new(
-                    Statement::InvokeFunc("giveMeAnAnimal", vec![]),
-                ))),
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
             )),
             Box::new(InvokeFunc("speak", vec!["specific_animal"])),
         ]);
@@ -1217,8 +1174,7 @@ mod tests {
         traits.traits.insert("Animal", vec!["Cat", "Dog"]);
 
         let rw = Rewriter::new();
-        let _ =
-            rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
         let switch_vec = vec![
             (
@@ -1240,11 +1196,7 @@ mod tests {
         ];
 
         let check_stmt = Sequence(vec![
-            Box::new(TraitDecl(
-                "Animal",
-                vec!["speak"],
-                vec![funcdecl.clone()],
-            )),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
                 false,
@@ -1268,9 +1220,10 @@ mod tests {
             )),
             Box::new(Assignment(
                 "specific_animal",
-                Box::new(AssignmentRVal::Statement(Box::new(
-                    Statement::InvokeFunc("giveMeAnAnimal", vec![]),
-                ))),
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
             )),
             Box::new(Switch(RVal::Var("specific_animal"), switch_vec)),
         ]);

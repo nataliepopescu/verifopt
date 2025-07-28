@@ -9,27 +9,20 @@ impl FuncCollector {
         Self {}
     }
 
-    pub fn collect(
-        &self,
-        funcs: &mut Funcs,
-        stmt: &Statement,
-    ) -> Result<(), Error> {
+    pub fn collect(&self, funcs: &mut Funcs, stmt: &Statement) -> Result<(), Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => self.collect_seq(funcs, stmt_vec),
-            Statement::FuncDef(name, is_method, params, rettype, body) => self
-                .collect_funcdef(funcs, name, is_method, params, rettype, body),
-            Statement::TraitImpl(
-                trait_name,
-                struct_name,
-                func_names,
-                func_impls,
-            ) => self.collect_trait_impl(
-                funcs,
-                trait_name,
-                struct_name,
-                func_names,
-                func_impls,
-            ),
+            Statement::FuncDef(name, is_method, params, rettype, body) => {
+                self.collect_funcdef(funcs, name, is_method, params, rettype, body)
+            }
+            Statement::TraitImpl(trait_name, struct_name, func_names, func_impls) => self
+                .collect_trait_impl(
+                    funcs,
+                    trait_name,
+                    struct_name,
+                    func_names,
+                    func_impls,
+                ),
             _ => Ok(()),
         }
     }
@@ -116,12 +109,10 @@ impl FuncCollector {
 mod tests {
     use super::*;
     use crate::statement::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence,
-        Struct, TraitDecl, TraitImpl,
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence, Struct,
+        TraitDecl, TraitImpl,
     };
-    use crate::statement::{
-        AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, RVal,
-    };
+    use crate::statement::{AssignmentRVal, BooleanStatement, FuncDecl, FuncVal, RVal};
 
     #[test]
     fn test_print() {
@@ -138,8 +129,7 @@ mod tests {
     #[test]
     fn test_assign_num() {
         let fc = FuncCollector::new();
-        let stmt =
-            Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
+        let stmt = Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
@@ -233,10 +223,9 @@ mod tests {
         let res = fc.collect(&mut funcs, &stmt);
 
         let mut check_funcs = Funcs::new();
-        check_funcs.funcs.insert(
-            "foo",
-            vec![(None, FuncVal::new(false, vec![], None, body))],
-        );
+        check_funcs
+            .funcs
+            .insert("foo", vec![(None, FuncVal::new(false, vec![], None, body))]);
         assert_eq!(res.unwrap(), ());
         assert_eq!(funcs, check_funcs);
     }
@@ -248,8 +237,7 @@ mod tests {
             "x",
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
-        let stmt =
-            FuncDef("foo", false, vec![("y", Type::Int())], None, body.clone());
+        let stmt = FuncDef("foo", false, vec![("y", Type::Int())], None, body.clone());
         let mut funcs = Funcs::new();
         let res = fc.collect(&mut funcs, &stmt);
 
@@ -430,8 +418,7 @@ mod tests {
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
-        let funcdef =
-            FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+        let funcdef = FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
         let cat_funcimpl = FuncVal::new(
             true,
             vec![("self", Type::Struct("Cat"))],
@@ -502,11 +489,7 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(TraitDecl(
-                "Animal",
-                vec!["speak"],
-                vec![funcdecl.clone()],
-            )),
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
             Box::new(FuncDef(
                 "giveMeAnAnimal",
                 false,
@@ -530,9 +513,10 @@ mod tests {
             )),
             Box::new(Assignment(
                 "specific_animal",
-                Box::new(AssignmentRVal::Statement(Box::new(
-                    Statement::InvokeFunc("giveMeAnAnimal", vec![]),
-                ))),
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
             )),
             Box::new(InvokeFunc("speak", vec!["specific_animal"])),
         ]);

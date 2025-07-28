@@ -63,8 +63,7 @@ fn test_indirect_invoke() {
     let si = SimpleInterp::new();
     let rw_stmt = si.interp(stmt).unwrap();
 
-    let switch_vec =
-        vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
+    let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
     let check_stmt = Sequence(vec![
         Box::new(FuncDef("foo", false, vec![], None, body)),
         Box::new(Assignment(

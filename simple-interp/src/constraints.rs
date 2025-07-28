@@ -50,10 +50,7 @@ pub struct BooleanConstraints {
 }
 
 impl BooleanConstraints {
-    pub fn new(
-        true_branch: ConstraintMap,
-        false_branch: ConstraintMap,
-    ) -> Self {
+    pub fn new(true_branch: ConstraintMap, false_branch: ConstraintMap) -> Self {
         Self {
             true_branch,
             false_branch,
@@ -67,13 +64,8 @@ impl BooleanConstraints {
         }
     }
 
-    pub fn flip_constraints(
-        bconstraints: BooleanConstraints,
-    ) -> BooleanConstraints {
-        BooleanConstraints::new(
-            bconstraints.false_branch,
-            bconstraints.true_branch,
-        )
+    pub fn flip_constraints(bconstraints: BooleanConstraints) -> BooleanConstraints {
+        BooleanConstraints::new(bconstraints.false_branch, bconstraints.true_branch)
     }
 }
 
@@ -120,18 +112,13 @@ impl ConstraintMap {
                     }
                     // is var in inner_cmap? if not:
                     // - nested funcs: return None
-                    // - closures: recursively follow backptr to enclosing
-                    //   scopes
+                    // - closures: recursively follow backptr to enclosing scopes
                     // FIXME closures should not recurse past enclosing function
                     match instance_vec[0].1.cmap.get(var) {
                         Some(boxed) => return Ok(Some(*boxed.clone())),
                         None => {
                             if traverse_backptr {
-                                return self.scoped_get(
-                                    backptr,
-                                    var,
-                                    traverse_backptr,
-                                );
+                                return self.scoped_get(backptr, var, traverse_backptr);
                             } else {
                                 return Ok(None);
                             }
@@ -206,9 +193,7 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                             VarType::Scope(backptr_a, mut instance_vec_a),
                             VarType::Scope(backptr_b, mut instance_vec_b),
                         ) => {
-                            if instance_vec_a.len() != 1
-                                || instance_vec_b.len() != 1
-                            {
+                            if instance_vec_a.len() != 1 || instance_vec_b.len() != 1 {
                                 todo!("not impl yet (scope vec)");
                             }
 
@@ -235,10 +220,7 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                                         Ok(Some(merged_inner)) => {
                                             *mval = Box::new(VarType::Scope(
                                                 backptr_a,
-                                                vec![(
-                                                    functype_a,
-                                                    merged_inner,
-                                                )],
+                                                vec![(functype_a, merged_inner)],
                                             ));
                                         }
                                         Ok(None) => {
@@ -259,25 +241,18 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                             let mut pos = pos_a.clone();
                             let mut neg = neg_a.clone();
                             if pos_a != pos_b {
-                                let pos_union: HashSet<_> = pos_a
-                                    .union(&pos_b)
-                                    .map(|x| x.clone())
-                                    .collect();
+                                let pos_union: HashSet<_> =
+                                    pos_a.union(&pos_b).map(|x| x.clone()).collect();
                                 pos = pos_union;
                             }
                             if neg_a != neg_b {
-                                let neg_union: HashSet<_> = neg_a
-                                    .union(&neg_b)
-                                    .map(|x| x.clone())
-                                    .collect();
+                                let neg_union: HashSet<_> =
+                                    neg_a.union(&neg_b).map(|x| x.clone()).collect();
                                 neg = neg_union;
                             }
                             merged.cmap.insert(
                                 key,
-                                Box::new(VarType::Values(
-                                    valtype_a,
-                                    (pos, neg),
-                                )),
+                                Box::new(VarType::Values(valtype_a, (pos, neg))),
                             );
                         }
                         _ => return Err(Error::IncomparableVarTypes()),
@@ -296,10 +271,8 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                 &mut VarType::Values(_, (ref pos, ref mut neg)) => {
                     let intersection: HashSet<_> =
                         pos.intersection(&neg).map(|x| x.clone()).collect();
-                    let diff: HashSet<_> = neg
-                        .difference(&intersection)
-                        .map(|x| x.clone())
-                        .collect();
+                    let diff: HashSet<_> =
+                        neg.difference(&intersection).map(|x| x.clone()).collect();
                     *neg = diff;
                 }
                 _ => continue,
@@ -325,10 +298,7 @@ impl Difference<ConstraintMap> for ConstraintMap {
                     match (*self_val.clone(), *other_val.clone()) {
                         (
                             VarType::Values(valtype_self, (self_pos, self_neg)),
-                            VarType::Values(
-                                valtype_other,
-                                (other_pos, other_neg),
-                            ),
+                            VarType::Values(valtype_other, (other_pos, other_neg)),
                         ) => {
                             if valtype_self != valtype_other {
                                 return Err(Error::TypesDiffer());

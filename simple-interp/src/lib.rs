@@ -73,13 +73,8 @@ impl SimpleInterp {
 
         let mut cmap = ConstraintMap::new();
         let mut traits = Traits::new();
-        self.interpreter.interp(
-            &funcs,
-            &mut cmap,
-            &mut traits,
-            None,
-            &stmt,
-        )?;
+        self.interpreter
+            .interp(&funcs, &mut cmap, &mut traits, None, &stmt)?;
 
         //println!("\n-----------------------------------");
         //println!("PHASE 4: Flow Interpretation");
@@ -91,8 +86,7 @@ impl SimpleInterp {
         //);
         //println!("\n3. Original program statement");
 
-        self
-            .rewriter
+        self.rewriter
             .rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true)?;
 
         //println!("\n-----------------------------------");

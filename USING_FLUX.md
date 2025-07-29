@@ -2,7 +2,9 @@
 
 ## Installing
 
-### Dependency: [Z3](https://github.com/Z3Prover/z3)
+### Mac
+
+#### Dependency: [Z3](https://github.com/Z3Prover/z3)
 
 on Mac, naive install fails with
 
@@ -20,18 +22,40 @@ CXX=clang++ CC=clang python scripts/mk_make.py
 
 dang, got same error. trying via `homebrew` now. worked.
 
-### Dependency:
+#### Dependency:
 [liquid-fixpoint](https://github.com/ucsd-progsys/liquid-fixpoint)
 
 specifically having issues with haskell/`stack`, trying to install via GHCup
 now. (initially tried:
 https://docs.haskellstack.org/en/stable/install_and_upgrade/#__tabbed_10_2)
 
+### NixOS
+
+run 
+
+```sh
+nix-shell -p z3 stack
+```
+
+install [liquid-fixpoint](https://github.com/ucsd-progsys/liquid-fixpoint)
+
+executable will be installed in `/home/np/.local/bin/` (now added to flux-fork
+`shell.nix`)
+
+```sh
+exit
+cd ../flux-fork
+nix-shell
+```
+
+install [flux](https://flux-rs.github.io/flux/guide/install.html)
+
 ## Running
 
 trouble resolving git dependency on NixOS
 - have to run `rustup update` in nix-shell to get it to work (likely a syntax 
   change in Cargo.toml according to amit)
+- maybe: if on NixOS, use flux within `nix-shell -p rustup z3`
 
 ### on [Flux-Tock](https://github.com/PLSysSec/tock)
 

@@ -33,29 +33,29 @@ fn dyn_dp() {
     a.speak();
 }
 
-fn static_dp_rand() {
-    let a: &dyn Animal;
-    
-    let mut rng = rand::rng();
-    if rng.random() {
-        a = &Cat {}
-    } else {
-        a = &Cat {}
-    }
-
-    a.speak();
-}
-
-fn static_dp_rand_dummy() {
-    let cat;
-
-    let mut rng = rand::rng();
-    if rng.random() {}
-
-    cat = &Cat {};
-
-    cat.speak();
-}
+//fn static_dp_rand() {
+//    let a: &dyn Animal;
+//
+//    let mut rng = rand::rng();
+//    if rng.random() {
+//        a = &Cat {}
+//    } else {
+//        a = &Cat {}
+//    }
+//
+//    a.speak();
+//}
+//
+//fn static_dp_rand_dummy() {
+//    let cat;
+//
+//    let mut rng = rand::rng();
+//    if rng.random() {}
+//
+//    cat = &Cat {};
+//
+//    cat.speak();
+//}
 
 fn static_dp() {
     let cat = &Cat {};
@@ -63,21 +63,20 @@ fn static_dp() {
 }
 
 fn main() {
-    let iter = 10000;
+    //let iter = 100000;
+    //for _ in 0..iter {
+    //    dyn_dp();
+    //}
+    //for _ in 0..iter {
+    //    static_dp_rand();
+    //}
+    //for _ in 0..iter {
+    //    static_dp_rand_dummy();
+    //}
+    //for _ in 0..iter {
+    //    static_dp();
+    //}
 
-    for _ in 0..iter {
-        dyn_dp();
-    }
-
-    for _ in 0..iter {
-        static_dp_rand();
-    }
-
-    for _ in 0..iter {
-        static_dp_rand_dummy();
-    }
-
-    for _ in 0..iter {
-        static_dp();
-    }
+    dyn_dp();
+    static_dp();
 }

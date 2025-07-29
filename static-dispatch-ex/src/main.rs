@@ -1,5 +1,3 @@
-use rand::prelude::*;
-
 pub trait Animal {
     fn speak(&self);
 }
@@ -21,19 +19,6 @@ impl Animal for Cat {
 }
 
 fn main() {
-    // dynamic dispatch
-    let a: &dyn Animal;
-
-    let mut rng = rand::rng();
-    if rng.random() {
-        a = &Cat {}
-    } else {
-        a = &Dog {}
-    }
-
-    a.speak();
-
-    // static dispatch
     let cat = &Cat {};
 
     cat.speak();

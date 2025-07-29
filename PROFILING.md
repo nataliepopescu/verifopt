@@ -60,9 +60,12 @@ generates `flamegraph.svg` and `perf.data` which we can inspect with `perf` tool
 
 ## Inspecting IR
 
+### debug build
+
 `dyn_dp`: (line 570)
 - 68 lines long including whitespace + comments
 - lines 607 and 613 (in bb4 and bb3, respectively) seem to initialize vtables
+    - syntax: `store ptr @vtable`
 - could 622 be the virtual call?
     - bb5 seems to be getting the "a" info for the virt call
     - syntax: `invoke void %x` (note `%x` signals a variable rather than a
@@ -72,9 +75,18 @@ comparatively, `static_dp` (line 648) is a whopping 12 lines long (whitespace +
 comments included)
 - statically calls `Cat`'s `speak()` on line 656
 
+### release build
+
+no separate `dyn_dp` and `static_dp` funcs
+
+but `invoke void %8` is used at line 393, and the line right before is:
+`%8 = select i1 %_3.i, ptr @"Cat_as_Animal_speak", ptr @"Dog_as_Animal_speak", !dbg !1424` 
+- select ~= ternary op: condition ? true : false
+- %_3.i is related to the rand condition check
+
 ## Inspecting disassembled binary
 
-
+be aware: https://users.rust-lang.org/t/emit-asm-changes-the-produced-machine-code/17701
 
 
 

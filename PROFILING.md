@@ -65,6 +65,8 @@ generates `flamegraph.svg` and `perf.data` which we can inspect with `perf` tool
 - lines 607 and 613 (in bb4 and bb3, respectively) seem to initialize vtables
 - could 622 be the virtual call?
     - bb5 seems to be getting the "a" info for the virt call
+    - syntax: `invoke void %x` (note `%x` signals a variable rather than a
+      static string which would look like `@"_ZN4etcetcetc")
 
 comparatively, `static_dp` (line 648) is a whopping 12 lines long (whitespace +
 comments included)

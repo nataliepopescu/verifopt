@@ -58,7 +58,21 @@ on NixOs: `nix-shell -p rustup` then `rustup update` then `cargo build
 
 generates `flamegraph.svg` and `perf.data` which we can inspect with `perf` tool
 
-## Inspecting IR
+## Inspecting MIR
+
+### debug build
+
+indirect/vtable(?) call on line 112
+
+vs direct call on line 164
+
+### release build
+
+indirect/vtable(?) call on line 195
+
+vs direct call on line 260
+
+## Inspecting LLVM IR
 
 ### debug build
 
@@ -88,6 +102,10 @@ but `invoke void %8` is used at line 393, and the line right before is:
 
 be aware: https://users.rust-lang.org/t/emit-asm-changes-the-produced-machine-code/17701
 
+## debug build
+
+`dyn_dp` func seems to start at line 814 (~ to 906)
+- indirect call at 879?
 
 
 

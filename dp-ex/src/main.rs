@@ -1,4 +1,4 @@
-use rand::prelude::*;
+use rand::Rng;
 
 pub trait Animal {
     fn speak(&self);
@@ -20,11 +20,22 @@ impl Animal for Cat {
     }
 }
 
+struct Bird {}
+
+impl Animal for Bird {
+    fn speak(&self) {
+        println!("chirp");
+    }
+}
+
 fn dyn_dp() {
     let a: &dyn Animal;
 
-    let mut rng = rand::rng();
-    if rng.random() {
+    let num: u32 = rand::rng().random_range(..3);
+
+    if num == 0 {
+        a = &Bird {}
+    } else if num == 1 {
         a = &Cat {}
     } else {
         a = &Dog {}

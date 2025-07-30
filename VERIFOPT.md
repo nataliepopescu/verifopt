@@ -6,6 +6,16 @@
 
 2. explore traits vs generics tradeoff space?
 
+## Why now / Rust / etc?
+
+Rust
+- codegen units (parallel compilation) only applies to LLVM?
+
+now
+- something about single-unit compilation being the rising technique, thus
+  whole-program optimization will be easier
+    - is this just for Rust or is it for languages in general?
+
 ## Technique(s)
 
 - flow-sensitive program analysis/abstract interpretation

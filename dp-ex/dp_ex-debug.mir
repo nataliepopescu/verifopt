@@ -1,0 +1,199 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn <impl at src/main.rs:9:1: 9:20>::speak(_1: &Dog) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    let _4: &[&str; 1];
+
+    bb0: {
+        _4 = const <Dog as Animal>::speak::promoted[0];
+        _3 = Arguments::<'_>::new_const::<1>(copy _4) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = _print(move _3) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+const <impl at src/main.rs:9:1: 9:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "woof\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+fn <impl at src/main.rs:17:1: 17:20>::speak(_1: &Cat) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    let _4: &[&str; 1];
+
+    bb0: {
+        _4 = const <Cat as Animal>::speak::promoted[0];
+        _3 = Arguments::<'_>::new_const::<1>(copy _4) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = _print(move _3) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+const <impl at src/main.rs:17:1: 17:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "meow\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+fn dyn_dp() -> () {
+    let mut _0: ();
+    let _1: &dyn Animal;
+    let mut _3: bool;
+    let mut _4: &mut rand::prelude::ThreadRng;
+    let _5: &Cat;
+    let _6: &Dog;
+    let _7: ();
+    let mut _8: &dyn Animal;
+    scope 1 {
+        debug a => _1;
+        let mut _2: rand::prelude::ThreadRng;
+        scope 2 {
+            debug rng => _2;
+        }
+    }
+
+    bb0: {
+        _2 = rng() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _4 = &mut _2;
+        _3 = <ThreadRng as rand::Rng>::random::<bool>(move _4) -> [return: bb2, unwind: bb8];
+    }
+
+    bb2: {
+        switchInt(move _3) -> [0: bb4, otherwise: bb3];
+    }
+
+    bb3: {
+        _5 = const dyn_dp::promoted[0];
+        _1 = copy _5 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb4: {
+        _6 = const dyn_dp::promoted[1];
+        _1 = copy _6 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb5: {
+        _8 = copy _1;
+        _7 = <dyn Animal as Animal>::speak(move _8) -> [return: bb6, unwind: bb8];
+    }
+
+    bb6: {
+        drop(_2) -> [return: bb7, unwind continue];
+    }
+
+    bb7: {
+        return;
+    }
+
+    bb8 (cleanup): {
+        drop(_2) -> [return: bb9, unwind terminate(cleanup)];
+    }
+
+    bb9 (cleanup): {
+        resume;
+    }
+}
+
+const dyn_dp::promoted[0]: &Cat = {
+    let mut _0: &Cat;
+    let mut _1: Cat;
+
+    bb0: {
+        _1 = Cat;
+        _0 = &_1;
+        return;
+    }
+}
+
+const dyn_dp::promoted[1]: &Dog = {
+    let mut _0: &Dog;
+    let mut _1: Dog;
+
+    bb0: {
+        _1 = Dog;
+        _0 = &_1;
+        return;
+    }
+}
+
+fn static_dp() -> () {
+    let mut _0: ();
+    let _1: &Cat;
+    let _2: ();
+    scope 1 {
+        debug cat => _1;
+    }
+
+    bb0: {
+        _1 = const static_dp::promoted[0];
+        _2 = <Cat as Animal>::speak(copy _1) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+const static_dp::promoted[0]: &Cat = {
+    let mut _0: &Cat;
+    let mut _1: Cat;
+
+    bb0: {
+        _1 = Cat;
+        _0 = &_1;
+        return;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: ();
+    let _2: ();
+
+    bb0: {
+        _1 = dyn_dp() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = static_dp() -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}

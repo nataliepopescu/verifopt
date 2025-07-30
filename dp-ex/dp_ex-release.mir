@@ -1,0 +1,295 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn <impl at src/main.rs:9:1: 9:20>::speak(_1: &Dog) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    scope 1 (inlined Arguments::<'_>::new_const::<1>) {
+        debug pieces => const <Dog as Animal>::speak::promoted[0];
+        let mut _4: &[&str];
+        let mut _5: &[core::fmt::rt::Argument<'_>];
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const <Dog as Animal>::speak::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_5);
+        _5 = const std::fmt::Arguments::<'_>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _3 = Arguments::<'_> { pieces: move _4, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: move _5 };
+        StorageDead(_5);
+        StorageDead(_4);
+        _2 = _print(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        return;
+    }
+}
+
+alloc15 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const <impl at src/main.rs:9:1: 9:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "woof\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+fn <impl at src/main.rs:17:1: 17:20>::speak(_1: &Cat) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    scope 1 (inlined Arguments::<'_>::new_const::<1>) {
+        debug pieces => const <Cat as Animal>::speak::promoted[0];
+        let mut _4: &[&str];
+        let mut _5: &[core::fmt::rt::Argument<'_>];
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const <Cat as Animal>::speak::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_5);
+        _5 = const std::fmt::Arguments::<'_>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _3 = Arguments::<'_> { pieces: move _4, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: move _5 };
+        StorageDead(_5);
+        StorageDead(_4);
+        _2 = _print(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        return;
+    }
+}
+
+alloc15 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const <impl at src/main.rs:17:1: 17:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "meow\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+fn dyn_dp() -> () {
+    let mut _0: ();
+    let _1: &dyn Animal;
+    let mut _3: bool;
+    let mut _4: &mut rand::prelude::ThreadRng;
+    let _5: ();
+    let mut _6: &dyn Animal;
+    scope 1 {
+        debug a => _1;
+        let mut _2: rand::prelude::ThreadRng;
+        scope 2 {
+            debug rng => _2;
+            scope 3 (inlined <ThreadRng as rand::Rng>::random::<bool>) {
+                debug self => _4;
+                scope 4 (inlined distr::other::<impl Distribution<bool> for StandardUniform>::sample::<ThreadRng>) {
+                    debug self => const <rand::prelude::ThreadRng as rand::Rng>::random::<bool>::promoted[0];
+                    debug rng => _4;
+                    let mut _7: i32;
+                    let mut _8: u32;
+                    scope 5 (inlined <ThreadRng as RngCore>::next_u32) {
+                        debug self => _4;
+                        let mut _9: *mut rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>;
+                        let _10: &std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>;
+                        let mut _11: &std::rc::Rc<std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>>;
+                        scope 6 {
+                            debug rng => _9;
+                            scope 13 (inlined <ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng> as RngCore>::next_u32) {
+                                debug self => _9;
+                                let mut _15: &mut rand::rand_core::block::BlockRng<rand::rngs::reseeding::ReseedingCore<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>;
+                            }
+                        }
+                        scope 7 (inlined <Rc<UnsafeCell<ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng>>> as Deref>::deref) {
+                            debug self => _11;
+                            scope 8 (inlined Rc::<UnsafeCell<ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng>>>::inner) {
+                                debug self => _11;
+                                scope 9 (inlined NonNull::<rc::RcInner<UnsafeCell<ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng>>>>::as_ref::<'_>) {
+                                    let _12: *const std::rc::RcInner<std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>>;
+                                    let mut _13: std::ptr::NonNull<std::rc::RcInner<std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>>>;
+                                    scope 10 (inlined NonNull::<rc::RcInner<UnsafeCell<ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng>>>>::as_ptr) {
+                                    }
+                                    scope 11 (inlined std::ptr::mut_ptr::<impl *mut rc::RcInner<UnsafeCell<ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng>>>>::cast_const) {
+                                    }
+                                }
+                            }
+                        }
+                        scope 12 (inlined UnsafeCell::<ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng>>::get) {
+                            debug self => _10;
+                            let mut _14: *const std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = rng() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = &mut _2;
+        StorageLive(_7);
+        StorageLive(_8);
+        StorageLive(_9);
+        StorageLive(_10);
+        StorageLive(_12);
+        StorageLive(_11);
+        _11 = &(_2.0: std::rc::Rc<std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>>);
+        StorageLive(_13);
+        _13 = copy ((_2.0: std::rc::Rc<std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>>).0: std::ptr::NonNull<std::rc::RcInner<std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>>>);
+        _12 = copy _13 as *const std::rc::RcInner<std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>> (Transmute);
+        StorageDead(_13);
+        _10 = &((*_12).2: std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>);
+        StorageDead(_11);
+        StorageLive(_14);
+        _14 = &raw const ((*_12).2: std::cell::UnsafeCell<rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>);
+        _9 = copy _14 as *mut rand::rngs::ReseedingRng<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng> (PtrToPtr);
+        StorageDead(_14);
+        StorageLive(_15);
+        _15 = &mut ((*_9).0: rand::rand_core::block::BlockRng<rand::rngs::reseeding::ReseedingCore<rand_chacha::chacha::ChaCha12Core, rand::rngs::OsRng>>);
+        _8 = <BlockRng<rngs::reseeding::ReseedingCore<rand_chacha::chacha::ChaCha12Core, OsRng>> as RngCore>::next_u32(move _15) -> [return: bb9, unwind: bb7];
+    }
+
+    bb2: {
+        StorageDead(_4);
+        _1 = const dyn_dp::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb3: {
+        StorageDead(_4);
+        _1 = const dyn_dp::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageDead(_3);
+        StorageLive(_6);
+        _6 = copy _1;
+        _5 = <dyn Animal as Animal>::speak(move _6) -> [return: bb5, unwind: bb7];
+    }
+
+    bb5: {
+        StorageDead(_6);
+        drop(_2) -> [return: bb6, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_2);
+        StorageDead(_1);
+        return;
+    }
+
+    bb7 (cleanup): {
+        drop(_2) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        resume;
+    }
+
+    bb9: {
+        StorageDead(_15);
+        StorageDead(_12);
+        StorageDead(_10);
+        StorageDead(_9);
+        _7 = move _8 as i32 (IntToInt);
+        StorageDead(_8);
+        _3 = Lt(move _7, const 0_i32);
+        StorageDead(_7);
+        switchInt(move _3) -> [0: bb3, otherwise: bb2];
+    }
+}
+
+const dyn_dp::promoted[0]: &Cat = {
+    let mut _0: &Cat;
+    let mut _1: Cat;
+
+    bb0: {
+        _1 = Cat;
+        _0 = &_1;
+        return;
+    }
+}
+
+const dyn_dp::promoted[1]: &Dog = {
+    let mut _0: &Dog;
+    let mut _1: Dog;
+
+    bb0: {
+        _1 = Dog;
+        _0 = &_1;
+        return;
+    }
+}
+
+fn static_dp() -> () {
+    let mut _0: ();
+    let _1: ();
+    scope 1 {
+        debug cat => const static_dp::promoted[0];
+    }
+
+    bb0: {
+        _1 = <Cat as Animal>::speak(const static_dp::promoted[0]) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+const static_dp::promoted[0]: &Cat = {
+    let mut _0: &Cat;
+    let mut _1: Cat;
+
+    bb0: {
+        _1 = Cat;
+        _0 = &_1;
+        return;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: ();
+    let _2: ();
+
+    bb0: {
+        _1 = dyn_dp() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = static_dp() -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}

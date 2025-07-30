@@ -1,0 +1,255 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn <impl at src/main.rs:9:1: 9:20>::speak(_1: &Dog) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    let _4: &[&str; 1];
+
+    bb0: {
+        _4 = const <Dog as Animal>::speak::promoted[0];
+        _3 = Arguments::<'_>::new_const::<1>(copy _4) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = _print(move _3) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+const <impl at src/main.rs:9:1: 9:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "woof\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+fn <impl at src/main.rs:17:1: 17:20>::speak(_1: &Cat) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    let _4: &[&str; 1];
+
+    bb0: {
+        _4 = const <Cat as Animal>::speak::promoted[0];
+        _3 = Arguments::<'_>::new_const::<1>(copy _4) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = _print(move _3) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+const <impl at src/main.rs:17:1: 17:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "meow\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+fn <impl at src/main.rs:25:1: 25:21>::speak(_1: &Bird) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    let _4: &[&str; 1];
+
+    bb0: {
+        _4 = const <Bird as Animal>::speak::promoted[0];
+        _3 = Arguments::<'_>::new_const::<1>(copy _4) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = _print(move _3) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}
+
+const <impl at src/main.rs:25:1: 25:21>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "chirp\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+fn dyn_dp() -> () {
+    let mut _0: ();
+    let _1: &dyn Animal;
+    let mut _3: &mut rand::prelude::ThreadRng;
+    let mut _4: rand::prelude::ThreadRng;
+    let mut _5: std::ops::RangeTo<u32>;
+    let _6: &Bird;
+    let _7: &Cat;
+    let _8: &Dog;
+    let _9: ();
+    let mut _10: &dyn Animal;
+    scope 1 {
+        debug a => _1;
+        let _2: u32;
+        scope 2 {
+            debug num => _2;
+        }
+    }
+
+    bb0: {
+        _4 = rng() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _3 = &mut _4;
+        _5 = RangeTo::<u32> { end: const 3_u32 };
+        _2 = <ThreadRng as Rng>::random_range::<u32, RangeTo<u32>>(move _3, move _5) -> [return: bb2, unwind: bb10];
+    }
+
+    bb2: {
+        drop(_4) -> [return: bb3, unwind continue];
+    }
+
+    bb3: {
+        switchInt(copy _2) -> [0: bb4, otherwise: bb5];
+    }
+
+    bb4: {
+        _6 = const dyn_dp::promoted[0];
+        _1 = copy _6 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb8;
+    }
+
+    bb5: {
+        switchInt(copy _2) -> [1: bb6, otherwise: bb7];
+    }
+
+    bb6: {
+        _7 = const dyn_dp::promoted[1];
+        _1 = copy _7 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb8;
+    }
+
+    bb7: {
+        _8 = const dyn_dp::promoted[2];
+        _1 = copy _8 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb8;
+    }
+
+    bb8: {
+        _10 = copy _1;
+        _9 = <dyn Animal as Animal>::speak(move _10) -> [return: bb9, unwind continue];
+    }
+
+    bb9: {
+        return;
+    }
+
+    bb10 (cleanup): {
+        drop(_4) -> [return: bb11, unwind terminate(cleanup)];
+    }
+
+    bb11 (cleanup): {
+        resume;
+    }
+}
+
+const dyn_dp::promoted[0]: &Bird = {
+    let mut _0: &Bird;
+    let mut _1: Bird;
+
+    bb0: {
+        _1 = Bird;
+        _0 = &_1;
+        return;
+    }
+}
+
+const dyn_dp::promoted[1]: &Cat = {
+    let mut _0: &Cat;
+    let mut _1: Cat;
+
+    bb0: {
+        _1 = Cat;
+        _0 = &_1;
+        return;
+    }
+}
+
+const dyn_dp::promoted[2]: &Dog = {
+    let mut _0: &Dog;
+    let mut _1: Dog;
+
+    bb0: {
+        _1 = Dog;
+        _0 = &_1;
+        return;
+    }
+}
+
+fn static_dp() -> () {
+    let mut _0: ();
+    let _1: &Cat;
+    let _2: ();
+    scope 1 {
+        debug cat => _1;
+    }
+
+    bb0: {
+        _1 = const static_dp::promoted[0];
+        _2 = <Cat as Animal>::speak(copy _1) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+const static_dp::promoted[0]: &Cat = {
+    let mut _0: &Cat;
+    let mut _1: Cat;
+
+    bb0: {
+        _1 = Cat;
+        _0 = &_1;
+        return;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: ();
+    let _2: ();
+
+    bb0: {
+        _1 = dyn_dp() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = static_dp() -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+}

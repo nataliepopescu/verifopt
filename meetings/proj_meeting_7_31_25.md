@@ -27,6 +27,9 @@
 - next: instrument rustc to log vtable calls?
     - have a couple pointers to where vtables are constructed in the compiler
       (from zulip)
+        - [this](https://github.com/rust-lang/rust/blob/3fb1b53a9dbfcdf37a4b67d35cde373316829930/compiler/rustc_middle/src/ty/vtable.rs)
+          apparently gets data from
+          [this](https://github.com/rust-lang/rust/blob/3fb1b53a9dbfcdf37a4b67d35cde373316829930/compiler/rustc_trait_selection/src/traits/vtable.rs#L222)
 
 ## notes
 

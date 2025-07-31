@@ -84,9 +84,9 @@ vs direct call on line 260
 
 #### 3 impl
 
-indirect/vtable(?) call on line 199
+indirect/vtable(?) call on line 199: https://github.com/nataliepopescu/verifopt/blob/main/dp-ex/emitted/dp_ex-release_3impl.mir#L199
 
-vs direct call on line 258
+vs direct call on line 258: https://github.com/nataliepopescu/verifopt/blob/main/dp-ex/emitted/dp_ex-release_3impl.mir#L258
 
 ## Inspecting LLVM IR
 
@@ -130,7 +130,7 @@ but `invoke void %8` is used at line 393, and the line right before is:
 no separate `dyn_dp` and `static_dp` funcs
 
 line 571: `call void %17`, and lines before seem to be doing some switching
-maybe on vtable ptrs? 
+maybe on vtable ptrs? https://github.com/nataliepopescu/verifopt/blob/main/dp-ex/emitted/dp_ex-release_3impl.ll#L571
 
 ## Inspecting disassembled binary
 

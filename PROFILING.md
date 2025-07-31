@@ -62,19 +62,37 @@ generates `flamegraph.svg` and `perf.data` which we can inspect with `perf` tool
 
 ### debug build
 
+#### 2 impl
+
 indirect/vtable(?) call on line 112
 
 vs direct call on line 164
 
+#### 3 impl
+
+indirect/vtable(?) call on line 161
+
+vs direct call on line 220
+
 ### release build
+
+#### 2 impl
 
 indirect/vtable(?) call on line 195
 
 vs direct call on line 260
 
+#### 3 impl
+
+indirect/vtable(?) call on line 199
+
+vs direct call on line 258
+
 ## Inspecting LLVM IR
 
 ### debug build
+
+#### 2 impl
 
 `dyn_dp`: (line 570)
 - 68 lines long including whitespace + comments
@@ -89,7 +107,16 @@ comparatively, `static_dp` (line 648) is a whopping 12 lines long (whitespace +
 comments included)
 - statically calls `Cat`'s `speak()` on line 656
 
+#### 3 impl
+
+`dyn_dp`:
+- lines 1320, 1339, and 1345: `store ptr @vtable`
+- bb8 sets up virtual call on line 1333
+    - `call void %x`
+
 ### release build
+
+#### 2 impl
 
 no separate `dyn_dp` and `static_dp` funcs
 
@@ -98,14 +125,31 @@ but `invoke void %8` is used at line 393, and the line right before is:
 - select ~= ternary op: condition ? true : false
 - %_3.i is related to the rand condition check
 
+#### 3 impl
+
+no separate `dyn_dp` and `static_dp` funcs
+
+line 571: `call void %17`, and lines before seem to be doing some switching
+maybe on vtable ptrs? 
+
 ## Inspecting disassembled binary
 
 be aware: https://users.rust-lang.org/t/emit-asm-changes-the-produced-machine-code/17701
 
-## debug build
+### debug build
+
+#### 2 impl
 
 `dyn_dp` func seems to start at line 814 (~ to 906)
 - indirect call at 879?
+
+#### 3 impl
+
+### release build
+
+#### 2 impl
+
+#### 3 impl
 
 
 

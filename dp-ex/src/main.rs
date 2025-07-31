@@ -28,6 +28,11 @@ impl Animal for Bird {
     }
 }
 
+#[unsafe(no_mangle)]
+pub fn animal_speak(animal: &dyn Animal) {
+    animal.speak();
+}
+
 fn dyn_dp() {
     let a: &dyn Animal;
 

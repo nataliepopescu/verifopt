@@ -2,6 +2,8 @@
 
 ## agenda
 
+- goal: gain empirical confidence in verifopt potential
+
 - tried
     - grepping for `dyn` in crates + searching for those uses in apps: https://github.com/nataliepopescu/verifopt/blob/main/DYN_TRAIT_OBS.md
 

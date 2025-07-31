@@ -3,6 +3,8 @@
 ## agenda
 
 - tried
+    - grepping for `dyn` in crates + searching for those uses in apps: https://github.com/nataliepopescu/verifopt/blob/main/DYN_TRAIT_OBS.md
+
     - profiling
         - flamegraph does not differentiate dynamically vs statically dispatched 
           calls: https://github.com/nataliepopescu/verifopt/blob/main/dp-ex/flamegraph_3impl.svg

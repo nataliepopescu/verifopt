@@ -9,7 +9,8 @@
         - unsure if useful to try other profiling tools at this point, seems
           unlikely based on below findings
     
-    - [ ] looking at IR to try to manually identify dynamically dispatched calls
+    - [ ] looking at IR to try to manually identify dynamically dispatched
+      calls: https://github.com/nataliepopescu/verifopt/blob/main/PROFILING.md#inspecting-mir
         - MIR
             - indirect calls are clearer (including in release builds)
             - can potentially differentiate indirect calls using func ptrs vs 

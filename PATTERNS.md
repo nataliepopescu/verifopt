@@ -2,7 +2,7 @@
 
 All patterns are compiled with `-C opt-level=3` (release build).
 
-MIR generally seems to show vtable usage, so in these examples we are looking at the generated LLVM IR (via `godbolt`).
+MIR generally seems to show vtable usage, so in these examples we are looking at the generated LLVM IR (via [godbolt](https://godbolt.org/)).
 
 ## Patterns
 
@@ -18,13 +18,22 @@ pub fn speak_all(animal: &dyn Animal) {
     animal.speak()
 }
 ```
+```llvm
+define void @speak_all(ptr noundef nonnull align 1 %animal.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %animal.1) unnamed_addr {
+start:
+  %0 = getelementptr inbounds nuw i8, ptr %animal.1, i64 24
+  %1 = load ptr, ptr %0, align 8
+  tail call void %1(ptr noundef nonnull align 1 %animal.0)
+  ret void
+}
+```
 - yes but nothing in scope calls `speak_all()`
 
 ### 2: add trait impls in scope
 
 ```rust
 pub trait Animal {
-    fn speak(&self):
+    fn speak(&self);
 }
 
 struct Cat {}
@@ -48,6 +57,7 @@ pub fn speak_all(animal: &dyn Animal) {
 }
 ```
 - yes but nothing in scope calls `speak_all()`
+- same IR as (1)
 
 ### 3: randomly decide which Animal subtype to be
 
@@ -98,6 +108,19 @@ fn dyn_dp() {
 
 pub fn main() {
     dyn_dp();
+}
+```
+```llvm
+_ZN7example6dyn_dp17hc25549bf78d82057E.exit:
+  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_4.i)
+  %switch.selectcmp.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 1
+  %switch.select.i = select i1 %switch.selectcmp.i, ptr @vtable.2, ptr @vtable.3
+  %switch.selectcmp1.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 0
+  %switch.select2.i = select i1 %switch.selectcmp1.i, ptr @vtable.1, ptr %switch.select.i
+  %15 = getelementptr inbounds nuw i8, ptr %switch.select2.i, i64 24
+  %16 = load ptr, ptr %15, align 8
+  call void %16(ptr noundef nonnull align 1 inttoptr (i64 1 to ptr))
+  ret void
 }
 ```
 - maybe?
@@ -152,7 +175,7 @@ fn dyn_dp() {
         animal = &Dog {}
     }
 
-    speak_all();
+    speak_all(animal);
 }
 
 pub fn main() {
@@ -163,6 +186,7 @@ pub fn main() {
 	- `speak_all()` uses vtable, but nothing calls it (although source code
       does)
 	- actual `speak()` code is inlined into an indirect call with some sort of switch statement (switching on vtable ptr values?) preceeding it
+- same IR as (3)
 
 ### 5: annotate `speak_all()` with `#[inline(never)]`
 

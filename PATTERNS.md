@@ -32,7 +32,7 @@ pub trait Animal {
 > struct Dog {}
 > 
 > impl Animal for Cat {
->     fn speak(&self)
+>     fn speak(&self) {
 > 		println!("meow");
 >     }
 > }

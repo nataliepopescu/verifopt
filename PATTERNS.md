@@ -6,7 +6,7 @@ MIR generally seems to show vtable usage, so in these examples we are looking at
 
 ## Patterns
 
-1. no trait impls in scope
+### 1: no trait impls in scope
 
 ```rust
 pub trait Animal {
@@ -20,7 +20,7 @@ pub fn speak_all(animal: &dyn Animal) {
 ```
 - yes but nothing in scope calls `speak_all()`
 
-2. add trait impls in scope
+### 2: add trait impls in scope
 
 ```rust
 pub trait Animal {
@@ -49,7 +49,7 @@ pub fn speak_all(animal: &dyn Animal) {
 ```
 - yes but nothing in scope calls `speak_all()`
 
-3. randomly decide which Animal subtype to be
+### 3: randomly decide which Animal subtype to be
 
 ```rust
 use rand::Rng;
@@ -103,7 +103,7 @@ pub fn main() {
 - maybe?
 	- actual `speak()` code is inlined into an indirect call with some sort of switch statement (switching on vtable ptr values?) preceeding it
 
-4. call `speak_all()` in `dyn_dp()`
+### 4: call `speak_all()` in `dyn_dp()`
 
 ```rust
 use rand::Rng;
@@ -164,7 +164,7 @@ pub fn main() {
       does)
 	- actual `speak()` code is inlined into an indirect call with some sort of switch statement (switching on vtable ptr values?) preceeding it
 
-5. annotate `speak_all()` with `#[inline(never)]`
+### 5: annotate `speak_all()` with `#[inline(never)]`
 
 ```rust
 use rand::Rng;
@@ -223,7 +223,7 @@ pub fn main() {
 ```
 - `speak_all()` is called, but prefaced by switch statement
 
-6. more interesting structs for `Bird`/`Cat`/`Dog`
+### 6: more interesting structs for `Bird`/`Cat`/`Dog`
 
 ```rust
 use rand::Rng;
@@ -290,7 +290,7 @@ pub fn main() {
 	- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete animal struct ptr
 	- adding another field to the structs (e.g. `name: &'static str`) does not change this
 
-7. calling `speak()` from different paths with different possible subsets of the Animal type
+### 7: calling `speak()` from different paths with different possible subsets of the Animal type
 
 ```rust
 use rand::Rng;
@@ -403,7 +403,7 @@ pub fn main() {
 	- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete animal struct ptr
 	- in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes choose between the relevant subset of Animal type vtables/objects
 
-8. make constructors less interesting again, and try different path calls
+### 8: make constructors less interesting again, and try different path calls
 
 ```rust
 use rand::Rng;

@@ -451,6 +451,7 @@ _ZN7example8dyn_dp_117hcda5620e0a50a933E.exit:
   %12 = load ptr, ptr %11, align 8
   call void %12(ptr noundef nonnull align 1 %animal.sroa.0.0.i)
 ...
+
 _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
   %animal.sroa.6.0.i15 = phi ptr [ @vtable.5, %bb7.i17 ], [ @vtable.4, %bb6.i14 ], [ @vtable.2, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit5.i13" ]
   %animal.sroa.0.0.i16 = phi ptr [ %frog.i, %bb7.i17 ], [ %elephant.i, %bb6.i14 ], [ %cat.i2, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit5.i13" ]
@@ -567,6 +568,7 @@ _ZN7example8dyn_dp_117hcda5620e0a50a933E.exit:
   %6 = load ptr, ptr %5, align 8
   call void %6(ptr noundef nonnull align 1 %_4.i1)
 ...
+
 _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
   %switch.selectcmp.i13 = icmp eq i32 %num.i3, 1
   %switch.select.i14 = select i1 %switch.selectcmp.i13, ptr @vtable.4, ptr @vtable.5
@@ -579,3 +581,179 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 - maybe?
 - inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
 
+### 9
+
+```rust
+trait Animal {
+    fn speak(&self);
+}
+
+struct Cat;
+struct Dog;
+
+impl Animal for Cat {
+    #[inline(never)]
+    fn speak(&self) {
+        println!("Cat");
+    }
+}
+
+impl Animal for Dog {
+    fn speak(&self) {
+        println!("Dog");
+    }
+}
+
+#[inline(never)]
+#[unsafe(no_mangle)]
+fn foo(xs: &dyn Animal) {
+    xs.speak();
+}
+
+pub fn main() {
+    let xs: &dyn Animal = &Cat;
+    foo(xs);
+    let xs: &dyn Animal = &Dog;
+    foo(xs);
+}
+```
+```llvm
+define void @foo(ptr noundef nonnull align 1 %xs.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %xs.1) unnamed_addr {
+start:
+  %0 = getelementptr inbounds nuw i8, ptr %xs.1, i64 24
+  %1 = load ptr, ptr %0, align 8
+  tail call void %1(ptr noundef nonnull align 1 %xs.0)
+  ret void
+}
+
+define void @example::main::hf505c5b3ca9f4d81() unnamed_addr {
+start:
+  tail call void @foo(ptr noundef nonnull align 1 inttoptr (i64 1 to ptr), ptr noalias noundef nonnull readonly align 8 dereferenceable(32) @vtable.0)
+  tail call void @foo(ptr noundef nonnull align 1 inttoptr (i64 1 to ptr), ptr noalias noundef nonnull readonly align 8 dereferenceable(32) @vtable.1)
+  ret void
+}
+```
+- maybe
+
+### 10: 9 without `#[inline(never)]`
+
+```llvm
+define void @example::main::hf505c5b3ca9f4d81() unnamed_addr {
+start:
+  %_3.i = alloca [48 x i8], align 8
+  tail call void @"<example::Cat as example::Animal>::speak::h0a516f4740d196fb"(ptr nonnull align 1 poison)
+  call void @llvm.lifetime.start.p0(i64 48, ptr nonnull %_3.i)
+  store ptr @alloc_544006a9c9003b2f7edd4d917a4edbaf, ptr %_3.i, align 8
+  %0 = getelementptr inbounds nuw i8, ptr %_3.i, i64 8
+  store i64 1, ptr %0, align 8
+  %1 = getelementptr inbounds nuw i8, ptr %_3.i, i64 32
+  store ptr null, ptr %1, align 8
+  %2 = getelementptr inbounds nuw i8, ptr %_3.i, i64 16
+  store ptr inttoptr (i64 8 to ptr), ptr %2, align 8
+  %3 = getelementptr inbounds nuw i8, ptr %_3.i, i64 24
+  store i64 0, ptr %3, align 8
+  call void @std::io::stdio::_print::h83d703bcf3ee60d9(ptr noalias nocapture noundef nonnull align 8 dereferenceable(48) %_3.i)
+  call void @llvm.lifetime.end.p0(i64 48, ptr nonnull %_3.i)
+  ret void
+}
+```
+- no
+
+### 11
+
+```rust
+use std::sync::Mutex;
+
+#[unsafe(no_mangle)]
+static my_vec: Mutex<Vec<Box<dyn Animal>>> = Mutex::new(vec![]);
+
+trait Animal: Sync + Send {
+    fn speak(&self);
+}
+
+struct Cat;
+
+impl Animal for Cat {
+    fn speak(&self) {
+        println!("Cat");
+    }
+}
+
+struct Dog;
+
+impl Animal for Dog {
+    fn speak(&self) {
+        println!("Dog");
+    }
+}
+
+#[inline(never)]
+#[unsafe(no_mangle)]
+fn foo(xs: &[Box<dyn Animal>]) {
+    for x in xs { x.speak() }
+}
+
+pub fn main() {
+    my_vec.lock().unwrap().insert(0, Box::new(Cat));
+    foo(&my_vec.lock().unwrap());
+}
+```
+```llvm
+define void @foo(ptr noalias noundef nonnull readonly align 8 %xs.0, i64 noundef %xs.1) unnamed_addr {
+start:
+  %_15 = getelementptr inbounds nuw %"alloc::boxed::Box<dyn Animal>", ptr %xs.0, i64 %xs.1
+  %_236 = icmp eq i64 %xs.1, 0
+  br i1 %_236, label %bb3, label %bb4
+
+bb4:
+  %iter.sroa.0.07 = phi ptr [ %_33, %bb4 ], [ %xs.0, %start ]
+  %_33 = getelementptr inbounds nuw i8, ptr %iter.sroa.0.07, i64 16
+  %_9.0 = load ptr, ptr %iter.sroa.0.07, align 8
+  %0 = getelementptr inbounds nuw i8, ptr %iter.sroa.0.07, i64 8
+  %_9.1 = load ptr, ptr %0, align 8
+  %1 = getelementptr inbounds nuw i8, ptr %_9.1, i64 24
+  %2 = load ptr, ptr %1, align 8
+  tail call void %2(ptr noundef nonnull align 1 %_9.0)
+  %_23 = icmp eq ptr %_33, %_15
+  br i1 %_23, label %bb3, label %bb4
+
+bb3:
+  ret void
+}
+
+...
+
+"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17hb77972f0c771ab29E.exit":
+  %_21 = load ptr, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 16), align 8
+  %len = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
+  invoke void @foo(ptr noalias noundef nonnull readonly align 8 %_21, i64 noundef %len)
+          to label %bb8 unwind label %cleanup3
+```
+
+### 12: 11 without `#[inline(never)]`
+
+```llvm
+  %len.i = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
+...
+
+bb6.i:
+  %_25.i = load ptr, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 16), align 8
+  %_14.not.i = icmp eq i64 %len.i, 0
+  br i1 %_14.not.i, label %bb4, label %bb7.i
+
+bb7.i:
+  %dst.i = getelementptr inbounds nuw i8, ptr %_25.i, i64 16
+  %12 = shl nuw nsw i64 %len.i, 4
+  tail call void @llvm.memmove.p0.p0.i64(ptr nonnull align 8 %dst.i, ptr nonnull align 8 %_25.i, i64 %12, i1 false)
+  br label %bb4
+
+bb4:
+  store ptr inttoptr (i64 1 to ptr), ptr %_25.i, align 8
+  %14 = getelementptr inbounds nuw i8, ptr %_25.i, i64 8
+  store ptr @vtable.1, ptr %14, align 8
+  %new_len.i = add nuw nsw i64 %len.i, 1
+  store i64 %new_len.i, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
+  br i1 %t.1.i8, label %_ZN3std4sync6poison4Flag4done17h10a53d883c6fda20E.exit.i.i, label %bb1.i.i.i
+```
+- maybe?
+- the `Cat` vtable is stored in %14, but never called... must be inlined somewhere but i can't identify it

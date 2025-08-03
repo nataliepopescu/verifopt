@@ -1,8 +1,8 @@
-# Code patterns checked for vtable usage
+# Code patterns checked for flow-insensitive vtable usage
 
 All patterns are compiled with `-C opt-level=3` (release build).
 
-MIR generally seems to emit vtable usage, so in these examples we are looking at the generated LLVM IR (via [godbolt](https://godbolt.org/)).
+MIR generally seems to emit vtable usage regardless, so in these examples we are looking more closely at the generated LLVM IR (via [godbolt](https://godbolt.org/)).
 
 ## Patterns
 
@@ -330,9 +330,9 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   ret void
 }
 ```
-- yes?
-	- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete struct ptr
-	- adding another field to the structs (e.g. `name: &'static str`) does not change this
+- maybe?
+- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete struct ptr
+- adding another field to the structs (e.g. `name: &'static str`) does not change this
 
 ### 7: calling `speak()` from different paths with different possible subsets of the Animal type
 
@@ -459,9 +459,9 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
   call void %25(ptr noundef nonnull align 1 %animal.sroa.0.0.i16)
 ...
 ```
-- yes?
-	- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete animal struct ptr
-	- in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the relevant subset of Animal type vtables/objects
+- maybe?
+- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete animal struct ptr
+- in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the relevant subset of Animal type vtables/objects
 
 ### 8: make constructors less interesting again, and try different path calls
 
@@ -577,5 +577,5 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
   call void %13(ptr noundef nonnull align 1 %_4.i1)
 ```
 - maybe?
-	- inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
+- inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
 

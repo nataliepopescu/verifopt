@@ -729,6 +729,7 @@ bb3:
   invoke void @foo(ptr noalias noundef nonnull readonly align 8 %_21, i64 noundef %len)
           to label %bb8 unwind label %cleanup3
 ```
+- maybe?
 
 ### 12: 11 without `#[inline(never)]`
 

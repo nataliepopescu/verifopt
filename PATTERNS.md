@@ -2,6 +2,8 @@
 
 All patterns are compiled with `-C opt-level=3` (release build).
 
+Diffs are marked with `>`.
+
 ## Patterns
 
 1. 
@@ -26,20 +28,20 @@ pub trait Animal {
     fn speak(&self):
 }
 
-**struct Cat {}**
-struct Dog {}
-
-impl Animal for Cat {
-    fn speak(&self)
-		println!("meow");
-    }
-}
-
-impl Animal for Dog {
-    fn speak(&self) {
-        println!("woof");
-    }
-}
+> struct Cat {}
+> struct Dog {}
+> 
+> impl Animal for Cat {
+>     fn speak(&self)
+> 		println!("meow");
+>     }
+> }
+> 
+> impl Animal for Dog {
+>     fn speak(&self) {
+>         println!("woof");
+>     }
+> }
 
 #[unsafe(no_mangle)]
 pub fn speak_all(animal: &dyn Animal) {

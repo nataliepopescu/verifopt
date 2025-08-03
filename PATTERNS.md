@@ -26,7 +26,7 @@ pub trait Animal {
     fn speak(&self):
 }
 
-<span style="color:red">struct Cat {}</span>
+**struct Cat {}**
 struct Dog {}
 
 impl Animal for Cat {

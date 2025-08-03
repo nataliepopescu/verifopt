@@ -497,5 +497,27 @@ pub fn main() {
     dyn_dp_2();
 }
 ```
-- inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
+```
+_ZN7example8dyn_dp_117hcda5620e0a50a933E.exit:
+...
+  %switch.selectcmp.i = icmp eq i32 %num.i, 1
+  %switch.select.i = select i1 %switch.selectcmp.i, ptr @vtable.2, ptr @vtable.3
+  %switch.selectcmp1.i = icmp eq i32 %num.i, 0
+  %switch.select2.i = select i1 %switch.selectcmp1.i, ptr @vtable.1, ptr %switch.select.i
+  %5 = getelementptr inbounds nuw i8, ptr %switch.select2.i, i64 24
+  %6 = load ptr, ptr %5, align 8
+  call void %6(ptr noundef nonnull align 1 %_4.i1)
+...
+_ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
+...
+  %switch.selectcmp.i13 = icmp eq i32 %num.i3, 1
+  %switch.select.i14 = select i1 %switch.selectcmp.i13, ptr @vtable.4, ptr @vtable.5
+  %switch.selectcmp1.i15 = icmp eq i32 %num.i3, 0
+  %switch.select2.i16 = select i1 %switch.selectcmp1.i15, ptr @vtable.2, ptr %switch.select.i14
+  %12 = getelementptr inbounds nuw i8, ptr %switch.select2.i16, i64 24
+  %13 = load ptr, ptr %12, align 8
+  call void %13(ptr noundef nonnull align 1 %_4.i1)
+```
+- maybe?
+	- inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
 

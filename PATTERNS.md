@@ -497,7 +497,7 @@ pub fn main() {
     dyn_dp_2();
 }
 ```
-```
+```llvm
 _ZN7example8dyn_dp_117hcda5620e0a50a933E.exit:
 ...
   %switch.selectcmp.i = icmp eq i32 %num.i, 1

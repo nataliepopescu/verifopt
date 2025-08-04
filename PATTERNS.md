@@ -581,7 +581,7 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 - maybe?
 - inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
 
-### 9
+### 9: different paths within same function
 
 ```rust
 use rand::Rng;
@@ -680,7 +680,137 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 }
 ```
 
-### 10
+### 10: 9 + structs _with_ fields
+
+```rust
+use rand::Rng;
+
+pub trait Animal {
+    fn speak(&self);
+}
+
+struct Bird {
+    num: u32,
+}
+
+struct Cat {
+    num: u32,
+}
+
+struct Dog {
+    num: u32,
+}
+
+struct Elephant {
+    num: u32,
+}
+
+struct Frog {
+    num: u32,
+}
+
+impl Animal for Bird {
+    fn speak(&self) {
+        println!("chirp");
+    }
+}
+
+impl Animal for Cat {
+    fn speak(&self) {
+        println!("meow");
+    }
+}
+
+impl Animal for Dog {
+    fn speak(&self) {
+        println!("woof");
+    }
+}
+
+impl Animal for Elephant {
+    fn speak(&self) {
+        println!("toot");
+    }
+}
+
+impl Animal for Frog {
+    fn speak(&self) {
+        println!("ribbit");
+    }
+}
+
+fn dyn_dp_3() {
+    let animal: &dyn Animal;
+
+    let bird = Bird { num: 0 };
+    let cat = Cat { num: 1 };
+    let dog = Dog { num: 2 };
+    let elephant = Elephant { num: 3 };
+    let frog = Frog { num: 4 };
+
+    let num: u32 = rand::rng().random_range(..2);
+
+    if num == 0 {
+        let num2: u32 = rand::rng().random_range(..3);
+
+        if num2 == 0 {
+            animal = &bird;
+        } else if num2 == 1 {
+            animal = &cat;
+        } else {
+            animal = &dog;
+        }
+
+        animal.speak();
+    } else {
+        let num2: u32 = rand::rng().random_range(..3);
+
+        if num2 == 0 {
+            animal = &cat;
+        } else if num2 == 1 {
+            animal = &elephant;
+        } else {
+            animal = &frog;
+        }
+
+        animal.speak();
+    }
+}
+
+pub fn main() {
+    dyn_dp_3();
+}
+```
+```llvm
+"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit32.i":
+  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_20.i)
+  switch i32 %num23.i, label %bb22.i [
+    i32 0, label %_ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit
+    i32 1, label %bb21.i
+  ]
+
+bb21.i:
+  br label %_ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit
+
+bb22.i:
+  br label %_ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit
+
+_ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
+  %animal.sroa.10.1.sink.i = phi ptr [ @vtable.5, %bb22.i ], [ @vtable.4, %bb21.i ], [ @vtable.2, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit32.i" ], [ @vtable.3, %bb11.i ], [ @vtable.2, %bb10.i ], [ @vtable.1, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit21.i" ]
+  %animal.sroa.0.1.sink.i = phi ptr [ %frog.i, %bb22.i ], [ %elephant.i, %bb21.i ], [ %cat.i, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit32.i" ], [ %dog.i, %bb11.i ], [ %cat.i, %bb10.i ], [ %bird.i, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit21.i" ]
+  %14 = getelementptr inbounds nuw i8, ptr %animal.sroa.10.1.sink.i, i64 24
+  %15 = load ptr, ptr %14, align 8
+  call void %15(ptr noundef nonnull align 1 %animal.sroa.0.1.sink.i)
+  call void @llvm.lifetime.end.p0(i64 4, ptr nonnull %frog.i)
+  call void @llvm.lifetime.end.p0(i64 4, ptr nonnull %elephant.i)
+  call void @llvm.lifetime.end.p0(i64 4, ptr nonnull %dog.i)
+  call void @llvm.lifetime.end.p0(i64 4, ptr nonnull %cat.i)
+  call void @llvm.lifetime.end.p0(i64 4, ptr nonnull %bird.i)
+  ret void
+}
+```
+
+### 11: call a wrapper function with two instances of Animal
 
 ```rust
 trait Animal {
@@ -734,7 +864,7 @@ start:
 ```
 - maybe
 
-### 11: 10 without `#[inline(never)]`
+### 12: 11 without `#[inline(never)]`
 
 ```llvm
 define void @example::main::hf505c5b3ca9f4d81() unnamed_addr {
@@ -758,7 +888,7 @@ start:
 ```
 - no
 
-### 12
+### 13 call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype)
 
 ```rust
 use std::sync::Mutex;
@@ -830,7 +960,7 @@ bb3:
 ```
 - maybe?
 
-### 13: 12 without `#[inline(never)]`
+### 14: 13 without `#[inline(never)]`
 
 ```llvm
   %len.i = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8

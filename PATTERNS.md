@@ -1070,7 +1070,7 @@ start:
 
 </details>
 
-### 13 call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ？
+### 13: call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ？
 
 <details>
 

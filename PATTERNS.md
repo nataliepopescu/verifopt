@@ -42,11 +42,13 @@ start:
 
 </details>
 
-- yes but nothing in scope calls `speak_all()`
+yes but nothing in scope calls `speak_all()`
 
 ### 2: 1 + trait impls in scope
 
 <details>
+
+<summary>Source code</summary>
 
 ```rust
 pub trait Animal {
@@ -76,10 +78,14 @@ pub fn speak_all(animal: &dyn Animal) {
 
 </details>
 
-- yes but nothing in scope calls `speak_all()`
+yes but nothing in scope calls `speak_all()`
 - same IR as (1)
 
 ### 3: trait impls in scope + randomly decide which Animal subtype to be
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -130,6 +136,13 @@ pub fn main() {
     dyn_dp();
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   %switch.selectcmp.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 1
@@ -142,11 +155,18 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   ret void
 }
 ```
-- maybe?
+
+</details>
+
+maybe?
 - actual `speak()` code is inlined into an indirect call with some sort of switch statement preceeding it
 - switch statement switches on expected randum values to determine which vtable ptr to use
 
 ### 4: 3 + call `speak_all()` in `dyn_dp()`
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -202,12 +222,19 @@ pub fn main() {
     dyn_dp();
 }
 ```
-- maybe?
+
+</details>
+
+maybe?
 - `speak_all()` uses vtable, but nothing calls it (although source code does)
 - actual `speak()` code is inlined into an indirect call with a switch statement preceeding it
 - same IR as (3)
 
 ### 5: annotate `speak_all()` with `#[inline(never)]`
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -264,6 +291,13 @@ pub fn main() {
     dyn_dp();
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   %switch.selectcmp.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 1
@@ -274,10 +308,17 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   ret void
 }
 ```
-- maybe?
+
+</details>
+
+maybe?
 - `speak_all()` is called, but prefaced by switch statement
 
 ### 6: 3 + more interesting structs for `Bird`/`Cat`/`Dog`
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -340,6 +381,13 @@ pub fn main() {
     dyn_dp();
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   %animal.sroa.6.0.i = phi ptr [ @vtable.3, %bb7.i ], [ @vtable.2, %bb6.i ], [ @vtable.1, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit9.i" ]
@@ -350,11 +398,18 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   ret void
 }
 ```
-- maybe?
+
+</details>
+
+maybe?
 - vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete struct ptr
 - adding another field to the structs (e.g. `name: &'static str`) does not change this
 
 ### 7: calling `speak()` from different paths with different possible subsets of the Animal type
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -463,6 +518,13 @@ pub fn main() {
     dyn_dp_2();
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 _ZN7example8dyn_dp_117hcda5620e0a50a933E.exit:
   %animal.sroa.6.0.i = phi ptr [ @vtable.3, %bb7.i ], [ @vtable.2, %bb6.i ], [ @vtable.1, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit5.i" ]
@@ -480,11 +542,18 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
   call void %25(ptr noundef nonnull align 1 %animal.sroa.0.0.i16)
 ...
 ```
-- maybe?
+
+</details>
+
+maybe?
 - vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete animal struct ptr
 - in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the relevant subset of Animal type vtables/objects
 
 ### 8: 7 + make constructors less interesting again
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -578,6 +647,13 @@ pub fn main() {
     dyn_dp_2();
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 _ZN7example8dyn_dp_117hcda5620e0a50a933E.exit:
   %switch.selectcmp.i = icmp eq i32 %num.i, 1
@@ -598,10 +674,17 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
   %13 = load ptr, ptr %12, align 8
   call void %13(ptr noundef nonnull align 1 %_4.i1)
 ```
-- maybe?
+
+</details>
+
+maybe?
 - inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
 
 ### 9: different paths within same function
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -682,6 +765,13 @@ pub fn main() {
     dyn_dp_3();
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 "_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit38.i":
   call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_12.i)
@@ -700,7 +790,15 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 }
 ```
 
+</details>
+
+maybe?
+
 ### 10: 9 + make structs more interesting
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use rand::Rng;
@@ -801,6 +899,13 @@ pub fn main() {
     dyn_dp_3();
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 "_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit32.i":
   call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_20.i)
@@ -830,7 +935,15 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 }
 ```
 
+</details>
+
+maybe
+
 ### 11: call a wrapper function with two instances of Animal
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 trait Animal {
@@ -866,6 +979,13 @@ pub fn main() {
     foo(xs);
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 define void @foo(ptr noundef nonnull align 1 %xs.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %xs.1) unnamed_addr {
 start:
@@ -882,9 +1002,16 @@ start:
   ret void
 }
 ```
-- maybe
+
+</details>
+
+maybe
 
 ### 12: 11 without `#[inline(never)]`
+
+<details>
+
+<summary>LLVM IR</summary>
 
 ```llvm
 define void @example::main::hf505c5b3ca9f4d81() unnamed_addr {
@@ -906,9 +1033,16 @@ start:
   ret void
 }
 ```
-- no
+
+</details>
+
+no
 
 ### 13 call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype)
+
+<details>
+
+<summary>Source code</summary>
 
 ```rust
 use std::sync::Mutex;
@@ -947,6 +1081,13 @@ pub fn main() {
     foo(&my_vec.lock().unwrap());
 }
 ```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
 ```llvm
 define void @foo(ptr noalias noundef nonnull readonly align 8 %xs.0, i64 noundef %xs.1) unnamed_addr {
 start:
@@ -978,9 +1119,16 @@ bb3:
   invoke void @foo(ptr noalias noundef nonnull readonly align 8 %_21, i64 noundef %len)
           to label %bb8 unwind label %cleanup3
 ```
-- maybe?
+
+</details>
+
+maybe?
 
 ### 14: 13 without `#[inline(never)]`
+
+<details>
+
+<summary>LLVM IR</summary>
 
 ```llvm
   %len.i = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
@@ -1005,6 +1153,9 @@ bb4:
   store i64 %new_len.i, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
   br i1 %t.1.i8, label %_ZN3std4sync6poison4Flag4done17h10a53d883c6fda20E.exit.i.i, label %bb1.i.i.i
 ```
-- maybe?
+
+</details>
+
+maybe?
 - the `Cat` vtable is stored in %14, but never called... must be inlined somewhere but i can't identify it
 

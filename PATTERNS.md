@@ -10,6 +10,7 @@ MIR generally seems to emit vtable usage regardless, so in these examples we are
 ### 1: no trait impls in scope, define `speak_all()`
 
 <details>
+
 ```rust
 pub trait Animal {
     fn speak(&self);
@@ -20,7 +21,9 @@ pub fn speak_all(animal: &dyn Animal) {
     animal.speak()
 }
 ```
+
 </details>
+
 ```llvm
 define void @speak_all(ptr noundef nonnull align 1 %animal.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %animal.1) unnamed_addr {
 start:
@@ -33,6 +36,8 @@ start:
 - yes but nothing in scope calls `speak_all()`
 
 ### 2: 1 + trait impls in scope
+
+<details>
 
 ```rust
 pub trait Animal {
@@ -59,6 +64,9 @@ pub fn speak_all(animal: &dyn Animal) {
     animal.speak()
 }
 ```
+
+</details>
+
 - yes but nothing in scope calls `speak_all()`
 - same IR as (1)
 

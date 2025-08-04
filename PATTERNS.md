@@ -26,6 +26,8 @@ pub fn speak_all(animal: &dyn Animal) {
 
 </details>
 
+<details>
+
 <summary>LLVM IR</summary>
 
 ```llvm
@@ -37,6 +39,9 @@ start:
   ret void
 }
 ```
+
+</details>
+
 - yes but nothing in scope calls `speak_all()`
 
 ### 2: 1 + trait impls in scope

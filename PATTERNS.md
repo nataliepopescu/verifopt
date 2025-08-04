@@ -584,6 +584,105 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 ### 9
 
 ```rust
+use rand::Rng;
+
+pub trait Animal {
+    fn speak(&self);
+}
+
+struct Bird {}
+struct Cat {}
+struct Dog {}
+struct Elephant {}
+struct Frog {}
+
+impl Animal for Bird {
+    fn speak(&self) {
+        println!("chirp");
+    }
+}
+
+impl Animal for Cat {
+    fn speak(&self) {
+        println!("meow");
+    }
+}
+
+impl Animal for Dog {
+    fn speak(&self) {
+        println!("woof");
+    }
+}
+
+impl Animal for Elephant {
+    fn speak(&self) {
+        println!("toot");
+    }
+}
+
+impl Animal for Frog {
+    fn speak(&self) {
+        println!("ribbit");
+    }
+}
+
+fn dyn_dp_3() {
+    let animal: &dyn Animal;
+
+    let num: u32 = rand::rng().random_range(..2);
+
+    if num == 0 {
+        let num2: u32 = rand::rng().random_range(..3);
+
+        if num2 == 0 {
+            animal = &Bird {}
+        } else if num2 == 1 {
+            animal = &Cat {}
+        } else {
+            animal = &Dog {}
+        }
+
+        animal.speak();
+    } else {
+        let num2: u32 = rand::rng().random_range(..3);
+
+        if num2 == 0 {
+            animal = &Cat {}
+        } else if num2 == 1 {
+            animal = &Elephant {}
+        } else {
+            animal = &Frog {}
+        }
+
+        animal.speak();
+    }
+}
+
+pub fn main() {
+    dyn_dp_3();
+}
+```
+```llvm
+"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit38.i":
+  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_12.i)
+  %switch.selectcmp8.i = icmp eq i32 %num23.i, 1
+  %switch.select9.i = select i1 %switch.selectcmp8.i, ptr @vtable.4, ptr @vtable.5
+  %switch.selectcmp10.i = icmp eq i32 %num23.i, 0
+  %switch.select11.i = select i1 %switch.selectcmp10.i, ptr @vtable.2, ptr %switch.select9.i
+  br label %_ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit
+
+_ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
+  %switch.select11.sink.i = phi ptr [ %switch.select11.i, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit38.i" ], [ %switch.select7.i, %"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit27.i" ]
+  %14 = getelementptr inbounds nuw i8, ptr %switch.select11.sink.i, i64 24
+  %15 = load ptr, ptr %14, align 8
+  call void %15(ptr noundef nonnull align 1 inttoptr (i64 1 to ptr))
+  ret void
+}
+```
+
+### 10
+
+```rust
 trait Animal {
     fn speak(&self);
 }
@@ -635,7 +734,7 @@ start:
 ```
 - maybe
 
-### 10: 9 without `#[inline(never)]`
+### 11: 10 without `#[inline(never)]`
 
 ```llvm
 define void @example::main::hf505c5b3ca9f4d81() unnamed_addr {
@@ -659,7 +758,7 @@ start:
 ```
 - no
 
-### 11
+### 12
 
 ```rust
 use std::sync::Mutex;
@@ -731,7 +830,7 @@ bb3:
 ```
 - maybe?
 
-### 12: 11 without `#[inline(never)]`
+### 13: 12 without `#[inline(never)]`
 
 ```llvm
   %len.i = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
@@ -758,3 +857,4 @@ bb4:
 ```
 - maybe?
 - the `Cat` vtable is stored in %14, but never called... must be inlined somewhere but i can't identify it
+

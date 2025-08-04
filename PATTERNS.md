@@ -1,8 +1,10 @@
 # Code patterns checked for flow-insensitive vtable usage
 
-All patterns are compiled with `-C opt-level=3` (release build).
+All patterns are compiled with `-C opt-level=3` (release build) and `rustc
+1.87.0`.
 
-MIR generally seems to emit vtable usage regardless, so in these examples we are looking more closely at the generated LLVM IR (via [godbolt](https://godbolt.org/)).
+MIR generally seems to emit vtable usage regardless, so in these examples we 
+are looking more closely at the generated LLVM IR (via [godbolt](https://godbolt.org/)).
 
 
 ## Patterns

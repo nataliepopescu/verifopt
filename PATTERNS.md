@@ -16,7 +16,7 @@ are looking more closely at the generated LLVM IR (via [godbolt](https://godbolt
 
 ## Patterns
 
-### 1: no trait impls in scope, define `speak_all()`
+### 1: no trait impls in scope, define `speak_all()` ✅
 
 <details>
 
@@ -51,14 +51,14 @@ start:
 
 </details>
 
-yes, although nothing in scope calls `speak_all()`.
+although nothing in scope calls `speak_all()`.
 
 rust trait object fat pointers are composed of two pointers, the first pointing
 to the actual object/struct data and the second pointing to the vtable. in the
 generated LLVM IR for `speak_all()`, we can see that first the vtable ptr is
 loaded, and then called with the actual `animal` data pointer. 
 
-### 2: 1 + trait impls in scope
+### 2: 1 + trait impls in scope ✅
 
 <details>
 
@@ -92,11 +92,11 @@ pub fn speak_all(animal: &dyn Animal) {
 
 </details>
 
-yes, although nothing in scope calls `speak_all()`.
+although nothing in scope calls `speak_all()`.
 
 same IR as example (1).
 
-### 3: trait impls in scope + randomly decide which Animal subtype to be
+### 3: trait impls in scope + randomly decide which Animal subtype to be ✅
 
 <details>
 
@@ -173,8 +173,6 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 
 </details>
 
-yes.
-
 a preceeding switch statement switches on the expected random values to 
 determine which vtable ptr to use.
 
@@ -183,7 +181,7 @@ indirect call is a bit hard to parse. looking below at example (5) shows a simil
 argument to the `speak_all()` function, which there is interpreted as a pointer
 to the animal data. 
 
-### 4: 3 + call `speak_all()` in `dyn_dp()`
+### 4: 3 + call `speak_all()` in `dyn_dp()` ✅
 
 <details>
 
@@ -246,8 +244,6 @@ pub fn main() {
 
 </details>
 
-yes.
-
 `speak_all()` is generated and uses the vtable, but nothing in the generated IR 
 calls it (although the source code does).
 
@@ -256,7 +252,7 @@ preceeding it.
 
 same IR as example (3).
 
-### 5: annotate `speak_all()` with `#[inline(never)]`
+### 5: annotate `speak_all()` with `#[inline(never)]` ✅
 
 <details>
 
@@ -345,9 +341,7 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 
 </details>
 
-yes.
-
-### 6: 3 + more interesting structs for `Bird`/`Cat`/`Dog`
+### 6: 3 + more interesting structs for `Bird`/`Cat`/`Dog` ✅
 
 <details>
 
@@ -434,15 +428,13 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 
 </details>
 
-yes.
-
 vtable call is prefaced by two phi nodes, one to select the vtable ptr, and one 
 to select the data ptr. 
 
 adding another field to the structs (e.g. `name: &'static str`) does not change 
 this.
 
-### 7: calling `speak()` from different paths with different possible subsets of the Animal type
+### 7: calling `speak()` from different paths with different possible subsets of the Animal type ✅
 
 <details>
 
@@ -582,14 +574,12 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 
 </details>
 
-yes.
-
 vtable call is prefaced by phi nodes as in example (6).
 
 in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the 
 relevant subset of Animal vtable/data ptrs.
 
-### 8: 7 + make constructors less interesting again
+### 8: 7 + make constructors less interesting again ✅
 
 <details>
 
@@ -717,12 +707,10 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 
 </details>
 
-yes.
-
 each `dyn_dp` function generates code similar to example (3), where comparisons
 are only between relevant subsets of the Animal trait. 
 
-### 9: different paths within same function
+### 9: different paths within same function ✅
 
 <details>
 
@@ -842,11 +830,9 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 
 </details>
 
-yes.
-
 similar to example (8). 
 
-### 10: 9 + make structs more interesting
+### 10: 9 + make structs more interesting ✅
 
 <details>
 
@@ -987,11 +973,9 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 }
 ```
 
-</details>
+</details> 
 
-yes. 
-
-### 11: call a wrapper function with two instances of Animal
+### 11: call a wrapper function with two instances of Animal ✅
 
 <details>
 
@@ -1057,9 +1041,7 @@ start:
 
 </details>
 
-yes.
-
-### 12: 11 without `#[inline(never)]`
+### 12: 11 without `#[inline(never)]` ❌
 
 <details>
 
@@ -1088,9 +1070,7 @@ start:
 
 </details>
 
-no
-
-### 13 call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype)
+### 13 call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ？
 
 <details>
 
@@ -1174,9 +1154,7 @@ bb3:
 
 </details>
 
-maybe?
-
-### 14: 13 without `#[inline(never)]`
+### 14: 13 without `#[inline(never)]` ？
 
 <details>
 
@@ -1207,8 +1185,6 @@ bb4:
 ```
 
 </details>
-
-maybe?
 
 the `Cat` vtable is stored in %14, but never called... must be inlined somewhere 
 but i can't identify it.

@@ -1,11 +1,18 @@
 # Code patterns checked for flow-insensitive vtable usage
 
-All patterns are compiled with `-C opt-level=3` (release build) and `rustc
-1.87.0`.
+All patterns are compiled with `rustc 1.87.0` and 
+`-C opt-level=3` (release build).
 
 MIR generally seems to emit vtable usage regardless, so in these examples we 
 are looking more closely at the generated LLVM IR (via [godbolt](https://godbolt.org/)).
 
+## To look into
+
+- [x] separating object selection from dynamic dispatch
+- [ ] separating trait declaration from definition + usage (e.g. visitor
+  pattern)
+- [x] struct with at least one field
+- [ ] traits with more than one function
 
 ## Patterns
 
@@ -44,7 +51,12 @@ start:
 
 </details>
 
-yes but nothing in scope calls `speak_all()`
+yes, although nothing in scope calls `speak_all()`.
+
+rust trait object fat pointers are composed of two pointers, the first pointing
+to the actual object/struct data and the second pointing to the vtable. in the
+generated LLVM IR for `speak_all()`, we can see that first the vtable ptr is
+loaded, and then called with the actual `animal` data pointer. 
 
 ### 2: 1 + trait impls in scope
 
@@ -80,8 +92,9 @@ pub fn speak_all(animal: &dyn Animal) {
 
 </details>
 
-yes but nothing in scope calls `speak_all()`
-- same IR as (1)
+yes, although nothing in scope calls `speak_all()`.
+
+same IR as example (1).
 
 ### 3: trait impls in scope + randomly decide which Animal subtype to be
 
@@ -160,9 +173,15 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 
 </details>
 
-maybe?
-- actual `speak()` code is inlined into an indirect call with some sort of switch statement preceeding it
-- switch statement switches on expected randum values to determine which vtable ptr to use
+yes.
+
+a preceeding switch statement switches on the expected random values to 
+determine which vtable ptr to use.
+
+the vtable ptr then seems to be loaded into `%16`, but the argument to the
+indirect call is a bit hard to parse. looking below at example (5) shows a similar
+argument to the `speak_all()` function, which there is interpreted as a pointer
+to the animal data. 
 
 ### 4: 3 + call `speak_all()` in `dyn_dp()`
 
@@ -227,10 +246,15 @@ pub fn main() {
 
 </details>
 
-maybe?
-- `speak_all()` uses vtable, but nothing calls it (although source code does)
-- actual `speak()` code is inlined into an indirect call with a switch statement preceeding it
-- same IR as (3)
+yes.
+
+`speak_all()` is generated and uses the vtable, but nothing in the generated IR 
+calls it (although the source code does).
+
+the actual `speak()` code is inlined into a vtable call with a switch statement 
+preceeding it.
+
+same IR as example (3).
 
 ### 5: annotate `speak_all()` with `#[inline(never)]`
 
@@ -301,6 +325,14 @@ pub fn main() {
 <summary>LLVM IR</summary>
 
 ```llvm
+define void @speak_all(ptr noundef nonnull align 1 %animal.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %animal.1) unnamed_addr {
+start:
+  %0 = getelementptr inbounds nuw i8, ptr %animal.1, i64 24
+  %1 = load ptr, ptr %0, align 8
+  tail call void %1(ptr noundef nonnull align 1 %animal.0)
+  ret void
+}
+
 _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   %switch.selectcmp.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 1
   %switch.select.i = select i1 %switch.selectcmp.i, ptr @vtable.2, ptr @vtable.3
@@ -313,8 +345,7 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 
 </details>
 
-maybe?
-- `speak_all()` is called, but prefaced by switch statement
+yes.
 
 ### 6: 3 + more interesting structs for `Bird`/`Cat`/`Dog`
 
@@ -403,9 +434,13 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 
 </details>
 
-maybe?
-- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete struct ptr
-- adding another field to the structs (e.g. `name: &'static str`) does not change this
+yes.
+
+vtable call is prefaced by two phi nodes, one to select the vtable ptr, and one 
+to select the data ptr. 
+
+adding another field to the structs (e.g. `name: &'static str`) does not change 
+this.
 
 ### 7: calling `speak()` from different paths with different possible subsets of the Animal type
 
@@ -547,9 +582,12 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 
 </details>
 
-maybe?
-- vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete animal struct ptr
-- in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the relevant subset of Animal type vtables/objects
+yes.
+
+vtable call is prefaced by phi nodes as in example (6).
+
+in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the 
+relevant subset of Animal vtable/data ptrs.
 
 ### 8: 7 + make constructors less interesting again
 
@@ -679,8 +717,10 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 
 </details>
 
-maybe?
-- inlined `speak()` code is called, but prefaced by switch statement (across relevant Animal subsets)
+yes.
+
+each `dyn_dp` function generates code similar to example (3), where comparisons
+are only between relevant subsets of the Animal trait. 
 
 ### 9: different paths within same function
 
@@ -775,6 +815,14 @@ pub fn main() {
 <summary>LLVM IR</summary>
 
 ```llvm
+"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit27.i":
+  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_7.i)
+  %switch.selectcmp.i = icmp eq i32 %num2.i, 1
+  %switch.select.i = select i1 %switch.selectcmp.i, ptr @vtable.2, ptr @vtable.3
+  %switch.selectcmp6.i = icmp eq i32 %num2.i, 0
+  %switch.select7.i = select i1 %switch.selectcmp6.i, ptr @vtable.1, ptr %switch.select.i
+  br label %_ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit
+
 "_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17hdc0c23f00f5f61f2E.exit38.i":
   call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_12.i)
   %switch.selectcmp8.i = icmp eq i32 %num23.i, 1
@@ -794,7 +842,9 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 
 </details>
 
-maybe?
+yes.
+
+similar to example (8). 
 
 ### 10: 9 + make structs more interesting
 
@@ -939,7 +989,7 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 
 </details>
 
-maybe
+yes. 
 
 ### 11: call a wrapper function with two instances of Animal
 
@@ -1007,7 +1057,7 @@ start:
 
 </details>
 
-maybe
+yes.
 
 ### 12: 11 without `#[inline(never)]`
 
@@ -1159,5 +1209,7 @@ bb4:
 </details>
 
 maybe?
-- the `Cat` vtable is stored in %14, but never called... must be inlined somewhere but i can't identify it
+
+the `Cat` vtable is stored in %14, but never called... must be inlined somewhere 
+but i can't identify it.
 

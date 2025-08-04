@@ -11,6 +11,8 @@ MIR generally seems to emit vtable usage regardless, so in these examples we are
 
 <details>
 
+<summary>Source code</summary>
+
 ```rust
 pub trait Animal {
     fn speak(&self);
@@ -23,6 +25,8 @@ pub fn speak_all(animal: &dyn Animal) {
 ```
 
 </details>
+
+<summary>LLVM IR</summary>
 
 ```llvm
 define void @speak_all(ptr noundef nonnull align 1 %animal.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %animal.1) unnamed_addr {

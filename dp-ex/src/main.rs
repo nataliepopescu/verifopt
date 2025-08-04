@@ -4,12 +4,29 @@ pub trait Animal {
     fn speak(&self);
 }
 
-struct Alligator {}
-struct Bird {}
-struct Cat {}
-struct Dog {}
-struct Elephant {}
-struct Frog {}
+struct Alligator {
+    num: u32,
+}
+
+struct Bird {
+    num: u32,
+}
+
+struct Cat {
+    num: u32,
+}
+
+struct Dog {
+    num: u32,
+}
+
+struct Elephant {
+    num: u32,
+}
+
+struct Frog {
+    num: u32,
+}
 
 impl Animal for Alligator {
     fn speak(&self) {
@@ -46,14 +63,18 @@ impl Animal for Dog {
 fn dyn_dp() {
     let a: &dyn Animal;
 
+    let bird = Bird { num: 0 };
+    let cat = Cat { num: 1 };
+    let dog = Dog { num: 2 };
+
     let num: u32 = rand::rng().random_range(..3);
 
     if num == 0 {
-        a = &Bird {}
+        a = &bird;
     } else if num == 1 {
-        a = &Cat {}
+        a = &cat;
     } else {
-        a = &Dog {}
+        a = &dog;
     }
 
     a.speak();
@@ -62,14 +83,16 @@ fn dyn_dp() {
 fn static_dp_rand() {
     let a: &dyn Animal;
 
+    let cat = Cat { num: 1 };
+
     let num: u32 = rand::rng().random_range(..3);
 
     if num == 0 {
-        a = &Cat {}
+        a = &cat;
     } else if num == 1 {
-        a = &Cat {}
+        a = &cat;
     } else {
-        a = &Cat {}
+        a = &cat;
     }
 
     a.speak();
@@ -81,13 +104,13 @@ fn static_dp_rand_dummy() {
     let mut rng = rand::rng();
     if rng.random() {}
 
-    cat = &Cat {};
+    cat = &Cat { num: 1 };
 
     cat.speak();
 }
 
 fn static_dp() {
-    let cat = &Cat {};
+    let cat = &Cat { num: 1 };
     cat.speak();
 }
 

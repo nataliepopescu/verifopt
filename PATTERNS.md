@@ -4,10 +4,12 @@ All patterns are compiled with `-C opt-level=3` (release build).
 
 MIR generally seems to emit vtable usage regardless, so in these examples we are looking more closely at the generated LLVM IR (via [godbolt](https://godbolt.org/)).
 
+
 ## Patterns
 
-### 1: no trait impls in scope
+### 1: no trait impls in scope, define `speak_all()`
 
+<details>
 ```rust
 pub trait Animal {
     fn speak(&self);
@@ -18,6 +20,7 @@ pub fn speak_all(animal: &dyn Animal) {
     animal.speak()
 }
 ```
+</details>
 ```llvm
 define void @speak_all(ptr noundef nonnull align 1 %animal.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %animal.1) unnamed_addr {
 start:
@@ -29,7 +32,7 @@ start:
 ```
 - yes but nothing in scope calls `speak_all()`
 
-### 2: add trait impls in scope
+### 2: 1 + trait impls in scope
 
 ```rust
 pub trait Animal {
@@ -59,7 +62,7 @@ pub fn speak_all(animal: &dyn Animal) {
 - yes but nothing in scope calls `speak_all()`
 - same IR as (1)
 
-### 3: randomly decide which Animal subtype to be
+### 3: trait impls in scope + randomly decide which Animal subtype to be
 
 ```rust
 use rand::Rng;
@@ -126,7 +129,7 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 - actual `speak()` code is inlined into an indirect call with some sort of switch statement preceeding it
 - switch statement switches on expected randum values to determine which vtable ptr to use
 
-### 4: call `speak_all()` in `dyn_dp()`
+### 4: 3 + call `speak_all()` in `dyn_dp()`
 
 ```rust
 use rand::Rng;
@@ -257,7 +260,7 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 - maybe?
 - `speak_all()` is called, but prefaced by switch statement
 
-### 6: more interesting structs for `Bird`/`Cat`/`Dog`
+### 6: 3 + more interesting structs for `Bird`/`Cat`/`Dog`
 
 ```rust
 use rand::Rng;
@@ -464,7 +467,7 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 - vtable access is prefaced by two phi nodes, one for the vtable ptr, and one for the concrete animal struct ptr
 - in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the relevant subset of Animal type vtables/objects
 
-### 8: make constructors less interesting again, and try different path calls
+### 8: 7 + make constructors less interesting again
 
 ```rust
 use rand::Rng;
@@ -680,7 +683,7 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 }
 ```
 
-### 10: 9 + structs _with_ fields
+### 10: 9 + make structs more interesting
 
 ```rust
 use rand::Rng;

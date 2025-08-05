@@ -6,6 +6,14 @@ All patterns are compiled with `rustc 1.87.0` and
 MIR generally seems to emit vtable usage regardless, so in these examples we 
 are looking more closely at the generated LLVM IR.
 
+## List of general cases
+
+- concrete type selection of single `dyn` type based on dynamic data (1-14)
+- splitting dynamic selection of concrete type from `dyn` call ()
+- list of `dyn` type with different concrete types inserted (15-17)
+- `#[inline(never)]` ()
+- visitor pattern (18)
+
 ## To look into
 
 - [x] separating object selection from dynamic dispatch
@@ -14,7 +22,7 @@ are looking more closely at the generated LLVM IR.
 - [x] struct with at least one field
 - [x] traits with more than one function
 
-## Patterns
+## Patterns research
 
 ### 1: no trait impls in scope, define `speak_all()` ✅
 
@@ -1140,7 +1148,7 @@ start:
 
 </details>
 
-### 13: 12 without `#[inline(never)]` ❌
+### 13: 12 without `#[inline(never)]` on `foo` ❌
 
 <details>
 
@@ -1169,7 +1177,51 @@ start:
 
 </details>
 
-### 14: call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ？
+### 14: 12 without either `#[inline(never)]`s ❌
+
+<details>
+
+<summary>LLVM IR</summary>
+
+```llvm
+define void @example::main::hf505c5b3ca9f4d81() unnamed_addr {
+start:
+  %_3.i2 = alloca [48 x i8], align 8
+  %_3.i = alloca [48 x i8], align 8
+  call void @llvm.lifetime.start.p0(i64 48, ptr nonnull %_3.i)
+  store ptr @alloc_23b1932c7395f328e595aeb0f19f8b75, ptr %_3.i, align 8
+  %0 = getelementptr inbounds nuw i8, ptr %_3.i, i64 8
+  store i64 1, ptr %0, align 8
+  %1 = getelementptr inbounds nuw i8, ptr %_3.i, i64 32
+  store ptr null, ptr %1, align 8
+  %2 = getelementptr inbounds nuw i8, ptr %_3.i, i64 16
+  store ptr inttoptr (i64 8 to ptr), ptr %2, align 8
+  %3 = getelementptr inbounds nuw i8, ptr %_3.i, i64 24
+  store i64 0, ptr %3, align 8
+  call void @std::io::stdio::_print::h83d703bcf3ee60d9(ptr noalias nocapture noundef nonnull align 8 dereferenceable(48) %_3.i)
+  call void @llvm.lifetime.end.p0(i64 48, ptr nonnull %_3.i)
+  call void @llvm.lifetime.start.p0(i64 48, ptr nonnull %_3.i2)
+  store ptr @alloc_544006a9c9003b2f7edd4d917a4edbaf, ptr %_3.i2, align 8
+  %4 = getelementptr inbounds nuw i8, ptr %_3.i2, i64 8
+  store i64 1, ptr %4, align 8
+  %5 = getelementptr inbounds nuw i8, ptr %_3.i2, i64 32
+  store ptr null, ptr %5, align 8
+  %6 = getelementptr inbounds nuw i8, ptr %_3.i2, i64 16
+  store ptr inttoptr (i64 8 to ptr), ptr %6, align 8
+  %7 = getelementptr inbounds nuw i8, ptr %_3.i2, i64 24
+  store i64 0, ptr %7, align 8
+  call void @std::io::stdio::_print::h83d703bcf3ee60d9(ptr noalias nocapture noundef nonnull align 8 dereferenceable(48) %_3.i2)
+  call void @llvm.lifetime.end.p0(i64 48, ptr nonnull %_3.i2)
+  ret void
+}
+```
+
+makes sense that this doesn't use vtables b/c each individual call's `self` type 
+can be determined statically. 
+
+</details>
+
+### 15: call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ⁇
 
 <details>
 
@@ -1186,14 +1238,13 @@ trait Animal: Sync + Send {
 }
 
 struct Cat;
+struct Dog;
 
 impl Animal for Cat {
     fn speak(&self) {
         println!("Cat");
     }
 }
-
-struct Dog;
 
 impl Animal for Dog {
     fn speak(&self) {
@@ -1253,26 +1304,19 @@ bb3:
 
 </details>
 
-### 15: 14 without `#[inline(never)]` ？
+### 16: 15 without `#[inline(never)]` ⁇
 
 <details>
 
 <summary>LLVM IR</summary>
 
 ```llvm
+@vtable.1 = private constant <{ [24 x i8], ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00", ptr @"<example::Cat as example::Animal>::speak::h0a516f4740d196fb" }>, align 8
+
+; still appending to vec
+
+bb3:
   %len.i = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
-...
-
-bb6.i:
-  %_25.i = load ptr, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 16), align 8
-  %_14.not.i = icmp eq i64 %len.i, 0
-  br i1 %_14.not.i, label %bb4, label %bb7.i
-
-bb7.i:
-  %dst.i = getelementptr inbounds nuw i8, ptr %_25.i, i64 16
-  %12 = shl nuw nsw i64 %len.i, 4
-  tail call void @llvm.memmove.p0.p0.i64(ptr nonnull align 8 %dst.i, ptr nonnull align 8 %_25.i, i64 %12, i1 false)
-  br label %bb4
 
 bb4:
   store ptr inttoptr (i64 1 to ptr), ptr %_25.i, align 8
@@ -1281,14 +1325,120 @@ bb4:
   %new_len.i = add nuw nsw i64 %len.i, 1
   store i64 %new_len.i, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
   br i1 %t.1.i8, label %_ZN3std4sync6poison4Flag4done17h10a53d883c6fda20E.exit.i.i, label %bb1.i.i.i
+
+_ZN3std4sync6poison4Flag4done17h10a53d883c6fda20E.exit.i.i:
+  %17 = atomicrmw xchg ptr @my_vec, i32 0 release, align 4
+  %_8.i.i = icmp eq i32 %17, 2
+  br i1 %_8.i.i, label %bb2.i.i, label %"core::ptr::drop_in_place<std::sync::poison::mutex::MutexGuard<alloc::vec::Vec<alloc::boxed::Box<dyn example::Animal>>>>::h859d8ef20401d38d.exit"
+
+bb2.i.i:
+  tail call void @std::sys::sync::mutex::futex::Mutex::wake::h0439a4c6ca014734(ptr noundef nonnull align 4 @my_vec)
+  br label %"core::ptr::drop_in_place<std::sync::poison::mutex::MutexGuard<alloc::vec::Vec<alloc::boxed::Box<dyn example::Animal>>>>::h859d8ef20401d38d.exit"
+
+"core::ptr::drop_in_place<std::sync::poison::mutex::MutexGuard<alloc::vec::Vec<alloc::boxed::Box<dyn example::Animal>>>>::h859d8ef20401d38d.exit":
+  %18 = cmpxchg ptr @my_vec, i32 0, i32 1 acquire monotonic, align 4
+  %19 = extractvalue { i32, i1 } %18, 1
+  br i1 %19, label %bb3.i27, label %bb1.i26
+
+bb3.i27:
+  %20 = load atomic i64, ptr @std::panicking::panic_count::GLOBAL_PANIC_COUNT::h9539389daf418384 monotonic, align 8
+  %_6.i.i28 = and i64 %20, 9223372036854775807
+  %21 = icmp eq i64 %_6.i.i28, 0
+  br i1 %21, label %"_ZN3std4sync6poison5mutex14Mutex$LT$T$GT$4lock17ha75d54c8dc20b42dE.exit32", label %bb6.i.i29
+
+; calling unwrap code
+
+"_ZN3std4sync6poison5mutex14Mutex$LT$T$GT$4lock17ha75d54c8dc20b42dE.exit32":
+  %_5.sroa.0.0.i.i30 = phi i8 [ %24, %bb6.i.i29 ], [ 0, %bb3.i27 ]
+  %25 = load atomic i8, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 4) monotonic, align 4
+  %.not49 = icmp eq i8 %25, 0
+  br i1 %.not49, label %"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17hb77972f0c771ab29E.exit", label %bb2.i
+
+"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17hb77972f0c771ab29E.exit":
+  %t.1.i = trunc nuw i8 %_5.sroa.0.0.i.i30 to i1
+  %_21 = load ptr, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 16), align 8
+  %len = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
+  %_15.i = getelementptr inbounds nuw %"alloc::boxed::Box<dyn Animal>", ptr %_21, i64 %len
+  %_236.i = icmp eq i64 %len, 0
+  br i1 %_236.i, label %bb8, label %bb4.i
+
+; ok this seems like the loop body
+; which is using something like a vtable call
+
+bb4.i:
+  %iter.sroa.0.07.i = phi ptr [ %_33.i, %.noexc ], [ %_21, %"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17hb77972f0c771ab29E.exit" ]
+  %_9.0.i = load ptr, ptr %iter.sroa.0.07.i, align 8
+  %29 = getelementptr inbounds nuw i8, ptr %iter.sroa.0.07.i, i64 8
+  %_9.1.i = load ptr, ptr %29, align 8
+  %30 = getelementptr inbounds nuw i8, ptr %_9.1.i, i64 24
+  %31 = load ptr, ptr %30, align 8
+  invoke void %31(ptr noundef nonnull align 1 %_9.0.i)
+          to label %.noexc unwind label %cleanup3
+
+; loop condition check
+
+.noexc:
+  %_33.i = getelementptr inbounds nuw i8, ptr %iter.sroa.0.07.i, i64 16
+  %_23.i = icmp eq ptr %_33.i, %_15.i
+  br i1 %_23.i, label %bb8, label %bb4.i
 ```
 
 </details>
 
-the `Cat` vtable is stored in %14, but never called... must be inlined somewhere 
-but i can't identify it.
+### 17: 16 + add a `Dog` to vector ✅
 
-### 16: visitor pattern example ✅
+<details>
+
+<summary>Source code</summary>
+
+```rust
+...
+
+pub fn main() {
+    my_vec.lock().unwrap().insert(0, Box::new(Cat));
+    my_vec.lock().unwrap().insert(0, Box::new(Dog));
+    foo(&my_vec.lock().unwrap());
+}
+```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
+```llvm
+"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17hb77972f0c771ab29E.exit":
+  %t.1.i = trunc nuw i8 %_5.sroa.0.0.i.i81 to i1
+  %_31 = load ptr, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 16), align 8
+  %len = load i64, ptr getelementptr inbounds nuw (i8, ptr @my_vec, i64 24), align 8
+  %_15.i = getelementptr inbounds nuw %"alloc::boxed::Box<dyn Animal>", ptr %_31, i64 %len
+  %_236.i = icmp eq i64 %len, 0
+  br i1 %_236.i, label %bb13, label %bb4.i
+
+; loop body
+
+bb4.i:
+  %iter.sroa.0.07.i = phi ptr [ %_33.i, %.noexc ], [ %_31, %"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17hb77972f0c771ab29E.exit" ]
+  %_9.0.i = load ptr, ptr %iter.sroa.0.07.i, align 8
+  %47 = getelementptr inbounds nuw i8, ptr %iter.sroa.0.07.i, i64 8
+  %_9.1.i = load ptr, ptr %47, align 8
+  %48 = getelementptr inbounds nuw i8, ptr %_9.1.i, i64 24
+  %49 = load ptr, ptr %48, align 8
+  invoke void %49(ptr noundef nonnull align 1 %_9.0.i)
+          to label %.noexc unwind label %cleanup5
+
+; loop condition
+
+.noexc:
+  %_33.i = getelementptr inbounds nuw i8, ptr %iter.sroa.0.07.i, i64 16
+  %_23.i = icmp eq ptr %_33.i, %_15.i
+  br i1 %_23.i, label %bb13, label %bb4.i
+```
+
+</details>
+
+### 18: visitor pattern example ✅
 
 [Source
 code](https://github.com/nataliepopescu/verifopt/blob/main/visitor-ex/visitor-use/src/main.rs)

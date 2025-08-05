@@ -1288,3 +1288,46 @@ bb4:
 the `Cat` vtable is stored in %14, but never called... must be inlined somewhere 
 but i can't identify it.
 
+### 16: visitor pattern example ✅
+
+
+```llvm
+; in visitor_decl crate
+
+; <visitor_decl::Cat as visitor_decl::Animal>::visit
+; Function Attrs: nonlazybind uwtable
+define void @"_ZN58_$LT$visitor_decl..Cat$u20$as$u20$visitor_decl..Animal$GT$5visit17he353a6a328e6c372E"(ptr noalias noundef nonnull readonly align 1 %self, ptr noundef nonnull align 1 %av.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %av.1) unnamed_addr #1 {
+start:
+  %0 = getelementptr inbounds nuw i8, ptr %av.1, i64 24
+  %1 = load ptr, ptr %0, align 8, !invariant.load !3, !nonnull !3
+  tail call void %1(ptr noundef nonnull align 1 %av.0, ptr noundef nonnull align 1 %self, ptr noalias noundef nonnull readonly align 8 dereferenceable(56) @vtable.0)
+  ret void
+}
+
+; <visitor_decl::Dog as visitor_decl::Animal>::visit
+; Function Attrs: nonlazybind uwtable
+define void @"_ZN58_$LT$visitor_decl..Dog$u20$as$u20$visitor_decl..Animal$GT$5visit17h3fff94aa131ecb55E"(ptr noalias noundef nonnull readonly align 1 %self, ptr noundef nonnull align 1 %av.0, ptr noalias nocapture noundef readonly align 8 dereferenceable(32) %av.1) unnamed_addr #1 {
+start:
+  %0 = getelementptr inbounds nuw i8, ptr %av.1, i64 24
+  %1 = load ptr, ptr %0, align 8, !invariant.load !3, !nonnull !3
+  tail call void %1(ptr noundef nonnull align 1 %av.0, ptr noundef nonnull align 1 %self, ptr noalias noundef nonnull readonly align 8 dereferenceable(56) @vtable.1)
+  ret void
+}
+
+...
+
+; in visitor_use crate
+
+define noundef i32 @main(i32 %0, ptr %1) unnamed_addr #7 {
+...
+
+"_ZN4core3ptr50drop_in_place$LT$rand..rngs..thread..ThreadRng$GT$17haf5126768f72e27fE.exit7": ; preds = %bb2, %bb1.i.i.i6
+  %9 = icmp sgt i32 %value.i.i.i9.i.i.i.i, -1
+  %10 = select i1 %9, ptr @"_ZN58_$LT$visitor_decl..Cat$u20$as$u20$visitor_decl..Animal$GT$5visit17he353a6a328e6c372E", ptr @"_ZN58_$LT$visitor_decl..Dog$u20$as$u20$visitor_decl..Animal$GT$5visit17h3fff94aa131ecb55E"
+  call void %10(ptr noundef nonnull align 1 inttoptr (i64 1 to ptr), ptr noundef nonnull align 1 inttoptr (i64 1 to ptr), ptr noalias noundef nonnull readonly align 8 dereferenceable(32) @vtable.4)
+  ret void
+```
+
+get an indirect call to one of the `Cat` or `Dog` `visit()` methods, each of
+which seems to use a vtable
+

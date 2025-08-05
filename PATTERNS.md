@@ -1290,6 +1290,12 @@ but i can't identify it.
 
 ### 16: visitor pattern example ✅
 
+[Source
+code](https://github.com/nataliepopescu/verifopt/blob/main/visitor-ex/visitor-use/src/main.rs)
+
+<details>
+
+<summary>LLVM IR</summary>
 
 ```llvm
 ; in visitor_decl crate
@@ -1327,6 +1333,8 @@ define noundef i32 @main(i32 %0, ptr %1) unnamed_addr #7 {
   call void %10(ptr noundef nonnull align 1 inttoptr (i64 1 to ptr), ptr noundef nonnull align 1 inttoptr (i64 1 to ptr), ptr noalias noundef nonnull readonly align 8 dereferenceable(32) @vtable.4)
   ret void
 ```
+
+</details>
 
 get an indirect call to one of the `Cat` or `Dog` `visit()` methods, each of
 which seems to use a vtable

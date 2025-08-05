@@ -1,7 +1,7 @@
 # Code patterns checked for flow-insensitive vtable usage
 
 All patterns are compiled with `rustc 1.87.0` and 
-`-C opt-level=3` (release build) via [godbolt](https://godbolt.org/).
+`-C opt-level=3` (release build) in [godbolt](https://godbolt.org/).
 
 MIR generally seems to emit vtable usage regardless, so in these examples we 
 are looking more closely at the generated LLVM IR.
@@ -20,7 +20,7 @@ less impactful (don't really affect generated vtable code):
 - adding fields to structs (7, 8, 11)
 - adding functions to traits (4)
 
-## Patterns research
+## Patterns research + details
 
 ### 1: no trait impls in scope, define `speak_all()` ✅
 
@@ -1082,6 +1082,9 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 
 ### 12: call a wrapper function with two instances of Animal ✅
 
+note for examples 12-14 the MIR still generates a dynamic dispatch call, while
+LLVM optimizes it away (for 13 and 14). 
+
 <details>
 
 <summary>Source code</summary>
@@ -1219,7 +1222,7 @@ can be determined statically.
 
 </details>
 
-### 15: call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ⁇
+### 15: call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ✅
 
 <details>
 
@@ -1302,7 +1305,7 @@ bb3:
 
 </details>
 
-### 16: 15 without `#[inline(never)]` ⁇
+### 16: 15 without `#[inline(never)]` ✅
 
 <details>
 

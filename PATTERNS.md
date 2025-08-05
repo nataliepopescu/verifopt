@@ -8,19 +8,17 @@ are looking more closely at the generated LLVM IR.
 
 ## List of general cases
 
-- concrete type selection of single `dyn` type based on dynamic data (1-14)
-- splitting dynamic selection of concrete type from `dyn` call ()
+impactful (affect generated vtable code):
+- concrete type selection of single `dyn` type based on dynamic data (3-14)
 - list of `dyn` type with different concrete types inserted (15-17)
-- `#[inline(never)]` ()
+- `#[inline(never)]` (6, 12, 13, 15)
 - visitor pattern (18)
 
-## To look into
-
-- [x] separating object selection from dynamic dispatch
-- [ ] separating trait declaration from definition + usage (e.g. visitor
-  pattern)
-- [x] struct with at least one field
-- [x] traits with more than one function
+less impactful (don't really affect generated vtable code):
+- splitting dynamic selection of concrete type from `dyn` call (5)
+- different paths to dynamic dispatch (8, 10)
+- adding fields to structs (7, 8, 11)
+- adding functions to traits (4)
 
 ## Patterns research
 

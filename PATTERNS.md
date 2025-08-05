@@ -12,7 +12,7 @@ are looking more closely at the generated LLVM IR (via [godbolt](https://godbolt
 - [ ] separating trait declaration from definition + usage (e.g. visitor
   pattern)
 - [x] struct with at least one field
-- [ ] traits with more than one function
+- [x] traits with more than one function
 
 ## Patterns
 
@@ -159,6 +159,10 @@ pub fn main() {
 <summary>LLVM IR</summary>
 
 ```llvm
+@vtable.1 = private unnamed_addr constant <{ [24 x i8], ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00", ptr @"<example::Bird as example::Animal>::speak::h9ccf5f719d0cc105" }>, align 8
+@vtable.2 = private unnamed_addr constant <{ [24 x i8], ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00", ptr @"<example::Cat as example::Animal>::speak::hd2637de08c1ab51a" }>, align 8
+@vtable.3 = private unnamed_addr constant <{ [24 x i8], ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00", ptr @"<example::Dog as example::Animal>::speak::ha27122df413e6265" }>, align 8
+
 _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
   %switch.selectcmp.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 1
   %switch.select.i = select i1 %switch.selectcmp.i, ptr @vtable.2, ptr @vtable.3
@@ -177,11 +181,106 @@ a preceeding switch statement switches on the expected random values to
 determine which vtable ptr to use.
 
 the vtable ptr then seems to be loaded into `%16`, but the argument to the
-indirect call is a bit hard to parse. looking below at example (5) shows a similar
+indirect call is a bit hard to parse. looking below at example (6) shows a similar
 argument to the `speak_all()` function, which there is interpreted as a pointer
 to the animal data. 
 
-### 4: 3 + call `speak_all()` in `dyn_dp()` ✅
+### 4: 3 + additional trait function ✅
+
+<details>
+
+<summary>Source code</summary>
+
+```rust
+use rand::Rng;
+
+pub trait Animal {
+    fn speak(&self);
+    fn go(&self);
+}
+
+struct Bird {}
+struct Cat {}
+struct Dog {}
+
+impl Animal for Bird {
+    fn speak(&self) {
+        println!("chirp");
+    }
+    fn go(&self) {
+        println!("flying");
+    }
+}
+
+impl Animal for Cat {
+    fn speak(&self) {
+        println!("meow");
+    }
+    fn go(&self) {
+        println!("slowly creeping");
+    }
+}
+
+impl Animal for Dog {
+    fn speak(&self) {
+        println!("woof");
+    }
+    fn go(&self) {
+        println!("running");
+    }
+}
+
+fn dyn_dp() {
+    let animal: &dyn Animal;
+
+    let num: u32 = rand::rng().random_range(..3);
+
+    if num == 0 {
+        animal = &Bird {}
+    } else if num == 1 {
+        animal = &Cat {}
+    } else {
+        animal = &Dog {}
+    }
+
+    animal.speak();
+}
+
+pub fn main() {
+    dyn_dp();
+}
+```
+
+</details>
+
+<details>
+
+<summary>LLVM IR</summary>
+
+```llvm
+@vtable.1 = private unnamed_addr constant <{ [24 x i8], ptr, ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00", ptr @"<example::Bird as example::Animal>::speak::h9ccf5f719d0cc105", ptr @"<example::Bird as example::Animal>::go::hc9a0febe669aa53c" }>, align 8
+@vtable.2 = private unnamed_addr constant <{ [24 x i8], ptr, ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00", ptr @"<example::Cat as example::Animal>::speak::hd2637de08c1ab51a", ptr @"<example::Cat as example::Animal>::go::h90660b822a464a59" }>, align 8
+@vtable.3 = private unnamed_addr constant <{ [24 x i8], ptr, ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\00\00\00\00", ptr @"<example::Dog as example::Animal>::speak::ha27122df413e6265", ptr @"<example::Dog as example::Animal>::go::hddbac414f2936661" }>, align 8
+
+_ZN7example6dyn_dp17hc25549bf78d82057E.exit:
+  call void @llvm.lifetime.end.p0(i64 8, ptr nonnull %_4.i)
+  %switch.selectcmp.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 1
+  %switch.select.i = select i1 %switch.selectcmp.i, ptr @vtable.2, ptr @vtable.3
+  %switch.selectcmp1.i = icmp eq i64 %result.sroa.0.0.i.i.i.i.i, 0
+  %switch.select2.i = select i1 %switch.selectcmp1.i, ptr @vtable.1, ptr %switch.select.i
+  %15 = getelementptr inbounds nuw i8, ptr %switch.select2.i, i64 24
+  %16 = load ptr, ptr %15, align 8
+  call void %16(ptr noundef nonnull align 1 inttoptr (i64 1 to ptr))
+  ret void
+}
+```
+
+the vtable pattern in the generated code is the same, just the vtables 
+themselves have one more entry. 
+
+</details>
+
+### 5: 3 + call `speak_all()` in `dyn_dp()` ✅
 
 <details>
 
@@ -252,7 +351,7 @@ preceeding it.
 
 same IR as example (3).
 
-### 5: annotate `speak_all()` with `#[inline(never)]` ✅
+### 6: annotate `speak_all()` with `#[inline(never)]` ✅
 
 <details>
 
@@ -341,7 +440,7 @@ _ZN7example6dyn_dp17hc25549bf78d82057E.exit:
 
 </details>
 
-### 6: 3 + more interesting structs for `Bird`/`Cat`/`Dog` ✅
+### 7: 3 + more interesting structs for `Bird`/`Cat`/`Dog` ✅
 
 <details>
 
@@ -434,7 +533,7 @@ to select the data ptr.
 adding another field to the structs (e.g. `name: &'static str`) does not change 
 this.
 
-### 7: calling `speak()` from different paths with different possible subsets of the Animal type ✅
+### 8: calling `speak()` from different paths with different possible subsets of the Animal type ✅
 
 <details>
 
@@ -574,12 +673,12 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 
 </details>
 
-vtable call is prefaced by phi nodes as in example (6).
+vtable call is prefaced by phi nodes as in example (7).
 
 in each of `dyn_dp_1` and `dyn_dp_2`, the phi nodes only choose between the 
 relevant subset of Animal vtable/data ptrs.
 
-### 8: 7 + make constructors less interesting again ✅
+### 9: 7 + make constructors less interesting again ✅
 
 <details>
 
@@ -710,7 +809,7 @@ _ZN7example8dyn_dp_217hacede4ff08c4dd1fE.exit:
 each `dyn_dp` function generates code similar to example (3), where comparisons
 are only between relevant subsets of the Animal trait. 
 
-### 9: different paths within same function ✅
+### 10: different paths within same function ✅
 
 <details>
 
@@ -830,9 +929,9 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 
 </details>
 
-similar to example (8). 
+similar to example (9). 
 
-### 10: 9 + make structs more interesting ✅
+### 11: 10 + make structs more interesting ✅
 
 <details>
 
@@ -975,7 +1074,7 @@ _ZN7example8dyn_dp_317h17329e8a324ba3dbE.exit:
 
 </details> 
 
-### 11: call a wrapper function with two instances of Animal ✅
+### 12: call a wrapper function with two instances of Animal ✅
 
 <details>
 
@@ -1041,7 +1140,7 @@ start:
 
 </details>
 
-### 12: 11 without `#[inline(never)]` ❌
+### 13: 12 without `#[inline(never)]` ❌
 
 <details>
 
@@ -1070,7 +1169,7 @@ start:
 
 </details>
 
-### 13: call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ？
+### 14: call `speak()` in a loop on a vector with only a single element (and thus a single Animal subtype) ？
 
 <details>
 
@@ -1154,7 +1253,7 @@ bb3:
 
 </details>
 
-### 14: 13 without `#[inline(never)]` ？
+### 15: 14 without `#[inline(never)]` ？
 
 <details>
 

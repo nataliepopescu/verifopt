@@ -9,7 +9,7 @@ are looking more closely at the generated LLVM IR.
 ## List of general cases
 
 impactful (affect generated vtable code):
-- concrete type selection of single `dyn` type based on dynamic data (3-14)
+- concrete type selection of single `dyn` type based on dynamic data (3-11)
 - list of `dyn` type with different concrete types inserted (15-17)
 - `#[inline(never)]` (6, 12, 13, 15)
 - visitor pattern (18)
@@ -19,6 +19,7 @@ less impactful (don't really affect generated vtable code):
 - different paths to dynamic dispatch (8, 10)
 - adding fields to structs (7, 8, 11)
 - adding functions to traits (4)
+- calling same function with different concrete types in sequential order (12-14)
 
 ## Patterns research + details
 

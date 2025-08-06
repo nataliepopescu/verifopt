@@ -35,7 +35,7 @@
 
 ## notes
 
-- [ ] muck around w code to get somewhere where llvm can't optimize
+- [x] muck around w code to get somewhere where llvm can't optimize
     - llvm seems to be doing code motion rn which looks a lot like flow 
       sensitivity (in the simple case)
 
@@ -44,7 +44,7 @@
     - but also maybe can stop before this
 
 - try to find code that seems reasonable to find in the wild
-    - [ ] write small visitor example (given OG visitor code)
+    - [x] write small visitor example (given OG visitor code)
 
 - find patterns in the wild that do x
     - e.g. visitor might be a very good match
@@ -59,7 +59,7 @@
 
 - so: validate until we have a few examples of where the compiler is inefficient
   and then move on
-  - [ ] compile a list of ~general cases
+  - [x] compile a list of ~general cases
   - amit is confident that we can find important cases where this matters
   - can also argue that we can make hypothetical code faster, where the
     hypothetical code is the code you actually wanted to write (easier to

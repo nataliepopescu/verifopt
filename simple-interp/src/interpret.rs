@@ -131,11 +131,13 @@ impl Interpreter {
                 }
 
                 match *functype {
-                    Type::Func(_, rettype) => cmap.scoped_set(
-                        scope,
-                        var,
-                        Box::new(VarType::Values(rettype.unwrap(), constraints)),
-                    )?,
+                    Type::Func(_, rettype) => {
+                        cmap.scoped_set(
+                            scope,
+                            var,
+                            Box::new(VarType::Values(rettype.unwrap(), constraints)),
+                        )?
+                    }
                     _ => return Err(Error::NotAFunction(name)),
                 }
             }
@@ -920,6 +922,55 @@ impl Interpreter {
         Ok(None)
     }
 
+    fn prune_funcvec(
+        &self,
+        cmap: &mut ConstraintMap,
+        scope: Option<&'static str>,
+        funcvec: &Vec<(TraitStructOpt, FuncVal)>,
+        args: &Vec<&'static str>,
+    ) -> Result<Vec<(TraitStructOpt, FuncVal)>, Error> {
+        if funcvec.len() > 0 && funcvec[0].1.is_method && args.len() > 0 {
+            match cmap.scoped_get(scope, args[0], false) {
+                Ok(Some(vartype)) => match vartype {
+                    VarType::Values(_, constraints) => {
+                        let mut new_funcvec = vec![];
+
+                        for (tso, funcval) in funcvec.iter() {
+                            let self_type = &funcval.params[0].1;
+                            match self_type {
+                                Type::Struct(sname) => {
+                                    // if no match in positive constraints, remove
+                                    let mut mtch = false;
+                                    for c in &constraints.0 {
+                                        match c {
+                                            RVal::IdkStruct(idk_sname) => {
+                                                if *sname == *idk_sname {
+                                                    mtch = true;
+                                                }
+                                            }
+                                            _ => todo!(),
+                                        }
+                                    }
+                                    if mtch {
+                                        new_funcvec.push((*tso, funcval.clone()));
+                                    }
+                                }
+                                _ => todo!(),
+                            }
+                        }
+
+                        return Ok(new_funcvec);
+                    }
+                    _ => return Err(Error::UnexpectedScope()),
+                },
+                Ok(None) => {},
+                Err(err) => return Err(err),
+            }
+        }
+
+        Ok(funcvec.to_vec())
+    }
+
     fn interp_direct_invoke(
         &self,
         funcs: &Funcs,
@@ -934,7 +985,13 @@ impl Interpreter {
                 let mut results_vec = vec![];
                 let mut cmap_vec = vec![];
 
-                for (_, funcval) in funcvec.iter() {
+                // before launching into interpreting all possible funcvals, figure out
+                // which funcvals can be pruned.
+                // if first arg == self, use constraints to prune funcvals.
+                let new_funcvec = self.prune_funcvec(cmap, scope, &funcvec, args)?;
+
+                // interpret remaining funcval options
+                for (_, funcval) in new_funcvec.iter() {
                     let mut cmap_clone = cmap.clone();
                     self.resolve_args(
                         funcs,
@@ -1002,7 +1059,7 @@ impl Interpreter {
                     &constraints,
                     args,
                 ),
-                _ => panic!("should not get scope here"),
+                _ => return Err(Error::UnexpectedScope()),
             },
             Ok(None) => self.interp_direct_invoke(funcs, cmap, traits, scope, name, args),
             Err(err) => return Err(err),
@@ -3770,7 +3827,7 @@ mod tests {
 
         let dog_speak_body = Box::new(Assignment(
             "spoken",
-            Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+            Box::new(AssignmentRVal::RVal(RVal::Num(2))),
         ));
         let dog_speak = FuncVal::new(
             true,
@@ -3862,7 +3919,202 @@ mod tests {
             "spoken",
             Box::new(VarType::Values(
                 Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(2)]), HashSet::new()),
+            )),
+        );
+
+        cat_speak_cmap.cmap.insert(
+            "self",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct("Cat")),
+                (HashSet::from([RVal::IdkStruct("Cat")]), HashSet::new()),
+            )),
+        );
+        cat_speak_cmap.cmap.insert(
+            "spoken",
+            Box::new(VarType::Values(
+                Box::new(Type::Int()),
                 (HashSet::from([RVal::Num(1)]), HashSet::new()),
+            )),
+        );
+
+        check_cmap.cmap.insert(
+            "speak",
+            Box::new(VarType::Scope(
+                None,
+                vec![
+                    (
+                        Box::new(Type::Func(vec![Type::Struct("Dog")], None)),
+                        dog_speak_cmap,
+                    ),
+                    (
+                        Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
+                        cat_speak_cmap,
+                    ),
+                ],
+            )),
+        );
+        check_cmap.cmap.insert(
+            "giveMeAnAnimal",
+            Box::new(VarType::Scope(
+                None,
+                vec![(
+                    Box::new(Type::Func(
+                        vec![],
+                        Some(Box::new(Type::DynTrait("Animal"))),
+                    )),
+                    ConstraintMap::new(),
+                )],
+            )),
+        );
+        check_cmap.cmap.insert(
+            "specific_animal",
+            Box::new(VarType::Values(
+                Box::new(Type::DynTrait("Animal")),
+                (
+                    HashSet::from([RVal::IdkStruct("Cat"), RVal::IdkStruct("Dog")]),
+                    HashSet::new(),
+                ),
+            )),
+        );
+
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(cmap, check_cmap);
+        assert_eq!(traits, check_traits);
+    }
+
+    #[test]
+    fn test_dyn_traits_three_impl_two_used() {
+        let funcdecl =
+            FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+
+        let bird_speak_body = Box::new(Assignment(
+            "spoken",
+            Box::new(AssignmentRVal::RVal(RVal::Num(0))),
+        ));
+        let bird_speak = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Bird"))],
+            None,
+            bird_speak_body.clone(),
+        );
+
+        let cat_speak_body = Box::new(Assignment(
+            "spoken",
+            Box::new(AssignmentRVal::RVal(RVal::Num(1))),
+        ));
+        let cat_speak = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Cat"))],
+            None,
+            cat_speak_body.clone(),
+        );
+
+        let dog_speak_body = Box::new(Assignment(
+            "spoken",
+            Box::new(AssignmentRVal::RVal(RVal::Num(2))),
+        ));
+        let dog_speak = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Dog"))],
+            None,
+            dog_speak_body.clone(),
+        );
+
+        let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
+            Box::new(BStatement::TrueOrFalse()),
+            Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))])),
+            Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Dog")))])),
+        ))]));
+
+        let stmt = Sequence(vec![
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
+            Box::new(FuncDef(
+                "giveMeAnAnimal",
+                false,
+                vec![],
+                Some(Box::new(Type::DynTrait("Animal"))),
+                gmaa.clone(),
+            )),
+            Box::new(Struct("Bird", vec![Type::Int()], vec!["age"])),
+            Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
+            Box::new(Struct("Dog", vec![Type::Int()], vec!["age"])),
+            Box::new(TraitImpl(
+                "Animal",
+                "Bird",
+                vec!["speak"],
+                vec![bird_speak.clone()],
+            )),
+            Box::new(TraitImpl(
+                "Animal",
+                "Cat",
+                vec!["speak"],
+                vec![cat_speak.clone()],
+            )),
+            Box::new(TraitImpl(
+                "Animal",
+                "Dog",
+                vec!["speak"],
+                vec![dog_speak.clone()],
+            )),
+            Box::new(Assignment(
+                "specific_animal",
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
+            )),
+            Box::new(InvokeFunc("speak", vec!["specific_animal"])),
+        ]);
+
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "speak",
+            vec![
+                (Some(("Animal", "Dog")), dog_speak.clone()),
+                (Some(("Animal", "Cat")), cat_speak.clone()),
+                (Some(("Animal", "Bird")), bird_speak.clone()),
+            ],
+        );
+        funcs.funcs.insert(
+            "giveMeAnAnimal",
+            vec![(
+                None,
+                FuncVal::new(
+                    false,
+                    vec![],
+                    Some(Box::new(Type::DynTrait("Animal"))),
+                    gmaa.clone(),
+                ),
+            )],
+        );
+
+        let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
+
+        let mut check_traits = Traits::new();
+        check_traits
+            .traits
+            .insert("Animal", vec!["Bird", "Cat", "Dog"]);
+
+        let mut check_cmap = ConstraintMap::new();
+        let mut cat_speak_cmap = ConstraintMap::new();
+        let mut dog_speak_cmap = ConstraintMap::new();
+
+        dog_speak_cmap.cmap.insert(
+            "self",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct("Dog")),
+                (HashSet::from([RVal::IdkStruct("Dog")]), HashSet::new()),
+            )),
+        );
+        dog_speak_cmap.cmap.insert(
+            "spoken",
+            Box::new(VarType::Values(
+                Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(2)]), HashSet::new()),
             )),
         );
 

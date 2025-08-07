@@ -38,6 +38,8 @@ pub enum Error {
     InvalidAssignmentRVal(),
     #[error("Switching on a function pointer, not a value.")]
     NoSwitchOnFuncPtr(),
+    #[error("Unexpected scope.")]
+    UnexpectedScope(),
     #[error("Cannot perform merge on Vec with no elements.")]
     VecSize(),
 }

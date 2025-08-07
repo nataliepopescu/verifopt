@@ -193,10 +193,6 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                             VarType::Scope(backptr_a, mut instance_vec_a),
                             VarType::Scope(backptr_b, mut instance_vec_b),
                         ) => {
-                            if instance_vec_a.len() != 1 || instance_vec_b.len() != 1 {
-                                todo!("not impl yet (scope vec)");
-                            }
-
                             let functype_a = instance_vec_a[0].0.clone();
                             let functype_b = instance_vec_b[0].0.clone();
                             let cmap_a = instance_vec_a[0].1.clone();

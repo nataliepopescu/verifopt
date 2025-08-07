@@ -131,13 +131,11 @@ impl Interpreter {
                 }
 
                 match *functype {
-                    Type::Func(_, rettype) => {
-                        cmap.scoped_set(
-                            scope,
-                            var,
-                            Box::new(VarType::Values(rettype.unwrap(), constraints)),
-                        )?
-                    }
+                    Type::Func(_, rettype) => cmap.scoped_set(
+                        scope,
+                        var,
+                        Box::new(VarType::Values(rettype.unwrap(), constraints)),
+                    )?,
                     _ => return Err(Error::NotAFunction(name)),
                 }
             }
@@ -963,7 +961,7 @@ impl Interpreter {
                     }
                     _ => return Err(Error::UnexpectedScope()),
                 },
-                Ok(None) => {},
+                Ok(None) => {}
                 Err(err) => return Err(err),
             }
         }

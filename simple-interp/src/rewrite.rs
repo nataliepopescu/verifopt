@@ -342,14 +342,13 @@ impl Rewriter {
         Ok(Statement::Switch(RVal::Var(name), switch_vec))
     }
 
-    // FIXME merge trait_invoke w indirect_invoke ?
     fn rewrite_trait_invoke(
         &self,
         _funcs: &Funcs,
         cmap: &ConstraintMap,
         _sigs: &Sigs,
         _traits: &Traits,
-        _scope: Option<&'static str>,
+        scope: Option<&'static str>,
         name: &'static str,
         funcvec: &Vec<(TraitStructOpt, FuncVal)>,
         args: &Vec<&'static str>,
@@ -361,67 +360,84 @@ impl Rewriter {
 
         let mut switch_vec = vec![];
 
-        // get type of `self` (first arg) FIXME add bool for this
-        match cmap.cmap.get(args[0]) {
-            Some(val) => match *val.clone() {
-                VarType::Values(vartype, constraints) => {
-                    let mut pos_vec: Vec<_> = constraints.0.iter().collect();
-                    // sorting to get deterministic switch statement order in
-                    // tests
-                    if sort_hashsets {
-                        pos_vec.sort();
-                    }
-
-                    // FIXME use funcvec or traits data structure?
-                    match self.is_top_or_bottom_traits(
-                        name,
-                        &vartype,
-                        funcvec,
-                        &constraints,
-                    ) {
-                        Ok(Some((trait_name, top))) => {
-                            let mut top_vec: Vec<_> = top.iter().collect();
-
-                            // sorting to get deterministic switch statement
-                            // order in tests
-                            if sort_hashsets {
-                                top_vec.sort();
-                            }
-
-                            for struct_name in top_vec.iter() {
-                                switch_vec.push((
-                                    // FIXME Var or Struct (if struct need
-                                    // another data structure to track fields)
-                                    RVal::Var(struct_name),
-                                    Box::new(Statement::InvokeTraitFunc(
-                                        name,
-                                        // FIXME need trait name?
-                                        (trait_name, struct_name),
-                                        args.clone(),
-                                    )),
-                                ));
-                            }
+        // get type of `self` (first arg)
+        if funcvec.len() > 0 && funcvec[0].1.is_method && args.len() > 0 {
+            match cmap.scoped_get(scope, args[0], false) {
+                Ok(Some(vartype)) => match vartype {
+                    VarType::Values(vartype, constraints) => {
+                        let mut pos_vec: Vec<_> = constraints.0.iter().collect();
+                        // tests
+                        if sort_hashsets {
+                            pos_vec.sort();
                         }
-                        Ok(None) => {
-                            // FIXME use constraints
-                            panic!("not impl yet");
-                            //for (tso, _) in funcvec.iter() {
-                            //    switch_vec.push((
-                            //        RVal::Var(args[0]),
-                            //        Box::new(Statement::InvokeTraitFunc(
-                            //            name,
-                            //            tso.unwrap(),
-                            //            args.clone(),
-                            //        )),
-                            //    ));
-                            //}
+
+                        // FIXME use funcvec or traits data structure?
+                        match self.is_top_or_bottom_traits(
+                            name,
+                            &vartype,
+                            funcvec,
+                            &constraints,
+                        ) {
+                            Ok(Some((trait_name, top))) => {
+                                let mut top_vec: Vec<_> = top.iter().collect();
+
+                                // sorting to get deterministic switch statement
+                                // order in tests
+                                if sort_hashsets {
+                                    top_vec.sort();
+                                }
+
+                                for struct_name in top_vec.iter() {
+                                    switch_vec.push((
+                                        // FIXME Var or Struct (if struct need
+                                        // another data structure to track fields)
+                                        RVal::Var(struct_name),
+                                        Box::new(Statement::InvokeTraitFunc(
+                                            name,
+                                            // FIXME need trait name?
+                                            (trait_name, struct_name),
+                                            args.clone(),
+                                        )),
+                                    ));
+                                }
+                            }
+                            Ok(None) => {
+                                // FIXME doing similar work as prune_funcvec() in interp
+                                // can save some of this work by storing the results of that work
+                                for (tso, funcval) in funcvec.iter() {
+                                    let self_type = &funcval.params[0].1;
+                                    match self_type {
+                                        Type::Struct(sname) => {
+                                            // if no match in positive constraints, skip
+                                            for c in &constraints.0 {
+                                                match c {
+                                                    RVal::IdkStruct(idk_sname) => {
+                                                        if *sname == *idk_sname {
+                                                            switch_vec.push((
+                                                                RVal::Var(sname),
+                                                                Box::new(Statement::InvokeTraitFunc(
+                                                                    name, tso.unwrap(),
+                                                                    args.clone()
+                                                                )),
+                                                            ));
+                                                        }
+                                                    }
+                                                    _ => todo!(),
+                                                }
+                                            }
+                                        }
+                                        _ => todo!(),
+                                    }
+                                }
+                            }
+                            Err(err) => return Err(err),
                         }
-                        Err(err) => return Err(err),
                     }
-                }
-                _ => panic!("`self` arg should not be a scope"),
-            },
-            None => panic!("`self` arg does not exist"),
+                    _ => panic!("`self` arg should not be a scope"),
+                },
+                Ok(None) => panic!("`self` arg does not exist"),
+                Err(err) => return Err(err),
+            }
         }
 
         Ok(Statement::Switch(RVal::Var(args[0]), switch_vec))
@@ -1206,6 +1222,259 @@ mod tests {
             )),
             Box::new(Struct("Cat", vec![], vec![])),
             Box::new(Struct("Dog", vec![], vec![])),
+            Box::new(TraitImpl(
+                "Animal",
+                "Cat",
+                vec!["speak"],
+                vec![cat_speak.clone()],
+            )),
+            Box::new(TraitImpl(
+                "Animal",
+                "Dog",
+                vec!["speak"],
+                vec![dog_speak.clone()],
+            )),
+            Box::new(Assignment(
+                "specific_animal",
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
+            )),
+            Box::new(Switch(RVal::Var("specific_animal"), switch_vec)),
+        ]);
+
+        assert_eq!(stmt, check_stmt);
+    }
+
+    #[test]
+    fn test_dyn_traits_three_impl_two_used() {
+        let funcdecl =
+            FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+
+        let bird_speak_body = Box::new(Print("chirp"));
+        let bird_speak = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Bird"))],
+            None,
+            bird_speak_body.clone(),
+        );
+
+        let cat_speak_body = Box::new(Print("meow"));
+        let cat_speak = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Cat"))],
+            None,
+            cat_speak_body.clone(),
+        );
+
+        let dog_speak_body = Box::new(Print("woof"));
+        let dog_speak = FuncVal::new(
+            true,
+            vec![("self", Type::Struct("Dog"))],
+            None,
+            dog_speak_body.clone(),
+        );
+
+        let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
+            Box::new(BStatement::TrueOrFalse()),
+            Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
+                "Cat",
+                vec![],
+            )))])),
+            Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
+                "Dog",
+                vec![],
+            )))])),
+        ))]));
+
+        let mut stmt = Sequence(vec![
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
+            Box::new(FuncDef(
+                "giveMeAnAnimal",
+                false,
+                vec![],
+                Some(Box::new(Type::DynTrait("Animal"))),
+                gmaa.clone(),
+            )),
+            Box::new(Struct("Bird", vec![], vec![])),
+            Box::new(Struct("Cat", vec![], vec![])),
+            Box::new(Struct("Dog", vec![], vec![])),
+            Box::new(TraitImpl(
+                "Animal",
+                "Bird",
+                vec!["speak"],
+                vec![bird_speak.clone()],
+            )),
+            Box::new(TraitImpl(
+                "Animal",
+                "Cat",
+                vec!["speak"],
+                vec![cat_speak.clone()],
+            )),
+            Box::new(TraitImpl(
+                "Animal",
+                "Dog",
+                vec!["speak"],
+                vec![dog_speak.clone()],
+            )),
+            Box::new(Assignment(
+                "specific_animal",
+                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                    "giveMeAnAnimal",
+                    vec![],
+                )))),
+            )),
+            Box::new(InvokeFunc("speak", vec!["specific_animal"])),
+        ]);
+
+        let mut funcs = Funcs::new();
+        funcs.funcs.insert(
+            "speak",
+            vec![
+                (Some(("Animal", "Dog")), dog_speak.clone()),
+                (Some(("Animal", "Cat")), cat_speak.clone()),
+                (Some(("Animal", "Bird")), bird_speak.clone()),
+            ],
+        );
+        funcs.funcs.insert(
+            "giveMeAnAnimal",
+            vec![(
+                None,
+                FuncVal::new(
+                    false,
+                    vec![],
+                    Some(Box::new(Type::DynTrait("Animal"))),
+                    gmaa.clone(),
+                ),
+            )],
+        );
+
+        let mut cmap = ConstraintMap::new();
+        let mut cat_speak_cmap = ConstraintMap::new();
+        let mut dog_speak_cmap = ConstraintMap::new();
+
+        dog_speak_cmap.cmap.insert(
+            "self",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct("Dog")),
+                (HashSet::from([RVal::IdkStruct("Dog")]), HashSet::new()),
+            )),
+        );
+        dog_speak_cmap.cmap.insert(
+            "spoken",
+            Box::new(VarType::Values(
+                Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(2)]), HashSet::new()),
+            )),
+        );
+
+        cat_speak_cmap.cmap.insert(
+            "self",
+            Box::new(VarType::Values(
+                Box::new(Type::Struct("Cat")),
+                (HashSet::from([RVal::IdkStruct("Cat")]), HashSet::new()),
+            )),
+        );
+        cat_speak_cmap.cmap.insert(
+            "spoken",
+            Box::new(VarType::Values(
+                Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(1)]), HashSet::new()),
+            )),
+        );
+
+        cmap.cmap.insert(
+            "speak",
+            Box::new(VarType::Scope(
+                None,
+                vec![
+                    (
+                        Box::new(Type::Func(vec![Type::Struct("Dog")], None)),
+                        dog_speak_cmap,
+                    ),
+                    (
+                        Box::new(Type::Func(vec![Type::Struct("Cat")], None)),
+                        cat_speak_cmap,
+                    ),
+                ],
+            )),
+        );
+        cmap.cmap.insert(
+            "giveMeAnAnimal",
+            Box::new(VarType::Scope(
+                None,
+                vec![(
+                    Box::new(Type::Func(
+                        vec![],
+                        Some(Box::new(Type::DynTrait("Animal"))),
+                    )),
+                    ConstraintMap::new(),
+                )],
+            )),
+        );
+        cmap.cmap.insert(
+            "specific_animal",
+            Box::new(VarType::Values(
+                Box::new(Type::DynTrait("Animal")),
+                (
+                    HashSet::from([RVal::IdkStruct("Cat"), RVal::IdkStruct("Dog")]),
+                    HashSet::new(),
+                ),
+            )),
+        );
+
+        let mut sigs = Sigs::new();
+        sigs.sigs
+            .insert(SigVal::new(vec![], None), HashSet::from(["speak"]));
+        sigs.sigs.insert(
+            SigVal::new(vec![], Some(Box::new(Type::DynTrait("Animal")))),
+            HashSet::from(["giveMeAnAnimal"]),
+        );
+
+        let mut traits = Traits::new();
+        traits.traits.insert("Animal", vec!["Bird", "Cat", "Dog"]);
+
+        let rw = Rewriter::new();
+        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+
+        let switch_vec = vec![
+            (
+                RVal::Var("Dog"),
+                Box::new(InvokeTraitFunc(
+                    "speak",
+                    ("Animal", "Dog"),
+                    vec!["specific_animal"],
+                )),
+            ),
+            (
+                RVal::Var("Cat"),
+                Box::new(InvokeTraitFunc(
+                    "speak",
+                    ("Animal", "Cat"),
+                    vec!["specific_animal"],
+                )),
+            ),
+        ];
+
+        let check_stmt = Sequence(vec![
+            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
+            Box::new(FuncDef(
+                "giveMeAnAnimal",
+                false,
+                vec![],
+                Some(Box::new(Type::DynTrait("Animal"))),
+                gmaa.clone(),
+            )),
+            Box::new(Struct("Bird", vec![], vec![])),
+            Box::new(Struct("Cat", vec![], vec![])),
+            Box::new(Struct("Dog", vec![], vec![])),
+            Box::new(TraitImpl(
+                "Animal",
+                "Bird",
+                vec!["speak"],
+                vec![bird_speak.clone()],
+            )),
             Box::new(TraitImpl(
                 "Animal",
                 "Cat",

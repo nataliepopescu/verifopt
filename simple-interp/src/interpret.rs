@@ -941,12 +941,13 @@ impl Interpreter {
                                     let mut mtch = false;
                                     for c in &constraints.0 {
                                         match c {
-                                            RVal::IdkStruct(idk_sname) => {
-                                                if *sname == *idk_sname {
+                                            RVal::IdkStruct(other_sname)
+                                            | RVal::Struct(other_sname, _) => {
+                                                if *sname == *other_sname {
                                                     mtch = true;
                                                 }
                                             }
-                                            _ => todo!(),
+                                            _ => todo!("c: {:?}", &c),
                                         }
                                     }
                                     if mtch {

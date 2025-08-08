@@ -1,8 +1,11 @@
 use simple_interp::SimpleInterp;
 use simple_interp::statement::Statement::{
-    Assignment, Conditional, FuncDef, InvokeFunc, Print, Sequence, Switch,
+    Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
+    Sequence, Struct, Switch, TraitDecl, TraitImpl,
 };
-use simple_interp::statement::{AssignmentRVal, BStatement, RVal};
+use simple_interp::statement::{
+    AssignmentRVal, BStatement, FuncDecl, FuncVal, RVal, Type,
+};
 
 #[test]
 fn test_print() {
@@ -307,6 +310,151 @@ fn test_nested_indirect_calls_no_args() {
             )),
         )),
         Box::new(Switch(RVal::Var("x"), switch_vec)),
+    ]);
+
+    let si = SimpleInterp::new();
+    let rw_stmt = si.interp(stmt).unwrap();
+
+    assert_eq!(rw_stmt, check_stmt);
+}
+
+#[test]
+fn overall_test_dyn_traits_three_impl_two_used() {
+    let funcdecl = FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+
+    let bird_speak_body = Box::new(Print("chirp"));
+    let bird_speak = FuncVal::new(
+        true,
+        vec![("self", Type::Struct("Bird"))],
+        None,
+        bird_speak_body.clone(),
+    );
+
+    let cat_speak_body = Box::new(Print("meow"));
+    let cat_speak = FuncVal::new(
+        true,
+        vec![("self", Type::Struct("Cat"))],
+        None,
+        cat_speak_body.clone(),
+    );
+
+    let dog_speak_body = Box::new(Print("woof"));
+    let dog_speak = FuncVal::new(
+        true,
+        vec![("self", Type::Struct("Dog"))],
+        None,
+        dog_speak_body.clone(),
+    );
+
+    let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
+        Box::new(BStatement::TrueOrFalse()),
+        Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
+            "Cat",
+            vec![],
+        )))])),
+        Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
+            "Dog",
+            vec![],
+        )))])),
+    ))]));
+
+    let stmt = Sequence(vec![
+        Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
+        Box::new(FuncDef(
+            "giveMeAnAnimal",
+            false,
+            vec![],
+            Some(Box::new(Type::DynTrait("Animal"))),
+            gmaa.clone(),
+        )),
+        Box::new(Struct("Bird", vec![], vec![])),
+        Box::new(Struct("Cat", vec![], vec![])),
+        Box::new(Struct("Dog", vec![], vec![])),
+        Box::new(TraitImpl(
+            "Animal",
+            "Bird",
+            vec!["speak"],
+            vec![bird_speak.clone()],
+        )),
+        Box::new(TraitImpl(
+            "Animal",
+            "Cat",
+            vec!["speak"],
+            vec![cat_speak.clone()],
+        )),
+        Box::new(TraitImpl(
+            "Animal",
+            "Dog",
+            vec!["speak"],
+            vec![dog_speak.clone()],
+        )),
+        Box::new(Assignment(
+            "specific_animal",
+            Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
+                "giveMeAnAnimal",
+                vec![],
+            )))),
+        )),
+        Box::new(InvokeFunc("speak", vec!["specific_animal"])),
+    ]);
+
+    let switch_vec = vec![
+        (
+            RVal::Var("Cat"),
+            Box::new(InvokeTraitFunc(
+                "speak",
+                ("Animal", "Cat"),
+                vec!["specific_animal"],
+            )),
+        ),
+        (
+            RVal::Var("Dog"),
+            Box::new(InvokeTraitFunc(
+                "speak",
+                ("Animal", "Dog"),
+                vec!["specific_animal"],
+            )),
+        ),
+    ];
+
+    let check_stmt = Sequence(vec![
+        Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
+        Box::new(FuncDef(
+            "giveMeAnAnimal",
+            false,
+            vec![],
+            Some(Box::new(Type::DynTrait("Animal"))),
+            gmaa.clone(),
+        )),
+        Box::new(Struct("Bird", vec![], vec![])),
+        Box::new(Struct("Cat", vec![], vec![])),
+        Box::new(Struct("Dog", vec![], vec![])),
+        Box::new(TraitImpl(
+            "Animal",
+            "Bird",
+            vec!["speak"],
+            vec![bird_speak.clone()],
+        )),
+        Box::new(TraitImpl(
+            "Animal",
+            "Cat",
+            vec!["speak"],
+            vec![cat_speak.clone()],
+        )),
+        Box::new(TraitImpl(
+            "Animal",
+            "Dog",
+            vec!["speak"],
+            vec![dog_speak.clone()],
+        )),
+        Box::new(Assignment(
+            "specific_animal",
+            Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
+                "giveMeAnAnimal",
+                vec![],
+            )))),
+        )),
+        Box::new(Switch(RVal::Var("specific_animal"), switch_vec)),
     ]);
 
     let si = SimpleInterp::new();

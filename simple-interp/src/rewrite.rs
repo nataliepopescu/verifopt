@@ -403,7 +403,8 @@ impl Rewriter {
                             }
                             Ok(None) => {
                                 // FIXME doing similar work as prune_funcvec() in interp
-                                // can save some of this work by storing the results of that work
+                                // can save some of this work by storing the results of
+                                // that work
                                 for (tso, funcval) in funcvec.iter() {
                                     let self_type = &funcval.params[0].1;
                                     match self_type {
@@ -411,8 +412,9 @@ impl Rewriter {
                                             // if no match in positive constraints, skip
                                             for c in &constraints.0 {
                                                 match c {
-                                                    RVal::IdkStruct(idk_sname) => {
-                                                        if *sname == *idk_sname {
+                                                    RVal::IdkStruct(other_sname)
+                                                    | RVal::Struct(other_sname, _) => {
+                                                        if *sname == *other_sname {
                                                             switch_vec.push((
                                                                 RVal::Var(sname),
                                                                 Box::new(Statement::InvokeTraitFunc(

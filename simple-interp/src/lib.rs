@@ -1,4 +1,5 @@
 pub mod constraints;
+pub mod display;
 pub mod error;
 pub mod func_collect;
 pub mod funcs;

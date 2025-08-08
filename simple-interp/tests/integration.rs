@@ -319,7 +319,7 @@ fn test_nested_indirect_calls_no_args() {
 }
 
 #[test]
-fn overall_test_dyn_traits_three_impl_two_used() {
+fn test_dyn_traits_three_impl_two_used() {
     let funcdecl = FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
 
     let bird_speak_body = Box::new(Print("chirp"));

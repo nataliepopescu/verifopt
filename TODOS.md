@@ -53,9 +53,17 @@
 - [ ] more code org/cleanup
     - [ ] indirect func calls vs trait func calls (code path)
     - [ ] interpreter.rs is 5k LOC - how best to split up
+        - mostly tests...
 
-- [ ] empirical confidence
-    - [ ] ask amit/leon about rust code that heavily uses dyn
+- [x] empirical confidence
+    - [x] ask amit/leon about rust code that heavily uses dyn
+
+- [ ] when is the negative part of constraints useful?
+    - check, currently don't think it is
+    - if that's the case, remove it
+
+- [ ] reuse trait pruning logic from intepret step in rewrite step or store
+  results somewhere
 
 - [ ] function summaries?
 

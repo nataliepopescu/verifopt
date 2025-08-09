@@ -171,21 +171,25 @@ impl Interpreter {
                     (HashSet::from([RVal::IdkNum()]), HashSet::new()),
                 )),
             )?,
-            AssignmentRVal::RVal(RVal::Struct(struct_name, field_values)) => cmap
-                .scoped_set(
-                    scope,
-                    var,
-                    Box::new(VarType::Values(
-                        Box::new(Type::Struct(*struct_name)),
-                        (
-                            HashSet::from([RVal::Struct(
-                                *struct_name,
-                                field_values.to_vec(),
-                            )]),
-                            HashSet::new(),
-                        ),
-                    )),
-                )?,
+            AssignmentRVal::RVal(RVal::Struct(
+                struct_name,
+                field_values,
+                field_names,
+            )) => cmap.scoped_set(
+                scope,
+                var,
+                Box::new(VarType::Values(
+                    Box::new(Type::Struct(*struct_name)),
+                    (
+                        HashSet::from([RVal::Struct(
+                            *struct_name,
+                            field_values.to_vec(),
+                            field_names.to_vec(),
+                        )]),
+                        HashSet::new(),
+                    ),
+                )),
+            )?,
             AssignmentRVal::RVal(RVal::IdkStruct(struct_name)) => cmap.scoped_set(
                 scope,
                 var,
@@ -710,7 +714,7 @@ impl Interpreter {
                         if structs.contains(&struct_name) {
                             for pos_constraint in arg_constraints.0.clone().iter() {
                                 match pos_constraint {
-                                    RVal::Struct(c_struct_name, _)
+                                    RVal::Struct(c_struct_name, ..)
                                     | RVal::IdkStruct(c_struct_name) => {
                                         // remove if any struct type other than
                                         // that of param_type
@@ -942,7 +946,7 @@ impl Interpreter {
                                     for c in &constraints.0 {
                                         match c {
                                             RVal::IdkStruct(other_sname)
-                                            | RVal::Struct(other_sname, _) => {
+                                            | RVal::Struct(other_sname, ..) => {
                                                 if *sname == *other_sname {
                                                     mtch = true;
                                                 }
@@ -3608,6 +3612,7 @@ mod tests {
                 Box::new(AssignmentRVal::RVal(RVal::Struct(
                     "Cat",
                     vec![RVal::Var("9")],
+                    vec!["age"],
                 ))),
             )),
         ]);
@@ -3624,7 +3629,11 @@ mod tests {
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Cat")),
                 (
-                    HashSet::from([RVal::Struct("Cat", vec![RVal::Var("9")])]),
+                    HashSet::from([RVal::Struct(
+                        "Cat",
+                        vec![RVal::Var("9")],
+                        vec!["age"],
+                    )]),
                     HashSet::new(),
                 ),
             )),
@@ -3659,7 +3668,7 @@ mod tests {
             )),
             Box::new(Assignment(
                 "edgar",
-                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
             )),
         ]);
 
@@ -3679,7 +3688,10 @@ mod tests {
             "edgar",
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Cat")),
-                (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
+                (
+                    HashSet::from([RVal::Struct("Cat", vec![], vec![])]),
+                    HashSet::new(),
+                ),
             )),
         );
 

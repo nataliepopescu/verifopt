@@ -264,6 +264,7 @@ fn structdef() {
             Box::new(AssignmentRVal::RVal(RVal::Struct(
                 "Cat",
                 vec![RVal::Var("9")],
+                vec!["age"],
             ))),
         )),
     ]));

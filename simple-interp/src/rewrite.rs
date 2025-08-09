@@ -220,7 +220,7 @@ impl Rewriter {
         for rval in pos_constraints.clone().into_iter() {
             match rval {
                 RVal::Var(varname) => str_set.insert(varname),
-                RVal::Struct(structname, _) => str_set.insert(structname),
+                RVal::Struct(structname, ..) => str_set.insert(structname),
                 _ => return false,
             };
         }
@@ -413,7 +413,7 @@ impl Rewriter {
                                             for c in &constraints.0 {
                                                 match c {
                                                     RVal::IdkStruct(other_sname)
-                                                    | RVal::Struct(other_sname, _) => {
+                                                    | RVal::Struct(other_sname, ..) => {
                                                         if *sname == *other_sname {
                                                             switch_vec.push((
                                                                 RVal::Var(sname),
@@ -1008,7 +1008,7 @@ mod tests {
             )),
             Box::new(Assignment(
                 "edgar",
-                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
             )),
         ]);
 
@@ -1023,7 +1023,10 @@ mod tests {
             "edgar",
             Box::new(VarType::Values(
                 Box::new(Type::Struct("Cat")),
-                (HashSet::from([RVal::Struct("Cat", vec![])]), HashSet::new()),
+                (
+                    HashSet::from([RVal::Struct("Cat", vec![], vec![])]),
+                    HashSet::new(),
+                ),
             )),
         );
 
@@ -1066,9 +1069,11 @@ mod tests {
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Cat",
                 vec![],
+                vec![],
             )))])),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Dog",
+                vec![],
                 vec![],
             )))])),
         ))]));
@@ -1136,8 +1141,8 @@ mod tests {
                 Box::new(Type::DynTrait("Animal")),
                 (
                     HashSet::from([
-                        RVal::Struct("Cat", vec![]),
-                        RVal::Struct("Dog", vec![]),
+                        RVal::Struct("Cat", vec![], vec![]),
+                        RVal::Struct("Dog", vec![], vec![]),
                     ]),
                     HashSet::new(),
                 ),
@@ -1172,8 +1177,8 @@ mod tests {
                 Box::new(Type::DynTrait("Animal")),
                 (
                     HashSet::from([
-                        RVal::Struct("Cat", vec![]),
-                        RVal::Struct("Dog", vec![]),
+                        RVal::Struct("Cat", vec![], vec![]),
+                        RVal::Struct("Dog", vec![], vec![]),
                     ]),
                     HashSet::new(),
                 ),
@@ -1283,9 +1288,11 @@ mod tests {
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Cat",
                 vec![],
+                vec![],
             )))])),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Dog",
+                vec![],
                 vec![],
             )))])),
         ))]));

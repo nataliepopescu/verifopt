@@ -437,7 +437,7 @@ mod tests {
             )),
             Box::new(Assignment(
                 "edgar",
-                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
             )),
         ]);
 
@@ -481,9 +481,11 @@ mod tests {
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Cat",
                 vec![],
+                vec![],
             )))])),
             Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
                 "Dog",
+                vec![],
                 vec![],
             )))])),
         ))]));

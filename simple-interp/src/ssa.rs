@@ -545,7 +545,7 @@ mod tests {
             )),
             Box::new(Assignment(
                 "cat",
-                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![]))),
+                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
             )),
             Box::new(InvokeFunc("speak", vec!["cat"])),
         ]);

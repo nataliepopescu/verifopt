@@ -351,9 +351,11 @@ fn test_dyn_traits_three_impl_two_used() {
         Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
             "Cat",
             vec![],
+            vec![],
         )))])),
         Box::new(Sequence(vec![Box::new(Return(RVal::Struct(
             "Dog",
+            vec![],
             vec![],
         )))])),
     ))]));

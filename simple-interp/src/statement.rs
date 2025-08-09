@@ -39,7 +39,7 @@ pub enum RVal {
     Num(i32),
     IdkNum(),
     // TODO add strings
-    Struct(&'static str, Vec<RVal>),
+    Struct(&'static str, Vec<RVal>, Vec<&'static str>),
     IdkStruct(&'static str),
     Var(&'static str),
     IdkVar(),

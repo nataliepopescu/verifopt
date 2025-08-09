@@ -96,6 +96,16 @@ impl fmt::Display for Statement {
                 }
                 write!(f, "{}", s)
             }
+            Struct(name, field_types, field_names) => {
+                let mut s = format!("struct {} {{", name);
+                if field_types.len() > 0 {
+                    for (field_name, field_type) in std::iter::zip(field_names, field_types) {
+                        s = format!("{}\n{}: {},", s, field_name, field_type);
+                    }
+                }
+                s = format!("{}\n}}", s);
+                write!(f, "{}", s)
+            }
             _ => todo!("stmt: {:?}", self),
         }
     }
@@ -134,3 +144,23 @@ impl fmt::Display for AssignmentRVal {
         }
     }
 }
+
+impl fmt::Display for RVal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RVal::Num(num) => write!(f, "{}", num),
+            RVal::IdkNum() => write!(f, "IDK-Num"),
+            RVal::Var(var) => write!(f, "{}", var),
+            RVal::IdkVar() => write!(f, "IDK-Var"),
+            RVal::Struct(name, field_values) => {
+                let mut fv_string: String = "".to_owned();
+                for field_value in field_values.iter() {
+                    fv_string.push_str(&field_value.to_string());
+                }
+                write!(f, "{} : {}", name, fv_string)
+            }
+            RVal::IdkStruct(name) => write!(f, "IDK-Struct({})", name),
+        }
+    }
+}
+

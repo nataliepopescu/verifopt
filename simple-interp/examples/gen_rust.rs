@@ -227,13 +227,49 @@ fn indirect_invoke_args() {
             None,
             foo_body,
         )),
-        Box::new(FuncDef(
-            "main",
-            false,
-            vec![],
-            None,
-            main_body,
+        Box::new(FuncDef("main", false, vec![], None, main_body)),
+        Box::new(InvokeFunc("main", vec![])),
+    ]);
+    run(stmt);
+}
+
+//// TODO
+//fn indirect_invoke_ret() {
+//}
+
+fn switch() {
+    let switch_vec: Vec<(RVal, Box<Statement>)> = vec![
+        (RVal::Num(4), Box::new(Print("0"))),
+        (RVal::Num(5), Box::new(Print("1"))),
+    ];
+    let main_body = Box::new(Sequence(vec![
+        Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         )),
+        Box::new(Switch(RVal::Var("x"), switch_vec)),
+    ]));
+    let stmt = Sequence(vec![
+        Box::new(FuncDef("main", false, vec![], None, main_body)),
+        Box::new(InvokeFunc("main", vec![])),
+    ]);
+    run(stmt);
+}
+
+fn structdef() {
+    let main_body = Box::new(Sequence(vec![
+        Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
+        Box::new(Assignment(
+            "edgar",
+            Box::new(AssignmentRVal::RVal(RVal::Struct(
+                "Cat",
+                vec![RVal::Var("9")],
+            ))),
+        )),
+    ]));
+    let stmt = Sequence(vec![
+        Box::new(FuncDef("main", false, vec![], None, main_body)),
+        Box::new(InvokeFunc("main", vec![])),
     ]);
     run(stmt);
 }
@@ -245,5 +281,5 @@ fn main() {
     //    std::process::exit(1);
     //}
 
-    indirect_invoke_args();
+    structdef();
 }

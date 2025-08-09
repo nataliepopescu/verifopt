@@ -118,25 +118,6 @@ pub trait Merge<T> {
     fn merge(&self) -> Result<Option<T>, Error>;
 }
 
-impl fmt::Display for RVal {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RVal::Num(num) => write!(f, "{}", num),
-            RVal::IdkNum() => write!(f, "IDK-Num"),
-            RVal::Var(var) => write!(f, "{}", var),
-            RVal::IdkVar() => write!(f, "IDK-Var"),
-            RVal::Struct(name, field_values) => {
-                let mut fv_string: String = "".to_owned();
-                for field_value in field_values.iter() {
-                    fv_string.push_str(&field_value.to_string());
-                }
-                write!(f, "{} : {}", name, fv_string)
-            }
-            RVal::IdkStruct(name) => write!(f, "IDK-Struct({})", name),
-        }
-    }
-}
-
 impl Not for BStatement {
     type Output = Self;
 

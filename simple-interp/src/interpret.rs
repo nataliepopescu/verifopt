@@ -4176,4 +4176,61 @@ mod tests {
         assert_eq!(cmap, check_cmap);
         assert_eq!(traits, check_traits);
     }
+
+    #[test]
+    fn use_main() {
+        let mut funcs = Funcs::new();
+        let foo_body = Box::new(Sequence(vec![Box::new(Assignment(
+            "x",
+            Box::new(AssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
+        let main_body = Box::new(InvokeFunc("foo", vec![]));
+        funcs.funcs.insert(
+            "foo",
+            vec![(None, FuncVal::new(false, vec![], None, foo_body.clone()))],
+        );
+        funcs.funcs.insert(
+            "main",
+            vec![(None, FuncVal::new(false, vec![], None, main_body.clone()))],
+        );
+
+        let stmt = Sequence(vec![
+            Box::new(FuncDef("foo", false, vec![], None, foo_body)),
+            Box::new(FuncDef("main", false, vec![], None, main_body)),
+            Box::new(InvokeFunc("main", vec![])),
+        ]);
+
+        let mut cmap = ConstraintMap::new();
+        let mut traits = Traits::new();
+        let interp = Interpreter::new();
+        let res = interp.interp(&funcs, &mut cmap, &mut traits, None, &stmt);
+
+        let mut check_cmap = ConstraintMap::new();
+        let mut foo_cmap = ConstraintMap::new();
+        let main_cmap = ConstraintMap::new();
+        foo_cmap.cmap.insert(
+            "x",
+            Box::new(VarType::Values(
+                Box::new(Type::Int()),
+                (HashSet::from([RVal::Num(5)]), HashSet::new()),
+            )),
+        );
+        check_cmap.cmap.insert(
+            "foo",
+            Box::new(VarType::Scope(
+                Some("main"),
+                vec![(Box::new(Type::Func(vec![], None)), foo_cmap)],
+            )),
+        );
+        check_cmap.cmap.insert(
+            "main",
+            Box::new(VarType::Scope(
+                None,
+                vec![(Box::new(Type::Func(vec![], None)), main_cmap)],
+            )),
+        );
+
+        assert_eq!(res.unwrap(), None);
+        assert_eq!(cmap, check_cmap);
+    }
 }

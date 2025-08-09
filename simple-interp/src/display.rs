@@ -44,6 +44,18 @@ impl fmt::Display for Statement {
                 }
                 write!(f, "{}", s)
             }
+            InvokeTraitFunc(name, ts_tup, args) => {
+                let mut s = format!("<{} as {}>::{}(", ts_tup.1, ts_tup.0, name);
+                if args.len() > 0 {
+                    for arg in args.iter() {
+                        s = format!("{}\n{},", s, arg);
+                    }
+                    s = format!("{}\n);", s);
+                } else {
+                    s = format!("{});", s);
+                }
+                write!(f, "{}", s)
+            }
             Return(rval) => {
                 write!(f, "return {};", rval)
             }
@@ -129,7 +141,7 @@ impl fmt::Display for BStatement {
             BStatement::Equals(v1, v2) => {
                 write!(f, "{} == {}", v1, v2)
             }
-            _ => todo!(),
+            BStatement::TrueOrFalse() => write!(f, "rand"),
         }
     }
 }

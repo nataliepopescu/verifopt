@@ -3825,14 +3825,9 @@ mod tests {
         );
 
         let stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl("Animal", vec![funcdef.clone()])),
             Box::new(Struct("Cat", vec![], vec![])),
-            Box::new(TraitImpl(
-                "Animal",
-                "Cat",
-                vec!["speak"],
-                vec![cat_funcimpl.clone()],
-            )),
+            Box::new(TraitImpl("Animal", "Cat", vec![cat_funcimpl.clone()])),
             Box::new(Assignment(
                 "edgar",
                 Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
@@ -3890,7 +3885,7 @@ mod tests {
         let gmaa = Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))]));
 
         let stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
+            Box::new(TraitDecl("Animal", vec![funcdef.clone()])),
             Box::new(FuncDef(FuncVal::new(
                 "giveMeAnAnimal",
                 false,
@@ -3899,12 +3894,7 @@ mod tests {
                 gmaa.clone(),
             ))),
             Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
-            Box::new(TraitImpl(
-                "Animal",
-                "Cat",
-                vec!["speak"],
-                vec![cat_funcimpl.clone()],
-            )),
+            Box::new(TraitImpl("Animal", "Cat", vec![cat_funcimpl.clone()])),
             Box::new(Assignment(
                 "specific_animal",
                 Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
@@ -4034,7 +4024,7 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
+            Box::new(TraitDecl("Animal", vec![funcdecl.clone()])),
             Box::new(FuncDef(FuncVal::new(
                 "giveMeAnAnimal",
                 false,
@@ -4044,18 +4034,8 @@ mod tests {
             ))),
             Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
             Box::new(Struct("Dog", vec![Type::Int()], vec!["age"])),
-            Box::new(TraitImpl(
-                "Animal",
-                "Cat",
-                vec!["speak"],
-                vec![cat_speak.clone()],
-            )),
-            Box::new(TraitImpl(
-                "Animal",
-                "Dog",
-                vec!["speak"],
-                vec![dog_speak.clone()],
-            )),
+            Box::new(TraitImpl("Animal", "Cat", vec![cat_speak.clone()])),
+            Box::new(TraitImpl("Animal", "Dog", vec![dog_speak.clone()])),
             Box::new(Assignment(
                 "specific_animal",
                 Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
@@ -4227,7 +4207,7 @@ mod tests {
         ))]));
 
         let stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
+            Box::new(TraitDecl("Animal", vec![funcdecl.clone()])),
             Box::new(FuncDef(FuncVal::new(
                 "giveMeAnAnimal",
                 false,
@@ -4238,24 +4218,9 @@ mod tests {
             Box::new(Struct("Bird", vec![Type::Int()], vec!["age"])),
             Box::new(Struct("Cat", vec![Type::Int()], vec!["age"])),
             Box::new(Struct("Dog", vec![Type::Int()], vec!["age"])),
-            Box::new(TraitImpl(
-                "Animal",
-                "Bird",
-                vec!["speak"],
-                vec![bird_speak.clone()],
-            )),
-            Box::new(TraitImpl(
-                "Animal",
-                "Cat",
-                vec!["speak"],
-                vec![cat_speak.clone()],
-            )),
-            Box::new(TraitImpl(
-                "Animal",
-                "Dog",
-                vec!["speak"],
-                vec![dog_speak.clone()],
-            )),
+            Box::new(TraitImpl("Animal", "Bird", vec![bird_speak.clone()])),
+            Box::new(TraitImpl("Animal", "Cat", vec![cat_speak.clone()])),
+            Box::new(TraitImpl("Animal", "Dog", vec![dog_speak.clone()])),
             Box::new(Assignment(
                 "specific_animal",
                 Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(

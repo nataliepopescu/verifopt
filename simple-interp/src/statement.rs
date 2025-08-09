@@ -13,6 +13,7 @@ pub enum Statement {
     FuncDecl(FuncDecl),
     FuncDef(FuncVal),
     InvokeFunc(&'static str, Vec<&'static str>),
+    // only used _after_ rewrite
     InvokeTraitFunc(&'static str, TraitStructTup, Vec<&'static str>),
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
     // traits without associated types for now

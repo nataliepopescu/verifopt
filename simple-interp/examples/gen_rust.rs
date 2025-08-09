@@ -294,14 +294,23 @@ fn structdef() {
 }
 
 fn traitimpl() {
-    let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
-
     let funcdef = FuncDecl::new(
         "speak",
         true,
         vec![("self", Type::DynTrait("Animal"))],
         None,
     );
+
+    let bird_speak_body = Box::new(Sequence(vec![Box::new(Print("chirp"))]));
+    let bird_funcimpl = FuncVal::new(
+        "speak",
+        true,
+        vec![("self", Type::Struct("Bird"))],
+        None,
+        bird_speak_body.clone(),
+    );
+
+    let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
     let cat_funcimpl = FuncVal::new(
         "speak",
         true,
@@ -310,15 +319,47 @@ fn traitimpl() {
         cat_speak_body.clone(),
     );
 
-    let main_body = Box::new(Sequence(vec![Box::new(Assignment(
-        "edgar",
-        Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
+    let dog_speak_body = Box::new(Sequence(vec![Box::new(Print("woof"))]));
+    let dog_funcimpl = FuncVal::new(
+        "speak",
+        true,
+        vec![("self", Type::Struct("Dog"))],
+        None,
+        dog_speak_body.clone(),
+    );
+
+    let gmaa = Box::new(Sequence(vec![Box::new(Conditional(
+        Box::new(BStatement::TrueOrFalse()),
+        Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Cat")))])),
+        Box::new(Sequence(vec![Box::new(Return(RVal::IdkStruct("Dog")))])),
     ))]));
+
+    let main_body = Box::new(Sequence(vec![
+        Box::new(Assignment(
+            "specific_animal",
+            Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                "giveMeAnAnimal",
+                vec![],
+            )))),
+        )),
+        Box::new(InvokeFunc("speak", vec!["specific_animal"])),
+    ]));
 
     let stmt = Sequence(vec![
         Box::new(TraitDecl("Animal", vec![funcdef.clone()])),
+        Box::new(FuncDef(FuncVal::new(
+            "giveMeAnAnimal",
+            false,
+            vec![],
+            Some(Box::new(Type::DynTrait("Animal"))),
+            gmaa.clone(),
+        ))),
+        Box::new(Struct("Bird", vec![], vec![])),
         Box::new(Struct("Cat", vec![], vec![])),
+        Box::new(Struct("Dog", vec![], vec![])),
+        Box::new(TraitImpl("Animal", "Bird", vec![bird_funcimpl.clone()])),
         Box::new(TraitImpl("Animal", "Cat", vec![cat_funcimpl.clone()])),
+        Box::new(TraitImpl("Animal", "Dog", vec![dog_funcimpl.clone()])),
         Box::new(FuncDef(FuncVal::new(
             "main",
             false,

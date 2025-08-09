@@ -1,6 +1,5 @@
 use crate::error::Error;
 
-use std::fmt;
 use std::ops::Not;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -17,10 +16,10 @@ pub enum Statement {
     InvokeTraitFunc(&'static str, TraitStructTup, Vec<&'static str>),
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
     // traits without associated types for now
-    // (trait name, func names, funcs decls)
-    TraitDecl(&'static str, Vec<&'static str>, Vec<FuncDecl>),
-    // (trait name, struct name, func names, funcs impls)
-    TraitImpl(&'static str, &'static str, Vec<&'static str>, Vec<FuncVal>),
+    // (trait name, funcs decls)
+    TraitDecl(&'static str, Vec<FuncDecl>),
+    // (trait name, struct name, funcs impls)
+    TraitImpl(&'static str, &'static str, Vec<FuncVal>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

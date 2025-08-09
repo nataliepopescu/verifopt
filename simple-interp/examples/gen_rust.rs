@@ -227,7 +227,13 @@ fn indirect_invoke_args() {
             None,
             foo_body,
         ))),
-        Box::new(FuncDef(FuncVal::new("main", false, vec![], None, main_body))),
+        Box::new(FuncDef(FuncVal::new(
+            "main",
+            false,
+            vec![],
+            None,
+            main_body,
+        ))),
         Box::new(InvokeFunc("main", vec![])),
     ]);
     run(stmt);
@@ -250,7 +256,13 @@ fn switch() {
         Box::new(Switch(RVal::Var("x"), switch_vec)),
     ]));
     let stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new("main", false, vec![], None, main_body))),
+        Box::new(FuncDef(FuncVal::new(
+            "main",
+            false,
+            vec![],
+            None,
+            main_body,
+        ))),
         Box::new(InvokeFunc("main", vec![])),
     ]);
     run(stmt);
@@ -269,7 +281,13 @@ fn structdef() {
         )),
     ]));
     let stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new("main", false, vec![], None, main_body))),
+        Box::new(FuncDef(FuncVal::new(
+            "main",
+            false,
+            vec![],
+            None,
+            main_body,
+        ))),
         Box::new(InvokeFunc("main", vec![])),
     ]);
     run(stmt);
@@ -278,7 +296,12 @@ fn structdef() {
 fn traitimpl() {
     let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
-    let funcdef = FuncDecl::new("speak", true, vec![("self", Type::DynTrait("Animal"))], None);
+    let funcdef = FuncDecl::new(
+        "speak",
+        true,
+        vec![("self", Type::DynTrait("Animal"))],
+        None,
+    );
     let cat_funcimpl = FuncVal::new(
         "speak",
         true,
@@ -287,23 +310,22 @@ fn traitimpl() {
         cat_speak_body.clone(),
     );
 
-    let main_body = Box::new(Sequence(vec![
-        Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdef.clone()])),
-        Box::new(Struct("Cat", vec![], vec![])),
-        Box::new(TraitImpl(
-            "Animal",
-            "Cat",
-            vec!["speak"],
-            vec![cat_funcimpl.clone()],
-        )),
-        Box::new(Assignment(
-            "edgar",
-            Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
-        )),
-    ]));
+    let main_body = Box::new(Sequence(vec![Box::new(Assignment(
+        "edgar",
+        Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
+    ))]));
 
     let stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new("main", false, vec![], None, main_body))),
+        Box::new(TraitDecl("Animal", vec![funcdef.clone()])),
+        Box::new(Struct("Cat", vec![], vec![])),
+        Box::new(TraitImpl("Animal", "Cat", vec![cat_funcimpl.clone()])),
+        Box::new(FuncDef(FuncVal::new(
+            "main",
+            false,
+            vec![],
+            None,
+            main_body,
+        ))),
         Box::new(InvokeFunc("main", vec![])),
     ]);
     run(stmt);

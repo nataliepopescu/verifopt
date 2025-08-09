@@ -23,11 +23,13 @@ impl Interpreter {
         stmt: &Statement,
     ) -> Result<Option<Constraints>, Error> {
         match stmt {
-            Statement::FuncDecl(..) | Statement::FuncDef(..) | Statement::Struct(..) => Ok(None),
-            Statement::TraitDecl(trait_name, _, _) => {
+            Statement::FuncDecl(..) | Statement::FuncDef(..) | Statement::Struct(..) => {
+                Ok(None)
+            }
+            Statement::TraitDecl(trait_name, _) => {
                 self.interp_traitdecl(funcs, cmap, traits, scope, trait_name)
             }
-            Statement::TraitImpl(trait_name, struct_name, _, _) => {
+            Statement::TraitImpl(trait_name, struct_name, _) => {
                 self.interp_traitimpl(funcs, cmap, traits, scope, trait_name, struct_name)
             }
             Statement::Sequence(stmt_vec) => {
@@ -1554,11 +1556,17 @@ mod tests {
         ))]));
         funcs.funcs.insert(
             "foo",
-            vec![(None, FuncVal::new("foo", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("foo", false, vec![], None, foo_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "bar",
-            vec![(None, FuncVal::new("bar", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("bar", false, vec![], None, foo_body.clone()),
+            )],
         );
 
         let mut cmap = ConstraintMap::new();
@@ -1567,8 +1575,20 @@ mod tests {
         // note: `equals` is _shallow_, which is why it evals to false here
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body.clone()))),
-            Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, foo_body.clone()))),
+            Box::new(FuncDef(FuncVal::new(
+                "foo",
+                false,
+                vec![],
+                None,
+                foo_body.clone(),
+            ))),
+            Box::new(FuncDef(FuncVal::new(
+                "bar",
+                false,
+                vec![],
+                None,
+                foo_body.clone(),
+            ))),
             Box::new(Conditional(
                 Box::new(BStatement::Equals(RVal::Var("foo"), RVal::Var("bar"))),
                 Box::new(Assignment(
@@ -1605,7 +1625,10 @@ mod tests {
         ))]));
         funcs.funcs.insert(
             "foo",
-            vec![(None, FuncVal::new("foo", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("foo", false, vec![], None, foo_body.clone()),
+            )],
         );
 
         let mut cmap = ConstraintMap::new();
@@ -1613,7 +1636,13 @@ mod tests {
 
         let interp = Interpreter::new();
         let stmt = Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body.clone()))),
+            Box::new(FuncDef(FuncVal::new(
+                "foo",
+                false,
+                vec![],
+                None,
+                foo_body.clone(),
+            ))),
             Box::new(Assignment(
                 "bar",
                 Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -1726,7 +1755,10 @@ mod tests {
         ))]));
         funcs.funcs.insert(
             "foo",
-            vec![(None, FuncVal::new("foo", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("foo", false, vec![], None, foo_body.clone()),
+            )],
         );
 
         let mut cmap = ConstraintMap::new();
@@ -2159,11 +2191,23 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body.clone()))),
+            Box::new(FuncDef(FuncVal::new(
+                "bar",
+                false,
+                vec![],
+                None,
+                bar_body.clone(),
+            ))),
             Box::new(InvokeFunc("bar", vec![])),
         ]));
         let stmt = Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body.clone()))),
+            Box::new(FuncDef(FuncVal::new(
+                "foo",
+                false,
+                vec![],
+                None,
+                foo_body.clone(),
+            ))),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
 
@@ -2231,8 +2275,20 @@ mod tests {
             Box::new(AssignmentRVal::RVal(RVal::Num(4))),
         ));
         let foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("baz", false, vec![], None, baz_body.clone()))),
-            Box::new(FuncDef(FuncVal::new("qux", false, vec![], None, qux_body.clone()))),
+            Box::new(FuncDef(FuncVal::new(
+                "baz",
+                false,
+                vec![],
+                None,
+                baz_body.clone(),
+            ))),
+            Box::new(FuncDef(FuncVal::new(
+                "qux",
+                false,
+                vec![],
+                None,
+                qux_body.clone(),
+            ))),
             Box::new(Conditional(
                 Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -2247,8 +2303,20 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
         let bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("baz2", false, vec![], None, baz2_body.clone()))),
-            Box::new(FuncDef(FuncVal::new("qux2", false, vec![], None, qux2_body.clone()))),
+            Box::new(FuncDef(FuncVal::new(
+                "baz2",
+                false,
+                vec![],
+                None,
+                baz2_body.clone(),
+            ))),
+            Box::new(FuncDef(FuncVal::new(
+                "qux2",
+                false,
+                vec![],
+                None,
+                qux2_body.clone(),
+            ))),
             Box::new(Conditional(
                 Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -2264,8 +2332,20 @@ mod tests {
         ]));
 
         let stmt = Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body.clone()))),
-            Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body.clone()))),
+            Box::new(FuncDef(FuncVal::new(
+                "foo",
+                false,
+                vec![],
+                None,
+                foo_body.clone(),
+            ))),
+            Box::new(FuncDef(FuncVal::new(
+                "bar",
+                false,
+                vec![],
+                None,
+                bar_body.clone(),
+            ))),
             Box::new(Conditional(
                 Box::new(BStatement::TrueOrFalse()),
                 Box::new(Assignment(
@@ -2283,27 +2363,45 @@ mod tests {
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
             "foo",
-            vec![(None, FuncVal::new("foo", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("foo", false, vec![], None, foo_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "bar",
-            vec![(None, FuncVal::new("bar", false, vec![], None, bar_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("bar", false, vec![], None, bar_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "baz",
-            vec![(None, FuncVal::new("baz", false, vec![], None, baz_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("baz", false, vec![], None, baz_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "qux",
-            vec![(None, FuncVal::new("quz", false, vec![], None, qux_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("quz", false, vec![], None, qux_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "baz2",
-            vec![(None, FuncVal::new("baz2", false, vec![], None, baz2_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("baz2", false, vec![], None, baz2_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "qux2",
-            vec![(None, FuncVal::new("qux2", false, vec![], None, qux2_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("qux2", false, vec![], None, qux2_body.clone()),
+            )],
         );
 
         let mut cmap = ConstraintMap::new();
@@ -2642,42 +2740,78 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new("foo", false, vec![("y", Type::Int())], None, foo_body.clone()),
+                FuncVal::new(
+                    "foo",
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    foo_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "bar",
             vec![(
                 None,
-                FuncVal::new("bar", false, vec![("y", Type::Int())], None, bar_body.clone()),
+                FuncVal::new(
+                    "bar",
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    bar_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "baz",
             vec![(
                 None,
-                FuncVal::new("baz", false, vec![("y", Type::Int())], None, baz_body.clone()),
+                FuncVal::new(
+                    "baz",
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    baz_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "qux",
             vec![(
                 None,
-                FuncVal::new("qux", false, vec![("y", Type::Int())], None, qux_body.clone()),
+                FuncVal::new(
+                    "qux",
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    qux_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "baz2",
             vec![(
                 None,
-                FuncVal::new("baz2", false, vec![("y", Type::Int())], None, baz2_body.clone()),
+                FuncVal::new(
+                    "baz2",
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    baz2_body.clone(),
+                ),
             )],
         );
         funcs.funcs.insert(
             "qux2",
             vec![(
                 None,
-                FuncVal::new("qux2", false, vec![("y", Type::Int())], None, qux2_body.clone()),
+                FuncVal::new(
+                    "qux2",
+                    false,
+                    vec![("y", Type::Int())],
+                    None,
+                    qux2_body.clone(),
+                ),
             )],
         );
 
@@ -2863,11 +2997,17 @@ mod tests {
         ))]));
         funcs.funcs.insert(
             "foo",
-            vec![(None, FuncVal::new("foo", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("foo", false, vec![], None, foo_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "bar",
-            vec![(None, FuncVal::new("bar", false, vec![], None, bar_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("bar", false, vec![], None, bar_body.clone()),
+            )],
         );
 
         let mut cmap = ConstraintMap::new();
@@ -2934,11 +3074,17 @@ mod tests {
         ))]));
         funcs.funcs.insert(
             "foo",
-            vec![(None, FuncVal::new("foo", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("foo", false, vec![], None, foo_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "bar",
-            vec![(None, FuncVal::new("bar", false, vec![], None, bar_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("bar", false, vec![], None, bar_body.clone()),
+            )],
         );
 
         let mut cmap = ConstraintMap::new();
@@ -3160,7 +3306,13 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new("foo", false, vec![], Some(Box::new(Type::Int())), body.clone()),
+                FuncVal::new(
+                    "foo",
+                    false,
+                    vec![],
+                    Some(Box::new(Type::Int())),
+                    body.clone(),
+                ),
             )],
         );
 
@@ -3230,7 +3382,13 @@ mod tests {
             "foo",
             vec![(
                 None,
-                FuncVal::new("foo", false, vec![], Some(Box::new(Type::Int())), body.clone()),
+                FuncVal::new(
+                    "foo",
+                    false,
+                    vec![],
+                    Some(Box::new(Type::Int())),
+                    body.clone(),
+                ),
             )],
         );
 
@@ -3652,7 +3810,12 @@ mod tests {
     fn test_trait_impl() {
         let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
 
-        let funcdef = FuncDecl::new("speak", true, vec![("self", Type::DynTrait("Animal"))], None);
+        let funcdef = FuncDecl::new(
+            "speak",
+            true,
+            vec![("self", Type::DynTrait("Animal"))],
+            None,
+        );
         let cat_funcimpl = FuncVal::new(
             "speak",
             true,
@@ -3705,7 +3868,12 @@ mod tests {
 
     #[test]
     fn test_dyn_traits_single_impl() {
-        let funcdef = FuncDecl::new("speak", true, vec![("self", Type::DynTrait("Animal"))], None);
+        let funcdef = FuncDecl::new(
+            "speak",
+            true,
+            vec![("self", Type::DynTrait("Animal"))],
+            None,
+        );
 
         let cat_speak_body = Box::new(Assignment(
             "spoken",
@@ -3828,8 +3996,12 @@ mod tests {
 
     #[test]
     fn test_dyn_traits_two_impl() {
-        let funcdecl =
-            FuncDecl::new("speak", true, vec![("self", Type::DynTrait("Animal"))], None);
+        let funcdecl = FuncDecl::new(
+            "speak",
+            true,
+            vec![("self", Type::DynTrait("Animal"))],
+            None,
+        );
 
         let cat_speak_body = Box::new(Assignment(
             "spoken",
@@ -4005,8 +4177,12 @@ mod tests {
 
     #[test]
     fn test_dyn_traits_three_impl_two_used() {
-        let funcdecl =
-            FuncDecl::new("speak", true, vec![("self", Type::DynTrait("Animal"))], None);
+        let funcdecl = FuncDecl::new(
+            "speak",
+            true,
+            vec![("self", Type::DynTrait("Animal"))],
+            None,
+        );
 
         let bird_speak_body = Box::new(Assignment(
             "spoken",
@@ -4212,16 +4388,28 @@ mod tests {
         let main_body = Box::new(InvokeFunc("foo", vec![]));
         funcs.funcs.insert(
             "foo",
-            vec![(None, FuncVal::new("foo", false, vec![], None, foo_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("foo", false, vec![], None, foo_body.clone()),
+            )],
         );
         funcs.funcs.insert(
             "main",
-            vec![(None, FuncVal::new("main", false, vec![], None, main_body.clone()))],
+            vec![(
+                None,
+                FuncVal::new("main", false, vec![], None, main_body.clone()),
+            )],
         );
 
         let stmt = Sequence(vec![
             Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body))),
-            Box::new(FuncDef(FuncVal::new("main", false, vec![], None, main_body))),
+            Box::new(FuncDef(FuncVal::new(
+                "main",
+                false,
+                vec![],
+                None,
+                main_body,
+            ))),
             Box::new(InvokeFunc("main", vec![])),
         ]);
 

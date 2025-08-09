@@ -31,31 +31,7 @@ impl fmt::Display for Statement {
             Conditional(b, t_branch, f_branch) => {
                 write!(f, "if {} {{\n{}\n}} else {{\n{}\n}}", b, t_branch, f_branch)
             }
-            FuncDef(func) => {
-                let mut s = format!("fn {}(", func.name);
-                if func.is_method {
-                    s = format!("{}\n&self,", s);
-                }
-                if func.params.len() > 0 {
-                    for param in func.params.iter() {
-                        s = format!("{}\n{}: {},", s, param.0, param.1);
-                    }
-                    s = format!("{}\n)", s);
-                } else {
-                    s = format!("{})", s);
-                }
-                if func.rettype.is_some() {
-                    s = format!(
-                        "{} -> {} {{\n{}\n}}",
-                        s,
-                        func.rettype.as_ref().unwrap(),
-                        func.body
-                    );
-                } else {
-                    s = format!("{} {{\n{}\n}}", s, func.body);
-                }
-                write!(f, "{}", s)
-            }
+            FuncDef(func) => write!(f, "{}", func),
             InvokeFunc(name, args) => {
                 let mut s = format!("{}(", name);
                 if args.len() > 0 {
@@ -108,19 +84,26 @@ impl fmt::Display for Statement {
                 s = format!("{}\n}}", s);
                 write!(f, "{}", s)
             }
-            TraitDecl(name, func_names, func_decls) => {
+            TraitDecl(name, func_decls) => {
                 let mut s = format!("trait {} {{", name);
-                if func_names.len() > 0 {
-                    for (func_name, func_decl) in
-                        std::iter::zip(func_names, func_decls)
-                    {
-                        s = format!("{}\nfn {}", s, func_name);
+                if func_decls.len() > 0 {
+                    for func_decl in func_decls.iter() {
+                        s = format!("{}\n{}", s, func_decl);
                     }
                 }
                 s = format!("{}\n}}", s);
                 write!(f, "{}", s)
             }
-            //TraitImpl(name, func_names, func_impls) => {}
+            TraitImpl(tname, sname, func_impls) => {
+                let mut s = format!("impl {} for {} {{", tname, sname);
+                if func_impls.len() > 0 {
+                    for func_impl in func_impls.iter() {
+                        s = format!("{}\n{}", s, func_impl);
+                    }
+                }
+                s = format!("{}\n}}", s);
+                write!(f, "{}", s)
+            }
             _ => todo!("stmt: {:?}", self),
         }
     }
@@ -130,7 +113,9 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Type::Int() => write!(f, "usize"),
-            _ => todo!(),
+            Type::Struct(name) => write!(f, "{}", name),
+            Type::DynTrait(name) => write!(f, "&dyn {}", name),
+            _ => todo!("self: {:?}", &self),
         }
     }
 }
@@ -182,5 +167,62 @@ impl fmt::Display for RVal {
             }
             RVal::IdkStruct(name) => write!(f, "IDK-Struct({})", name),
         }
+    }
+}
+
+impl fmt::Display for FuncDecl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = format!("fn {}(", self.name);
+        if self.is_method {
+            s = format!("{}\n&self,", s);
+        }
+        if self.params.len() > 0 {
+            for (i, param) in self.params.iter().enumerate() {
+                if self.is_method && i == 0 {
+                    continue;
+                }
+                s = format!("{}\n{}: {},", s, param.0, param.1);
+            }
+            s = format!("{}\n)", s);
+        } else {
+            s = format!("{})", s);
+        }
+        if self.rettype.is_some() {
+            s = format!("{} -> {};", s, self.rettype.as_ref().unwrap(),);
+        } else {
+            s = format!("{};", s);
+        }
+        write!(f, "{}", s)
+    }
+}
+
+impl fmt::Display for FuncVal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut s = format!("fn {}(", self.name);
+        if self.is_method {
+            s = format!("{}\n&self,", s);
+        }
+        if self.params.len() > 0 {
+            for (i, param) in self.params.iter().enumerate() {
+                if self.is_method && i == 0 {
+                    continue;
+                }
+                s = format!("{}\n{}: {},", s, param.0, param.1);
+            }
+            s = format!("{}\n)", s);
+        } else {
+            s = format!("{})", s);
+        }
+        if self.rettype.is_some() {
+            s = format!(
+                "{} -> {} {{\n{}\n}}",
+                s,
+                self.rettype.as_ref().unwrap(),
+                self.body
+            );
+        } else {
+            s = format!("{} {{\n{}\n}}", s, self.body);
+        }
+        write!(f, "{}", s)
     }
 }

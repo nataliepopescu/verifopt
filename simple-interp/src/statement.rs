@@ -11,13 +11,8 @@ pub enum Statement {
     Conditional(Box<BStatement>, Box<Statement>, Box<Statement>),
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
     Return(RVal),
-    FuncDef(
-        &'static str,
-        bool,
-        Vec<(&'static str, Type)>,
-        Option<Box<Type>>,
-        Box<Statement>,
-    ),
+    FuncDecl(FuncDecl),
+    FuncDef(FuncVal),
     InvokeFunc(&'static str, Vec<&'static str>),
     InvokeTraitFunc(&'static str, TraitStructTup, Vec<&'static str>),
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
@@ -51,6 +46,7 @@ pub type FuncName = &'static str;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncDecl {
+    pub name: &'static str,
     pub is_method: bool,
     pub params: Vec<(&'static str, Type)>,
     pub rettype: Option<Box<Type>>,
@@ -58,11 +54,13 @@ pub struct FuncDecl {
 
 impl FuncDecl {
     pub fn new(
+        name: &'static str,
         is_method: bool,
         params: Vec<(&'static str, Type)>,
         rettype: Option<Box<Type>>,
     ) -> Self {
         Self {
+            name,
             is_method,
             params,
             rettype,
@@ -72,6 +70,7 @@ impl FuncDecl {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FuncVal {
+    pub name: &'static str,
     pub is_method: bool,
     pub params: Vec<(&'static str, Type)>,
     pub rettype: Option<Box<Type>>,
@@ -80,12 +79,14 @@ pub struct FuncVal {
 
 impl FuncVal {
     pub fn new(
+        name: &'static str,
         is_method: bool,
         params: Vec<(&'static str, Type)>,
         rettype: Option<Box<Type>>,
         body: Box<Statement>,
     ) -> Self {
         Self {
+            name,
             is_method,
             params,
             rettype,

@@ -23,7 +23,7 @@ fn test_funcdef() {
         "x",
         Box::new(AssignmentRVal::RVal(RVal::Num(5))),
     ));
-    let stmt = FuncDef("foo", false, vec![], None, body.clone());
+    let stmt = FuncDef(FuncVal::new("foo", false, vec![], None, body.clone()));
 
     let si = SimpleInterp::new();
     let rw_stmt = si.interp(stmt.clone()).unwrap();
@@ -38,7 +38,7 @@ fn test_direct_invoke() {
         Box::new(AssignmentRVal::RVal(RVal::Num(5))),
     ))]));
     let stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, body)),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, body))),
         Box::new(InvokeFunc("foo", vec![])),
     ]);
 
@@ -55,7 +55,7 @@ fn test_indirect_invoke() {
         Box::new(AssignmentRVal::RVal(RVal::Num(5))),
     ))]));
     let stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, body.clone())),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, body.clone()))),
         Box::new(Assignment(
             "x",
             Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -68,7 +68,7 @@ fn test_indirect_invoke() {
 
     let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
     let check_stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, body)),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, body))),
         Box::new(Assignment(
             "x",
             Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
@@ -91,8 +91,8 @@ fn test_direct_invoke_uncertain() {
     ))]));
 
     let stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, foo_body)),
-        Box::new(FuncDef("bar", false, vec![], None, bar_body)),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body))),
+        Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(InvokeFunc("foo", vec![])),
@@ -118,8 +118,8 @@ fn test_indirect_invoke_uncertain() {
     ))]));
 
     let stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
-        Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body.clone()))),
+        Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body.clone()))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -142,8 +142,8 @@ fn test_indirect_invoke_uncertain() {
         (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
     ];
     let check_stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, foo_body)),
-        Box::new(FuncDef("bar", false, vec![], None, bar_body)),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body))),
+        Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -168,11 +168,11 @@ fn test_nested_direct_calls_no_args() {
         Box::new(AssignmentRVal::RVal(RVal::Num(5))),
     ));
     let foo_body = Box::new(Sequence(vec![
-        Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
+        Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body.clone()))),
         Box::new(InvokeFunc("bar", vec![])),
     ]));
     let stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body.clone()))),
         Box::new(InvokeFunc("foo", vec![])),
     ]);
     let check_stmt = stmt.clone();
@@ -202,8 +202,8 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(AssignmentRVal::RVal(RVal::Num(4))),
     ));
     let foo_body = Box::new(Sequence(vec![
-        Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
-        Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
+        Box::new(FuncDef(FuncVal::new("baz", false, vec![], None, baz_body.clone()))),
+        Box::new(FuncDef(FuncVal::new("qux", false, vec![], None, qux_body.clone()))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -218,8 +218,8 @@ fn test_nested_indirect_calls_no_args() {
         Box::new(InvokeFunc("x", vec![])),
     ]));
     let bar_body = Box::new(Sequence(vec![
-        Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
-        Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
+        Box::new(FuncDef(FuncVal::new("baz2", false, vec![], None, baz2_body.clone()))),
+        Box::new(FuncDef(FuncVal::new("qux2", false, vec![], None, qux2_body.clone()))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -235,8 +235,8 @@ fn test_nested_indirect_calls_no_args() {
     ]));
 
     let stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, foo_body.clone())),
-        Box::new(FuncDef("bar", false, vec![], None, bar_body.clone())),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body.clone()))),
+        Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body.clone()))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -256,8 +256,8 @@ fn test_nested_indirect_calls_no_args() {
         (RVal::Var("qux"), Box::new(InvokeFunc("qux", vec![]))),
     ];
     let check_foo_body = Box::new(Sequence(vec![
-        Box::new(FuncDef("baz", false, vec![], None, baz_body.clone())),
-        Box::new(FuncDef("qux", false, vec![], None, qux_body.clone())),
+        Box::new(FuncDef(FuncVal::new("baz", false, vec![], None, baz_body.clone()))),
+        Box::new(FuncDef(FuncVal::new("qux", false, vec![], None, qux_body.clone()))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -276,8 +276,8 @@ fn test_nested_indirect_calls_no_args() {
         (RVal::Var("qux2"), Box::new(InvokeFunc("qux2", vec![]))),
     ];
     let check_bar_body = Box::new(Sequence(vec![
-        Box::new(FuncDef("baz2", false, vec![], None, baz2_body.clone())),
-        Box::new(FuncDef("qux2", false, vec![], None, qux2_body.clone())),
+        Box::new(FuncDef(FuncVal::new("baz2", false, vec![], None, baz2_body.clone()))),
+        Box::new(FuncDef(FuncVal::new("qux2", false, vec![], None, qux2_body.clone()))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -296,8 +296,8 @@ fn test_nested_indirect_calls_no_args() {
         (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
     ];
     let check_stmt = Sequence(vec![
-        Box::new(FuncDef("foo", false, vec![], None, check_foo_body.clone())),
-        Box::new(FuncDef("bar", false, vec![], None, check_bar_body.clone())),
+        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, check_foo_body.clone()))),
+        Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, check_bar_body.clone()))),
         Box::new(Conditional(
             Box::new(BStatement::TrueOrFalse()),
             Box::new(Assignment(
@@ -320,10 +320,11 @@ fn test_nested_indirect_calls_no_args() {
 
 #[test]
 fn test_dyn_traits_three_impl_two_used() {
-    let funcdecl = FuncDecl::new(true, vec![("self", Type::DynTrait("Animal"))], None);
+    let funcdecl = FuncDecl::new("speak", true, vec![("self", Type::DynTrait("Animal"))], None);
 
     let bird_speak_body = Box::new(Print("chirp"));
     let bird_speak = FuncVal::new(
+        "speak",
         true,
         vec![("self", Type::Struct("Bird"))],
         None,
@@ -332,6 +333,7 @@ fn test_dyn_traits_three_impl_two_used() {
 
     let cat_speak_body = Box::new(Print("meow"));
     let cat_speak = FuncVal::new(
+        "speak",
         true,
         vec![("self", Type::Struct("Cat"))],
         None,
@@ -340,6 +342,7 @@ fn test_dyn_traits_three_impl_two_used() {
 
     let dog_speak_body = Box::new(Print("woof"));
     let dog_speak = FuncVal::new(
+        "speak",
         true,
         vec![("self", Type::Struct("Dog"))],
         None,
@@ -362,13 +365,13 @@ fn test_dyn_traits_three_impl_two_used() {
 
     let stmt = Sequence(vec![
         Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
-        Box::new(FuncDef(
+        Box::new(FuncDef(FuncVal::new(
             "giveMeAnAnimal",
             false,
             vec![],
             Some(Box::new(Type::DynTrait("Animal"))),
             gmaa.clone(),
-        )),
+        ))),
         Box::new(Struct("Bird", vec![], vec![])),
         Box::new(Struct("Cat", vec![], vec![])),
         Box::new(Struct("Dog", vec![], vec![])),
@@ -421,13 +424,13 @@ fn test_dyn_traits_three_impl_two_used() {
 
     let check_stmt = Sequence(vec![
         Box::new(TraitDecl("Animal", vec!["speak"], vec![funcdecl.clone()])),
-        Box::new(FuncDef(
+        Box::new(FuncDef(FuncVal::new(
             "giveMeAnAnimal",
             false,
             vec![],
             Some(Box::new(Type::DynTrait("Animal"))),
             gmaa.clone(),
-        )),
+        ))),
         Box::new(Struct("Bird", vec![], vec![])),
         Box::new(Struct("Cat", vec![], vec![])),
         Box::new(Struct("Dog", vec![], vec![])),

@@ -31,28 +31,28 @@ impl fmt::Display for Statement {
             Conditional(b, t_branch, f_branch) => {
                 write!(f, "if {} {{\n{}\n}} else {{\n{}\n}}", b, t_branch, f_branch)
             }
-            FuncDef(name, is_method, params, rettype, body) => {
-                let mut s = format!("fn {}(", name);
-                if *is_method {
+            FuncDef(func) => {
+                let mut s = format!("fn {}(", func.name);
+                if func.is_method {
                     s = format!("{}\n&self,", s);
                 }
-                if params.len() > 0 {
-                    for param in params.iter() {
+                if func.params.len() > 0 {
+                    for param in func.params.iter() {
                         s = format!("{}\n{}: {},", s, param.0, param.1);
                     }
                     s = format!("{}\n)", s);
                 } else {
                     s = format!("{})", s);
                 }
-                if rettype.is_some() {
+                if func.rettype.is_some() {
                     s = format!(
                         "{} -> {} {{\n{}\n}}",
                         s,
-                        rettype.as_ref().unwrap(),
-                        body
+                        func.rettype.as_ref().unwrap(),
+                        func.body
                     );
                 } else {
-                    s = format!("{} {{\n{}\n}}", s, body);
+                    s = format!("{} {{\n{}\n}}", s, func.body);
                 }
                 write!(f, "{}", s)
             }
@@ -108,6 +108,19 @@ impl fmt::Display for Statement {
                 s = format!("{}\n}}", s);
                 write!(f, "{}", s)
             }
+            TraitDecl(name, func_names, func_decls) => {
+                let mut s = format!("trait {} {{", name);
+                if func_names.len() > 0 {
+                    for (func_name, func_decl) in
+                        std::iter::zip(func_names, func_decls)
+                    {
+                        s = format!("{}\nfn {}", s, func_name);
+                    }
+                }
+                s = format!("{}\n}}", s);
+                write!(f, "{}", s)
+            }
+            //TraitImpl(name, func_names, func_impls) => {}
             _ => todo!("stmt: {:?}", self),
         }
     }

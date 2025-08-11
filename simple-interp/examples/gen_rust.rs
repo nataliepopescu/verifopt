@@ -336,19 +336,19 @@ fn traitimpl() {
 
     let main_body = Box::new(Sequence(vec![
         Box::new(Assignment(
-            "specific_animal",
+            "animal",
             Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
-                "giveMeAnAnimal",
+                "get_animal",
                 vec![],
             )))),
         )),
-        Box::new(InvokeFunc("speak", vec!["specific_animal"])),
+        Box::new(InvokeFunc("speak", vec!["animal"])),
     ]));
 
     let stmt = Sequence(vec![
         Box::new(TraitDecl("Animal", vec![funcdef.clone()])),
         Box::new(FuncDef(FuncVal::new(
-            "giveMeAnAnimal",
+            "get_animal",
             false,
             vec![],
             Some(Box::new(Type::DynTrait("Animal"))),

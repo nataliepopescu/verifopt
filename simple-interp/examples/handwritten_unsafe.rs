@@ -1,15 +1,12 @@
 use rand::Rng;
-use std::any::Any;
 
 const BIRD_TYPE: usize = 0;
 const CAT_TYPE: usize = 1;
 const DOG_TYPE: usize = 2;
 
-// if only testing the unsafe (second) example, can remove the `Any` supertrait here
-trait Animal: Any {
+trait Animal {
     fn speak(&self);
     fn typeid(&self) -> usize;
-    fn as_any(&self) -> &dyn Any;
 }
 
 fn get_animal() -> Box<dyn Animal> {
@@ -40,9 +37,6 @@ impl Animal for Bird {
     fn typeid(&self) -> usize {
         self.typeid
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
 impl Animal for Cat {
@@ -51,9 +45,6 @@ impl Animal for Cat {
     }
     fn typeid(&self) -> usize {
         self.typeid
-    }
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -64,23 +55,10 @@ impl Animal for Dog {
     fn typeid(&self) -> usize {
         self.typeid
     }
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
 }
 
-fn any_safe() {
-    let animal = get_animal();
-
-    if let Some(cat) = animal.as_any().downcast_ref::<Cat>() {
-        <Cat as Animal>::speak(cat);
-    }
-    if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
-        <Dog as Animal>::speak(dog);
-    }
-}
-
-fn typeid_transmute_unsafe() {
+// if copying into godbolt, make main `pub`
+fn main() {
     let animal = get_animal();
 
     let typeid = animal.typeid();
@@ -97,10 +75,4 @@ fn typeid_transmute_unsafe() {
             <Dog as Animal>::speak(dog);
         }
     }
-}
-
-// if copying into godbolt, make main `pub`
-fn main() {
-    any_safe();
-    typeid_transmute_unsafe();
 }

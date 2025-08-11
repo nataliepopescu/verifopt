@@ -23,9 +23,6 @@ impl Interpreter {
         stmt: &Statement,
     ) -> Result<Option<Constraints>, Error> {
         match stmt {
-            Statement::FuncDecl(..) | Statement::FuncDef(..) | Statement::Struct(..) => {
-                Ok(None)
-            }
             Statement::TraitDecl(trait_name, _) => {
                 self.interp_traitdecl(funcs, cmap, traits, scope, trait_name)
             }
@@ -58,7 +55,11 @@ impl Interpreter {
             Statement::InvokeFunc(name, args) => {
                 self.interp_invoke(funcs, cmap, traits, scope, name, args)
             }
-            Statement::InvokeTraitFunc(..) => Ok(None),
+            Statement::FuncDecl(..)
+            | Statement::FuncDef(..)
+            | Statement::Struct(..)
+            | Statement::RewrittenSwitch(..)
+            | Statement::InvokeTraitFunc(..) => Ok(None),
         }
     }
 

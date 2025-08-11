@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::statement::Statement::{
     Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-    Sequence, Struct, Switch, TraitDecl, TraitImpl,
+    RewrittenSwitch, Sequence, Struct, Switch, TraitDecl, TraitImpl,
 };
 use crate::statement::{
     AssignmentRVal, BStatement, FuncDecl, FuncVal, RVal, Statement, Type,
@@ -84,6 +84,25 @@ impl fmt::Display for Statement {
                 }
                 write!(f, "{}", s)
             }
+            RewrittenSwitch(rval, case_vec) => {
+                // make just a long if statement
+                let mut s = format!("");
+
+                for (i, case) in case_vec.into_iter().enumerate() {
+                    if i == 0 {
+                        s = format!(
+                            "{}if let Some({}) = {}.as_any().downcast_ref::<{}>() {{\n{}\n}}",
+                            s, rval, rval, case.0, case.1
+                        );
+                    } else {
+                        s = format!(
+                            "{}\nif let Some({}) = {}.as_any().downcast_ref::<{}>() {{\n{}\n}}",
+                            s, rval, rval, case.0, case.1
+                        );
+                    }
+                }
+                write!(f, "{}", s)
+            }
             Struct(name, field_types, field_names) => {
                 let mut s = format!("struct {} {{", name);
                 if field_types.len() > 0 {
@@ -97,7 +116,11 @@ impl fmt::Display for Statement {
                 write!(f, "{}", s)
             }
             TraitDecl(name, func_decls) => {
-                let mut s = format!("trait {} {{", name);
+                let mut s = format!("trait {} : std::any::Any {{", name);
+                // add `as_any()` decl
+                s = format!("{}\nfn as_any(&self) -> &dyn std::any::Any;", s);
+
+                // add remaining decls
                 if func_decls.len() > 0 {
                     for func_decl in func_decls.iter() {
                         s = format!("{}\n{}", s, func_decl);
@@ -108,6 +131,10 @@ impl fmt::Display for Statement {
             }
             TraitImpl(tname, sname, func_impls) => {
                 let mut s = format!("impl {} for {} {{", tname, sname);
+                // add `as_any()` impl
+                s = format!("{}\nfn as_any(&self) -> &dyn std::any::Any {{\nself\n}}", s);
+
+                // add remaining impls
                 if func_impls.len() > 0 {
                     for func_impl in func_impls.iter() {
                         s = format!("{}\n{}", s, func_impl);
@@ -141,7 +168,7 @@ impl fmt::Display for BStatement {
             BStatement::Equals(v1, v2) => {
                 write!(f, "{} == {}", v1, v2)
             }
-            BStatement::TrueOrFalse() => write!(f, "rand"),
+            BStatement::TrueOrFalse() => write!(f, "TODO"),
         }
     }
 }

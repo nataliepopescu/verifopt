@@ -9,6 +9,7 @@ pub enum Statement {
     Print(&'static str),
     Conditional(Box<BStatement>, Box<Statement>, Box<Statement>),
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
+    RewrittenSwitch(RVal, Vec<(RVal, Box<Statement>)>),
     Return(RVal),
     FuncDecl(FuncDecl),
     FuncDef(FuncVal),

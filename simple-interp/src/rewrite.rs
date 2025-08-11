@@ -448,7 +448,7 @@ impl Rewriter {
             }
         }
 
-        Ok(Statement::Switch(RVal::Var(args[0]), switch_vec))
+        Ok(Statement::RewrittenSwitch(RVal::Var(args[0]), switch_vec))
     }
 
     fn rewrite_invoke(
@@ -501,7 +501,7 @@ mod tests {
     use crate::funcs::Funcs;
     use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-        Sequence, Struct, Switch, TraitDecl, TraitImpl,
+        RewrittenSwitch, Sequence, Struct, Switch, TraitDecl, TraitImpl,
     };
     use crate::statement::{AssignmentRVal, FuncDecl, FuncVal, Type};
     use std::collections::HashSet;
@@ -1369,7 +1369,7 @@ mod tests {
                     vec![],
                 )))),
             )),
-            Box::new(Switch(RVal::Var("specific_animal"), switch_vec)),
+            Box::new(RewrittenSwitch(RVal::Var("specific_animal"), switch_vec)),
         ]);
 
         assert_eq!(stmt, check_stmt);
@@ -1602,7 +1602,7 @@ mod tests {
                     vec![],
                 )))),
             )),
-            Box::new(Switch(RVal::Var("specific_animal"), switch_vec)),
+            Box::new(RewrittenSwitch(RVal::Var("specific_animal"), switch_vec)),
         ]);
 
         assert_eq!(stmt, check_stmt);

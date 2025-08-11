@@ -1,7 +1,7 @@
 use simple_interp::SimpleInterp;
 use simple_interp::statement::Statement::{
     Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-    Sequence, Struct, Switch, TraitDecl, TraitImpl,
+    RewrittenSwitch, Sequence, Struct, Switch, TraitDecl, TraitImpl,
 };
 use simple_interp::statement::{
     AssignmentRVal, BStatement, FuncDecl, FuncVal, RVal, Type,
@@ -536,7 +536,7 @@ fn test_dyn_traits_three_impl_two_used() {
                 vec![],
             )))),
         )),
-        Box::new(Switch(RVal::Var("specific_animal"), switch_vec)),
+        Box::new(RewrittenSwitch(RVal::Var("specific_animal"), switch_vec)),
     ]);
 
     let si = SimpleInterp::new();

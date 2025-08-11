@@ -1,12 +1,12 @@
 use rand::Rng;
 use std::any::Any;
 
-const BIRD_TYPE: usize  = 0;
-const CAT_TYPE: usize   = 1;
-const DOG_TYPE: usize   = 2;
+const BIRD_TYPE: usize = 0;
+const CAT_TYPE: usize = 1;
+const DOG_TYPE: usize = 2;
 
 // if only testing the unsafe (second) example, can remove the `Any` supertrait here
-trait Animal : Any {
+trait Animal: Any {
     fn speak(&self);
     fn typeid(&self) -> usize;
     fn as_any(&self) -> &dyn Any;

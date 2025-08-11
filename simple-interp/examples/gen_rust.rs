@@ -1,7 +1,9 @@
+#![allow(dead_code)]
+
 use simple_interp::SimpleInterp;
 use simple_interp::statement::Statement::{
-    Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-    Sequence, Struct, Switch, TraitDecl, TraitImpl,
+    Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence, Struct,
+    Switch, TraitDecl, TraitImpl,
 };
 use simple_interp::statement::{
     AssignmentRVal, BStatement, FuncDecl, FuncVal, RVal, Statement, Type,
@@ -373,11 +375,5 @@ fn traitimpl() {
 }
 
 fn main() {
-    //let args: Vec<String> = env::args().collect();
-    //if args.len() == 0 {
-    //    println!("filename required");
-    //    std::process::exit(1);
-    //}
-
     traitimpl();
 }

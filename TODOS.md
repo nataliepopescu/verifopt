@@ -75,3 +75,6 @@
 
 - [ ] how to simulate SSA assumption in Rust compiler?
 
+- [ ] put RewrittenSwitch + InvokeTraitFunc in different set of statements?
+  (private)
+

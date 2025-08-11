@@ -58,6 +58,7 @@ impl Animal for Dog {
 
 fn main() {
     let animal = get_animal();
+
     let ti = animal.type_id();
     
     let rawptr = Box::into_raw(animal) as *const ();
@@ -78,14 +79,5 @@ fn main() {
     //}
     //if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
     //    <Dog as Animal>::speak(dog);
-    //}
-
-    //match animal {
-    //    Box(Cat {}) => {
-    //        <Cat as Animal>::speak(&animal);
-    //    },
-    //    Box(Dog {}) => {
-    //        <Dog as Animal>::speak(&animal);
-    //    }
     //}
 }

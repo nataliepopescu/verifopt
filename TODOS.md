@@ -62,13 +62,16 @@
     - check, currently don't think it is
     - if that's the case, remove it
 
+- [ ] function summaries?
+
 - [ ] reuse trait pruning logic from intepret step in rewrite step or store
   results somewhere
 
-- [ ] function summaries?
-
 - [ ] conditional scopes vs SSA
     - separate declaration from assignment -> assigning a value in a conditional 
+
+- [x] make FuncDef (stmt) variant contain FuncVal struct, and (new) FuncDecl (stmt) variant contain FuncDecl
+  struct
 
 - [ ] how to simulate SSA assumption in Rust compiler?
 

@@ -76,5 +76,19 @@ if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
 }
 ```
 
-## `type_id` + `transmute` 
+## `type_id` + `transmute` ✅
+
+```rust
+    let animal = get_animal();
+    let ti = animal.type_id();
+    
+    let rawptr = Box::into_raw(animal) as *const ();
+    if ti == 1 {
+        unsafe {
+            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(rawptr);
+            <Cat as Animal>::speak(cat);
+        }
+    } ...
+```
+assembly code inlines speak calls (no vtable)
 

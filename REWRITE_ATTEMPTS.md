@@ -1,6 +1,6 @@
 # Attempts at a source-level rewrite
 
-## `as_ref`
+## `as_ref` ❌
 
 ```rust
 if let dog = animal.as_ref::<Dog>() {
@@ -12,7 +12,7 @@ errors:
 
 - error[E0308]: mismatched types: expected `&Dog`, found `&&dyn Animal`
 
-## `AsRef`
+## `AsRef` ❌
 
 ```rust
 if let dog = AsRef::<Dog>::as_ref(animal) {
@@ -24,7 +24,7 @@ errors:
 
 - `AsRef` trait not impl for `Dog`
 
-## `Any::downcast_ref`
+## `Any::downcast_ref` ❌
 
 ```rust
 if let Some(dog) = animal.downcast_ref::<Dog>() {
@@ -42,7 +42,7 @@ errors:
       - [stackoverflow](https://stackoverflow.com/questions/33687447/how-to-get-a-reference-to-a-concrete-type-from-a-trait-object)
       - [stackoverflow](https://stackoverflow.com/questions/26126683/how-to-match-trait-implementors)
 
-## `type_id()`
+## `type_id()` ❌
 
 ```rust
 if animal.type_id() == 1 {
@@ -54,9 +54,10 @@ errors:
 
 - error[E0308]: mismatched types: expected `&Dog`, found `&dyn Animal`
 
-## `as_any()` ✅
+## `Any` + `as_any()` ✅
 
 are we introducing another vtable call here?
+- looked at assembly, doesn't seem to be: two paths, each == inlined speak code
 
 ```rust
 trait Animal: Any {
@@ -74,4 +75,6 @@ if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
     <Dog as Animal>::speak(&dog);
 }
 ```
+
+## `type_id` + `transmute` 
 

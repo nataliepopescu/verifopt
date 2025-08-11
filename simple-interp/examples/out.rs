@@ -1,10 +1,12 @@
 use rand::Rng;
-use std::any::Any;
-trait Animal : Any {
+//use std::any::Any;
+
+trait Animal {
     fn speak(&self);
-    //fn type_id(&self) -> usize;
-    fn as_any(&self) -> &dyn Any;
+    fn type_id(&self) -> usize;
+    //fn as_any(&self) -> &dyn Any;
 }
+
 fn get_animal() -> Box<dyn Animal> {
     let num: u32 = rand::rng().random_range(..2);
     if num == 0 {
@@ -13,58 +15,70 @@ fn get_animal() -> Box<dyn Animal> {
         return Box::new(Dog {});
     }
 }
+
 struct Bird {}
 struct Cat {}
 struct Dog {}
+
 impl Animal for Bird {
     fn speak(&self) {
         println!("chirp");
     }
-    //fn type_id(&self) -> usize {
-    //    0
-    //}
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn type_id(&self) -> usize {
+        0
     }
+    //fn as_any(&self) -> &dyn Any {
+    //    self
+    //}
 }
+
 impl Animal for Cat {
     fn speak(&self) {
         println!("meow");
     }
-    //fn type_id(&self) -> usize {
-    //    1
-    //}
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn type_id(&self) -> usize {
+        1
     }
+    //fn as_any(&self) -> &dyn Any {
+    //    self
+    //}
 }
+
 impl Animal for Dog {
     fn speak(&self) {
         println!("woof");
     }
-    //fn type_id(&self) -> usize {
-    //    2
-    //}
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn type_id(&self) -> usize {
+        2
     }
+    //fn as_any(&self) -> &dyn Any {
+    //    self
+    //}
 }
+
 fn main() {
     let animal = get_animal();
-    //animal.speak();
+    let ti = animal.type_id();
     
-    //if animal.type_id() == 1 {
-    //    <Cat as Animal>::speak(&*animal);
-    //} else if animal.type_id() == 2 {
-    //    <Dog as Animal>::speak(&*animal);
-    //}
+    let rawptr = Box::into_raw(animal) as *const ();
+    if ti == 1 {
+        unsafe {
+            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(rawptr);
+            <Cat as Animal>::speak(cat);
+        }
+    } else if ti == 2 {
+        unsafe {
+            let dog: &Dog = std::mem::transmute::<*const (), &Dog>(rawptr);
+            <Dog as Animal>::speak(dog);
+        }
+    }
 
-    if let Some(cat) = animal.as_any().downcast_ref::<Cat>() {
-        <Cat as Animal>::speak(cat);
-    }
-    if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
-        <Dog as Animal>::speak(dog);
-    }
+    //if let Some(cat) = animal.as_any().downcast_ref::<Cat>() {
+    //    <Cat as Animal>::speak(cat);
+    //}
+    //if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
+    //    <Dog as Animal>::speak(dog);
+    //}
 
     //match animal {
     //    Box(Cat {}) => {

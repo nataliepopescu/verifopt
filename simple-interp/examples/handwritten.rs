@@ -1,10 +1,10 @@
 use rand::Rng;
-//use std::any::Any;
+use std::any::Any;
 
 trait Animal {
     fn speak(&self);
     fn type_id(&self) -> usize;
-    //fn as_any(&self) -> &dyn Any;
+    fn as_any(&self) -> &dyn Any;
 }
 
 fn get_animal() -> Box<dyn Animal> {
@@ -27,9 +27,9 @@ impl Animal for Bird {
     fn type_id(&self) -> usize {
         0
     }
-    //fn as_any(&self) -> &dyn Any {
-    //    self
-    //}
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl Animal for Cat {
@@ -39,9 +39,9 @@ impl Animal for Cat {
     fn type_id(&self) -> usize {
         1
     }
-    //fn as_any(&self) -> &dyn Any {
-    //    self
-    //}
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 impl Animal for Dog {
@@ -51,16 +51,27 @@ impl Animal for Dog {
     fn type_id(&self) -> usize {
         2
     }
-    //fn as_any(&self) -> &dyn Any {
-    //    self
-    //}
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
-fn main() {
+fn any_safe() {
+    let animal = get_animal();
+
+    if let Some(cat) = animal.as_any().downcast_ref::<Cat>() {
+        <Cat as Animal>::speak(cat);
+    }
+    if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
+        <Dog as Animal>::speak(dog);
+    }
+}
+
+fn typeid_transmute_unsafe() {
     let animal = get_animal();
 
     let ti = animal.type_id();
-    
+
     let rawptr = Box::into_raw(animal) as *const ();
     if ti == 1 {
         unsafe {
@@ -73,11 +84,10 @@ fn main() {
             <Dog as Animal>::speak(dog);
         }
     }
+}
 
-    //if let Some(cat) = animal.as_any().downcast_ref::<Cat>() {
-    //    <Cat as Animal>::speak(cat);
-    //}
-    //if let Some(dog) = animal.as_any().downcast_ref::<Dog>() {
-    //    <Dog as Animal>::speak(dog);
-    //}
+// if copying into godbolt, make main `pub`
+fn main() {
+    any_safe();
+    typeid_transmute_unsafe();
 }

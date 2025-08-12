@@ -583,8 +583,7 @@ impl Rewriter {
     ) -> Result<RWStatement, Error> {
         match cmap.scoped_get(scope, name, false) {
             Ok(Some(vartype)) => match vartype {
-                VarType::Values(vartype, constraints) => 
-                    self
+                VarType::Values(vartype, constraints) => self
                     .rewrite_indirect_invoke_helper(
                         funcs,
                         cmap,

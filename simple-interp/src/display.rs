@@ -86,25 +86,33 @@ impl fmt::Display for RWStatement {
             }
             TraitSwitch(rval, case_vec) => {
                 // make just a long if statement
-                let mut s = format!("");
+                let mut s = format!("let typeid = {}.typeid();", rval);
+                s = format!("{}\nlet rawptr = Box::into_raw({}) as *const ();", s, rval);
 
                 for (i, case) in case_vec.into_iter().enumerate() {
                     if i == 0 {
-                        s = format!(
-                            "{}if let Some({}) = {}.as_any().downcast_ref::<{}>() {{\n{}\n}}",
-                            s, rval, rval, case.0, case.1
-                        );
+                        s = format!("{}if typeid == Type::{} {{", s, case.0);
+                        s = format!("{}\nunsafe {{", s);
+                        s = format!("{}\nlet {}: &{} = std::mem::transmute::<*const (), &{}>(rawptr);", s, rval, case.0, case.0);
+                        s = format!("{}\n{}", s, case.1);
+                        s = format!("{}\n}}", s);
+                        s = format!("{}\n}}", s);
                     } else {
-                        s = format!(
-                            "{}\nif let Some({}) = {}.as_any().downcast_ref::<{}>() {{\n{}\n}}",
-                            s, rval, rval, case.0, case.1
-                        );
+                        s = format!("{}\nif typeid == Type::{} {{", s, case.0);
+                        s = format!("{}\nunsafe {{", s);
+                        s = format!("{}\nlet {}: &{} = std::mem::transmute::<*const (), &{}>(rawptr);", s, rval, case.0, case.0);
+                        s = format!("{}\n{}", s, case.1);
+                        s = format!("{}\n}}", s);
+                        s = format!("{}\n}}", s);
                     }
                 }
                 write!(f, "{}", s)
             }
             Struct(name, field_types, field_names) => {
                 let mut s = format!("struct {} {{", name);
+                // add `typeid` field
+                s = format!("{}\ntypeid: Type,", s);
+
                 if field_types.len() > 0 {
                     for (field_name, field_type) in
                         std::iter::zip(field_names, field_types)
@@ -116,9 +124,9 @@ impl fmt::Display for RWStatement {
                 write!(f, "{}", s)
             }
             TraitDecl(name, func_decls) => {
-                let mut s = format!("trait {} : std::any::Any {{", name);
-                // add `as_any()` decl
-                s = format!("{}\nfn as_any(&self) -> &dyn std::any::Any;", s);
+                let mut s = format!("trait {} {{", name);
+                // add `typeid()` decl
+                s = format!("{}\nfn typeid(&self) -> Type;", s);
 
                 // add remaining decls
                 if func_decls.len() > 0 {
@@ -131,8 +139,11 @@ impl fmt::Display for RWStatement {
             }
             TraitImpl(tname, sname, func_impls) => {
                 let mut s = format!("impl {} for {} {{", tname, sname);
-                // add `as_any()` impl
-                s = format!("{}\nfn as_any(&self) -> &dyn std::any::Any {{\nself\n}}", s);
+                // add `typeid()` impl
+                s = format!(
+                    "{}\nfn typeid(&self) -> Type {{\nself.typeid.clone()\n}}",
+                    s
+                );
 
                 // add remaining impls
                 if func_impls.len() > 0 {

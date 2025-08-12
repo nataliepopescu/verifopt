@@ -271,6 +271,7 @@ impl Rewriter {
     ) -> Result<RWStatement, Error> {
         // FIXME if can switch on function call, also perform rewrite on that
         // (omitted val argument)
+
         let mut switch_vec = vec![];
         for (case, switch_stmt) in vec.iter() {
             let rw_switch_stmt = self.rewrite(
@@ -302,7 +303,7 @@ impl Rewriter {
             cmap,
             sigs,
             traits,
-            scope,
+            Some(func.name),
             func,
             sort_hashsets,
         )?;
@@ -404,10 +405,13 @@ impl Rewriter {
         }
     }
 
-    fn rewrite_indirect_invoke(
+    fn rewrite_indirect_invoke_helper(
         &self,
+        funcs: &Funcs,
+        cmap: &ConstraintMap,
         sigs: &Sigs,
         _traits: &Traits,
+        scope: Option<&'static str>,
         name: &'static str,
         constraints: &Constraints,
         vartype: &Type,
@@ -416,8 +420,6 @@ impl Rewriter {
     ) -> Result<RWStatement, Error> {
         let mut switch_vec = vec![];
         let mut pos_vec: Vec<_> = constraints.0.iter().collect();
-        // FIXME how to use neg_vec?
-        //let _neg_vec: Vec<_> = constraints.1.iter().collect();
 
         // sorting to get deterministic switch statement order in tests
         if sort_hashsets {
@@ -568,6 +570,40 @@ impl Rewriter {
         Ok(TraitSwitch(RVal::Var(args[0]), switch_vec))
     }
 
+    fn rewrite_indirect_invoke(
+        &self,
+        funcs: &Funcs,
+        cmap: &ConstraintMap,
+        sigs: &Sigs,
+        traits: &Traits,
+        scope: Option<&'static str>,
+        name: &'static str,
+        args: &Vec<&'static str>,
+        sort_hashsets: bool,
+    ) -> Result<RWStatement, Error> {
+        match cmap.scoped_get(scope, name, false) {
+            Ok(Some(vartype)) => match vartype {
+                VarType::Values(vartype, constraints) => 
+                    self
+                    .rewrite_indirect_invoke_helper(
+                        funcs,
+                        cmap,
+                        sigs,
+                        traits,
+                        scope,
+                        name,
+                        &constraints,
+                        &vartype,
+                        args.to_vec(),
+                        sort_hashsets,
+                    ),
+                _ => return Err(Error::NoSwitchOnFuncPtr()),
+            },
+            Ok(None) => panic!("IP BUG: missed undef symbol {:?}", &name),
+            Err(err) => return Err(err),
+        }
+    }
+
     fn rewrite_invoke(
         &self,
         funcs: &Funcs,
@@ -591,23 +627,16 @@ impl Rewriter {
                 args,
                 sort_hashsets,
             ),
-            None => match cmap.scoped_get(scope, name, false) {
-                Ok(Some(vartype)) => match vartype {
-                    VarType::Values(vartype, constraints) => self
-                        .rewrite_indirect_invoke(
-                            sigs,
-                            traits,
-                            name,
-                            &constraints,
-                            &vartype,
-                            args.to_vec(),
-                            sort_hashsets,
-                        ),
-                    _ => return Err(Error::NoSwitchOnFuncPtr()),
-                },
-                Ok(None) => panic!("IP BUG: missed undef symbol {:?}", &name),
-                Err(err) => return Err(err),
-            },
+            None => self.rewrite_indirect_invoke(
+                funcs,
+                cmap,
+                sigs,
+                traits,
+                scope,
+                name,
+                args,
+                sort_hashsets,
+            ),
         }
     }
 }
@@ -618,10 +647,12 @@ mod tests {
     use crate::funcs::Funcs;
     use crate::statement::RWStatement as RWS;
     use crate::statement::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return,
-        Sequence, Struct, TraitDecl, TraitImpl, 
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return, Sequence, Struct,
+        TraitDecl, TraitImpl,
     };
-    use crate::statement::{AssignmentRVal, RWAssignmentRVal, FuncDecl, FuncVal, RWFuncVal, Type};
+    use crate::statement::{
+        AssignmentRVal, FuncDecl, FuncVal, RWAssignmentRVal, RWFuncVal, Type,
+    };
     use std::collections::HashSet;
 
     #[test]
@@ -642,7 +673,8 @@ mod tests {
     #[test]
     fn test_assignment() {
         let stmt = Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
-        let check_stmt = RWS::Assignment("x", Box::new(RWAssignmentRVal::RVal(RVal::Num(5))));
+        let check_stmt =
+            RWS::Assignment("x", Box::new(RWAssignmentRVal::RVal(RVal::Num(5))));
 
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
@@ -772,9 +804,16 @@ mod tests {
             "z",
             Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
         ))]));
-        let switch_vec = vec![(RVal::Var("foo"), Box::new(RWS::InvokeFunc("foo", vec![])))];
+        let switch_vec =
+            vec![(RVal::Var("foo"), Box::new(RWS::InvokeFunc("foo", vec![])))];
         let check_stmt = RWS::Sequence(vec![
-            Box::new(RWS::FuncDef(RWFuncVal::new("foo", false, vec![], None, check_body))),
+            Box::new(RWS::FuncDef(RWFuncVal::new(
+                "foo",
+                false,
+                vec![],
+                None,
+                check_body,
+            ))),
             Box::new(RWS::Assignment(
                 "x",
                 Box::new(RWAssignmentRVal::RVal(RVal::Var("foo"))),
@@ -1341,9 +1380,7 @@ mod tests {
             Box::new(RWS::Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        println!("got: \n{:#?}", &ret.unwrap());
-        println!("exp: \n{:#?}", &check_stmt);
-        //assert_eq!(ret.unwrap(), check_stmt);
+        assert_eq!(ret.unwrap(), check_stmt);
     }
 
     #[test]
@@ -1560,8 +1597,16 @@ mod tests {
             ))),
             Box::new(RWS::Struct("Cat", vec![], vec![])),
             Box::new(RWS::Struct("Dog", vec![], vec![])),
-            Box::new(RWS::TraitImpl("Animal", "Cat", vec![check_cat_speak.clone()])),
-            Box::new(RWS::TraitImpl("Animal", "Dog", vec![check_dog_speak.clone()])),
+            Box::new(RWS::TraitImpl(
+                "Animal",
+                "Cat",
+                vec![check_cat_speak.clone()],
+            )),
+            Box::new(RWS::TraitImpl(
+                "Animal",
+                "Dog",
+                vec![check_dog_speak.clone()],
+            )),
             Box::new(RWS::Assignment(
                 "specific_animal",
                 Box::new(RWAssignmentRVal::Statement(Box::new(RWS::InvokeFunc(
@@ -1833,9 +1878,21 @@ mod tests {
             Box::new(RWS::Struct("Bird", vec![], vec![])),
             Box::new(RWS::Struct("Cat", vec![], vec![])),
             Box::new(RWS::Struct("Dog", vec![], vec![])),
-            Box::new(RWS::TraitImpl("Animal", "Bird", vec![check_bird_speak.clone()])),
-            Box::new(RWS::TraitImpl("Animal", "Cat", vec![check_cat_speak.clone()])),
-            Box::new(RWS::TraitImpl("Animal", "Dog", vec![check_dog_speak.clone()])),
+            Box::new(RWS::TraitImpl(
+                "Animal",
+                "Bird",
+                vec![check_bird_speak.clone()],
+            )),
+            Box::new(RWS::TraitImpl(
+                "Animal",
+                "Cat",
+                vec![check_cat_speak.clone()],
+            )),
+            Box::new(RWS::TraitImpl(
+                "Animal",
+                "Dog",
+                vec![check_dog_speak.clone()],
+            )),
             Box::new(RWS::Assignment(
                 "specific_animal",
                 Box::new(RWAssignmentRVal::Statement(Box::new(RWS::InvokeFunc(

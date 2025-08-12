@@ -21,6 +21,7 @@ use crate::sig_collect::SigCollector;
 use crate::sigs::Sigs;
 use crate::ssa::{SSAChecker, Symbols};
 use crate::statement::Statement;
+use crate::statement::RWStatement as RWS;
 use crate::traits::Traits;
 
 pub struct SimpleInterp {
@@ -42,7 +43,7 @@ impl SimpleInterp {
         }
     }
 
-    pub fn interp(&self, mut stmt: Statement) -> Result<Statement, Error> {
+    pub fn interp(&self, stmt: Statement) -> Result<RWS, Error> {
         //println!("\nOriginal program statement: \n\n{:#?}", &stmt);
 
         let mut symbols = Symbols::new();
@@ -87,8 +88,8 @@ impl SimpleInterp {
         //);
         //println!("\n3. Original program statement");
 
-        self.rewriter
-            .rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true)?;
+        let rw_stmt = self.rewriter
+            .rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true)?;
 
         //println!("\n-----------------------------------");
         //println!("PHASE 5: Switch-Case Rewrite");
@@ -98,6 +99,6 @@ impl SimpleInterp {
         // 3)"); println!("\n3. (Maybe) modified program statement:
         // \n\n{:#?}", &stmt);
 
-        Ok(stmt)
+        Ok(rw_stmt)
     }
 }

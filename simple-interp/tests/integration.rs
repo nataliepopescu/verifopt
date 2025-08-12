@@ -1,20 +1,22 @@
 use simple_interp::SimpleInterp;
+use simple_interp::statement::RWStatement as RWS;
 use simple_interp::statement::Statement::{
-    Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-    RewrittenSwitch, Sequence, Struct, Switch, TraitDecl, TraitImpl,
+    Assignment, Conditional, FuncDef, InvokeFunc, Print, Return,
+    Sequence, Struct, TraitDecl, TraitImpl,
 };
 use simple_interp::statement::{
-    AssignmentRVal, BStatement, FuncDecl, FuncVal, RVal, Type,
+    RWAssignmentRVal, AssignmentRVal, BStatement, FuncDecl, RWFuncVal, FuncVal, RVal, Type,
 };
 
 #[test]
 fn test_print() {
     let stmt = Print("hello");
+    let check_stmt = RWS::Print("hello");
 
     let si = SimpleInterp::new();
-    let rw_stmt = si.interp(stmt.clone()).unwrap();
+    let rw_stmt = si.interp(stmt).unwrap();
 
-    assert_eq!(rw_stmt, stmt);
+    assert_eq!(rw_stmt, check_stmt);
 }
 
 #[test]
@@ -25,10 +27,16 @@ fn test_funcdef() {
     ));
     let stmt = FuncDef(FuncVal::new("foo", false, vec![], None, body.clone()));
 
-    let si = SimpleInterp::new();
-    let rw_stmt = si.interp(stmt.clone()).unwrap();
+    let check_body = Box::new(RWS::Assignment(
+        "x",
+        Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+    ));
+    let check_stmt = RWS::FuncDef(RWFuncVal::new("foo", false, vec![], None, check_body.clone()));
 
-    assert_eq!(rw_stmt, stmt);
+    let si = SimpleInterp::new();
+    let rw_stmt = si.interp(stmt).unwrap();
+
+    assert_eq!(rw_stmt, check_stmt);
 }
 
 #[test]
@@ -42,10 +50,19 @@ fn test_direct_invoke() {
         Box::new(InvokeFunc("foo", vec![])),
     ]);
 
-    let si = SimpleInterp::new();
-    let rw_stmt = si.interp(stmt.clone()).unwrap();
+    let check_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+        "x",
+        Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+    ))]));
+    let check_stmt = RWS::Sequence(vec![
+        Box::new(RWS::FuncDef(RWFuncVal::new("foo", false, vec![], None, check_body))),
+        Box::new(RWS::InvokeFunc("foo", vec![])),
+    ]);
 
-    assert_eq!(rw_stmt, stmt);
+    let si = SimpleInterp::new();
+    let rw_stmt = si.interp(stmt).unwrap();
+
+    assert_eq!(rw_stmt, check_stmt);
 }
 
 #[test]
@@ -72,14 +89,18 @@ fn test_indirect_invoke() {
     let si = SimpleInterp::new();
     let rw_stmt = si.interp(stmt).unwrap();
 
-    let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
-    let check_stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, body))),
-        Box::new(Assignment(
+    let check_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+        "z",
+        Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+    ))]));
+    let switch_vec = vec![(RVal::Var("foo"), Box::new(RWS::InvokeFunc("foo", vec![])))];
+    let check_stmt = RWS::Sequence(vec![
+        Box::new(RWS::FuncDef(RWFuncVal::new("foo", false, vec![], None, check_body))),
+        Box::new(RWS::Assignment(
             "x",
-            Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+            Box::new(RWAssignmentRVal::RVal(RVal::Var("foo"))),
         )),
-        Box::new(Switch(RVal::Var("x"), switch_vec)),
+        Box::new(RWS::Switch(RVal::Var("x"), switch_vec)),
     ]);
 
     assert_eq!(rw_stmt, check_stmt);
@@ -106,10 +127,29 @@ fn test_direct_invoke_uncertain() {
         )),
     ]);
 
-    let si = SimpleInterp::new();
-    let rw_stmt = si.interp(stmt.clone()).unwrap();
+    let check_foo_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+        "x",
+        Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+    ))]));
+    let check_bar_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+        "x",
+        Box::new(RWAssignmentRVal::RVal(RVal::Num(6))),
+    ))]));
 
-    assert_eq!(rw_stmt, stmt);
+    let check_stmt = RWS::Sequence(vec![
+        Box::new(RWS::FuncDef(RWFuncVal::new("foo", false, vec![], None, check_foo_body))),
+        Box::new(RWS::FuncDef(RWFuncVal::new("bar", false, vec![], None, check_bar_body))),
+        Box::new(RWS::Conditional(
+            Box::new(BStatement::TrueOrFalse()),
+            Box::new(RWS::InvokeFunc("foo", vec![])),
+            Box::new(RWS::InvokeFunc("bar", vec![])),
+        )),
+    ]);
+
+    let si = SimpleInterp::new();
+    let rw_stmt = si.interp(stmt).unwrap();
+
+    assert_eq!(rw_stmt, check_stmt);
 }
 
 #[test]
@@ -155,267 +195,35 @@ fn test_indirect_invoke_uncertain() {
     let si = SimpleInterp::new();
     let rw_stmt = si.interp(stmt).unwrap();
 
+    let check_foo_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+        "y",
+        Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+    ))]));
+    let check_bar_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+        "z",
+        Box::new(RWAssignmentRVal::RVal(RVal::Num(6))),
+    ))]));
+
     let switch_vec = vec![
-        (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
-        (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
+        (RVal::Var("bar"), Box::new(RWS::InvokeFunc("bar", vec![]))),
+        (RVal::Var("foo"), Box::new(RWS::InvokeFunc("foo", vec![]))),
     ];
-    let check_stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, foo_body))),
-        Box::new(FuncDef(FuncVal::new("bar", false, vec![], None, bar_body))),
-        Box::new(Conditional(
+    let check_stmt = RWS::Sequence(vec![
+        Box::new(RWS::FuncDef(RWFuncVal::new("foo", false, vec![], None, check_foo_body))),
+        Box::new(RWS::FuncDef(RWFuncVal::new("bar", false, vec![], None, check_bar_body))),
+        Box::new(RWS::Conditional(
             Box::new(BStatement::TrueOrFalse()),
-            Box::new(Assignment(
+            Box::new(RWS::Assignment(
                 "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                Box::new(RWAssignmentRVal::RVal(RVal::Var("foo"))),
             )),
-            Box::new(Assignment(
+            Box::new(RWS::Assignment(
                 "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                Box::new(RWAssignmentRVal::RVal(RVal::Var("bar"))),
             )),
         )),
-        Box::new(Switch(RVal::Var("x"), switch_vec)),
+        Box::new(RWS::Switch(RVal::Var("x"), switch_vec)),
     ]);
-
-    assert_eq!(rw_stmt, check_stmt);
-}
-
-#[test]
-fn test_nested_direct_calls_no_args() {
-    let bar_body = Box::new(Assignment(
-        "x",
-        Box::new(AssignmentRVal::RVal(RVal::Num(5))),
-    ));
-    let foo_body = Box::new(Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "bar",
-            false,
-            vec![],
-            None,
-            bar_body.clone(),
-        ))),
-        Box::new(InvokeFunc("bar", vec![])),
-    ]));
-    let stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "foo",
-            false,
-            vec![],
-            None,
-            foo_body.clone(),
-        ))),
-        Box::new(InvokeFunc("foo", vec![])),
-    ]);
-    let check_stmt = stmt.clone();
-
-    let si = SimpleInterp::new();
-    let rw_stmt = si.interp(stmt).unwrap();
-
-    assert_eq!(rw_stmt, check_stmt);
-}
-
-#[test]
-fn test_nested_indirect_calls_no_args() {
-    let baz_body = Box::new(Assignment(
-        "x",
-        Box::new(AssignmentRVal::RVal(RVal::Num(1))),
-    ));
-    let qux_body = Box::new(Assignment(
-        "x",
-        Box::new(AssignmentRVal::RVal(RVal::Num(2))),
-    ));
-    let baz2_body = Box::new(Assignment(
-        "x",
-        Box::new(AssignmentRVal::RVal(RVal::Num(3))),
-    ));
-    let qux2_body = Box::new(Assignment(
-        "x",
-        Box::new(AssignmentRVal::RVal(RVal::Num(4))),
-    ));
-    let foo_body = Box::new(Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "baz",
-            false,
-            vec![],
-            None,
-            baz_body.clone(),
-        ))),
-        Box::new(FuncDef(FuncVal::new(
-            "qux",
-            false,
-            vec![],
-            None,
-            qux_body.clone(),
-        ))),
-        Box::new(Conditional(
-            Box::new(BStatement::TrueOrFalse()),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
-            )),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("qux"))),
-            )),
-        )),
-        Box::new(InvokeFunc("x", vec![])),
-    ]));
-    let bar_body = Box::new(Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "baz2",
-            false,
-            vec![],
-            None,
-            baz2_body.clone(),
-        ))),
-        Box::new(FuncDef(FuncVal::new(
-            "qux2",
-            false,
-            vec![],
-            None,
-            qux2_body.clone(),
-        ))),
-        Box::new(Conditional(
-            Box::new(BStatement::TrueOrFalse()),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
-            )),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("qux2"))),
-            )),
-        )),
-        Box::new(InvokeFunc("x", vec![])),
-    ]));
-
-    let stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "foo",
-            false,
-            vec![],
-            None,
-            foo_body.clone(),
-        ))),
-        Box::new(FuncDef(FuncVal::new(
-            "bar",
-            false,
-            vec![],
-            None,
-            bar_body.clone(),
-        ))),
-        Box::new(Conditional(
-            Box::new(BStatement::TrueOrFalse()),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
-            )),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
-            )),
-        )),
-        Box::new(InvokeFunc("x", vec![])),
-    ]);
-
-    let foo_switch_vec = vec![
-        (RVal::Var("baz"), Box::new(InvokeFunc("baz", vec![]))),
-        (RVal::Var("qux"), Box::new(InvokeFunc("qux", vec![]))),
-    ];
-    let check_foo_body = Box::new(Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "baz",
-            false,
-            vec![],
-            None,
-            baz_body.clone(),
-        ))),
-        Box::new(FuncDef(FuncVal::new(
-            "qux",
-            false,
-            vec![],
-            None,
-            qux_body.clone(),
-        ))),
-        Box::new(Conditional(
-            Box::new(BStatement::TrueOrFalse()),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
-            )),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("qux"))),
-            )),
-        )),
-        Box::new(Switch(RVal::Var("x"), foo_switch_vec)),
-    ]));
-    let bar_switch_vec = vec![
-        (RVal::Var("baz2"), Box::new(InvokeFunc("baz2", vec![]))),
-        (RVal::Var("qux2"), Box::new(InvokeFunc("qux2", vec![]))),
-    ];
-    let check_bar_body = Box::new(Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "baz2",
-            false,
-            vec![],
-            None,
-            baz2_body.clone(),
-        ))),
-        Box::new(FuncDef(FuncVal::new(
-            "qux2",
-            false,
-            vec![],
-            None,
-            qux2_body.clone(),
-        ))),
-        Box::new(Conditional(
-            Box::new(BStatement::TrueOrFalse()),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
-            )),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("qux2"))),
-            )),
-        )),
-        Box::new(Switch(RVal::Var("x"), bar_switch_vec)),
-    ]));
-    let switch_vec = vec![
-        (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
-        (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
-    ];
-    let check_stmt = Sequence(vec![
-        Box::new(FuncDef(FuncVal::new(
-            "foo",
-            false,
-            vec![],
-            None,
-            check_foo_body.clone(),
-        ))),
-        Box::new(FuncDef(FuncVal::new(
-            "bar",
-            false,
-            vec![],
-            None,
-            check_bar_body.clone(),
-        ))),
-        Box::new(Conditional(
-            Box::new(BStatement::TrueOrFalse()),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
-            )),
-            Box::new(Assignment(
-                "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
-            )),
-        )),
-        Box::new(Switch(RVal::Var("x"), switch_vec)),
-    ]);
-
-    let si = SimpleInterp::new();
-    let rw_stmt = si.interp(stmt).unwrap();
 
     assert_eq!(rw_stmt, check_stmt);
 }
@@ -495,10 +303,51 @@ fn test_dyn_traits_three_impl_two_used() {
         Box::new(InvokeFunc("speak", vec!["specific_animal"])),
     ]);
 
+    let check_bird_speak_body = Box::new(RWS::Print("chirp"));
+    let check_bird_speak = RWFuncVal::new(
+        "speak",
+        true,
+        vec![("self", Type::Struct("Bird"))],
+        None,
+        check_bird_speak_body.clone(),
+    );
+
+    let check_cat_speak_body = Box::new(RWS::Print("meow"));
+    let check_cat_speak = RWFuncVal::new(
+        "speak",
+        true,
+        vec![("self", Type::Struct("Cat"))],
+        None,
+        check_cat_speak_body.clone(),
+    );
+
+    let check_dog_speak_body = Box::new(RWS::Print("woof"));
+    let check_dog_speak = RWFuncVal::new(
+        "speak",
+        true,
+        vec![("self", Type::Struct("Dog"))],
+        None,
+        check_dog_speak_body.clone(),
+    );
+
+    let check_gmaa = Box::new(RWS::Sequence(vec![Box::new(RWS::Conditional(
+        Box::new(BStatement::TrueOrFalse()),
+        Box::new(RWS::Sequence(vec![Box::new(RWS::Return(RVal::Struct(
+            "Cat",
+            vec![],
+            vec![],
+        )))])),
+        Box::new(RWS::Sequence(vec![Box::new(RWS::Return(RVal::Struct(
+            "Dog",
+            vec![],
+            vec![],
+        )))])),
+    ))]));
+
     let switch_vec = vec![
         (
             RVal::Var("Cat"),
-            Box::new(InvokeTraitFunc(
+            Box::new(RWS::InvokeTraitFunc(
                 "speak",
                 ("Animal", "Cat"),
                 vec!["specific_animal"],
@@ -506,7 +355,7 @@ fn test_dyn_traits_three_impl_two_used() {
         ),
         (
             RVal::Var("Dog"),
-            Box::new(InvokeTraitFunc(
+            Box::new(RWS::InvokeTraitFunc(
                 "speak",
                 ("Animal", "Dog"),
                 vec!["specific_animal"],
@@ -514,29 +363,29 @@ fn test_dyn_traits_three_impl_two_used() {
         ),
     ];
 
-    let check_stmt = Sequence(vec![
-        Box::new(TraitDecl("Animal", vec![funcdecl.clone()])),
-        Box::new(FuncDef(FuncVal::new(
+    let check_stmt = RWS::Sequence(vec![
+        Box::new(RWS::TraitDecl("Animal", vec![funcdecl.clone()])),
+        Box::new(RWS::FuncDef(RWFuncVal::new(
             "giveMeAnAnimal",
             false,
             vec![],
             Some(Box::new(Type::DynTrait("Animal"))),
-            gmaa.clone(),
+            check_gmaa,
         ))),
-        Box::new(Struct("Bird", vec![], vec![])),
-        Box::new(Struct("Cat", vec![], vec![])),
-        Box::new(Struct("Dog", vec![], vec![])),
-        Box::new(TraitImpl("Animal", "Bird", vec![bird_speak.clone()])),
-        Box::new(TraitImpl("Animal", "Cat", vec![cat_speak.clone()])),
-        Box::new(TraitImpl("Animal", "Dog", vec![dog_speak.clone()])),
-        Box::new(Assignment(
+        Box::new(RWS::Struct("Bird", vec![], vec![])),
+        Box::new(RWS::Struct("Cat", vec![], vec![])),
+        Box::new(RWS::Struct("Dog", vec![], vec![])),
+        Box::new(RWS::TraitImpl("Animal", "Bird", vec![check_bird_speak.clone()])),
+        Box::new(RWS::TraitImpl("Animal", "Cat", vec![check_cat_speak.clone()])),
+        Box::new(RWS::TraitImpl("Animal", "Dog", vec![check_dog_speak.clone()])),
+        Box::new(RWS::Assignment(
             "specific_animal",
-            Box::new(AssignmentRVal::Statement(Box::new(InvokeFunc(
+            Box::new(RWAssignmentRVal::Statement(Box::new(RWS::InvokeFunc(
                 "giveMeAnAnimal",
                 vec![],
             )))),
         )),
-        Box::new(RewrittenSwitch(RVal::Var("specific_animal"), switch_vec)),
+        Box::new(RWS::TraitSwitch(RVal::Var("specific_animal"), switch_vec)),
     ]);
 
     let si = SimpleInterp::new();

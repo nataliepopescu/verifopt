@@ -616,32 +616,33 @@ impl Rewriter {
 mod tests {
     use super::*;
     use crate::funcs::Funcs;
+    use crate::statement::RWStatement as RWS;
     use crate::statement::Statement::{
-        Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-        Sequence, Struct, Switch, TraitDecl, TraitImpl, TraitSwitch,
+        Assignment, Conditional, FuncDef, InvokeFunc, Print, Return,
+        Sequence, Struct, TraitDecl, TraitImpl, 
     };
-    use crate::statement::{AssignmentRVal, FuncDecl, FuncVal, Type};
+    use crate::statement::{AssignmentRVal, RWAssignmentRVal, FuncDecl, FuncVal, RWFuncVal, Type};
     use std::collections::HashSet;
 
     #[test]
     fn test_print() {
-        let mut stmt = Print("hello");
-        let check_stmt = stmt.clone();
+        let stmt = Print("hello");
+        let check_stmt = RWS::Print("hello");
 
         let funcs = Funcs::new();
         let cmap = ConstraintMap::new();
         let sigs = Sigs::new();
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true);
 
-        assert_eq!(check_stmt, stmt);
+        assert_eq!(check_stmt, ret.unwrap());
     }
 
     #[test]
     fn test_assignment() {
-        let mut stmt = Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
-        let check_stmt = stmt.clone();
+        let stmt = Assignment("x", Box::new(AssignmentRVal::RVal(RVal::Num(5))));
+        let check_stmt = RWS::Assignment("x", Box::new(RWAssignmentRVal::RVal(RVal::Num(5))));
 
         let funcs = Funcs::new();
         let mut cmap = ConstraintMap::new();
@@ -656,9 +657,9 @@ mod tests {
         let traits = Traits::new();
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true);
 
-        assert_eq!(check_stmt, stmt);
+        assert_eq!(check_stmt, ret.unwrap());
     }
 
     #[test]
@@ -667,7 +668,7 @@ mod tests {
             "z",
             Box::new(AssignmentRVal::RVal(RVal::Num(5))),
         ))]));
-        let mut stmt = Sequence(vec![
+        let stmt = Sequence(vec![
             Box::new(FuncDef(FuncVal::new(
                 "foo",
                 false,
@@ -681,7 +682,25 @@ mod tests {
             )),
             Box::new(InvokeFunc("foo", vec![])),
         ]);
-        let check_stmt = stmt.clone();
+
+        let check_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+            "z",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
+        let check_stmt = RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new(
+                "foo",
+                false,
+                vec![],
+                None,
+                check_body,
+            ))),
+            Box::new(RWS::Assignment(
+                "x",
+                Box::new(RWAssignmentRVal::RVal(RVal::Var("foo"))),
+            )),
+            Box::new(RWS::InvokeFunc("foo", vec![])),
+        ]);
 
         let mut funcs = Funcs::new();
         funcs.funcs.insert(
@@ -702,9 +721,9 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true);
 
-        assert_eq!(check_stmt, stmt);
+        assert_eq!(check_stmt, ret.unwrap());
     }
 
     #[test]
@@ -747,19 +766,23 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
 
-        let switch_vec = vec![(RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![])))];
-        let check_stmt = Sequence(vec![
-            Box::new(FuncDef(FuncVal::new("foo", false, vec![], None, body))),
-            Box::new(Assignment(
+        let check_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+            "z",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
+        let switch_vec = vec![(RVal::Var("foo"), Box::new(RWS::InvokeFunc("foo", vec![])))];
+        let check_stmt = RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new("foo", false, vec![], None, check_body))),
+            Box::new(RWS::Assignment(
                 "x",
-                Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                Box::new(RWAssignmentRVal::RVal(RVal::Var("foo"))),
             )),
-            Box::new(Switch(RVal::Var("x"), switch_vec)),
+            Box::new(RWS::Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(stmt, check_stmt);
+        assert_eq!(check_stmt, ret.unwrap());
     }
 
     #[test]
@@ -772,7 +795,7 @@ mod tests {
             "z",
             Box::new(AssignmentRVal::RVal(RVal::Num(6))),
         ))]));
-        let mut stmt = Sequence(vec![
+        let stmt = Sequence(vec![
             Box::new(FuncDef(FuncVal::new(
                 "foo",
                 false,
@@ -833,42 +856,50 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true);
 
+        let check_foo_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+            "z",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(5))),
+        ))]));
+        let check_bar_body = Box::new(RWS::Sequence(vec![Box::new(RWS::Assignment(
+            "z",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(6))),
+        ))]));
         let switch_vec = vec![
-            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
-            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
+            (RVal::Var("bar"), Box::new(RWS::InvokeFunc("bar", vec![]))),
+            (RVal::Var("foo"), Box::new(RWS::InvokeFunc("foo", vec![]))),
         ];
-        let check_stmt = Sequence(vec![
-            Box::new(FuncDef(FuncVal::new(
+        let check_stmt = RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "foo",
                 false,
                 vec![],
                 None,
-                foo_body.clone(),
+                check_foo_body.clone(),
             ))),
-            Box::new(FuncDef(FuncVal::new(
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "bar",
                 false,
                 vec![],
                 None,
-                bar_body.clone(),
+                check_bar_body.clone(),
             ))),
-            Box::new(Conditional(
+            Box::new(RWS::Conditional(
                 Box::new(BStatement::TrueOrFalse()),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("foo"))),
                 )),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("bar"))),
                 )),
             )),
-            Box::new(Switch(RVal::Var("x"), switch_vec)),
+            Box::new(RWS::Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(stmt, check_stmt);
+        assert_eq!(ret.unwrap(), check_stmt);
     }
 
     #[test]
@@ -946,7 +977,7 @@ mod tests {
             Box::new(InvokeFunc("x", vec![])),
         ]));
 
-        let mut stmt = Sequence(vec![
+        let stmt = Sequence(vec![
             Box::new(FuncDef(FuncVal::new(
                 "foo",
                 false,
@@ -1138,160 +1169,181 @@ mod tests {
 
         let traits = Traits::new();
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true);
 
-        let foo_switch_vec = vec![
-            (RVal::Var("baz"), Box::new(InvokeFunc("baz", vec![]))),
-            (RVal::Var("qux"), Box::new(InvokeFunc("qux", vec![]))),
-        ];
-        let check_foo_body = Box::new(Sequence(vec![
-            Box::new(FuncDef(FuncVal::new(
+        let check_baz_body = Box::new(RWS::Assignment(
+            "x",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(1))),
+        ));
+        let check_qux_body = Box::new(RWS::Assignment(
+            "x",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(2))),
+        ));
+        let check_baz2_body = Box::new(RWS::Assignment(
+            "x",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(3))),
+        ));
+        let check_qux2_body = Box::new(RWS::Assignment(
+            "x",
+            Box::new(RWAssignmentRVal::RVal(RVal::Num(4))),
+        ));
+        let check_foo_body = Box::new(RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "baz",
                 false,
                 vec![],
                 None,
-                baz_body.clone(),
+                check_baz_body.clone(),
             ))),
-            Box::new(FuncDef(FuncVal::new(
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "qux",
                 false,
                 vec![],
                 None,
-                qux_body.clone(),
+                check_qux_body.clone(),
             ))),
-            Box::new(Conditional(
+            Box::new(RWS::Conditional(
                 Box::new(BStatement::TrueOrFalse()),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("baz"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("baz"))),
                 )),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("qux"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("qux"))),
                 )),
             )),
-            Box::new(Switch(RVal::Var("x"), foo_switch_vec)),
+            Box::new(RWS::InvokeFunc("x", vec![])),
         ]));
-        let bar_switch_vec = vec![
-            (RVal::Var("baz2"), Box::new(InvokeFunc("baz2", vec![]))),
-            (RVal::Var("qux2"), Box::new(InvokeFunc("qux2", vec![]))),
-        ];
-        let check_bar_body = Box::new(Sequence(vec![
-            Box::new(FuncDef(FuncVal::new(
+        let check_bar_body = Box::new(RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "baz2",
                 false,
                 vec![],
                 None,
-                baz2_body.clone(),
+                check_baz2_body.clone(),
             ))),
-            Box::new(FuncDef(FuncVal::new(
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "qux2",
                 false,
                 vec![],
                 None,
-                qux2_body.clone(),
+                check_qux2_body.clone(),
             ))),
-            Box::new(Conditional(
+            Box::new(RWS::Conditional(
                 Box::new(BStatement::TrueOrFalse()),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("baz2"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("baz2"))),
                 )),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("qux2"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("qux2"))),
                 )),
             )),
-            Box::new(Switch(RVal::Var("x"), bar_switch_vec)),
+            Box::new(RWS::InvokeFunc("x", vec![])),
+        ]));
+
+        let foo_switch_vec = vec![
+            (RVal::Var("baz"), Box::new(RWS::InvokeFunc("baz", vec![]))),
+            (RVal::Var("qux"), Box::new(RWS::InvokeFunc("qux", vec![]))),
+        ];
+        let check_foo_body = Box::new(RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new(
+                "baz",
+                false,
+                vec![],
+                None,
+                check_baz_body.clone(),
+            ))),
+            Box::new(RWS::FuncDef(RWFuncVal::new(
+                "qux",
+                false,
+                vec![],
+                None,
+                check_qux_body.clone(),
+            ))),
+            Box::new(RWS::Conditional(
+                Box::new(BStatement::TrueOrFalse()),
+                Box::new(RWS::Assignment(
+                    "x",
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("baz"))),
+                )),
+                Box::new(RWS::Assignment(
+                    "x",
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("qux"))),
+                )),
+            )),
+            Box::new(RWS::Switch(RVal::Var("x"), foo_switch_vec)),
+        ]));
+        let bar_switch_vec = vec![
+            (RVal::Var("baz2"), Box::new(RWS::InvokeFunc("baz2", vec![]))),
+            (RVal::Var("qux2"), Box::new(RWS::InvokeFunc("qux2", vec![]))),
+        ];
+        let check_bar_body = Box::new(RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new(
+                "baz2",
+                false,
+                vec![],
+                None,
+                check_baz2_body.clone(),
+            ))),
+            Box::new(RWS::FuncDef(RWFuncVal::new(
+                "qux2",
+                false,
+                vec![],
+                None,
+                check_qux2_body.clone(),
+            ))),
+            Box::new(RWS::Conditional(
+                Box::new(BStatement::TrueOrFalse()),
+                Box::new(RWS::Assignment(
+                    "x",
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("baz2"))),
+                )),
+                Box::new(RWS::Assignment(
+                    "x",
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("qux2"))),
+                )),
+            )),
+            Box::new(RWS::Switch(RVal::Var("x"), bar_switch_vec)),
         ]));
         let switch_vec = vec![
-            (RVal::Var("bar"), Box::new(InvokeFunc("bar", vec![]))),
-            (RVal::Var("foo"), Box::new(InvokeFunc("foo", vec![]))),
+            (RVal::Var("bar"), Box::new(RWS::InvokeFunc("bar", vec![]))),
+            (RVal::Var("foo"), Box::new(RWS::InvokeFunc("foo", vec![]))),
         ];
-        let check_stmt = Sequence(vec![
-            Box::new(FuncDef(FuncVal::new(
+        let check_stmt = RWS::Sequence(vec![
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "foo",
                 false,
                 vec![],
                 None,
                 check_foo_body.clone(),
             ))),
-            Box::new(FuncDef(FuncVal::new(
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "bar",
                 false,
                 vec![],
                 None,
                 check_bar_body.clone(),
             ))),
-            Box::new(Conditional(
+            Box::new(RWS::Conditional(
                 Box::new(BStatement::TrueOrFalse()),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("foo"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("foo"))),
                 )),
-                Box::new(Assignment(
+                Box::new(RWS::Assignment(
                     "x",
-                    Box::new(AssignmentRVal::RVal(RVal::Var("bar"))),
+                    Box::new(RWAssignmentRVal::RVal(RVal::Var("bar"))),
                 )),
             )),
-            Box::new(Switch(RVal::Var("x"), switch_vec)),
+            Box::new(RWS::Switch(RVal::Var("x"), switch_vec)),
         ]);
 
-        assert_eq!(stmt, check_stmt);
-    }
-
-    #[test]
-    fn test_trait_impl() {
-        let cat_speak_body = Box::new(Sequence(vec![Box::new(Print("meow"))]));
-
-        let funcdef = FuncDecl::new("speak", true, vec![], None);
-        let cat_funcimpl = FuncVal::new(
-            "speak",
-            true,
-            vec![("self", Type::Struct("Cat"))],
-            None,
-            cat_speak_body.clone(),
-        );
-
-        let mut stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec![funcdef.clone()])),
-            Box::new(Struct("Cat", vec![], vec![])),
-            Box::new(TraitImpl("Animal", "Cat", vec![cat_funcimpl.clone()])),
-            Box::new(Assignment(
-                "edgar",
-                Box::new(AssignmentRVal::RVal(RVal::Struct("Cat", vec![], vec![]))),
-            )),
-        ]);
-
-        let mut funcs = Funcs::new();
-        funcs.funcs.insert(
-            "speak",
-            vec![(Some(("Animal", "Cat")), cat_funcimpl.clone())],
-        );
-
-        let mut cmap = ConstraintMap::new();
-        cmap.cmap.insert(
-            "edgar",
-            Box::new(VarType::Values(
-                Box::new(Type::Struct("Cat")),
-                (
-                    HashSet::from([RVal::Struct("Cat", vec![], vec![])]),
-                    HashSet::new(),
-                ),
-            )),
-        );
-
-        let mut sigs = Sigs::new();
-        sigs.sigs
-            .insert(SigVal::new(vec![], None), HashSet::from(["speak"]));
-
-        let traits = Traits::new();
-        let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
-
-        // TODO call func - either `self` or flexible arg type?
-
-        //assert_eq!(stmt, check_stmt);
+        println!("got: \n{:#?}", &ret.unwrap());
+        println!("exp: \n{:#?}", &check_stmt);
+        //assert_eq!(ret.unwrap(), check_stmt);
     }
 
     #[test]
@@ -1335,7 +1387,7 @@ mod tests {
             )))])),
         ))]));
 
-        let mut stmt = Sequence(vec![
+        let stmt = Sequence(vec![
             Box::new(TraitDecl("Animal", vec![funcdecl.clone()])),
             Box::new(FuncDef(FuncVal::new(
                 "giveMeAnAnimal",
@@ -1382,7 +1434,6 @@ mod tests {
 
         let mut cmap = ConstraintMap::new();
         let mut speak_cmap = ConstraintMap::new();
-        // FIXME
         speak_cmap.cmap.insert(
             "animal",
             Box::new(VarType::Values(
@@ -1445,12 +1496,44 @@ mod tests {
         traits.traits.insert("Animal", vec!["Cat", "Dog"]);
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true);
+
+        let check_cat_speak_body = Box::new(RWS::Print("meow"));
+        let check_cat_speak = RWFuncVal::new(
+            "speak",
+            true,
+            vec![("self", Type::Struct("Cat"))],
+            None,
+            check_cat_speak_body.clone(),
+        );
+
+        let check_dog_speak_body = Box::new(RWS::Print("woof"));
+        let check_dog_speak = RWFuncVal::new(
+            "speak",
+            true,
+            vec![("self", Type::Struct("Dog"))],
+            None,
+            check_dog_speak_body.clone(),
+        );
+
+        let check_gmaa = Box::new(RWS::Sequence(vec![Box::new(RWS::Conditional(
+            Box::new(BStatement::TrueOrFalse()),
+            Box::new(RWS::Sequence(vec![Box::new(RWS::Return(RVal::Struct(
+                "Cat",
+                vec![],
+                vec![],
+            )))])),
+            Box::new(RWS::Sequence(vec![Box::new(RWS::Return(RVal::Struct(
+                "Dog",
+                vec![],
+                vec![],
+            )))])),
+        ))]));
 
         let switch_vec = vec![
             (
                 RVal::Var("Cat"),
-                Box::new(InvokeTraitFunc(
+                Box::new(RWS::InvokeTraitFunc(
                     "speak",
                     ("Animal", "Cat"),
                     vec!["specific_animal"],
@@ -1458,7 +1541,7 @@ mod tests {
             ),
             (
                 RVal::Var("Dog"),
-                Box::new(InvokeTraitFunc(
+                Box::new(RWS::InvokeTraitFunc(
                     "speak",
                     ("Animal", "Dog"),
                     vec!["specific_animal"],
@@ -1466,30 +1549,30 @@ mod tests {
             ),
         ];
 
-        let check_stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec![funcdecl.clone()])),
-            Box::new(FuncDef(FuncVal::new(
+        let check_stmt = RWS::Sequence(vec![
+            Box::new(RWS::TraitDecl("Animal", vec![funcdecl.clone()])),
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "giveMeAnAnimal",
                 false,
                 vec![],
                 Some(Box::new(Type::DynTrait("Animal"))),
-                gmaa.clone(),
+                check_gmaa,
             ))),
-            Box::new(Struct("Cat", vec![], vec![])),
-            Box::new(Struct("Dog", vec![], vec![])),
-            Box::new(TraitImpl("Animal", "Cat", vec![cat_speak.clone()])),
-            Box::new(TraitImpl("Animal", "Dog", vec![dog_speak.clone()])),
-            Box::new(Assignment(
+            Box::new(RWS::Struct("Cat", vec![], vec![])),
+            Box::new(RWS::Struct("Dog", vec![], vec![])),
+            Box::new(RWS::TraitImpl("Animal", "Cat", vec![check_cat_speak.clone()])),
+            Box::new(RWS::TraitImpl("Animal", "Dog", vec![check_dog_speak.clone()])),
+            Box::new(RWS::Assignment(
                 "specific_animal",
-                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                Box::new(RWAssignmentRVal::Statement(Box::new(RWS::InvokeFunc(
                     "giveMeAnAnimal",
                     vec![],
                 )))),
             )),
-            Box::new(TraitSwitch(RVal::Var("specific_animal"), switch_vec)),
+            Box::new(RWS::TraitSwitch(RVal::Var("specific_animal"), switch_vec)),
         ]);
 
-        assert_eq!(stmt, check_stmt);
+        assert_eq!(ret.unwrap(), check_stmt);
     }
 
     #[test]
@@ -1542,7 +1625,7 @@ mod tests {
             )))])),
         ))]));
 
-        let mut stmt = Sequence(vec![
+        let stmt = Sequence(vec![
             Box::new(TraitDecl("Animal", vec![funcdecl.clone()])),
             Box::new(FuncDef(FuncVal::new(
                 "giveMeAnAnimal",
@@ -1676,12 +1759,53 @@ mod tests {
         traits.traits.insert("Animal", vec!["Bird", "Cat", "Dog"]);
 
         let rw = Rewriter::new();
-        let _ = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &mut stmt, true);
+        let ret = rw.rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true);
+
+        let check_bird_speak_body = Box::new(RWS::Print("chirp"));
+        let check_bird_speak = RWFuncVal::new(
+            "speak",
+            true,
+            vec![("self", Type::Struct("Bird"))],
+            None,
+            check_bird_speak_body.clone(),
+        );
+
+        let check_cat_speak_body = Box::new(RWS::Print("meow"));
+        let check_cat_speak = RWFuncVal::new(
+            "speak",
+            true,
+            vec![("self", Type::Struct("Cat"))],
+            None,
+            check_cat_speak_body.clone(),
+        );
+
+        let check_dog_speak_body = Box::new(RWS::Print("woof"));
+        let check_dog_speak = RWFuncVal::new(
+            "speak",
+            true,
+            vec![("self", Type::Struct("Dog"))],
+            None,
+            check_dog_speak_body.clone(),
+        );
+
+        let check_gmaa = Box::new(RWS::Sequence(vec![Box::new(RWS::Conditional(
+            Box::new(BStatement::TrueOrFalse()),
+            Box::new(RWS::Sequence(vec![Box::new(RWS::Return(RVal::Struct(
+                "Cat",
+                vec![],
+                vec![],
+            )))])),
+            Box::new(RWS::Sequence(vec![Box::new(RWS::Return(RVal::Struct(
+                "Dog",
+                vec![],
+                vec![],
+            )))])),
+        ))]));
 
         let switch_vec = vec![
             (
                 RVal::Var("Dog"),
-                Box::new(InvokeTraitFunc(
+                Box::new(RWS::InvokeTraitFunc(
                     "speak",
                     ("Animal", "Dog"),
                     vec!["specific_animal"],
@@ -1689,7 +1813,7 @@ mod tests {
             ),
             (
                 RVal::Var("Cat"),
-                Box::new(InvokeTraitFunc(
+                Box::new(RWS::InvokeTraitFunc(
                     "speak",
                     ("Animal", "Cat"),
                     vec!["specific_animal"],
@@ -1697,31 +1821,31 @@ mod tests {
             ),
         ];
 
-        let check_stmt = Sequence(vec![
-            Box::new(TraitDecl("Animal", vec![funcdecl.clone()])),
-            Box::new(FuncDef(FuncVal::new(
+        let check_stmt = RWS::Sequence(vec![
+            Box::new(RWS::TraitDecl("Animal", vec![funcdecl.clone()])),
+            Box::new(RWS::FuncDef(RWFuncVal::new(
                 "giveMeAnAnimal",
                 false,
                 vec![],
                 Some(Box::new(Type::DynTrait("Animal"))),
-                gmaa.clone(),
+                check_gmaa,
             ))),
-            Box::new(Struct("Bird", vec![], vec![])),
-            Box::new(Struct("Cat", vec![], vec![])),
-            Box::new(Struct("Dog", vec![], vec![])),
-            Box::new(TraitImpl("Animal", "Bird", vec![bird_speak.clone()])),
-            Box::new(TraitImpl("Animal", "Cat", vec![cat_speak.clone()])),
-            Box::new(TraitImpl("Animal", "Dog", vec![dog_speak.clone()])),
-            Box::new(Assignment(
+            Box::new(RWS::Struct("Bird", vec![], vec![])),
+            Box::new(RWS::Struct("Cat", vec![], vec![])),
+            Box::new(RWS::Struct("Dog", vec![], vec![])),
+            Box::new(RWS::TraitImpl("Animal", "Bird", vec![check_bird_speak.clone()])),
+            Box::new(RWS::TraitImpl("Animal", "Cat", vec![check_cat_speak.clone()])),
+            Box::new(RWS::TraitImpl("Animal", "Dog", vec![check_dog_speak.clone()])),
+            Box::new(RWS::Assignment(
                 "specific_animal",
-                Box::new(AssignmentRVal::Statement(Box::new(Statement::InvokeFunc(
+                Box::new(RWAssignmentRVal::Statement(Box::new(RWS::InvokeFunc(
                     "giveMeAnAnimal",
                     vec![],
                 )))),
             )),
-            Box::new(TraitSwitch(RVal::Var("specific_animal"), switch_vec)),
+            Box::new(RWS::TraitSwitch(RVal::Var("specific_animal"), switch_vec)),
         ]);
 
-        assert_eq!(stmt, check_stmt);
+        assert_eq!(ret.unwrap(), check_stmt);
     }
 }

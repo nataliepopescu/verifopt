@@ -44,6 +44,7 @@
         - cons: don't know all types
     - MIR
     - LLVM IR
+        - cons: likely too low-level
 
 - want to work as high-level as possible
     - what wouldn't work as source-to-source transformation?
@@ -54,7 +55,7 @@
             - or go into compiler when that info is already retrieved
 
 - next steps
-    - [ ] print out code from prototype rewrite (so it can be run)
+    - [x] print out code from prototype rewrite (so it can be run)
         - goal: check functionality/correctness of rewrite
     - [ ] start digging in rust
 

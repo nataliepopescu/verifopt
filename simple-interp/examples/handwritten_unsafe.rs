@@ -1,41 +1,44 @@
 use rand::Rng;
 
-const BIRD_TYPE: usize = 0;
-const CAT_TYPE: usize = 1;
-const DOG_TYPE: usize = 2;
+#[derive(Clone, PartialEq)]
+enum AnimalType {
+    Bird,
+    Cat,
+    Dog,
+}
 
 trait Animal {
     fn speak(&self);
-    fn typeid(&self) -> usize;
+    fn typeid(&self) -> AnimalType;
 }
 
 fn get_animal() -> Box<dyn Animal> {
     let num: u32 = rand::rng().random_range(..2);
     if num == 0 {
-        return Box::new(Cat { typeid: CAT_TYPE });
+        return Box::new(Cat { typeid: AnimalType::Cat });
     } else {
-        return Box::new(Dog { typeid: DOG_TYPE });
+        return Box::new(Dog { typeid: AnimalType::Dog });
     }
 }
 
 struct Bird {
-    typeid: usize,
+    typeid: AnimalType,
 }
 
 struct Cat {
-    typeid: usize,
+    typeid: AnimalType,
 }
 
 struct Dog {
-    typeid: usize,
+    typeid: AnimalType,
 }
 
 impl Animal for Bird {
     fn speak(&self) {
         println!("chirp");
     }
-    fn typeid(&self) -> usize {
-        self.typeid
+    fn typeid(&self) -> AnimalType {
+        self.typeid.clone()
     }
 }
 
@@ -43,8 +46,8 @@ impl Animal for Cat {
     fn speak(&self) {
         println!("meow");
     }
-    fn typeid(&self) -> usize {
-        self.typeid
+    fn typeid(&self) -> AnimalType {
+        self.typeid.clone()
     }
 }
 
@@ -52,8 +55,8 @@ impl Animal for Dog {
     fn speak(&self) {
         println!("woof");
     }
-    fn typeid(&self) -> usize {
-        self.typeid
+    fn typeid(&self) -> AnimalType {
+        self.typeid.clone()
     }
 }
 
@@ -61,15 +64,15 @@ impl Animal for Dog {
 fn main() {
     let animal = get_animal();
 
-    let typeid = animal.typeid();
+    let typeid = animal.typeid(); //.clone();
 
     let rawptr = Box::into_raw(animal) as *const ();
-    if typeid == 1 {
+    if typeid == AnimalType::Cat {
         unsafe {
             let cat: &Cat = std::mem::transmute::<*const (), &Cat>(rawptr);
             <Cat as Animal>::speak(cat);
         }
-    } else if typeid == 2 {
+    } else if typeid == AnimalType::Dog {
         unsafe {
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(rawptr);
             <Dog as Animal>::speak(dog);

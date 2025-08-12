@@ -20,8 +20,8 @@ use crate::rewrite::Rewriter;
 use crate::sig_collect::SigCollector;
 use crate::sigs::Sigs;
 use crate::ssa::{SSAChecker, Symbols};
-use crate::statement::Statement;
 use crate::statement::RWStatement as RWS;
+use crate::statement::Statement;
 use crate::traits::Traits;
 
 pub struct SimpleInterp {
@@ -88,7 +88,8 @@ impl SimpleInterp {
         //);
         //println!("\n3. Original program statement");
 
-        let rw_stmt = self.rewriter
+        let rw_stmt = self
+            .rewriter
             .rewrite(&funcs, &cmap, &sigs, &traits, None, &stmt, true)?;
 
         //println!("\n-----------------------------------");

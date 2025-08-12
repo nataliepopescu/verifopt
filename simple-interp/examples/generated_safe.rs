@@ -3,7 +3,8 @@ trait Animal: std::any::Any {
     fn as_any(&self) -> &dyn std::any::Any;
     fn speak(&self);
 }
-fn get_animal() -> Box<dyn Animal> { // rettype + body modified
+fn get_animal() -> Box<dyn Animal> {
+    // rettype + body modified
     let num: u32 = rand::rng().random_range(..2);
     if num == 0 {
         return Box::new(Cat {});

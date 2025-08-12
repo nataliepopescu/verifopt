@@ -15,9 +15,13 @@ trait Animal {
 fn get_animal() -> Box<dyn Animal> {
     let num: u32 = rand::rng().random_range(..2);
     if num == 0 {
-        return Box::new(Cat { typeid: AnimalType::Cat });
+        return Box::new(Cat {
+            typeid: AnimalType::Cat,
+        });
     } else {
-        return Box::new(Dog { typeid: AnimalType::Dog });
+        return Box::new(Dog {
+            typeid: AnimalType::Dog,
+        });
     }
 }
 

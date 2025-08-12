@@ -1,14 +1,14 @@
 use std::fmt;
 
-use crate::statement::Statement::{
+use crate::statement::RWStatement::{
     Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-    RewrittenSwitch, Sequence, Struct, Switch, TraitDecl, TraitImpl,
+    Sequence, Struct, Switch, TraitDecl, TraitImpl, TraitSwitch,
 };
 use crate::statement::{
-    AssignmentRVal, BStatement, FuncDecl, FuncVal, RVal, Statement, Type,
+    BStatement, FuncDecl, RVal, RWAssignmentRVal, RWFuncVal, RWStatement, Type,
 };
 
-impl fmt::Display for Statement {
+impl fmt::Display for RWStatement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Assignment(var, value) => {
@@ -84,7 +84,7 @@ impl fmt::Display for Statement {
                 }
                 write!(f, "{}", s)
             }
-            RewrittenSwitch(rval, case_vec) => {
+            TraitSwitch(rval, case_vec) => {
                 // make just a long if statement
                 let mut s = format!("");
 
@@ -173,11 +173,11 @@ impl fmt::Display for BStatement {
     }
 }
 
-impl fmt::Display for AssignmentRVal {
+impl fmt::Display for RWAssignmentRVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            AssignmentRVal::RVal(rval) => write!(f, "{}", rval),
-            AssignmentRVal::Statement(statement) => {
+            RWAssignmentRVal::RVal(rval) => write!(f, "{}", rval),
+            RWAssignmentRVal::Statement(statement) => {
                 write!(f, "{}", statement)
             }
         }
@@ -235,7 +235,7 @@ impl fmt::Display for FuncDecl {
     }
 }
 
-impl fmt::Display for FuncVal {
+impl fmt::Display for RWFuncVal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut s = format!("fn {}(", self.name);
         if self.is_method {

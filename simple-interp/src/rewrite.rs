@@ -2,8 +2,13 @@ use crate::constraints::{ConstraintMap, Constraints, VarType};
 use crate::error::Error;
 use crate::funcs::Funcs;
 use crate::sigs::{SigVal, Sigs};
+use crate::statement::RWStatement::{
+    Assignment, Conditional, FuncDecl, FuncDef, InvokeFunc, InvokeTraitFunc, Print,
+    Return, Sequence, Struct, Switch, TraitDecl, TraitImpl, TraitImplList, TraitSwitch,
+};
 use crate::statement::{
-    BStatement, FuncVal, RVal, Statement, TraitStructOpt, TraitStructTup, Type,
+    AssignmentRVal, BStatement, FuncVal, RVal, RWAssignmentRVal, RWFuncVal, RWStatement,
+    Statement, TraitStructOpt, TraitStructTup, Type,
 };
 use crate::traits::Traits;
 
@@ -20,6 +25,7 @@ impl Rewriter {
         Self {}
     }
 
+    // FIXME write TraitImplList out first (add bool flag)
     pub fn rewrite(
         &self,
         funcs: &Funcs,
@@ -27,9 +33,9 @@ impl Rewriter {
         sigs: &Sigs,
         traits: &Traits,
         scope: Option<&'static str>,
-        stmt: &mut Statement,
+        stmt: &Statement,
         sort_hashsets: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<RWStatement, Error> {
         match stmt {
             Statement::Sequence(stmt_vec) => self.rewrite_seq(
                 funcs,
@@ -48,8 +54,8 @@ impl Rewriter {
                     traits,
                     scope,
                     *condition.clone(),
-                    &mut (*true_branch),
-                    &mut (*false_branch),
+                    &(*true_branch),
+                    &(*false_branch),
                     sort_hashsets,
                 ),
             Statement::Switch(val, vec) => self.rewrite_switch(
@@ -67,30 +73,130 @@ impl Rewriter {
                 cmap,
                 sigs,
                 traits,
-                func.name,
-                &mut func.body,
+                scope,
+                func,
                 sort_hashsets,
             ),
-            Statement::InvokeFunc(name, args) => {
-                match self.rewrite_invoke(
+            Statement::InvokeFunc(name, args) => self.rewrite_invoke(
+                funcs,
+                cmap,
+                sigs,
+                traits,
+                scope,
+                name,
+                args,
+                sort_hashsets,
+            ),
+            Statement::Assignment(name, val) => self.rewrite_assignment(
+                funcs,
+                cmap,
+                sigs,
+                traits,
+                scope,
+                name,
+                val.clone(),
+                sort_hashsets,
+            ),
+            Statement::Print(s) => Ok(Print(s)),
+            Statement::Return(val) => Ok(Return(val.clone())),
+            Statement::FuncDecl(fd) => Ok(FuncDecl(fd.clone())),
+            Statement::Struct(name, field_types, field_names) => {
+                Ok(Struct(name, field_types.clone(), field_names.clone()))
+            }
+            Statement::TraitDecl(name, func_decls) => {
+                Ok(TraitDecl(name, func_decls.to_vec()))
+            }
+            Statement::TraitImpl(trait_name, struct_name, func_impls) => self
+                .rewrite_trait_impl(
                     funcs,
                     cmap,
                     sigs,
                     traits,
                     scope,
-                    name,
-                    args,
+                    trait_name,
+                    struct_name,
+                    func_impls,
                     sort_hashsets,
-                ) {
-                    Ok(res) => {
-                        *stmt = res;
-                        Ok(())
-                    }
-                    Err(err) => Err(err),
-                }
-            }
-            _ => Ok(()),
+                ),
         }
+    }
+
+    fn rewrite_func_body(
+        &self,
+        funcs: &Funcs,
+        cmap: &ConstraintMap,
+        sigs: &Sigs,
+        traits: &Traits,
+        scope: Option<&'static str>,
+        func: &FuncVal,
+        sort_hashsets: bool,
+    ) -> Result<RWFuncVal, Error> {
+        let rwbody = self.rewrite(
+            funcs,
+            cmap,
+            sigs,
+            traits,
+            scope,
+            &(*func.body),
+            sort_hashsets,
+        )?;
+
+        Ok(RWFuncVal::new(
+            func.name,
+            func.is_method,
+            func.params.clone(),
+            func.rettype.clone(),
+            Box::new(rwbody),
+        ))
+    }
+
+    fn rewrite_trait_impl(
+        &self,
+        funcs: &Funcs,
+        cmap: &ConstraintMap,
+        sigs: &Sigs,
+        traits: &Traits,
+        scope: Option<&'static str>,
+        trait_name: &'static str,
+        struct_name: &'static str,
+        func_impls: &Vec<FuncVal>,
+        sort_hashsets: bool,
+    ) -> Result<RWStatement, Error> {
+        let mut rw_func_impls = vec![];
+        for func_impl in func_impls.iter() {
+            let rw_func_impl = self.rewrite_func_body(
+                funcs,
+                cmap,
+                sigs,
+                traits,
+                scope,
+                func_impl,
+                sort_hashsets,
+            )?;
+            rw_func_impls.push(rw_func_impl);
+        }
+
+        Ok(TraitImpl(trait_name, struct_name, rw_func_impls))
+    }
+
+    fn rewrite_assignment(
+        &self,
+        funcs: &Funcs,
+        cmap: &ConstraintMap,
+        sigs: &Sigs,
+        traits: &Traits,
+        scope: Option<&'static str>,
+        name: &'static str,
+        val: Box<AssignmentRVal>,
+        sort_hashsets: bool,
+    ) -> Result<RWStatement, Error> {
+        let rw_val = match *val {
+            AssignmentRVal::RVal(rval) => RWAssignmentRVal::RVal(rval),
+            AssignmentRVal::Statement(stmt) => RWAssignmentRVal::Statement(Box::new(
+                self.rewrite(funcs, cmap, sigs, traits, scope, &(*stmt), sort_hashsets)?,
+            )),
+        };
+        Ok(Assignment(name, Box::new(rw_val)))
     }
 
     fn rewrite_seq(
@@ -100,13 +206,16 @@ impl Rewriter {
         sigs: &Sigs,
         traits: &Traits,
         scope: Option<&'static str>,
-        stmt_vec: &mut Vec<Box<Statement>>,
+        stmt_vec: &Vec<Box<Statement>>,
         sort_hashsets: bool,
-    ) -> Result<(), Error> {
-        for stmt in stmt_vec.iter_mut() {
-            self.rewrite(funcs, cmap, sigs, traits, scope, stmt, sort_hashsets)?;
+    ) -> Result<RWStatement, Error> {
+        let mut rwstmts = vec![];
+        for stmt in stmt_vec.iter() {
+            let rwstmt =
+                self.rewrite(funcs, cmap, sigs, traits, scope, stmt, sort_hashsets)?;
+            rwstmts.push(Box::new(rwstmt));
         }
-        Ok(())
+        Ok(Sequence(rwstmts))
     }
 
     fn rewrite_conditional(
@@ -116,33 +225,37 @@ impl Rewriter {
         sigs: &Sigs,
         traits: &Traits,
         scope: Option<&'static str>,
-        _condition: BStatement,
-        mut true_branch: &mut Statement,
-        mut false_branch: &mut Statement,
+        condition: BStatement,
+        true_branch: &Statement,
+        false_branch: &Statement,
         sort_hashsets: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<RWStatement, Error> {
         // FIXME also rewrite condition when funcs can ret booleans
-        self.rewrite(
+        let rw_true_branch = self.rewrite(
             funcs,
             cmap,
             sigs,
             traits,
             scope,
-            &mut true_branch,
+            &true_branch,
             sort_hashsets,
         )?;
 
-        self.rewrite(
+        let rw_false_branch = self.rewrite(
             funcs,
             cmap,
             sigs,
             traits,
             scope,
-            &mut false_branch,
+            &false_branch,
             sort_hashsets,
         )?;
 
-        Ok(())
+        Ok(Conditional(
+            Box::new(condition),
+            Box::new(rw_true_branch),
+            Box::new(rw_false_branch),
+        ))
     }
 
     fn rewrite_switch(
@@ -152,24 +265,26 @@ impl Rewriter {
         sigs: &Sigs,
         traits: &Traits,
         scope: Option<&'static str>,
-        _val: &mut RVal,
-        vec: &mut Vec<(RVal, Box<Statement>)>,
+        val: &RVal,
+        vec: &Vec<(RVal, Box<Statement>)>,
         sort_hashsets: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<RWStatement, Error> {
         // FIXME if can switch on function call, also perform rewrite on that
         // (omitted val argument)
-        for (_, switch_stmt) in vec.iter_mut() {
-            self.rewrite(
+        let mut switch_vec = vec![];
+        for (case, switch_stmt) in vec.iter() {
+            let rw_switch_stmt = self.rewrite(
                 funcs,
                 cmap,
                 sigs,
                 traits,
                 scope,
-                &mut (*switch_stmt),
+                &(*switch_stmt),
                 sort_hashsets,
             )?;
+            switch_vec.push((case.clone(), Box::new(rw_switch_stmt)));
         }
-        Ok(())
+        Ok(Switch(val.clone(), switch_vec))
     }
 
     fn rewrite_funcdef(
@@ -178,21 +293,21 @@ impl Rewriter {
         cmap: &ConstraintMap,
         sigs: &Sigs,
         traits: &Traits,
-        name: &'static str,
-        body: &mut Box<Statement>,
+        scope: Option<&'static str>,
+        func: &FuncVal,
         sort_hashsets: bool,
-    ) -> Result<(), Error> {
-        self.rewrite(
+    ) -> Result<RWStatement, Error> {
+        let rwfv = self.rewrite_func_body(
             funcs,
             cmap,
             sigs,
             traits,
-            Some(name),
-            &mut (*body),
+            scope,
+            func,
             sort_hashsets,
         )?;
 
-        Ok(())
+        Ok(FuncDef(rwfv))
     }
 
     fn cha(
@@ -298,7 +413,7 @@ impl Rewriter {
         vartype: &Type,
         args: Vec<&'static str>,
         sort_hashsets: bool,
-    ) -> Result<Statement, Error> {
+    ) -> Result<RWStatement, Error> {
         let mut switch_vec = vec![];
         let mut pos_vec: Vec<_> = constraints.0.iter().collect();
         // FIXME how to use neg_vec?
@@ -324,7 +439,7 @@ impl Rewriter {
                 for func_str in top_vec.into_iter() {
                     switch_vec.push((
                         RVal::Var(func_str),
-                        Box::new(Statement::InvokeFunc(func_str, args.clone())),
+                        Box::new(InvokeFunc(func_str, args.clone())),
                     ));
                 }
             }
@@ -334,10 +449,9 @@ impl Rewriter {
                 // constraints
                 for rval in pos_vec.into_iter() {
                     match rval.clone() {
-                        r @ RVal::Var(var) => switch_vec.push((
-                            r,
-                            Box::new(Statement::InvokeFunc(var, args.clone())),
-                        )),
+                        r @ RVal::Var(var) => {
+                            switch_vec.push((r, Box::new(InvokeFunc(var, args.clone()))))
+                        }
                         _ => panic!("IP BUG: cannot call num {:?} as func", &rval),
                     };
                 }
@@ -345,7 +459,7 @@ impl Rewriter {
             Err(err) => return Err(err),
         }
 
-        Ok(Statement::Switch(RVal::Var(name), switch_vec))
+        Ok(Switch(RVal::Var(name), switch_vec))
     }
 
     fn rewrite_trait_invoke(
@@ -359,9 +473,9 @@ impl Rewriter {
         funcvec: &Vec<(TraitStructOpt, FuncVal)>,
         args: &Vec<&'static str>,
         sort_hashsets: bool,
-    ) -> Result<Statement, Error> {
+    ) -> Result<RWStatement, Error> {
         if funcvec.len() == 1 {
-            return Ok(Statement::InvokeFunc(name, args.to_vec()));
+            return Ok(InvokeFunc(name, args.to_vec()));
         }
 
         let mut switch_vec = vec![];
@@ -398,7 +512,7 @@ impl Rewriter {
                                         // FIXME Var or Struct (if struct need
                                         // another data structure to track fields)
                                         RVal::Var(struct_name),
-                                        Box::new(Statement::InvokeTraitFunc(
+                                        Box::new(InvokeTraitFunc(
                                             name,
                                             // FIXME need trait name?
                                             (trait_name, struct_name),
@@ -423,10 +537,13 @@ impl Rewriter {
                                                         if *sname == *other_sname {
                                                             switch_vec.push((
                                                                 RVal::Var(sname),
-                                                                Box::new(Statement::InvokeTraitFunc(
-                                                                    name, tso.unwrap(),
-                                                                    args.clone()
-                                                                )),
+                                                                Box::new(
+                                                                    InvokeTraitFunc(
+                                                                        name,
+                                                                        tso.unwrap(),
+                                                                        args.clone(),
+                                                                    ),
+                                                                ),
                                                             ));
                                                         }
                                                     }
@@ -448,7 +565,7 @@ impl Rewriter {
             }
         }
 
-        Ok(Statement::RewrittenSwitch(RVal::Var(args[0]), switch_vec))
+        Ok(TraitSwitch(RVal::Var(args[0]), switch_vec))
     }
 
     fn rewrite_invoke(
@@ -461,7 +578,7 @@ impl Rewriter {
         name: &'static str,
         args: &Vec<&'static str>,
         sort_hashsets: bool,
-    ) -> Result<Statement, Error> {
+    ) -> Result<RWStatement, Error> {
         match funcs.funcs.get(&name) {
             Some(funcvec) => self.rewrite_trait_invoke(
                 funcs,
@@ -501,7 +618,7 @@ mod tests {
     use crate::funcs::Funcs;
     use crate::statement::Statement::{
         Assignment, Conditional, FuncDef, InvokeFunc, InvokeTraitFunc, Print, Return,
-        RewrittenSwitch, Sequence, Struct, Switch, TraitDecl, TraitImpl,
+        Sequence, Struct, Switch, TraitDecl, TraitImpl, TraitSwitch,
     };
     use crate::statement::{AssignmentRVal, FuncDecl, FuncVal, Type};
     use std::collections::HashSet;
@@ -1369,7 +1486,7 @@ mod tests {
                     vec![],
                 )))),
             )),
-            Box::new(RewrittenSwitch(RVal::Var("specific_animal"), switch_vec)),
+            Box::new(TraitSwitch(RVal::Var("specific_animal"), switch_vec)),
         ]);
 
         assert_eq!(stmt, check_stmt);
@@ -1602,7 +1719,7 @@ mod tests {
                     vec![],
                 )))),
             )),
-            Box::new(RewrittenSwitch(RVal::Var("specific_animal"), switch_vec)),
+            Box::new(TraitSwitch(RVal::Var("specific_animal"), switch_vec)),
         ]);
 
         assert_eq!(stmt, check_stmt);

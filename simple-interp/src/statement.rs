@@ -9,13 +9,10 @@ pub enum Statement {
     Print(&'static str),
     Conditional(Box<BStatement>, Box<Statement>, Box<Statement>),
     Switch(RVal, Vec<(RVal, Box<Statement>)>),
-    RewrittenSwitch(RVal, Vec<(RVal, Box<Statement>)>),
     Return(RVal),
     FuncDecl(FuncDecl),
     FuncDef(FuncVal),
     InvokeFunc(&'static str, Vec<&'static str>),
-    // only used _after_ rewrite
-    InvokeTraitFunc(&'static str, TraitStructTup, Vec<&'static str>),
     Struct(&'static str, Vec<Type>, Vec<&'static str>),
     // traits without associated types for now
     // (trait name, funcs decls)
@@ -25,9 +22,38 @@ pub enum Statement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RWStatement {
+    Sequence(Vec<Box<RWStatement>>),
+    Assignment(&'static str, Box<RWAssignmentRVal>),
+    Print(&'static str),
+    Conditional(Box<BStatement>, Box<RWStatement>, Box<RWStatement>),
+    Switch(RVal, Vec<(RVal, Box<RWStatement>)>),
+    Return(RVal),
+    FuncDecl(FuncDecl),
+    FuncDef(RWFuncVal),
+    InvokeFunc(&'static str, Vec<&'static str>),
+    Struct(&'static str, Vec<Type>, Vec<&'static str>),
+    // traits without associated types for now
+    // (trait name, funcs decls)
+    TraitDecl(&'static str, Vec<FuncDecl>),
+    // (trait name, struct name, funcs impls)
+    TraitImpl(&'static str, &'static str, Vec<RWFuncVal>),
+    // post-rewrite only
+    TraitSwitch(RVal, Vec<(RVal, Box<RWStatement>)>),
+    InvokeTraitFunc(&'static str, TraitStructTup, Vec<&'static str>),
+    TraitImplList(),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AssignmentRVal {
     RVal(RVal),
     Statement(Box<Statement>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum RWAssignmentRVal {
+    RVal(RVal),
+    Statement(Box<RWStatement>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -85,6 +111,33 @@ impl FuncVal {
         params: Vec<(&'static str, Type)>,
         rettype: Option<Box<Type>>,
         body: Box<Statement>,
+    ) -> Self {
+        Self {
+            name,
+            is_method,
+            params,
+            rettype,
+            body,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RWFuncVal {
+    pub name: &'static str,
+    pub is_method: bool,
+    pub params: Vec<(&'static str, Type)>,
+    pub rettype: Option<Box<Type>>,
+    pub body: Box<RWStatement>,
+}
+
+impl RWFuncVal {
+    pub fn new(
+        name: &'static str,
+        is_method: bool,
+        params: Vec<(&'static str, Type)>,
+        rettype: Option<Box<Type>>,
+        body: Box<RWStatement>,
     ) -> Self {
         Self {
             name,

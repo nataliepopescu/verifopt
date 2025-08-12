@@ -55,11 +55,9 @@ impl Interpreter {
             Statement::InvokeFunc(name, args) => {
                 self.interp_invoke(funcs, cmap, traits, scope, name, args)
             }
-            Statement::FuncDecl(..)
-            | Statement::FuncDef(..)
-            | Statement::Struct(..)
-            | Statement::RewrittenSwitch(..)
-            | Statement::InvokeTraitFunc(..) => Ok(None),
+            Statement::FuncDecl(..) | Statement::FuncDef(..) | Statement::Struct(..) => {
+                Ok(None)
+            }
         }
     }
 

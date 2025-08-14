@@ -4,7 +4,7 @@ use crate::funcs::Funcs;
 use crate::sigs::{SigVal, Sigs};
 use crate::statement::RWStatement::{
     Assignment, Conditional, FuncDecl, FuncDef, InvokeFunc, InvokeTraitFunc, Print,
-    Return, Sequence, Struct, Switch, TraitDecl, TraitImpl, TraitImplList, TraitSwitch,
+    Return, Sequence, Struct, Switch, TraitDecl, TraitImpl, TraitSwitch,
 };
 use crate::statement::{
     AssignmentRVal, BStatement, FuncVal, RVal, RWAssignmentRVal, RWFuncVal, RWStatement,
@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 pub struct Rewriter {}
 
-/// Implement rewriter
+// Implement rewriter
 
 // TODO never returns Err, refactor out Result return type (wait on this)
 
@@ -54,8 +54,8 @@ impl Rewriter {
                     traits,
                     scope,
                     *condition.clone(),
-                    &(*true_branch),
-                    &(*false_branch),
+                    true_branch,
+                    false_branch,
                     sort_hashsets,
                 ),
             Statement::Switch(val, vec) => self.rewrite_switch(
@@ -94,7 +94,7 @@ impl Rewriter {
                 traits,
                 scope,
                 name,
-                val.clone(),
+                *val.clone(),
                 sort_hashsets,
             ),
             Statement::Print(s) => Ok(Print(s)),
@@ -131,15 +131,8 @@ impl Rewriter {
         func: &FuncVal,
         sort_hashsets: bool,
     ) -> Result<RWFuncVal, Error> {
-        let rwbody = self.rewrite(
-            funcs,
-            cmap,
-            sigs,
-            traits,
-            scope,
-            &(*func.body),
-            sort_hashsets,
-        )?;
+        let rwbody =
+            self.rewrite(funcs, cmap, sigs, traits, scope, &*func.body, sort_hashsets)?;
 
         Ok(RWFuncVal::new(
             func.name,
@@ -187,13 +180,13 @@ impl Rewriter {
         traits: &Traits,
         scope: Option<&'static str>,
         name: &'static str,
-        val: Box<AssignmentRVal>,
+        val: AssignmentRVal,
         sort_hashsets: bool,
     ) -> Result<RWStatement, Error> {
-        let rw_val = match *val {
+        let rw_val = match val {
             AssignmentRVal::RVal(rval) => RWAssignmentRVal::RVal(rval),
             AssignmentRVal::Statement(stmt) => RWAssignmentRVal::Statement(Box::new(
-                self.rewrite(funcs, cmap, sigs, traits, scope, &(*stmt), sort_hashsets)?,
+                self.rewrite(funcs, cmap, sigs, traits, scope, &stmt, sort_hashsets)?,
             )),
         };
         Ok(Assignment(name, Box::new(rw_val)))
@@ -231,15 +224,8 @@ impl Rewriter {
         sort_hashsets: bool,
     ) -> Result<RWStatement, Error> {
         // FIXME also rewrite condition when funcs can ret booleans
-        let rw_true_branch = self.rewrite(
-            funcs,
-            cmap,
-            sigs,
-            traits,
-            scope,
-            &true_branch,
-            sort_hashsets,
-        )?;
+        let rw_true_branch =
+            self.rewrite(funcs, cmap, sigs, traits, scope, true_branch, sort_hashsets)?;
 
         let rw_false_branch = self.rewrite(
             funcs,
@@ -247,7 +233,7 @@ impl Rewriter {
             sigs,
             traits,
             scope,
-            &false_branch,
+            false_branch,
             sort_hashsets,
         )?;
 
@@ -280,7 +266,7 @@ impl Rewriter {
                 sigs,
                 traits,
                 scope,
-                &(*switch_stmt),
+                switch_stmt,
                 sort_hashsets,
             )?;
             switch_vec.push((case.clone(), Box::new(rw_switch_stmt)));
@@ -294,7 +280,7 @@ impl Rewriter {
         cmap: &ConstraintMap,
         sigs: &Sigs,
         traits: &Traits,
-        scope: Option<&'static str>,
+        _scope: Option<&'static str>,
         func: &FuncVal,
         sort_hashsets: bool,
     ) -> Result<RWStatement, Error> {
@@ -327,7 +313,7 @@ impl Rewriter {
                     None => panic!("SC BUG: func sig not collected"),
                 }
             }
-            _ => return Err(Error::NotAFunction(func_name)),
+            _ => Err(Error::NotAFunction(func_name)),
         }
     }
 
@@ -370,7 +356,7 @@ impl Rewriter {
                 }
                 Ok(None)
             }
-            Err(err) => return Err(err),
+            Err(err) => Err(err),
         }
     }
 
@@ -384,11 +370,10 @@ impl Rewriter {
         match vartype {
             Type::DynTrait(trait_name) => {
                 let (tso_vec, _): (Vec<TraitStructOpt>, Vec<FuncVal>) =
-                    funcvec.into_iter().map(|x| x.clone()).unzip();
+                    funcvec.iter().cloned().unzip(); //map(|x| x.clone()).unzip();
                 let ts_vec = tso_vec
                     .into_iter()
-                    .filter(|x| x.is_some())
-                    .map(|x| x.unwrap())
+                    .flatten()
                     .collect::<Vec<TraitStructTup>>();
                 let (_, all_impls_vec): (Vec<&'static str>, Vec<&'static str>) =
                     ts_vec.into_iter().unzip();
@@ -401,17 +386,17 @@ impl Rewriter {
                 }
                 Ok(None)
             }
-            _ => return Err(Error::NotATrait(trait_name)),
+            _ => Err(Error::NotATrait(trait_name)),
         }
     }
 
     fn rewrite_indirect_invoke_helper(
         &self,
-        funcs: &Funcs,
-        cmap: &ConstraintMap,
+        _funcs: &Funcs,
+        _cmap: &ConstraintMap,
         sigs: &Sigs,
         _traits: &Traits,
-        scope: Option<&'static str>,
+        _scope: Option<&'static str>,
         name: &'static str,
         constraints: &Constraints,
         vartype: &Type,
@@ -483,7 +468,7 @@ impl Rewriter {
         let mut switch_vec = vec![];
 
         // get type of `self` (first arg)
-        if funcvec.len() > 0 && funcvec[0].1.is_method && args.len() > 0 {
+        if !funcvec.is_empty() && funcvec[0].1.is_method && !args.is_empty() {
             match cmap.scoped_get(scope, args[0], false) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(vartype, constraints) => {
@@ -596,10 +581,10 @@ impl Rewriter {
                         args.to_vec(),
                         sort_hashsets,
                     ),
-                _ => return Err(Error::NoSwitchOnFuncPtr()),
+                _ => Err(Error::NoSwitchOnFuncPtr()),
             },
             Ok(None) => panic!("IP BUG: missed undef symbol {:?}", &name),
-            Err(err) => return Err(err),
+            Err(err) => Err(err),
         }
     }
 
@@ -622,7 +607,7 @@ impl Rewriter {
                 traits,
                 scope,
                 name,
-                &funcvec,
+                funcvec,
                 args,
                 sort_hashsets,
             ),
@@ -1225,62 +1210,6 @@ mod tests {
             "x",
             Box::new(RWAssignmentRVal::RVal(RVal::Num(4))),
         ));
-        let check_foo_body = Box::new(RWS::Sequence(vec![
-            Box::new(RWS::FuncDef(RWFuncVal::new(
-                "baz",
-                false,
-                vec![],
-                None,
-                check_baz_body.clone(),
-            ))),
-            Box::new(RWS::FuncDef(RWFuncVal::new(
-                "qux",
-                false,
-                vec![],
-                None,
-                check_qux_body.clone(),
-            ))),
-            Box::new(RWS::Conditional(
-                Box::new(BStatement::TrueOrFalse()),
-                Box::new(RWS::Assignment(
-                    "x",
-                    Box::new(RWAssignmentRVal::RVal(RVal::Var("baz"))),
-                )),
-                Box::new(RWS::Assignment(
-                    "x",
-                    Box::new(RWAssignmentRVal::RVal(RVal::Var("qux"))),
-                )),
-            )),
-            Box::new(RWS::InvokeFunc("x", vec![])),
-        ]));
-        let check_bar_body = Box::new(RWS::Sequence(vec![
-            Box::new(RWS::FuncDef(RWFuncVal::new(
-                "baz2",
-                false,
-                vec![],
-                None,
-                check_baz2_body.clone(),
-            ))),
-            Box::new(RWS::FuncDef(RWFuncVal::new(
-                "qux2",
-                false,
-                vec![],
-                None,
-                check_qux2_body.clone(),
-            ))),
-            Box::new(RWS::Conditional(
-                Box::new(BStatement::TrueOrFalse()),
-                Box::new(RWS::Assignment(
-                    "x",
-                    Box::new(RWAssignmentRVal::RVal(RVal::Var("baz2"))),
-                )),
-                Box::new(RWS::Assignment(
-                    "x",
-                    Box::new(RWAssignmentRVal::RVal(RVal::Var("qux2"))),
-                )),
-            )),
-            Box::new(RWS::InvokeFunc("x", vec![])),
-        ]));
 
         let foo_switch_vec = vec![
             (RVal::Var("baz"), Box::new(RWS::InvokeFunc("baz", vec![]))),

@@ -7,7 +7,7 @@ pub type Constraints = (HashSet<RVal>, HashSet<RVal>);
 
 impl Merge<Constraints> for Vec<Constraints> {
     fn merge(&self) -> Result<Option<Constraints>, Error> {
-        if self.len() == 0 {
+        if self.is_empty() {
             return Ok(None);
         }
         if self.len() == 1 {
@@ -16,24 +16,19 @@ impl Merge<Constraints> for Vec<Constraints> {
 
         // typechecker should ensure that all values are of the same type...
         let mut merged = self[0].clone();
-        for i in 1..self.len() {
+        for c in self.iter() {
             // merge positive constraints
-            if merged.0 != self[i].0 {
-                let pos_union: HashSet<_> =
-                    merged.0.union(&self[i].0).map(|x| x.clone()).collect();
+            if merged.0 != c.0 {
+                let pos_union: HashSet<_> = merged.0.union(&c.0).cloned().collect();
                 merged.0 = pos_union;
             }
             // merge negative constraints
-            if merged.1 != self[i].1 {
-                let neg_union: HashSet<_> =
-                    merged.1.union(&self[i].1).map(|x| x.clone()).collect();
+            if merged.1 != c.1 {
+                let neg_union: HashSet<_> = merged.1.union(&c.1).cloned().collect();
                 merged.1 = neg_union;
             }
-            let intersection: HashSet<_> = merged
-                .0
-                .intersection(&merged.1)
-                .map(|x| x.clone())
-                .collect();
+            let intersection: HashSet<_> =
+                merged.0.intersection(&merged.1).cloned().collect();
             if !intersection.is_empty() {
                 todo!("impl: pos/neg intersection removal");
             }
@@ -115,19 +110,19 @@ impl ConstraintMap {
                     // - closures: recursively follow backptr to enclosing scopes
                     // FIXME closures should not recurse past enclosing function
                     match instance_vec[0].1.cmap.get(var) {
-                        Some(boxed) => return Ok(Some(*boxed.clone())),
+                        Some(boxed) => Ok(Some(*boxed.clone())),
                         None => {
                             if traverse_backptr {
-                                return self.scoped_get(backptr, var, traverse_backptr);
+                                self.scoped_get(backptr, var, traverse_backptr)
                             } else {
-                                return Ok(None);
+                                Ok(None)
                             }
                         }
                     }
                 }
-                _ => return Err(Error::NotAScope(scope.unwrap())),
+                _ => Err(Error::NotAScope(scope.unwrap())),
             },
-            None => return Err(Error::UndefinedScope(scope.unwrap())),
+            None => Err(Error::UndefinedScope(scope.unwrap())),
         }
     }
 
@@ -139,7 +134,7 @@ impl ConstraintMap {
     ) -> Result<(), Error> {
         // first get the `cmap` object pertaining to `this` scope
         if scope.is_none() {
-            if self.cmap.get(var).is_some() {
+            if self.cmap.contains_key(var) {
                 return Err(Error::SymbolAlreadyExists(var));
             }
 
@@ -153,7 +148,7 @@ impl ConstraintMap {
                     if instance_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
-                    if instance_vec[0].1.cmap.get(var).is_some() {
+                    if instance_vec[0].1.cmap.contains_key(var) {
                         return Err(Error::SymbolAlreadyExists(var));
                     }
                     // modify scope w new var
@@ -176,7 +171,7 @@ impl ConstraintMap {
 
 impl Merge<ConstraintMap> for Vec<ConstraintMap> {
     fn merge(&self) -> Result<Option<ConstraintMap>, Error> {
-        if self.len() == 0 {
+        if self.is_empty() {
             return Ok(None);
         }
         if self.len() == 1 {
@@ -184,8 +179,8 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
         }
 
         let mut merged = self[0].clone();
-        for i in 1..self.len() {
-            for (key, val) in self[i].clone().cmap.iter() {
+        for cmap in self.iter() {
+            for (key, val) in cmap.clone().cmap.iter() {
                 match merged.cmap.get_mut(key) {
                     // mismatched types should be caught by typechecker
                     Some(mval) => match (*mval.clone(), *val.clone()) {
@@ -209,21 +204,19 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                                         instance_vec_a,
                                     ));
                                 }
-                            } else {
-                                if cmap_a != cmap_b {
-                                    let inner_cmap = vec![cmap_a, cmap_b];
-                                    match inner_cmap.merge() {
-                                        Ok(Some(merged_inner)) => {
-                                            *mval = Box::new(VarType::Scope(
-                                                backptr_a,
-                                                vec![(functype_a, merged_inner)],
-                                            ));
-                                        }
-                                        Ok(None) => {
-                                            todo!("got none for inner cmap")
-                                        }
-                                        err @ Err(_) => return err,
+                            } else if cmap_a != cmap_b {
+                                let inner_cmap = vec![cmap_a, cmap_b];
+                                match inner_cmap.merge() {
+                                    Ok(Some(merged_inner)) => {
+                                        *mval = Box::new(VarType::Scope(
+                                            backptr_a,
+                                            vec![(functype_a, merged_inner)],
+                                        ));
                                     }
+                                    Ok(None) => {
+                                        todo!("got none for inner cmap")
+                                    }
+                                    err @ Err(_) => return err,
                                 }
                             }
                         }
@@ -238,12 +231,12 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
                             let mut neg = neg_a.clone();
                             if pos_a != pos_b {
                                 let pos_union: HashSet<_> =
-                                    pos_a.union(&pos_b).map(|x| x.clone()).collect();
+                                    pos_a.union(&pos_b).cloned().collect();
                                 pos = pos_union;
                             }
                             if neg_a != neg_b {
                                 let neg_union: HashSet<_> =
-                                    neg_a.union(&neg_b).map(|x| x.clone()).collect();
+                                    neg_a.union(&neg_b).cloned().collect();
                                 neg = neg_union;
                             }
                             merged.cmap.insert(
@@ -266,9 +259,9 @@ impl Merge<ConstraintMap> for Vec<ConstraintMap> {
             match &mut **val {
                 &mut VarType::Values(_, (ref pos, ref mut neg)) => {
                     let intersection: HashSet<_> =
-                        pos.intersection(&neg).map(|x| x.clone()).collect();
+                        pos.intersection(neg).cloned().collect();
                     let diff: HashSet<_> =
-                        neg.difference(&intersection).map(|x| x.clone()).collect();
+                        neg.difference(&intersection).cloned().collect();
                     *neg = diff;
                 }
                 _ => continue,
@@ -299,14 +292,10 @@ impl Difference<ConstraintMap> for ConstraintMap {
                             if valtype_self != valtype_other {
                                 return Err(Error::TypesDiffer());
                             }
-                            let diff_pos: HashSet<_> = self_pos
-                                .difference(&other_pos)
-                                .map(|x| x.clone())
-                                .collect();
-                            let diff_neg: HashSet<_> = self_neg
-                                .difference(&other_neg)
-                                .map(|x| x.clone())
-                                .collect();
+                            let diff_pos: HashSet<_> =
+                                self_pos.difference(&other_pos).cloned().collect();
+                            let diff_neg: HashSet<_> =
+                                self_neg.difference(&other_neg).cloned().collect();
                             self.cmap.insert(
                                 other_key,
                                 Box::new(VarType::Values(

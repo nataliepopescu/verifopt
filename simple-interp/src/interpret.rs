@@ -42,9 +42,9 @@ impl Interpreter {
                     cmap,
                     traits,
                     scope,
-                    &*condition,
-                    &*true_branch,
-                    &*false_branch,
+                    condition,
+                    true_branch,
+                    false_branch,
                 ),
             Statement::Switch(val, vec) => {
                 self.interp_switch(funcs, cmap, traits, scope, val, vec)
@@ -71,7 +71,7 @@ impl Interpreter {
     ) -> Result<Option<Constraints>, Error> {
         let mut last_ret = None;
         for stmt in stmt_vec.iter() {
-            let res = self.interp(&funcs, cmap, traits, scope, &*stmt)?;
+            let res = self.interp(funcs, cmap, traits, scope, stmt)?;
             last_ret = res;
         }
         Ok(last_ret)
@@ -111,7 +111,7 @@ impl Interpreter {
         name: &'static str,
         args: &Vec<&'static str>,
     ) -> Result<(), Error> {
-        match self.interp_invoke(funcs, cmap, traits, scope, name, &args) {
+        match self.interp_invoke(funcs, cmap, traits, scope, name, args) {
             Ok(Some(constraints)) => {
                 let functype;
                 match cmap.cmap.get(name) {
@@ -180,10 +180,10 @@ impl Interpreter {
                 scope,
                 var,
                 Box::new(VarType::Values(
-                    Box::new(Type::Struct(*struct_name)),
+                    Box::new(Type::Struct(struct_name)),
                     (
                         HashSet::from([RVal::Struct(
-                            *struct_name,
+                            struct_name,
                             field_values.to_vec(),
                             field_names.to_vec(),
                         )]),
@@ -195,9 +195,9 @@ impl Interpreter {
                 scope,
                 var,
                 Box::new(VarType::Values(
-                    Box::new(Type::Struct(*struct_name)),
+                    Box::new(Type::Struct(struct_name)),
                     (
-                        HashSet::from([RVal::IdkStruct(*struct_name)]),
+                        HashSet::from([RVal::IdkStruct(struct_name)]),
                         HashSet::new(),
                     ),
                 )),
@@ -294,18 +294,14 @@ impl Interpreter {
             | RVal::IdkVar() => Ok((HashSet::from([rval]), HashSet::new())),
             RVal::Var(var) => match cmap.scoped_get(scope, var, false) {
                 Ok(Some(val)) => match val {
-                    VarType::Values(_, constraints) => {
-                        return Ok(constraints.clone());
-                    }
+                    VarType::Values(_, constraints) => Ok(constraints.clone()),
                     _ => todo!("should be a func"),
                 },
                 Ok(None) => match funcs.funcs.get(&var) {
                     Some(_funcvec) => Ok((HashSet::from([rval]), HashSet::new())),
-                    None => {
-                        return Err(Error::UndefinedSymbol(var));
-                    }
+                    None => Err(Error::UndefinedSymbol(var)),
                 },
-                Err(err) => return Err(err),
+                Err(err) => Err(err),
             },
         }
     }
@@ -324,24 +320,22 @@ impl Interpreter {
         match (lhs_vecs.0[0].clone(), rhs_vecs.0[0].clone()) {
             (RVal::Num(lnum), RVal::Num(rnum)) => {
                 if lnum == rnum {
-                    return Ok((BStatement::True(), BConstraints::empty()));
+                    Ok((BStatement::True(), BConstraints::empty()))
                 } else {
-                    return Ok((BStatement::False(), BConstraints::empty()));
+                    Ok((BStatement::False(), BConstraints::empty()))
                 }
             }
             (RVal::Var(lfp), RVal::Var(rfp)) => {
                 if lfp == rfp {
-                    return Ok((BStatement::True(), BConstraints::empty()));
+                    Ok((BStatement::True(), BConstraints::empty()))
                 } else {
-                    return Ok((BStatement::False(), BConstraints::empty()));
+                    Ok((BStatement::False(), BConstraints::empty()))
                 }
             }
-            (_, _) => {
-                return Err(Error::IncomparableTypes(
-                    lhs_vecs.0[0].clone(),
-                    rhs_vecs.0[0].clone(),
-                ));
-            }
+            (_, _) => Err(Error::IncomparableTypes(
+                lhs_vecs.0[0].clone(),
+                rhs_vecs.0[0].clone(),
+            )),
         }
     }
 
@@ -454,10 +448,10 @@ impl Interpreter {
                     )),
                 );
 
-                return Ok((
+                Ok((
                     BStatement::TrueOrFalse(),
                     BConstraints::new(true_branch, false_branch),
-                ));
+                ))
             }
             _ => todo!("not impl yet"),
         }
@@ -472,27 +466,27 @@ impl Interpreter {
         rhs: RVal,
     ) -> Result<(BStatement, BConstraints), Error> {
         let lhs_vecs = self.constraints_to_vecs(&self.interp_rval(
-            &funcs,
-            &cmap,
+            funcs,
+            cmap,
             scope,
             lhs.clone(),
         )?);
         let rhs_vecs = self.constraints_to_vecs(&self.interp_rval(
-            &funcs,
-            &cmap,
+            funcs,
+            cmap,
             scope,
             rhs.clone(),
         )?);
 
         // eval directly if only a single positive constraint
         if lhs_vecs.0.len() == 1
-            && lhs_vecs.1.len() == 0
+            && lhs_vecs.1.is_empty()
             && rhs_vecs.0.len() == 1
-            && rhs_vecs.1.len() == 0
+            && rhs_vecs.1.is_empty()
         {
-            return self.single_constraint_compare(&lhs_vecs, &rhs_vecs);
+            self.single_constraint_compare(&lhs_vecs, &rhs_vecs)
         } else {
-            return self.many_constraints_compare(cmap, lhs, rhs);
+            self.many_constraints_compare(cmap, lhs, rhs)
         }
     }
 
@@ -532,8 +526,8 @@ impl Interpreter {
                                     Ok(()) => res_cmap.push(new_cmap),
                                     Err(err) => return Err(err),
                                 }
-                                if true_constraints_opt.is_some() {
-                                    res_constraints.push(true_constraints_opt.unwrap());
+                                if let Some(c) = true_constraints_opt {
+                                    res_constraints.push(c);
                                 }
                             }
                             err @ Err(_) => return err,
@@ -560,8 +554,8 @@ impl Interpreter {
                                     Ok(()) => res_cmap.push(new_cmap),
                                     Err(err) => return Err(err),
                                 }
-                                if false_constraints_opt.is_some() {
-                                    res_constraints.push(false_constraints_opt.unwrap());
+                                if let Some(c) = false_constraints_opt {
+                                    res_constraints.push(c);
                                 }
                             }
                             err @ Err(_) => return err,
@@ -643,7 +637,7 @@ impl Interpreter {
         let mut res_cmap: Vec<ConstraintMap> = Vec::new();
         for (_, vec_stmt) in filtered.iter() {
             let mut scoped_cmap = cmap.clone();
-            match self.interp(funcs, &mut scoped_cmap, traits, scope, &*vec_stmt) {
+            match self.interp(funcs, &mut scoped_cmap, traits, scope, vec_stmt) {
                 Ok(_) => res_cmap.push(scoped_cmap),
                 err @ Err(_) => return err,
             }
@@ -672,29 +666,23 @@ impl Interpreter {
             | RVal::IdkNum()
             | RVal::Struct(..)
             | RVal::IdkStruct(_)
-            | RVal::IdkVar() => {
-                return Ok(Some((HashSet::from([rval.clone()]), HashSet::new())));
-            }
+            | RVal::IdkVar() => Ok(Some((HashSet::from([rval.clone()]), HashSet::new()))),
             RVal::Var(varname) => match cmap.scoped_get(scope, varname, false) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(_, constraints) => Ok(Some(constraints)),
                     VarType::Scope(..) => match funcs.funcs.get(varname) {
                         Some(_funcvec) => Ok(Some((
-                            HashSet::from([RVal::Var(*varname)]),
+                            HashSet::from([RVal::Var(varname)]),
                             HashSet::new(),
                         ))),
-                        None => {
-                            return Err(Error::UndefinedSymbol(varname));
-                        }
+                        None => Err(Error::UndefinedSymbol(varname)),
                     },
                 },
                 Ok(None) => match funcs.funcs.get(varname) {
                     Some(_) => panic!("IP BUG: func should have been a scope in cmap"),
-                    None => {
-                        return Err(Error::UndefinedSymbol(varname));
-                    }
+                    None => Err(Error::UndefinedSymbol(varname)),
                 },
-                Err(err) => return Err(err),
+                Err(err) => Err(err),
             },
         }
     }
@@ -707,12 +695,12 @@ impl Interpreter {
         param_type: &Type,
         arg_type: &Type,
         arg_constraints: &mut Constraints,
-    ) -> () {
+    ) {
         match arg_type {
             Type::DynTrait(trait_name) => match traits.traits.get(trait_name) {
                 Some(structs) => match param_type {
                     Type::Struct(struct_name) => {
-                        if structs.contains(&struct_name) {
+                        if structs.contains(struct_name) {
                             for pos_constraint in arg_constraints.0.clone().iter() {
                                 match pos_constraint {
                                     RVal::Struct(c_struct_name, ..)
@@ -720,13 +708,12 @@ impl Interpreter {
                                         // remove if any struct type other than
                                         // that of param_type
                                         if c_struct_name != struct_name {
-                                            arg_constraints.0.remove(&pos_constraint);
+                                            arg_constraints.0.remove(pos_constraint);
                                         }
                                     }
                                     _ => continue,
                                 }
                             }
-                            ()
                         } else {
                             panic!(
                                 "struct {} does not impl trait {}",
@@ -734,11 +721,11 @@ impl Interpreter {
                             );
                         }
                     }
-                    _ => (),
+                    _ => {}
                 },
                 None => panic!("trait {} not implemented", &trait_name),
             },
-            _ => (),
+            _ => {}
         }
     }
 
@@ -848,7 +835,7 @@ impl Interpreter {
 
                     for (_tso, funcval) in funcvec.iter() {
                         self.resolve_args(
-                            funcs, cmap, traits, scope, varname, &funcval, args,
+                            funcs, cmap, traits, scope, varname, funcval, args,
                         )?;
 
                         match self.interp(
@@ -856,11 +843,11 @@ impl Interpreter {
                             cmap,
                             traits,
                             Some(varname),
-                            &*funcval.body,
+                            &funcval.body,
                         ) {
                             Ok(constraints) => {
-                                if constraints.is_some() {
-                                    constraints_vec.push(constraints.unwrap());
+                                if let Some(c) = constraints {
+                                    constraints_vec.push(c);
                                 }
                             }
                             err @ Err(_) => return err,
@@ -872,11 +859,9 @@ impl Interpreter {
                         Err(err) => Err(err),
                     }
                 }
-                None => {
-                    return Err(Error::UndefinedSymbol(varname));
-                }
+                None => Err(Error::UndefinedSymbol(varname)),
             },
-            _ => return Err(Error::NotAFunction(name)),
+            _ => Err(Error::NotAFunction(name)),
         }
     }
 
@@ -906,8 +891,8 @@ impl Interpreter {
             ) {
                 Ok(constraints) => {
                     res_cmap.push(cmap_clone);
-                    if constraints.is_some() {
-                        constraints_vec.push(constraints.unwrap());
+                    if let Some(c) = constraints {
+                        constraints_vec.push(c);
                     }
                 }
                 err @ Err(_) => return err,
@@ -919,8 +904,8 @@ impl Interpreter {
             *cmap = res.unwrap();
         }
 
-        if constraints_vec.len() > 0 {
-            return Ok(constraints_vec.merge()?);
+        if !constraints_vec.is_empty() {
+            return constraints_vec.merge();
         }
         Ok(None)
     }
@@ -932,7 +917,7 @@ impl Interpreter {
         funcvec: &Vec<(TraitStructOpt, FuncVal)>,
         args: &Vec<&'static str>,
     ) -> Result<Vec<(TraitStructOpt, FuncVal)>, Error> {
-        if funcvec.len() > 0 && funcvec[0].1.is_method && args.len() > 0 {
+        if !funcvec.is_empty() && funcvec[0].1.is_method && !args.is_empty() {
             match cmap.scoped_get(scope, args[0], false) {
                 Ok(Some(vartype)) => match vartype {
                     VarType::Values(_, constraints) => {
@@ -992,7 +977,7 @@ impl Interpreter {
                 // before launching into interpreting all possible funcvals, figure out
                 // which funcvals can be pruned.
                 // if first arg == self, use constraints to prune funcvals.
-                let new_funcvec = self.prune_funcvec(cmap, scope, &funcvec, args)?;
+                let new_funcvec = self.prune_funcvec(cmap, scope, funcvec, args)?;
 
                 // interpret remaining funcval options
                 for (_, funcval) in new_funcvec.iter() {
@@ -1003,7 +988,7 @@ impl Interpreter {
                         traits,
                         scope,
                         name,
-                        &funcval,
+                        funcval,
                         args,
                     )?;
 
@@ -1015,8 +1000,8 @@ impl Interpreter {
                         &*funcval.body,
                     ) {
                         Ok(constraints) => {
-                            if constraints.is_some() {
-                                results_vec.push(constraints.unwrap());
+                            if let Some(c) = constraints {
+                                results_vec.push(c);
                             }
                             cmap_vec.push(cmap_clone);
                         }
@@ -1037,9 +1022,7 @@ impl Interpreter {
                     Err(err) => Err(err),
                 }
             }
-            None => {
-                return Err(Error::UndefinedSymbol(name));
-            }
+            None => Err(Error::UndefinedSymbol(name)),
         }
     }
 
@@ -1063,10 +1046,10 @@ impl Interpreter {
                     &constraints,
                     args,
                 ),
-                _ => return Err(Error::UnexpectedScope()),
+                _ => Err(Error::UnexpectedScope()),
             },
             Ok(None) => self.interp_direct_invoke(funcs, cmap, traits, scope, name, args),
-            Err(err) => return Err(err),
+            Err(err) => Err(err),
         }
     }
 

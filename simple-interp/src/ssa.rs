@@ -27,7 +27,7 @@ impl FromIterator<(&'static str, Option<Box<Symbols>>)> for Symbols {
 
 impl Merge<Symbols> for Vec<Symbols> {
     fn merge(&self) -> Result<Option<Symbols>, Error> {
-        if self.len() == 0 {
+        if self.is_empty() {
             return Ok(None);
         }
         if self.len() == 1 {
@@ -35,8 +35,8 @@ impl Merge<Symbols> for Vec<Symbols> {
         }
 
         let mut merged = self[0].clone();
-        for i in 1..self.len() {
-            for (key, val) in self[i].clone().0.iter_mut() {
+        for symbols in self.iter() {
+            for (key, val) in symbols.clone().0.iter_mut() {
                 match merged.0.get_mut(key) {
                     Some(mergedval) => match (val, mergedval) {
                         (None, None) => continue,
@@ -70,11 +70,11 @@ impl SSAChecker {
             Statement::Assignment(name, _) => self.check_assignment(symbols, name),
             Statement::Sequence(stmt_vec) => self.check_seq(symbols, stmt_vec),
             Statement::Conditional(_, true_branch, false_branch) => {
-                self.check_conditional(symbols, &(*true_branch), &(*false_branch))
+                self.check_conditional(symbols, true_branch, false_branch)
             }
             Statement::Switch(_, vec) => self.check_switch(symbols, vec),
             Statement::FuncDef(func) => {
-                self.check_funcdef(symbols, func.name, &func.params, &func.body)
+                self.check_funcdef(symbols, func.name, &func.params, &*func.body)
             }
             Statement::Struct(struct_name, _, _) => {
                 self.check_struct(symbols, struct_name)
@@ -88,7 +88,7 @@ impl SSAChecker {
         symbols: &mut Symbols,
         name: &'static str,
     ) -> Result<(), Error> {
-        if symbols.0.get(name).is_some() {
+        if symbols.0.contains_key(name) {
             return Err(Error::SymbolAlreadyExists(name));
         }
         symbols.0.insert(name, None);
@@ -102,7 +102,7 @@ impl SSAChecker {
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter() {
-            self.check(symbols, &(*stmt))?;
+            self.check(symbols, stmt)?;
         }
         Ok(())
     }
@@ -140,7 +140,7 @@ impl SSAChecker {
         let mut res_scopes = vec![];
         for (_, switch_stmt) in vec.iter() {
             let mut scoped_symbols = symbols.clone();
-            self.check(&mut scoped_symbols, &(*switch_stmt))?;
+            self.check(&mut scoped_symbols, switch_stmt)?;
             res_scopes.push(scoped_symbols);
         }
 
@@ -159,9 +159,9 @@ impl SSAChecker {
         symbols: &mut Symbols,
         name: &'static str,
         params: &Vec<(&'static str, crate::statement::Type)>,
-        body: &Box<Statement>,
+        body: &Statement,
     ) -> Result<(), Error> {
-        if symbols.0.get(name).is_some() {
+        if symbols.0.contains_key(name) {
             return Err(Error::SymbolAlreadyExists(name));
         }
 
@@ -180,7 +180,7 @@ impl SSAChecker {
         symbols: &mut Symbols,
         struct_name: &'static str,
     ) -> Result<(), Error> {
-        if symbols.0.get(struct_name).is_some() {
+        if symbols.0.contains_key(struct_name) {
             return Err(Error::SymbolAlreadyExists(struct_name));
         }
         symbols.0.insert(struct_name, None);

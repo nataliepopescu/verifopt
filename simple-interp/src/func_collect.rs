@@ -14,11 +14,11 @@ impl FuncCollector {
             Statement::Sequence(stmt_vec) => self.collect_seq(funcs, stmt_vec),
             Statement::FuncDef(func) => self.collect_funcdef(
                 funcs,
-                &func.name,
+                func.name,
                 &func.is_method,
                 &func.params,
                 &func.rettype,
-                &func.body,
+                &*func.body,
             ),
             Statement::TraitImpl(trait_name, struct_name, func_impls) => {
                 self.collect_trait_impl(funcs, trait_name, struct_name, func_impls)
@@ -33,7 +33,7 @@ impl FuncCollector {
         stmt_vec: &Vec<Box<Statement>>,
     ) -> Result<(), Error> {
         for stmt in stmt_vec.iter() {
-            self.collect(funcs, &*stmt)?;
+            self.collect(funcs, stmt)?;
         }
         Ok(())
     }
@@ -45,7 +45,7 @@ impl FuncCollector {
         is_method: &bool,
         params: &Vec<(&'static str, Type)>,
         rettype: &Option<Box<Type>>,
-        body: &Box<Statement>,
+        body: &Statement,
     ) -> Result<(), Error> {
         match funcs.funcs.get(&func_name) {
             Some(_) => {
@@ -61,7 +61,7 @@ impl FuncCollector {
                             *is_method,
                             params.clone(),
                             rettype.clone(),
-                            body.clone(),
+                            Box::new(body.clone()),
                         ),
                     )],
                 );

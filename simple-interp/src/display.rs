@@ -18,12 +18,12 @@ impl fmt::Display for RWStatement {
                 write!(f, "println!(\"{}\");", s)
             }
             Sequence(stmt_vec) => {
-                let mut s = format!("");
-                for i in 0..stmt_vec.len() {
+                let mut s = String::new();
+                for (i, stmt) in stmt_vec.iter().enumerate() {
                     if i == 0 {
-                        s = format!("{}{}", s, stmt_vec[i]);
+                        s = format!("{}{}", s, stmt);
                     } else {
-                        s = format!("{}\n{}", s, stmt_vec[i]);
+                        s = format!("{}\n{}", s, stmt);
                     }
                 }
                 write!(f, "{}", s)
@@ -34,7 +34,7 @@ impl fmt::Display for RWStatement {
             FuncDef(func) => write!(f, "{}", func),
             InvokeFunc(name, args) => {
                 let mut s = format!("{}(", name);
-                if args.len() > 0 {
+                if !args.is_empty() {
                     for arg in args.iter() {
                         s = format!("{}\n{},", s, arg);
                     }
@@ -46,7 +46,7 @@ impl fmt::Display for RWStatement {
             }
             InvokeTraitFunc(name, ts_tup, args) => {
                 let mut s = format!("<{} as {}>::{}(", ts_tup.1, ts_tup.0, name);
-                if args.len() > 0 {
+                if !args.is_empty() {
                     for arg in args.iter() {
                         s = format!("{}\n{},", s, arg);
                     }
@@ -61,9 +61,9 @@ impl fmt::Display for RWStatement {
             }
             Switch(rval, case_vec) => {
                 // make just a long if statement
-                let mut s = format!("");
+                let mut s = String::new();
 
-                for (i, case) in case_vec.into_iter().enumerate() {
+                for (i, case) in case_vec.iter().enumerate() {
                     if i == 0 {
                         s = format!(
                             "{}if {} as usize == {} as usize {{\n{}\n}}",
@@ -89,18 +89,24 @@ impl fmt::Display for RWStatement {
                 let mut s = format!("let typeid = {}.typeid();", rval);
                 s = format!("{}\nlet rawptr = Box::into_raw({}) as *const ();", s, rval);
 
-                for (i, case) in case_vec.into_iter().enumerate() {
+                for (i, case) in case_vec.iter().enumerate() {
                     if i == 0 {
                         s = format!("{}if typeid == Type::{} {{", s, case.0);
                         s = format!("{}\nunsafe {{", s);
-                        s = format!("{}\nlet {}: &{} = std::mem::transmute::<*const (), &{}>(rawptr);", s, rval, case.0, case.0);
+                        s = format!(
+                            "{}\nlet {}: &{} = std::mem::transmute::<*const (), &{}>(rawptr);",
+                            s, rval, case.0, case.0
+                        );
                         s = format!("{}\n{}", s, case.1);
                         s = format!("{}\n}}", s);
                         s = format!("{}\n}}", s);
                     } else {
                         s = format!("{}\nif typeid == Type::{} {{", s, case.0);
                         s = format!("{}\nunsafe {{", s);
-                        s = format!("{}\nlet {}: &{} = std::mem::transmute::<*const (), &{}>(rawptr);", s, rval, case.0, case.0);
+                        s = format!(
+                            "{}\nlet {}: &{} = std::mem::transmute::<*const (), &{}>(rawptr);",
+                            s, rval, case.0, case.0
+                        );
                         s = format!("{}\n{}", s, case.1);
                         s = format!("{}\n}}", s);
                         s = format!("{}\n}}", s);
@@ -113,7 +119,7 @@ impl fmt::Display for RWStatement {
                 // add `typeid` field
                 s = format!("{}\ntypeid: Type,", s);
 
-                if field_types.len() > 0 {
+                if !field_types.is_empty() {
                     for (field_name, field_type) in
                         std::iter::zip(field_names, field_types)
                     {
@@ -129,7 +135,7 @@ impl fmt::Display for RWStatement {
                 s = format!("{}\nfn typeid(&self) -> Type;", s);
 
                 // add remaining decls
-                if func_decls.len() > 0 {
+                if !func_decls.is_empty() {
                     for func_decl in func_decls.iter() {
                         s = format!("{}\n{}", s, func_decl);
                     }
@@ -146,7 +152,7 @@ impl fmt::Display for RWStatement {
                 );
 
                 // add remaining impls
-                if func_impls.len() > 0 {
+                if !func_impls.is_empty() {
                     for func_impl in func_impls.iter() {
                         s = format!("{}\n{}", s, func_impl);
                     }
@@ -204,7 +210,7 @@ impl fmt::Display for RVal {
             RVal::IdkVar() => write!(f, "IDK-Var"),
             RVal::Struct(name, field_values, field_names) => {
                 let mut s = format!("{} {{", name);
-                if field_values.len() > 0 {
+                if !field_values.is_empty() {
                     for (field_name, field_value) in
                         std::iter::zip(field_names, field_values)
                     {
@@ -226,7 +232,7 @@ impl fmt::Display for FuncDecl {
         if self.is_method {
             s = format!("{}\n&self,", s);
         }
-        if self.params.len() > 0 {
+        if !self.params.is_empty() {
             for (i, param) in self.params.iter().enumerate() {
                 if self.is_method && i == 0 {
                     continue;
@@ -252,7 +258,7 @@ impl fmt::Display for RWFuncVal {
         if self.is_method {
             s = format!("{}\n&self,", s);
         }
-        if self.params.len() > 0 {
+        if !self.params.is_empty() {
             for (i, param) in self.params.iter().enumerate() {
                 if self.is_method && i == 0 {
                     continue;

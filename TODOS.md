@@ -58,22 +58,25 @@
 - [x] empirical confidence
     - [x] ask amit/leon about rust code that heavily uses dyn
 
-- [ ] when is the negative part of constraints useful?
-    - check, currently don't think it is
-    - if that's the case, remove it
-
 - [ ] function summaries?
 
 - [ ] reuse trait pruning logic from intepret step in rewrite step or store
   results somewhere
 
-- [ ] conditional scopes vs SSA
-    - separate declaration from assignment -> assigning a value in a conditional 
-
 - [x] make FuncDef (stmt) variant contain FuncVal struct, and (new) FuncDecl (stmt) variant contain FuncDecl
   struct
 
+- [ ] conditional scopes vs SSA
+    - separate declaration from assignment -> assigning a value in a conditional 
+
+- [ ] when is the negative part of constraints useful?
+    - check, currently don't think it is
+    - if that's the case, remove it
+
 - [ ] how to simulate SSA assumption in Rust compiler?
+    - MIR does _not_ use SSA (as of 2016...)
+    - will actually need to modify prototype to more closely resemble what MIR
+      does do (more like `alloca`s): https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md#alternatives
 
 - [ ] put RewrittenSwitch + InvokeTraitFunc in different set of statements?
   (private)

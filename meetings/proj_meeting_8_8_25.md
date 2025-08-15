@@ -58,4 +58,10 @@
     - [x] print out code from prototype rewrite (so it can be run)
         - goal: check functionality/correctness of rewrite
     - [ ] start digging in rust
+        - at least will need to use frontend (for parsing/getting code into an
+          AST)
+        - then from there may need to go deeper
+    - [ ] where does type inference happen/when are types completely known?
+    - [ ] where are vtables constructed?
+        - do we actually need this?
 

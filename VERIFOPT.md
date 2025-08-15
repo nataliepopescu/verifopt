@@ -40,6 +40,16 @@ by design
       subverting those safety properties
     - but the "unsafety" is also necessary b/c we are doing something that the
       compiler hasn't been able to reason about yet
+- "**MIR makes all types explicit.** Since we are constructing MIR after the main
+  type-checking is done, MIR can include full type information. This is useful
+  for analyses like the borrow checker, which require the types of local
+  variables and so forth to operate, but also means we can run the type-checker
+  periodically as a kind of sanity check to ensure that the MIR is well-formed."
+  - from https://blog.rust-lang.org/2016/04/19/MIR/
+  - so, could potentially re-run type-checker after our pass 
+- however, because MIR is a superset of Rust, modifying the MIR can introduce 
+  unwanted behavior
+- could also run [miri](https://github.com/rust-lang/miri) after our pass
 
 empirical
 - compilation speed

@@ -42,8 +42,10 @@
             - new CFG/representation
                 - MIR for single function:
                   https://github.com/rust-lang/rust/blob/f7ec6873ccfbf7dcdbd1908c0857c866b3e7087a/src/librustc/mir/repr.rs
+                  - this file is 9 years old... where is the equivalent now?
                 - what about things in the global scope of a file?
                   (structs/traits)
+                  - still haven't find...
             - a superset of the rust language
                 - how would this affect us? is any information lost here?
             - not supposed to be parseable (at least the textual representation,

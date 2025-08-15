@@ -49,9 +49,56 @@
                   - still haven't find...
             - a superset of the rust language
                 - how would this affect us? is any information lost here?
+                    - generally more restrictive lang is easier to analyze
+                - *could* matter (may just have to discover live)
+                    - analysis benefits from knowing theres only way to get to a
+                      particular place
+                    - unrestricted control flow complicates this
+                    - also where 2-level anlysis could help: maybe source-level
+                      of thir-level analysis can help reestablish some constraints
+                        - source-to-mir line correspondence tools?
+                - keep an eye on this
             - not supposed to be parseable (at least the textual representation,
               so likely won't be able to dump + operate)
 
 ## notes
+
+introducing typeid stuff is quite a lot of code
+
+also related to type sizes
+- larger size may actually prevent some optimizations that causes a big perf
+  difference
+
+potential next tasks:
+- familiarize w writing mir pass
+    - hardcode exact transformations?
+        - try to identify places where would need to access vtable ptr
+
+    - vs port analyses
+        - automate identification of above places
+
+    - will likely handle weird constructs, can "skip" (replace w IDK) at least
+      for now
+      - maybe not that useful
+      - maybe too complicated
+
+      - right after it, just to idk types for everything (can't be sure what it
+        does or does not touch)
+        - so can impl the stuff we know how to impl first
+        - fallback
+
+    - can create a "complete" solution (with holes)
+        - then can evaluate what is needed to push through
+
+- can even email authors if see papers that use mir?
+
+cool thought
+- if not mir, can hook in at multiple places
+    - say if structs/traits are erased
+    - but still can try: what does a dynamic invocation turn into (equivalent 
+      thing that we can use instead)?
+- say:
+    - analysis at source
+    - transformation at llvm (llvm line to source line)
 
 

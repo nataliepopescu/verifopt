@@ -37,7 +37,8 @@
         - pros
             - all types are resolved
             - vtables constructed
-            - structs + traits are represented
+            - structs + traits are represented (supposedly)
+            - how to write a pass: https://rustc-dev-guide.rust-lang.org/mir/passes.html
         - cons
             - new CFG/representation
                 - MIR for single function:

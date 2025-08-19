@@ -81,3 +81,9 @@
 - [ ] put RewrittenSwitch + InvokeTraitFunc in different set of statements?
   (private)
 
+- [ ] MIR pass
+    - [ ] print to see what structs/traits look like + vtable ptrs
+    - [ ] simple (with hardcoded rewrite)
+    - [ ] then try to automatically identify rewrite locations
+    - [ ] port analysis -> quick/dirty "complete" solution
+

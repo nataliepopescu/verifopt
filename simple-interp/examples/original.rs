@@ -1,11 +1,11 @@
-use rand::Rng;
+//use rand::Rng;
 
 trait Animal {
     fn speak(&self);
 }
 
-fn get_animal() -> Box<dyn Animal> {
-    let num: u32 = rand::rng().random_range(..2);
+fn get_animal(num: usize) -> Box<dyn Animal> {
+    //let num: u32 = rand::rng().random_range(..2);
     if num == 0 {
         return Box::new(Cat {});
     } else {
@@ -37,6 +37,14 @@ impl Animal for Dog {
 
 // if copying into godbolt, make main `pub`
 fn main() {
-    let animal = get_animal();
-    animal.speak();
+    let args: Vec<String> = std::env::args().collect();
+
+    match args.len() {
+        1 => println!("Pass in a number and see what happens!"),
+        _ => {
+            let num = args[1].parse().unwrap();
+            let animal = get_animal(num);
+            animal.speak();
+        }
+    }
 }

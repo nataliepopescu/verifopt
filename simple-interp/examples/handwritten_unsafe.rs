@@ -1,4 +1,4 @@
-use rand::Rng;
+//use rand::Rng;
 
 #[derive(Clone, PartialEq)]
 enum Type {
@@ -12,8 +12,8 @@ trait Animal {
     fn typeid(&self) -> Type;
 }
 
-fn get_animal() -> Box<dyn Animal> {
-    let num: u32 = rand::rng().random_range(..2);
+fn get_animal(num: usize) -> Box<dyn Animal> {
+    //let num: u32 = rand::rng().random_range(..2);
     if num == 0 {
         return Box::new(Cat { typeid: Type::Cat });
     } else {
@@ -62,19 +62,26 @@ impl Animal for Dog {
 
 // if copying into godbolt, make main `pub`
 fn main() {
-    let animal = get_animal();
+    let args: Vec<String> = std::env::args().collect();
 
-    let typeid = animal.typeid();
-    let rawptr = Box::into_raw(animal) as *const ();
-    if typeid == Type::Cat {
-        unsafe {
-            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(rawptr);
-            <Cat as Animal>::speak(cat);
-        }
-    } else if typeid == Type::Dog {
-        unsafe {
-            let dog: &Dog = std::mem::transmute::<*const (), &Dog>(rawptr);
-            <Dog as Animal>::speak(dog);
+    match args.len() {
+        1 => println!("Pass in a number and see what happens!"),
+        _ => {
+            let num = args[1].parse().unwrap();
+            let animal = get_animal(num);
+            let typeid = animal.typeid();
+            let rawptr = Box::into_raw(animal) as *const ();
+            if typeid == Type::Cat {
+                unsafe {
+                    let cat: &Cat = std::mem::transmute::<*const (), &Cat>(rawptr);
+                    <Cat as Animal>::speak(cat);
+                }
+            } else if typeid == Type::Dog {
+                unsafe {
+                    let dog: &Dog = std::mem::transmute::<*const (), &Dog>(rawptr);
+                    <Dog as Animal>::speak(dog);
+                }
+            }
         }
     }
 }

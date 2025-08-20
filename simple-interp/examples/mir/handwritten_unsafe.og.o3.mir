@@ -1,0 +1,834 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn <impl at handwritten_unsafe.rs:3:10: 3:15>::clone(_1: &Type) -> Type {
+    debug self => _1;
+    let mut _0: Type;
+    let mut _2: isize;
+
+    bb0: {
+        _2 = discriminant((*_1));
+        switchInt(move _2) -> [0: bb4, 1: bb3, 2: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        unreachable;
+    }
+
+    bb2: {
+        _0 = const Type::Dog;
+        goto -> bb5;
+    }
+
+    bb3: {
+        _0 = const Type::Cat;
+        goto -> bb5;
+    }
+
+    bb4: {
+        _0 = const Type::Bird;
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn <impl at handwritten_unsafe.rs:3:17: 3:26>::eq(_1: &Type, _2: &Type) -> bool {
+    debug self => _1;
+    debug other => _2;
+    let mut _0: bool;
+    let _3: isize;
+    scope 1 {
+        debug __self_discr => _3;
+        let _4: isize;
+        scope 2 {
+            debug __arg1_discr => _4;
+        }
+    }
+
+    bb0: {
+        _3 = discriminant((*_1));
+        _4 = discriminant((*_2));
+        _0 = Eq(copy _3, copy _4);
+        return;
+    }
+}
+
+fn get_animal(_1: usize) -> Box<dyn Animal> {
+    debug num => _1;
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _2: std::boxed::Box<Cat>;
+    let mut _3: std::boxed::Box<Dog>;
+
+    bb0: {
+        switchInt(move _1) -> [0: bb1, otherwise: bb3];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = Box::<Cat>::new(const Cat {{ typeid: Type::Cat }}) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _0 = move _2 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_2);
+        goto -> bb5;
+    }
+
+    bb3: {
+        StorageLive(_3);
+        _3 = Box::<Dog>::new(const Dog {{ typeid: Type::Dog }}) -> [return: bb4, unwind continue];
+    }
+
+    bb4: {
+        _0 = move _3 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_3);
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn <impl at handwritten_unsafe.rs:36:1: 36:21>::speak(_1: &Bird) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    scope 1 (inlined core::fmt::rt::<impl Arguments<'_>>::new_const::<1>) {
+        debug pieces => const <Bird as Animal>::speak::promoted[0];
+        let mut _4: &[&str];
+        let mut _5: &[core::fmt::rt::Argument<'_>];
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const <Bird as Animal>::speak::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_5);
+        _5 = const core::fmt::rt::<impl std::fmt::Arguments<'_>>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _3 = Arguments::<'_> { pieces: move _4, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: move _5 };
+        StorageDead(_5);
+        StorageDead(_4);
+        _2 = _print(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        return;
+    }
+}
+
+alloc24 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const <impl at handwritten_unsafe.rs:36:1: 36:21>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "chirp\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc1 (size: 6, align: 1) {
+    63 68 69 72 70 0a                               │ chirp.
+}
+
+fn <impl at handwritten_unsafe.rs:36:1: 36:21>::typeid(_1: &Bird) -> Type {
+    debug self => _1;
+    let mut _0: Type;
+    let mut _2: &Type;
+    scope 1 (inlined <Type as Clone>::clone) {
+        debug self => _2;
+        let mut _3: isize;
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = &((*_1).0: Type);
+        StorageLive(_3);
+        _3 = discriminant(((*_1).0: Type));
+        switchInt(move _3) -> [0: bb5, 1: bb4, 2: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+
+    bb2: {
+        unreachable;
+    }
+
+    bb3: {
+        _0 = const Type::Dog;
+        goto -> bb1;
+    }
+
+    bb4: {
+        _0 = const Type::Cat;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _0 = const Type::Bird;
+        goto -> bb1;
+    }
+}
+
+fn <impl at handwritten_unsafe.rs:45:1: 45:20>::speak(_1: &Cat) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    scope 1 (inlined core::fmt::rt::<impl Arguments<'_>>::new_const::<1>) {
+        debug pieces => const <Cat as Animal>::speak::promoted[0];
+        let mut _4: &[&str];
+        let mut _5: &[core::fmt::rt::Argument<'_>];
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const <Cat as Animal>::speak::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_5);
+        _5 = const core::fmt::rt::<impl std::fmt::Arguments<'_>>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _3 = Arguments::<'_> { pieces: move _4, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: move _5 };
+        StorageDead(_5);
+        StorageDead(_4);
+        _2 = _print(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        return;
+    }
+}
+
+alloc24 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const <impl at handwritten_unsafe.rs:45:1: 45:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "meow\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc4 (size: 5, align: 1) {
+    6d 65 6f 77 0a                                  │ meow.
+}
+
+fn <impl at handwritten_unsafe.rs:45:1: 45:20>::typeid(_1: &Cat) -> Type {
+    debug self => _1;
+    let mut _0: Type;
+    let mut _2: &Type;
+    scope 1 (inlined <Type as Clone>::clone) {
+        debug self => _2;
+        let mut _3: isize;
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = &((*_1).0: Type);
+        StorageLive(_3);
+        _3 = discriminant(((*_1).0: Type));
+        switchInt(move _3) -> [0: bb5, 1: bb4, 2: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+
+    bb2: {
+        unreachable;
+    }
+
+    bb3: {
+        _0 = const Type::Dog;
+        goto -> bb1;
+    }
+
+    bb4: {
+        _0 = const Type::Cat;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _0 = const Type::Bird;
+        goto -> bb1;
+    }
+}
+
+fn <impl at handwritten_unsafe.rs:54:1: 54:20>::speak(_1: &Dog) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    scope 1 (inlined core::fmt::rt::<impl Arguments<'_>>::new_const::<1>) {
+        debug pieces => const <Dog as Animal>::speak::promoted[0];
+        let mut _4: &[&str];
+        let mut _5: &[core::fmt::rt::Argument<'_>];
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const <Dog as Animal>::speak::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_5);
+        _5 = const core::fmt::rt::<impl std::fmt::Arguments<'_>>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _3 = Arguments::<'_> { pieces: move _4, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: move _5 };
+        StorageDead(_5);
+        StorageDead(_4);
+        _2 = _print(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        return;
+    }
+}
+
+alloc24 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const <impl at handwritten_unsafe.rs:54:1: 54:20>::speak::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "woof\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc7 (size: 5, align: 1) {
+    77 6f 6f 66 0a                                  │ woof.
+}
+
+fn <impl at handwritten_unsafe.rs:54:1: 54:20>::typeid(_1: &Dog) -> Type {
+    debug self => _1;
+    let mut _0: Type;
+    let mut _2: &Type;
+    scope 1 (inlined <Type as Clone>::clone) {
+        debug self => _2;
+        let mut _3: isize;
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = &((*_1).0: Type);
+        StorageLive(_3);
+        _3 = discriminant(((*_1).0: Type));
+        switchInt(move _3) -> [0: bb5, 1: bb4, 2: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+
+    bb2: {
+        unreachable;
+    }
+
+    bb3: {
+        _0 = const Type::Dog;
+        goto -> bb1;
+    }
+
+    bb4: {
+        _0 = const Type::Cat;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _0 = const Type::Bird;
+        goto -> bb1;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::vec::Vec<std::string::String>;
+    let mut _2: std::env::Args;
+    let mut _3: usize;
+    let mut _4: &std::vec::Vec<std::string::String>;
+    let _5: ();
+    let mut _6: std::fmt::Arguments<'_>;
+    let mut _8: std::result::Result<usize, std::num::ParseIntError>;
+    let _9: &str;
+    let _10: &std::string::String;
+    let mut _11: &std::vec::Vec<std::string::String>;
+    let mut _14: &dyn Animal;
+    let mut _16: *mut dyn Animal;
+    let mut _17: &Type;
+    let _18: &Cat;
+    let _19: ();
+    let mut _20: &Type;
+    let _21: &Dog;
+    let _22: ();
+    let mut _23: bool;
+    let mut _24: *const dyn Animal;
+    let mut _42: std::alloc::Global;
+    let mut _43: std::ptr::NonNull<dyn Animal>;
+    let mut _44: std::marker::PhantomData<dyn Animal>;
+    scope 1 {
+        debug args => _1;
+        let _7: usize;
+        scope 2 {
+            debug num => _7;
+            let _12: std::boxed::Box<dyn Animal>;
+            scope 3 {
+                debug animal => _12;
+                let _13: Type;
+                scope 4 {
+                    debug typeid => _13;
+                    let _15: *const ();
+                    scope 5 {
+                        debug rawptr => _15;
+                        scope 6 {
+                            debug cat => _18;
+                        }
+                        scope 7 {
+                            debug dog => _21;
+                        }
+                        scope 60 (inlined <Type as PartialEq>::eq) {
+                            debug self => _17;
+                            debug other => const main::promoted[1];
+                            let _41: isize;
+                            scope 61 {
+                                debug __self_discr => _41;
+                                scope 62 {
+                                    debug __arg1_discr => const 1_isize;
+                                }
+                            }
+                        }
+                        scope 63 (inlined <Type as PartialEq>::eq) {
+                            debug self => _20;
+                            debug other => const main::promoted[0];
+                            scope 64 {
+                                debug __self_discr => _41;
+                                scope 65 {
+                                    debug __arg1_discr => const 2_isize;
+                                }
+                            }
+                        }
+                    }
+                    scope 56 (inlined Box::<dyn Animal>::into_raw) {
+                        debug (((b: Box<dyn Animal>).0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) => _43;
+                        debug (((b: Box<dyn Animal>).0: std::ptr::Unique<dyn Animal>).1: std::marker::PhantomData<dyn Animal>) => _44;
+                        debug ((b: Box<dyn Animal>).1: std::alloc::Global) => _42;
+                        let mut _40: *const dyn Animal;
+                        scope 57 {
+                            scope 59 (inlined <ManuallyDrop<Box<dyn Animal>> as DerefMut>::deref_mut) {
+                            }
+                        }
+                        scope 58 (inlined ManuallyDrop::<Box<dyn Animal>>::new) {
+                        }
+                    }
+                }
+            }
+        }
+        scope 8 (inlined Vec::<String>::len) {
+            debug self => _4;
+            let mut _25: bool;
+            scope 9 {
+            }
+        }
+        scope 10 (inlined #[track_caller] <Vec<String> as Index<usize>>::index) {
+            debug self => _11;
+            debug index => const 1_usize;
+            scope 11 (inlined <Vec<String> as Deref>::deref) {
+                debug self => _11;
+                scope 12 (inlined Vec::<String>::as_slice) {
+                    debug self => _11;
+                    let mut _26: *const std::string::String;
+                    let mut _27: usize;
+                    scope 13 (inlined Vec::<String>::as_ptr) {
+                        debug self => _11;
+                        scope 14 (inlined alloc::raw_vec::RawVec::<String>::ptr) {
+                            scope 15 (inlined alloc::raw_vec::RawVecInner::ptr::<String>) {
+                                scope 16 (inlined alloc::raw_vec::RawVecInner::non_null::<String>) {
+                                    let mut _28: std::ptr::NonNull<u8>;
+                                    scope 17 (inlined Unique::<u8>::cast::<String>) {
+                                        scope 18 (inlined NonNull::<u8>::cast::<String>) {
+                                            scope 19 (inlined NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 20 (inlined Unique::<String>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 21 (inlined NonNull::<String>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                    scope 22 (inlined #[track_caller] std::slice::from_raw_parts::<'_, String>) {
+                        debug data => _26;
+                        debug len => _27;
+                        let _29: *const [std::string::String];
+                        scope 23 (inlined core::ub_checks::check_language_ub) {
+                            scope 24 (inlined core::ub_checks::check_language_ub::runtime) {
+                            }
+                        }
+                        scope 25 (inlined std::mem::size_of::<String>) {
+                        }
+                        scope 26 (inlined std::mem::align_of::<String>) {
+                        }
+                        scope 27 (inlined slice_from_raw_parts::<String>) {
+                            debug data => _26;
+                            debug len => _27;
+                            scope 28 (inlined std::ptr::from_raw_parts::<[String], String>) {
+                                debug data_pointer => _26;
+                            }
+                        }
+                    }
+                }
+            }
+            scope 29 (inlined #[track_caller] core::slice::index::<impl Index<usize> for [String]>::index) {
+                debug self => _29;
+                debug index => const 1_usize;
+                scope 30 (inlined #[track_caller] <usize as SliceIndex<[String]>>::index) {
+                    debug self => const 1_usize;
+                    debug slice => _29;
+                    let mut _30: bool;
+                }
+            }
+        }
+        scope 31 (inlined core::fmt::rt::<impl Arguments<'_>>::new_const::<1>) {
+            debug pieces => const main::promoted[2];
+            let mut _31: &[&str];
+            let mut _32: &[core::fmt::rt::Argument<'_>];
+        }
+        scope 32 (inlined <String as Deref>::deref) {
+            debug self => _10;
+            scope 33 (inlined String::as_str) {
+                debug self => _10;
+                let _33: &[u8];
+                let mut _34: &std::vec::Vec<u8>;
+                scope 34 (inlined Vec::<u8>::as_slice) {
+                    debug self => _34;
+                    let mut _35: *const u8;
+                    let mut _36: usize;
+                    scope 35 (inlined Vec::<u8>::as_ptr) {
+                        debug self => _34;
+                        scope 36 (inlined alloc::raw_vec::RawVec::<u8>::ptr) {
+                            scope 37 (inlined alloc::raw_vec::RawVecInner::ptr::<u8>) {
+                                scope 38 (inlined alloc::raw_vec::RawVecInner::non_null::<u8>) {
+                                    let mut _37: std::ptr::NonNull<u8>;
+                                    scope 39 (inlined Unique::<u8>::cast::<u8>) {
+                                        scope 40 (inlined NonNull::<u8>::cast::<u8>) {
+                                            scope 41 (inlined NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 42 (inlined Unique::<u8>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 43 (inlined NonNull::<u8>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                    scope 44 (inlined #[track_caller] std::slice::from_raw_parts::<'_, u8>) {
+                        debug data => _35;
+                        debug len => _36;
+                        let _38: *const [u8];
+                        scope 45 (inlined core::ub_checks::check_language_ub) {
+                            scope 46 (inlined core::ub_checks::check_language_ub::runtime) {
+                            }
+                        }
+                        scope 47 (inlined std::mem::size_of::<u8>) {
+                        }
+                        scope 48 (inlined std::mem::align_of::<u8>) {
+                        }
+                        scope 49 (inlined slice_from_raw_parts::<u8>) {
+                            debug data => _35;
+                            debug len => _36;
+                            scope 50 (inlined std::ptr::from_raw_parts::<[u8], u8>) {
+                                debug data_pointer => _35;
+                            }
+                        }
+                    }
+                }
+                scope 51 (inlined from_utf8_unchecked) {
+                    debug v => _38;
+                }
+            }
+        }
+        scope 52 (inlined core::str::<impl str>::parse::<usize>) {
+            debug self => _9;
+            scope 53 (inlined core::num::<impl FromStr for usize>::from_str) {
+                debug src => _9;
+                scope 54 (inlined core::num::<impl usize>::from_str_radix) {
+                    debug src => _9;
+                    debug radix => const 10_u32;
+                    let _39: &[u8];
+                    scope 55 (inlined core::str::<impl str>::as_bytes) {
+                        debug self => _9;
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = args() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _1 = <Args as Iterator>::collect::<Vec<String>>(move _2) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        StorageDead(_2);
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = &_1;
+        _3 = copy (_1.1: usize);
+        StorageLive(_25);
+        _25 = Le(copy _3, const <std::string::String as std::mem::SizedTypeProperties>::MAX_SLICE_LEN);
+        assume(move _25);
+        StorageDead(_25);
+        StorageDead(_4);
+        switchInt(copy _3) -> [1: bb4, otherwise: bb3];
+    }
+
+    bb3: {
+        StorageLive(_8);
+        StorageLive(_11);
+        _11 = &_1;
+        StorageLive(_28);
+        StorageLive(_26);
+        _28 = copy ((((_1.0: alloc::raw_vec::RawVec<std::string::String>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _26 = copy _28 as *const std::string::String (Transmute);
+        _27 = copy (_1.1: usize);
+        _29 = *const [std::string::String] from (copy _26, copy _27);
+        StorageDead(_26);
+        StorageDead(_28);
+        StorageLive(_30);
+        _30 = Lt(const 1_usize, copy _27);
+        assert(move _30, "index out of bounds: the length is {} but the index is {}", copy _27, const 1_usize) -> [success: bb21, unwind: bb17];
+    }
+
+    bb4: {
+        StorageLive(_6);
+        StorageLive(_31);
+        _31 = const main::promoted[2] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_32);
+        _32 = const core::fmt::rt::<impl std::fmt::Arguments<'_>>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _6 = Arguments::<'_> { pieces: move _31, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: move _32 };
+        StorageDead(_32);
+        StorageDead(_31);
+        _5 = _print(move _6) -> [return: bb5, unwind: bb17];
+    }
+
+    bb5: {
+        StorageDead(_6);
+        goto -> bb15;
+    }
+
+    bb6: {
+        StorageDead(_8);
+        StorageLive(_12);
+        _12 = get_animal(move _7) -> [return: bb7, unwind: bb17];
+    }
+
+    bb7: {
+        _23 = const true;
+        StorageLive(_13);
+        StorageLive(_14);
+        _24 = copy ((_12.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _14 = &(*_24);
+        _13 = <dyn Animal as Animal>::typeid(move _14) -> [return: bb8, unwind: bb20];
+    }
+
+    bb8: {
+        StorageDead(_14);
+        StorageLive(_16);
+        StorageLive(_44);
+        StorageLive(_42);
+        _23 = const false;
+        _43 = move ((_12.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>);
+        _44 = move ((_12.0: std::ptr::Unique<dyn Animal>).1: std::marker::PhantomData<dyn Animal>);
+        _42 = move (_12.1: std::alloc::Global);
+        StorageLive(_40);
+        _40 = copy _43 as *const dyn Animal (Transmute);
+        _16 = &raw mut (*_40);
+        StorageDead(_40);
+        StorageDead(_44);
+        StorageDead(_42);
+        _15 = move _16 as *const () (PtrToPtr);
+        StorageDead(_16);
+        StorageLive(_17);
+        _17 = &_13;
+        _41 = discriminant(_13);
+        switchInt(copy _41) -> [1: bb9, otherwise: bb10];
+    }
+
+    bb9: {
+        StorageDead(_17);
+        _18 = copy _15 as &Cat (Transmute);
+        _19 = <Cat as Animal>::speak(move _18) -> [return: bb23, unwind: bb20];
+    }
+
+    bb10: {
+        StorageDead(_17);
+        StorageLive(_20);
+        _20 = &_13;
+        switchInt(copy _41) -> [2: bb11, otherwise: bb12];
+    }
+
+    bb11: {
+        StorageDead(_20);
+        _21 = copy _15 as &Dog (Transmute);
+        _22 = <Dog as Animal>::speak(move _21) -> [return: bb24, unwind: bb20];
+    }
+
+    bb12: {
+        StorageDead(_20);
+        goto -> bb13;
+    }
+
+    bb13: {
+        goto -> bb14;
+    }
+
+    bb14: {
+        StorageDead(_13);
+        StorageDead(_12);
+        goto -> bb15;
+    }
+
+    bb15: {
+        drop(_1) -> [return: bb16, unwind continue];
+    }
+
+    bb16: {
+        StorageDead(_1);
+        StorageDead(_3);
+        return;
+    }
+
+    bb17 (cleanup): {
+        drop(_1) -> [return: bb18, unwind terminate(cleanup)];
+    }
+
+    bb18 (cleanup): {
+        resume;
+    }
+
+    bb19 (cleanup): {
+        drop(_12) -> [return: bb17, unwind terminate(cleanup)];
+    }
+
+    bb20 (cleanup): {
+        switchInt(copy _23) -> [0: bb17, otherwise: bb19];
+    }
+
+    bb21: {
+        _10 = &(*_29)[1 of 2];
+        StorageDead(_30);
+        StorageLive(_33);
+        StorageLive(_34);
+        _34 = &((*_10).0: std::vec::Vec<u8>);
+        StorageLive(_37);
+        StorageLive(_35);
+        _37 = copy ((((((*_10).0: std::vec::Vec<u8>).0: alloc::raw_vec::RawVec<u8>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _35 = copy _37 as *const u8 (Transmute);
+        StorageLive(_36);
+        _36 = copy (((*_10).0: std::vec::Vec<u8>).1: usize);
+        StorageLive(_38);
+        _38 = *const [u8] from (copy _35, copy _36);
+        _33 = &(*_38);
+        StorageDead(_38);
+        StorageDead(_36);
+        StorageDead(_35);
+        StorageDead(_37);
+        StorageDead(_34);
+        _9 = copy _33 as &str (Transmute);
+        StorageDead(_33);
+        StorageDead(_11);
+        StorageLive(_39);
+        _39 = copy _9 as &[u8] (Transmute);
+        _8 = core::num::<impl usize>::from_ascii_radix(move _39, const 10_u32) -> [return: bb22, unwind: bb17];
+    }
+
+    bb22: {
+        StorageDead(_39);
+        _7 = Result::<usize, ParseIntError>::unwrap(move _8) -> [return: bb6, unwind: bb17];
+    }
+
+    bb23: {
+        goto -> bb14;
+    }
+
+    bb24: {
+        goto -> bb13;
+    }
+}
+
+alloc24 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const main::promoted[0]: &Type = {
+    let mut _0: &Type;
+    let mut _1: Type;
+
+    bb0: {
+        _1 = Type::Dog;
+        _0 = &_1;
+        return;
+    }
+}
+
+const main::promoted[1]: &Type = {
+    let mut _0: &Type;
+    let mut _1: Type;
+
+    bb0: {
+        _1 = Type::Cat;
+        _0 = &_1;
+        return;
+    }
+}
+
+const main::promoted[2]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "Pass in a number and see what happens!\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc10 (size: 39, align: 1) {
+    0x00 │ 50 61 73 73 20 69 6e 20 61 20 6e 75 6d 62 65 72 │ Pass in a number
+    0x10 │ 20 61 6e 64 20 73 65 65 20 77 68 61 74 20 68 61 │  and see what ha
+    0x20 │ 70 70 65 6e 73 21 0a                            │ ppens!.
+}

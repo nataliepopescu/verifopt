@@ -117,10 +117,25 @@ The dynamic dispatch call:
 
 ## Writing pass
 
-Just writing a pass that does nothing but emit debug statements for now
-
 similar/helpful existing passes:
-- `add_call_guards.rs`
+- `add_call_guards` (identifies calls + modifies code around them)
+- `check_call_recursion` (gets trait/impl method args)
+
+### Progress/plan
+
+Just writing a pass that does nothing but emit debug statements for terminators
+of kind `Call` or `TailCall` first
+
+Now have that working, can access the `func` that each of those terms is
+calling, as well as its `args`
+
+`args` are Operands, i.e. a `Copy` or `Move` of a `Place` _or_ a constant value
+(not interested in consts)
+
+a `Place` is ~a location in memory
+- struct has `local` and `projection` fields (projection is empty array is place
+  is local)
+
 
 ### Things that might be important
 

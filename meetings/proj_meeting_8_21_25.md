@@ -26,4 +26,14 @@
 
 ## notes
 
+LLVM would be good for other langs
+
+higher-level: more info
+lower-level: more portable
+
+"what do we learn" - could there be a reason to do things differently (i.e.
+retain type info lower level or something)
+- alternatively, MIR could be _help_ w certain types of analysis (global opts
+  looking at types/type heirarchy -> opt code gen)
+
 

@@ -12,6 +12,7 @@
                 - MIR
         - worst case could potentially grab diff info from diff levels
     - trying to write an MIR right now
+      (https://github.com/nataliepopescu/verifopt/blob/main/MIR_PASS.md)
         - plan:
             - hardcode simple transformation for code we're familiar with
             - then start to port analysis

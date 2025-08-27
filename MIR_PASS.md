@@ -15,7 +15,10 @@ Thus, I will start at the earliest point (`mir_built`) and go from there if
 things aren't working for whatever reason. 
 
 Ah, but this page does state if this is an optimization it should go into the
-`optimized_mir` category. Maybe can try both. 
+`optimized_mir` category. Maybe can try both. (Note that if we do try both, the
+MIR that each pass be operating on will contain different sets of constructs,
+since optimizations may add/remove things. So it won't be just a simple change
+of which list we're registering our pass in. Just something to be aware of).
 
 ## Compiling Unmod Rust from source
 
@@ -133,8 +136,39 @@ calling, as well as its `args`
 (not interested in consts)
 
 a `Place` is ~a location in memory
-- struct has `local` and `projection` fields (projection is empty array is place
-  is local)
+- `Place` struct has `local` and `projection` fields (projection is empty array 
+  if place is local)
+
+want to get vtable from Place
+- get _type_ of Place arg => get vtable
+- also finding out that the mir we're operating on is _not_ the one that gets
+  emitted (which makes sense for o3 since we're operating before many of the
+  optimization passes, but less so for o0, although i could still imagine o0
+  makes some minimal changes)
+
+- type: `PlaceTy { ty: &'{erased} dyn [Binder { value: Trait(Animal),
+  bound_vars: [] }] + '{erased}, variant_index: None }`
+  - what is a binder? https://rustc-dev-guide.rust-lang.org/ty_module/binders.html ?
+  - not sure if ^ is what `Binder` means here
+  - maybe it is referring to a boxed type? nope..
+  - `is_box` = false
+  - `is_trait` = false
+  - `is_any_ptr` = true, oh!
+    - `is_ref` = true
+    - deref...
+    - `is_trait` = true!
+
+From Zulip convo
+- apparently vtables are opaque until after monomorphization
+    - bjorn3 says we should really only access them at codegen or const eval
+    - trying to clarify if const eval happens before or after monomorphization
+      (order of sections in rustc dev guide is confusing)
+        - if const eval happens before monomorph, then can only access the
+          vtable at codegen time
+- const eval: compute values at compile time
+
+- why are vtables only not-opaque after monomorph?
+
 
 
 ### Things that might be important
@@ -159,6 +193,19 @@ middle `syntax.rs`
 there's a query in `rustc_middle/src/query/mod.rs` called `vtable_entries`
 - could try at least getting some debug info from it
 - search other queries w "vtable" or "trait"
+
+`rustc_middle/ty/vtable.rs`
+- line 84: `vtable_allocation_provider()` (constructs vtable)
+    - calls `vtable_entries()` (diff argnum from below func, but the types match
+      if do dot notation desugaring)
+    - gets data from `rustc_trait_selection/src/traits/vtable.rs`
+        - line 222: `vtable_entries()`
+
+`rustc_middle/ty/trait_def.rs`
+- `pub struct TraitDef { pub def_id: DefId, .. }`
+- line 135: `for_each_relevant_impl()`
+- line 192: `all_impls()` (iterator over all trait impls)
+
 
 ## Registering pass
 

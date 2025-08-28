@@ -166,8 +166,37 @@ From Zulip convo
         - if const eval happens before monomorph, then can only access the
           vtable at codegen time
 - const eval: compute values at compile time
-
 - why are vtables only not-opaque after monomorph?
+
+- can try UnOp::PtrMetadata but apparently can't do much with this (confirm what
+  this means)
+    - UnOp defined in `rustc_middle/mir/syntax.rs`
+    - how to _add_ a statement to a basic block? (to maybe print what info we
+      can get from PtrMetadata)
+        - modify `BasicBlockData` (struct def in `rustc_middle/src/mir/mod.rs`,
+          has `statements` field)
+    - this is also apparently an intrinsic, so maybe we can play with the
+      intrinsic first: https://doc.rust-lang.org/std/intrinsics/fn.ptr_metadata.html
+    - cool, so I just get `()` from that...
+    - what is this intrinsic actually doing?
+
+- trying to access vtables from source code
+    - https://www.reddit.com/r/rust/comments/11okz75/vtable_layout_documentation/
+      "to the extent that any of this is reliable, we can only “rely” on the
+      drop/size/align members, since they are explicitly marked as being in
+      slots 0/1/2, respectively"
+        - `rustc_middle/ty/vtable.rs` line 84: `vtable_allocation_provider()` 
+        (constructs vtable)
+    - also https://users.rust-lang.org/t/vtable-method-search-technique/120424/7
+      "One implementation detail: Since every codegen unit is independent
+      there might be multiple vtables for the same type's trait implementation.
+      This is definitely true for dynamic linking. I do not know what the
+      current status is regarding deduplication with static linking."
+      and
+      "in practice, the compiler is allowed to duplicate vtables for its
+      convenience, or to combine ones that in fact have all the same functions
+      when looked at at the machine-code level. So actually comparing vtable
+      pointers can be misleading; the compiler even warns against doing this."
 
 
 
@@ -205,6 +234,9 @@ there's a query in `rustc_middle/src/query/mod.rs` called `vtable_entries`
 - `pub struct TraitDef { pub def_id: DefId, .. }`
 - line 135: `for_each_relevant_impl()`
 - line 192: `all_impls()` (iterator over all trait impls)
+
+`rustc_mir_transform/src/ssa.rs`
+- is this enforcing SSA?
 
 
 ## Registering pass

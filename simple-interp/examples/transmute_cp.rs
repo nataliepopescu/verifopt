@@ -1,6 +1,7 @@
 #![feature(core_intrinsics)]
 
 use std::any::{Any, TypeId};
+use std::any::type_name_of_val;
 
 trait Animal: Any {
     fn speak(&self);
@@ -49,6 +50,7 @@ fn main() {
             let animal = get_animal(num);
             let cat = Cat{};
             let dog = Dog{};
+            println!("animal type: {:?}", type_name_of_val(&animal));
             unsafe {
                 let (animal_pointer, animal_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&animal);
                 let (cat_pointer, cat_vtable) = std::mem::transmute_copy::<Cat, (*const u8, *const usize)>(&cat);

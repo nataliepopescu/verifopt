@@ -53,6 +53,7 @@ fn main() {
         _ => {
             let num = args[1].parse().unwrap();
             let animal = get_animal(num);
+            // still uses dynamic dispatch
     		if let Some(cat) = animal.as_any().downcast_ref::<Cat>() {
     		    <Cat as Animal>::speak(cat);
     		}

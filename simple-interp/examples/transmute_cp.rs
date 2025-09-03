@@ -1,4 +1,3 @@
-
 trait Animal {
     fn speak(&self);
 }

@@ -1,18 +1,22 @@
-#![feature(core_intrinsics)]
 
-use std::any::{Any, TypeId};
-use std::any::type_name_of_val;
-
-trait Animal: Any {
+trait Animal {
     fn speak(&self);
 }
 
-fn get_animal(num: usize) -> Box<dyn Animal> { //, u128) {
+fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        return Box::new(Cat {}); //, core::intrinsics::type_id::<Cat>());
+        return Box::new(Cat {});
     } else {
-        return Box::new(Dog {}); //, core::intrinsics::type_id::<Dog>());
+        return Box::new(Dog {});
     }
+}
+
+fn get_cat() -> Box<dyn Animal> {
+    return Box::new(Cat {});
+}
+
+fn get_dog() -> Box<dyn Animal> {
+    return Box::new(Dog {});
 }
 
 struct Bird {}
@@ -48,45 +52,30 @@ fn main() {
         _ => {
             let num = args[1].parse().unwrap();
             let animal = get_animal(num);
-            let cat = Cat{};
-            let dog = Dog{};
-            println!("animal type: {:?}", type_name_of_val(&animal));
-            unsafe {
-                let (animal_pointer, animal_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&animal);
-                let (cat_pointer, cat_vtable) = std::mem::transmute_copy::<Cat, (*const u8, *const usize)>(&cat);
-                let (dog_pointer, dog_vtable) = std::mem::transmute_copy::<Dog, (*const u8, *const usize)>(&dog);
-                println!("animal_pointer: {:?}", animal_pointer);
-                println!("animal_vtable: {:?}", animal_vtable);
-                println!("cat_pointer: {:?}", cat_pointer);
-                println!("cat_vtable: {:?}", cat_vtable);
-                println!("dog_pointer: {:?}", dog_pointer);
-                println!("dog_vtable: {:?}", dog_vtable);
-                //println!("animal_ptr metadata: {:?}", core::intrinsics::ptr_metadata(animal_pointer));
-                //println!("animal_vtable ptr metadata: {:?}", core::intrinsics::ptr_metadata(animal_vtable));
-                //println!("+0: {:?}", *(animal_vtable));
-                //println!("+1: {:?}", *(animal_vtable.add(1)));
-                //println!("+2: {:?}", *(animal_vtable.add(2)));
-                //println!("+3: {:?}", *(animal_vtable.add(3)));
-                //println!("+4: {:?}", *(animal_vtable.add(4)));
-                //println!("+5: {:?}", *(animal_vtable.add(5)));
-                //println!("+6: {:?}", *(animal_vtable.add(6)));
-                //println!("+7: {:?}", *(animal_vtable.add(7)));
-            }
-            let typeid = animal.type_id();
-            let rawptr = Box::into_raw(animal) as *const ();
-            //println!("dyn animal typeid: {:?}", typeid);
-            //println!("cat typeid: {:?}", TypeId::of::<Cat>());
-            //println!("dog typeid: {:?}", TypeId::of::<Dog>());
+            let cat = get_cat();
+            let dog = get_dog();
 
-            if typeid == TypeId::of::<Cat>() { //core::intrinsics::type_id::<Cat>() {
-                unsafe {
+            unsafe {
+                let (_, animal_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&animal);
+                let (_, cat_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&cat);
+                let (_, dog_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&dog);
+                println!("animal_vtable: {:?}", animal_vtable);
+                println!("cat_vtable: {:?}", cat_vtable);
+                println!("dog_vtable: {:?}", dog_vtable);
+
+                if animal_vtable == cat_vtable {
+                    let rawptr = Box::into_raw(animal) as *const ();
                     let cat: &Cat = std::mem::transmute::<*const (), &Cat>(rawptr);
+                    println!("IS CAT!");
                     <Cat as Animal>::speak(cat);
-                }
-            } else if typeid == TypeId::of::<Dog>() { //core::intrinsics::type_id::<Dog>() {
-                unsafe {
+                } else if animal_vtable == dog_vtable {
+                    let rawptr = Box::into_raw(animal) as *const ();
                     let dog: &Dog = std::mem::transmute::<*const (), &Dog>(rawptr);
+                    println!("IS DOG!");
                     <Dog as Animal>::speak(dog);
+                } else {
+                    println!("FALLBACK :(");
+                    animal.speak();
                 }
             }
         }

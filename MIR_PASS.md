@@ -239,6 +239,8 @@ bbcleanup2 (cleanup): {
 
 ### post-rewrite MIR
 
+emitted MIR: 
+
 ```
 bb_transmute {
     _18 = &_13 (rhs = box dyn trait thing)
@@ -308,6 +310,78 @@ bbdrop {
                                 
 ```
 
+actual MIR construction: 
+
+```
+bb_transmute {
+    StatementKind::Assign(Box<(Place, RValue::Ref(Region::ReErased, BorrowKind::Shared, Place)))
+    TerminatorKind::Call {
+        func: transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>
+        args: [Spanned { node: Move, span: srclines }]
+        destination: Place
+        target: Some(bb_get_vtable_ptrs)
+        unwind: UnwindAction::Cleanup(bbunwind)
+        call_source: Callsource::Normal
+        fn_span: srclines
+    }
+}
+
+bb_get_vtable_ptrs {
+    // ???
+}
+
+bb_first_compare {
+    StatementKind::Assign(Box<(Place, RValue::BinaryOp(Eq, Box(Move, Move)))>)
+    TerminatorKind::SwitchInt {
+        discr: Move(Place),
+        SwitchTargets {
+            values: [Pu128(0)], // excludes fallback (= otherwise)
+            targets: [bb_second_compare, bb_cat_into_raw], // includes fallback
+        }
+    }
+}
+
+bb_cat_into_raw {
+    StatementKind::Assign(Box<(Place, RValue::Use(Move(Place)))>)
+    TerminatorKind::Call {
+        func: Box::<dyn Animal>::into_raw
+        args: [Spanned { node: Move, span: srlines }]
+        destination: Place,
+        target: Some(bb_cat_speak)
+        unwind: UnwindAction::Cleanup(bbunwind)
+        call_source: CallSource::Normal
+        fn_span: srclines
+    }
+}
+
+bb_cat_speak {
+    StatementKind::Assign(Box<(Place, RValue::Cast(
+        CastKind::PtrToPtr,
+        Move(Place),
+        *const ()
+    ))>)
+    StatementKind::Assign(Box<(Place, RValue::Cast(
+        CastKind::Transmute,
+        Move(Place),
+        &'{erased} Cat
+    ))>)
+    TerminatorKind::Call {
+        func: <Cat as Animal>::speak
+        args: [Spanned { node: Move(Place), span: srclines }]
+        destination: Place
+        target: Some(bbgotodrop)
+        unwind: UnwindAction::Cleanup(bbunwind)
+        call_source: CallSource::Normal
+        fn_span: srclines
+    }
+}
+
+// the rest (Dog version) is just like the above
+```
+
+omitting a lot of StorageLive/Dead statements, and some copies appear as moves
+in the earlier state of the compiler (might be worth looking at the MIR dump
+before we run our pass for a more accurate assessment)
 
 
 
@@ -325,6 +399,10 @@ block
 
 in `rustc_middle/src/terminator.rs` there is something called `SwitchTargets`
 - look into as potential rewrite target
+- i actually think this is related to `SwitchInt` (and not what a general switch
+  statement): 
+    - https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/mir/enum.TerminatorKind.html#variant.SwitchInt
+    - https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/mir/struct.SwitchTargets.html
 
 middle `syntax.rs`
 - `TerminatorKind`

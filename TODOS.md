@@ -102,8 +102,14 @@
       instances of those types, like the `transmute_cp` and `vtable_struct`
       examples do)
         - maybe start with the fakes, and then do this
+        - in particular, print out your own version of the fakes (rather than
+          the emitted pretty code) to get an exact answer of what those types
+          are + what values they contain
     - [ ] how to modify/add basic blocks to include the above
       instructions/statements
+    - [ ] revisit how we're identifying dynamic dispatch, b/c running the pass
+      on the handwritten rewrite still shows that there are two locations where
+      we could perform the rewrite (i.e. the supposed resolved static calls)
 
 
 

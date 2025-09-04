@@ -198,6 +198,117 @@ From Zulip convo
       when looked at at the machine-code level. So actually comparing vtable
       pointers can be misleading; the compiler even warns against doing this."
 
+this is what the dynamic dispatch looks like in assembly: 
+```
+.LBB62_32:
+        mov     rdi, qword ptr [rsp + 296]
+        mov     rax, qword ptr [rsp + 304]
+        mov     rax, qword ptr [rax + 24]
+        call    rax
+        jmp     .LBB62_34
+```
+(from godbolt vimdiff)
+
+### pre-rewrite MIR
+
+```
+bb10: {
+    _13 = get_animal(copy _8) -> [return: bb_animal_speak, unwind: bbcleanup2];
+}
+
+bb_animal_speak: {
+    _16 = copy ((_13.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+    _15 = &(*_16);
+    _14 = <dyn Animal as Animal>::speak(move _15) -> [return: bbdrop, unwind: bbcleanup];
+}
+
+// cleanup mess below
+
+bbdrop: {
+    drop(_13) -> ...
+}
+
+bbcleanup (cleanup): {
+    drop(_13) -> [return: _, unwind terminate(cleanup)];
+}
+
+bbcleanup2 (cleanup): {
+    drop(_1) -> [return: _, unwind terminate(cleanup)];
+}
+```
+
+### post-rewrite MIR
+
+```
+bb_transmute {
+    _18 = &_13 (rhs = box dyn trait thing)
+    _17 = transmute_copy::Box<dyn Animal, (*const u8, *const usize)>(copy _18) -> [return: bb_get_vtable_ptrs, unwind: bbunwind];
+}
+
+bb_get_vtable_ptrs {
+    // TODO how to get possible vtable ptrs
+    ... -> [return: bb_first_compare, unwind: bbunwind];
+}
+
+bb_first_compare {
+    _25 = Eq(copy _16, copy _19); (compare trait vptr to one type's, i.e. Cat's, vptr)
+    // https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/mir/struct.SwitchTargets.html
+    // 0: they're equal, otherwise: they're not equal
+    switchInt(move _25) -> [0: bb_second_compare, otherwise: bb_cat_into_raw];
+}
+
+bb_cat_into_raw {
+    _28 = move _13 (idk why)
+    _27 = Box::<dyn Animal>::into_raw(move _28) -> [return: bb_cat_speak, unwind: bbunwind];
+}
+
+bb_cat_speak {
+    _26 = move _27 as *const () (PtrToPtr);
+    _29 = copy _26 as &Cat (Transmute);
+    _30 = <Cat as Animal>::speak(copy _29) -> [return: bbgotodrop, unwind: bbunwind];
+}
+
+bb_second_compare {
+    _31 = Eq(copy _16, _22); (compare trait vptr to Dog's)
+    switchInt(move _31) -> [0: bbdrop, otherwise: bb_dog_into_raw];
+}
+
+bb_dog_into_raw {
+    _34 = move _13 (idk why)
+    _33 = Box::<dyn Animal>::into_raw(move _34) -> [return: bb_dog_speak, unwind: bbunwind];
+}
+
+bb_dog_speak {
+    _32 = move _33 as *const () (PtrToPtr);
+    _35 = copy _32 as &Dog (Transmute);
+    _36 = <Dog as Animal>::speak(copy _35) -> [return: bbgotodrop2, unwind: bbunwind];
+}
+
+// cleanup mess below
+
+bbunwind (cleanup) {
+    drop(_) -> [return: bbunwind2, unwind terminate(cleanup)];
+}
+
+bbunwind2 (cleanup) {
+    drop(_) -> [return: _, unwind terminate(cleanup)];
+}
+
+bbgotodrop {
+    goto bbdrop
+}
+
+bbgotodrop2 {
+    goto bbdrop
+}
+
+bbdrop {
+    drop ...
+}
+                                
+```
+
+
 
 
 ### Things that might be important

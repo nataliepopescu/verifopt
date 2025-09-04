@@ -71,19 +71,41 @@
 
 - [ ] when is the negative part of constraints useful?
     - check, currently don't think it is
-    - if that's the case, remove it
+    - if that's the case, remove it (do eager resolution first)
 
 - [ ] how to simulate SSA assumption in Rust compiler?
     - MIR does _not_ use SSA (as of 2016...)
     - will actually need to modify prototype to more closely resemble what MIR
       does do (more like `alloca`s): https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md#alternatives
+    - some contradicting evidence as there seems to be an SSA pass in the
+      MIR...?
 
 - [ ] put RewrittenSwitch + InvokeTraitFunc in different set of statements?
   (private)
 
-- [ ] MIR pass
+- [ ] MIR pass (initial steps)
     - [ ] print to see what structs/traits look like + vtable ptrs
     - [ ] simple (with hardcoded rewrite)
     - [ ] then try to automatically identify rewrite locations
     - [ ] port analysis -> quick/dirty "complete" solution
+
+- [ ] rewrite/transformation pass
+    - [x] what instructions do dynamic dispatches get compiled into?
+        - just some not very interesting calls (from registers + static 
+        offsets)
+        - so we will need to be more high-level than that
+    - [ ] what instruction(s)/statement(s) access the vtable (at MIR level)
+        - [ ] some instructions will inevitably be terminators, so the
+          transformation will need to happen across basic blocks / create new
+          basic blocks (see `add_call_guard.rs`)
+    - [ ] how to get the vtable ptrs of all possible types (without "faking"
+      instances of those types, like the `transmute_cp` and `vtable_struct`
+      examples do)
+        - maybe start with the fakes, and then do this
+    - [ ] how to modify/add basic blocks to include the above
+      instructions/statements
+
+
+
+
 

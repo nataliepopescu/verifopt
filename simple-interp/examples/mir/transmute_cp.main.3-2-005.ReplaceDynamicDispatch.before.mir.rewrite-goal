@@ -1,0 +1,411 @@
+// MIR for `main` before ReplaceDynamicDispatch
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::vec::Vec<std::string::String>;
+    let mut _2: std::env::Args;
+    let mut _3: usize;
+    let mut _4: &std::vec::Vec<std::string::String>;
+    let _5: ();
+    let mut _6: std::fmt::Arguments<'_>;
+    let mut _7: &[&str; 1];
+    let _8: &[&str; 1];
+    let _9: [&str; 1];
+    let mut _11: std::result::Result<usize, std::num::ParseIntError>;
+    let mut _12: &str;
+    let _13: &str;
+    let mut _14: &std::string::String;
+    let _15: &std::string::String;
+    let mut _16: &std::vec::Vec<std::string::String>;
+    let mut _18: usize;
+    let mut _22: (*const u8, *const usize);
+    let mut _23: &std::boxed::Box<dyn Animal>;
+    let _24: &std::boxed::Box<dyn Animal>;
+    let mut _26: (*const u8, *const usize);
+    let mut _27: &std::boxed::Box<dyn Animal>;
+    let _28: &std::boxed::Box<dyn Animal>;
+    let mut _30: (*const u8, *const usize);
+    let mut _31: &std::boxed::Box<dyn Animal>;
+    let _32: &std::boxed::Box<dyn Animal>;
+    let mut _33: bool;
+    let mut _34: *const usize;
+    let mut _35: *const usize;
+    let mut _37: *mut dyn Animal;
+    let mut _38: std::boxed::Box<dyn Animal>;
+    let _40: &Cat;
+    let mut _41: *const ();
+    let _42: ();
+    let mut _43: &Cat;
+    let mut _44: bool;
+    let mut _45: *const usize;
+    let mut _46: *const usize;
+    let mut _48: *mut dyn Animal;
+    let mut _49: std::boxed::Box<dyn Animal>;
+    let _51: &Dog;
+    let mut _52: *const ();
+    let _53: ();
+    let mut _54: &Dog;
+    let mut _56: bool;
+    scope 1 {
+        debug args => _1;
+        let _10: usize;
+        let mut _55: &[&str; 1];
+        scope 2 {
+            debug num => _10;
+            let _17: std::boxed::Box<dyn Animal>;
+            scope 3 {
+                debug animal => _17;
+                let _19: std::boxed::Box<dyn Animal>;
+                scope 4 {
+                    debug cat => _19;
+                    let _20: std::boxed::Box<dyn Animal>;
+                    scope 5 {
+                        debug dog => _20;
+                        let _21: *const usize;
+                        scope 6 {
+                            debug animal_vtable => _21;
+                            let _25: *const usize;
+                            scope 7 {
+                                debug cat_vtable => _25;
+                                let _29: *const usize;
+                                scope 8 {
+                                    debug dog_vtable => _29;
+                                    let _36: *const ();
+                                    let _47: *const ();
+                                    scope 9 {
+                                        debug rawptr => _36;
+                                        let _39: &Cat;
+                                        scope 10 {
+                                            debug cat => _39;
+                                        }
+                                    }
+                                    scope 11 {
+                                        debug rawptr => _47;
+                                        let _50: &Dog;
+                                        scope 12 {
+                                            debug dog => _50;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        _56 = const false;
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = args() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _1 = <Args as Iterator>::collect::<Vec<String>>(move _2) -> [return: bb2, unwind: bb36];
+    }
+
+    bb2: {
+        StorageDead(_2);
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = &_1;
+        _3 = Vec::<String>::len(move _4) -> [return: bb3, unwind: bb35];
+    }
+
+    bb3: {
+        StorageDead(_4);
+        switchInt(copy _3) -> [1: bb5, otherwise: bb4];
+    }
+
+    bb4: {
+        StorageLive(_10);
+        StorageLive(_11);
+        StorageLive(_12);
+        StorageLive(_13);
+        StorageLive(_14);
+        StorageLive(_15);
+        StorageLive(_16);
+        _16 = &_1;
+        _15 = <Vec<String> as Index<usize>>::index(move _16, const 1_usize) -> [return: bb8, unwind: bb35];
+    }
+
+    bb5: {
+        StorageLive(_5);
+        StorageLive(_6);
+        StorageLive(_7);
+        StorageLive(_8);
+        _55 = const main::promoted[0];
+        _8 = &(*_55);
+        _7 = &(*_8);
+        _6 = core::fmt::rt::<impl Arguments<'_>>::new_const::<1>(move _7) -> [return: bb6, unwind: bb35];
+    }
+
+    bb6: {
+        StorageDead(_7);
+        _5 = _print(move _6) -> [return: bb7, unwind: bb35];
+    }
+
+    bb7: {
+        StorageDead(_6);
+        StorageDead(_8);
+        StorageDead(_5);
+        _0 = const ();
+        goto -> bb31;
+    }
+
+    bb8: {
+        _14 = &(*_15);
+        _13 = <String as Deref>::deref(move _14) -> [return: bb9, unwind: bb35];
+    }
+
+    bb9: {
+        _12 = &(*_13);
+        StorageDead(_16);
+        StorageDead(_14);
+        _11 = core::str::<impl str>::parse::<usize>(move _12) -> [return: bb10, unwind: bb35];
+    }
+
+    bb10: {
+        StorageDead(_12);
+        _10 = Result::<usize, ParseIntError>::unwrap(move _11) -> [return: bb11, unwind: bb35];
+    }
+
+    bb11: {
+        StorageDead(_11);
+        StorageDead(_15);
+        StorageDead(_13);
+        StorageLive(_17);
+        StorageLive(_18);
+        _18 = copy _10;
+        _17 = get_animal(move _18) -> [return: bb12, unwind: bb35];
+    }
+
+    bb12: {
+        _56 = const true;
+        StorageDead(_18);
+        StorageLive(_19);
+        _19 = get_cat() -> [return: bb13, unwind: bb39];
+    }
+
+    bb13: {
+        StorageLive(_20);
+        _20 = get_dog() -> [return: bb14, unwind: bb34];
+    }
+
+    bb14: {
+        StorageLive(_22);
+        StorageLive(_23);
+        StorageLive(_24);
+        _24 = &_17;
+        _23 = &(*_24);
+        _22 = transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(move _23) -> [return: bb15, unwind: bb33];
+    }
+
+    bb15: {
+        StorageDead(_23);
+        StorageLive(_21);
+        _21 = copy (_22.1: *const usize);
+        StorageDead(_24);
+        StorageDead(_22);
+        StorageLive(_26);
+        StorageLive(_27);
+        StorageLive(_28);
+        _28 = &_19;
+        _27 = &(*_28);
+        _26 = transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(move _27) -> [return: bb16, unwind: bb33];
+    }
+
+    bb16: {
+        StorageDead(_27);
+        StorageLive(_25);
+        _25 = copy (_26.1: *const usize);
+        StorageDead(_28);
+        StorageDead(_26);
+        StorageLive(_30);
+        StorageLive(_31);
+        StorageLive(_32);
+        _32 = &_20;
+        _31 = &(*_32);
+        _30 = transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(move _31) -> [return: bb17, unwind: bb33];
+    }
+
+    bb17: {
+        StorageDead(_31);
+        StorageLive(_29);
+        _29 = copy (_30.1: *const usize);
+        StorageDead(_32);
+        StorageDead(_30);
+        StorageLive(_33);
+        StorageLive(_34);
+        _34 = copy _21;
+        StorageLive(_35);
+        _35 = copy _25;
+        _33 = Eq(move _34, move _35);
+        switchInt(move _33) -> [0: bb21, otherwise: bb18];
+    }
+
+    bb18: {
+        StorageDead(_35);
+        StorageDead(_34);
+        StorageLive(_36);
+        StorageLive(_37);
+        StorageLive(_38);
+        _56 = const false;
+        _38 = move _17;
+        _37 = Box::<dyn Animal>::into_raw(move _38) -> [return: bb19, unwind: bb33];
+    }
+
+    bb19: {
+        StorageDead(_38);
+        _36 = move _37 as *const () (PtrToPtr);
+        StorageDead(_37);
+        StorageLive(_39);
+        StorageLive(_40);
+        StorageLive(_41);
+        _41 = copy _36;
+        _40 = move _41 as &Cat (Transmute);
+        _39 = &(*_40);
+        StorageDead(_41);
+        StorageDead(_40);
+        StorageLive(_42);
+        StorageLive(_43);
+        _43 = &(*_39);
+        _42 = <Cat as Animal>::speak(move _43) -> [return: bb20, unwind: bb33];
+    }
+
+    bb20: {
+        StorageDead(_43);
+        StorageDead(_42);
+        _0 = const ();
+        StorageDead(_39);
+        StorageDead(_36);
+        goto -> bb27;
+    }
+
+    bb21: {
+        StorageDead(_35);
+        StorageDead(_34);
+        StorageLive(_44);
+        StorageLive(_45);
+        _45 = copy _21;
+        StorageLive(_46);
+        _46 = copy _29;
+        _44 = Eq(move _45, move _46);
+        switchInt(move _44) -> [0: bb25, otherwise: bb22];
+    }
+
+    bb22: {
+        StorageDead(_46);
+        StorageDead(_45);
+        StorageLive(_47);
+        StorageLive(_48);
+        StorageLive(_49);
+        _56 = const false;
+        _49 = move _17;
+        _48 = Box::<dyn Animal>::into_raw(move _49) -> [return: bb23, unwind: bb33];
+    }
+
+    bb23: {
+        StorageDead(_49);
+        _47 = move _48 as *const () (PtrToPtr);
+        StorageDead(_48);
+        StorageLive(_50);
+        StorageLive(_51);
+        StorageLive(_52);
+        _52 = copy _47;
+        _51 = move _52 as &Dog (Transmute);
+        _50 = &(*_51);
+        StorageDead(_52);
+        StorageDead(_51);
+        StorageLive(_53);
+        StorageLive(_54);
+        _54 = &(*_50);
+        _53 = <Dog as Animal>::speak(move _54) -> [return: bb24, unwind: bb33];
+    }
+
+    bb24: {
+        StorageDead(_54);
+        StorageDead(_53);
+        _0 = const ();
+        StorageDead(_50);
+        StorageDead(_47);
+        goto -> bb26;
+    }
+
+    bb25: {
+        StorageDead(_46);
+        StorageDead(_45);
+        _0 = const ();
+        goto -> bb26;
+    }
+
+    bb26: {
+        StorageDead(_44);
+        goto -> bb27;
+    }
+
+    bb27: {
+        StorageDead(_33);
+        StorageDead(_29);
+        StorageDead(_25);
+        StorageDead(_21);
+        drop(_20) -> [return: bb28, unwind: bb34];
+    }
+
+    bb28: {
+        StorageDead(_20);
+        drop(_19) -> [return: bb29, unwind: bb39];
+    }
+
+    bb29: {
+        StorageDead(_19);
+        switchInt(copy _56) -> [0: bb30, otherwise: bb37];
+    }
+
+    bb30: {
+        _56 = const false;
+        StorageDead(_17);
+        StorageDead(_10);
+        goto -> bb31;
+    }
+
+    bb31: {
+        drop(_1) -> [return: bb32, unwind: bb36];
+    }
+
+    bb32: {
+        StorageDead(_1);
+        StorageDead(_3);
+        return;
+    }
+
+    bb33 (cleanup): {
+        drop(_20) -> [return: bb34, unwind terminate(cleanup)];
+    }
+
+    bb34 (cleanup): {
+        drop(_19) -> [return: bb39, unwind terminate(cleanup)];
+    }
+
+    bb35 (cleanup): {
+        drop(_1) -> [return: bb36, unwind terminate(cleanup)];
+    }
+
+    bb36 (cleanup): {
+        resume;
+    }
+
+    bb37: {
+        drop(_17) -> [return: bb30, unwind: bb35];
+    }
+
+    bb38 (cleanup): {
+        drop(_17) -> [return: bb35, unwind terminate(cleanup)];
+    }
+
+    bb39 (cleanup): {
+        switchInt(copy _56) -> [0: bb35, otherwise: bb38];
+    }
+}

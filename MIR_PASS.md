@@ -36,7 +36,14 @@ with errors from any of my modifications when they arise.
 `./x check`
 
 was not finding `libstdc++.so.6`, just had to set `LD_LIBRARY_PATH`. you can find
-your `libstdc++.so.6` location with: `sudo find / -name "libstdc++.so.6" > out 2> err`
+your `libstdc++.so.6` location with: `sudo find / -name "libstdc++.so.6" > out
+2> err`. the command for me was:
+
+```sh
+export LD_LIBRARY_PATH="/nix/store/qksd2mz9f5iasbsh398akdb58fx9kx6d-gcc-13.2.0-lib/lib/"
+```
+
+since i am using gcc 13.2.
 
 `./x build` succeeds! (didn't seem to need `pkg-config` or `libiconv` as
 [this](https://github.com/nataliepopescu/rust/blob/master/INSTALL.md#dependencies)
@@ -117,6 +124,36 @@ The dynamic dispatch call:
 ```
          _14 = <dyn Animal as Animal>::speak(move _15) -> [return: bb12, unwind: bb15];
 ```
+
+## Registering pass
+
+in `rust/compiler/rustc_mir_transform/src/lib.rs`
+
+add pass name to `declare_passes!` macro list
+
+added to `run_optimization_passes`, before inlining happens
+
+## Compiling Mod Rust
+
+`./x check`
+
+`./x build`: builds stage1 compiler, takes ~half the time as building stage 2
+
+`./x build --stage 2` (takes 10 min, not great for iterating)
+
+## Getting debug info from pass
+
+Had to modify bootstrap.toml to set debug level, and then set `RUSTC_LOG` env
+var when invoking rustc
+- https://rustc-dev-guide.rust-lang.org/compiler-debugging.html#configuring-the-compiler
+- https://rustc-dev-guide.rust-lang.org/tracing.html
+
+`RUSTC_LOG=rustc_mir_transform::replace_dynamic_dispatch=debug rustc +stage1 original.rs -C opt-level=0 2> log`
+
+ReplaceDynamicDispatch debug statements get optimized out at o3, so using o0 for
+now
+
+(can skip the `+stage1` if you've set a directory override in rustup)
 
 ## Writing pass
 
@@ -239,7 +276,7 @@ bbcleanup2 (cleanup): {
 
 ### post-rewrite MIR
 
-emitted MIR: 
+emitted MIR (from `--emit=mir`):
 
 ```
 bb_transmute {
@@ -310,75 +347,6 @@ bbdrop {
                                 
 ```
 
-actual MIR construction: 
-
-```
-bb_transmute {
-    StatementKind::Assign(Box<(Place, RValue::Ref(Region::ReErased, BorrowKind::Shared, Place)))
-    TerminatorKind::Call {
-        func: transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>
-        args: [Spanned { node: Move, span: srclines }]
-        destination: Place
-        target: Some(bb_get_vtable_ptrs)
-        unwind: UnwindAction::Cleanup(bbunwind)
-        call_source: Callsource::Normal
-        fn_span: srclines
-    }
-}
-
-bb_get_vtable_ptrs {
-    // ???
-}
-
-bb_first_compare {
-    StatementKind::Assign(Box<(Place, RValue::BinaryOp(Eq, Box(Move, Move)))>)
-    TerminatorKind::SwitchInt {
-        discr: Move(Place),
-        SwitchTargets {
-            values: [Pu128(0)], // excludes fallback (= otherwise)
-            targets: [bb_second_compare, bb_cat_into_raw], // includes fallback
-        }
-    }
-}
-
-bb_cat_into_raw {
-    StatementKind::Assign(Box<(Place, RValue::Use(Move(Place)))>)
-    TerminatorKind::Call {
-        func: Box::<dyn Animal>::into_raw
-        args: [Spanned { node: Move, span: srlines }]
-        destination: Place,
-        target: Some(bb_cat_speak)
-        unwind: UnwindAction::Cleanup(bbunwind)
-        call_source: CallSource::Normal
-        fn_span: srclines
-    }
-}
-
-bb_cat_speak {
-    StatementKind::Assign(Box<(Place, RValue::Cast(
-        CastKind::PtrToPtr,
-        Move(Place),
-        *const ()
-    ))>)
-    StatementKind::Assign(Box<(Place, RValue::Cast(
-        CastKind::Transmute,
-        Move(Place),
-        &'{erased} Cat
-    ))>)
-    TerminatorKind::Call {
-        func: <Cat as Animal>::speak
-        args: [Spanned { node: Move(Place), span: srclines }]
-        destination: Place
-        target: Some(bbgotodrop)
-        unwind: UnwindAction::Cleanup(bbunwind)
-        call_source: CallSource::Normal
-        fn_span: srclines
-    }
-}
-
-// the rest (Dog version) is just like the above
-```
-
 omitting a lot of StorageLive/Dead statements, and some copies appear as moves
 in the earlier state of the compiler (might be worth looking at the MIR dump
 before we run our pass for a more accurate assessment)
@@ -427,36 +395,6 @@ there's a query in `rustc_middle/src/query/mod.rs` called `vtable_entries`
 `rustc_mir_transform/src/ssa.rs`
 - is this enforcing SSA?
 
-
-## Registering pass
-
-in `rust/compiler/rustc_mir_transform/src/lib.rs`
-
-add pass name to `declare_passes!` macro list
-
-added to `run_optimization_passes`, before inlining happens
-
-## Compiling Mod Rust
-
-`./x check`
-
-`./x build`: builds stage1 compiler, takes ~half the time as building stage 2
-
-`./x build --stage 2` (takes 10 min, not great for iterating)
-
-## Getting debug info from pass
-
-Had to modify bootstrap.toml to set debug level, and then set `RUSTC_LOG` env
-var when invoking rustc
-- https://rustc-dev-guide.rust-lang.org/compiler-debugging.html#configuring-the-compiler
-- https://rustc-dev-guide.rust-lang.org/tracing.html
-
-`RUSTC_LOG=rustc_mir_transform::replace_dynamic_dispatch=debug rustc +stage1 original.rs -C opt-level=0 2> rdd-log`
-
-ReplaceDynamicDispatch debug statements get optimized out at o3, so using o0 for
-now
-
-(can skip the `+stage1` if you've set a directory override in rustup)
 
 
 

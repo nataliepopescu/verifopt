@@ -109,7 +109,9 @@
       instructions/statements
     - [ ] revisit how we're identifying dynamic dispatch, b/c running the pass
       on the handwritten rewrite still shows that there are two locations where
-      we could perform the rewrite (i.e. the supposed resolved static calls)
+      we could perform the rewrite (the `into_raw` calls take in a trait object 
+      as the first argument, but they are static calls, so need to refine our 
+      method of identification)
 
 
 

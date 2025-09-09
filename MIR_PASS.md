@@ -214,7 +214,9 @@ From Zulip convo
           has `statements` field)
     - this is also apparently an intrinsic, so maybe we can play with the
       intrinsic first: https://doc.rust-lang.org/std/intrinsics/fn.ptr_metadata.html
-    - cool, so I just get `()` from that...
+    - cool, so I just get `()` from that... correction: the `()` is actually the
+      metadata for the Boxed object, the metadata for the trait object should be
+      of type `DynMetadata`
     - what is this intrinsic actually doing?
 
 - trying to access vtables from source code
@@ -246,110 +248,45 @@ this is what the dynamic dispatch looks like in assembly:
 ```
 (from godbolt vimdiff)
 
-### pre-rewrite MIR
-
-```
-bb10: {
-    _13 = get_animal(copy _8) -> [return: bb_animal_speak, unwind: bbcleanup2];
-}
-
-bb_animal_speak: {
-    _16 = copy ((_13.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
-    _15 = &(*_16);
-    _14 = <dyn Animal as Animal>::speak(move _15) -> [return: bbdrop, unwind: bbcleanup];
-}
-
-// cleanup mess below
-
-bbdrop: {
-    drop(_13) -> ...
-}
-
-bbcleanup (cleanup): {
-    drop(_13) -> [return: _, unwind terminate(cleanup)];
-}
-
-bbcleanup2 (cleanup): {
-    drop(_1) -> [return: _, unwind terminate(cleanup)];
-}
-```
-
-### post-rewrite MIR
-
-emitted MIR (from `--emit=mir`):
-
-```
-bb_transmute {
-    _18 = &_13 (rhs = box dyn trait thing)
-    _17 = transmute_copy::Box<dyn Animal, (*const u8, *const usize)>(copy _18) -> [return: bb_get_vtable_ptrs, unwind: bbunwind];
-}
-
-bb_get_vtable_ptrs {
-    // TODO how to get possible vtable ptrs
-    ... -> [return: bb_first_compare, unwind: bbunwind];
-}
-
-bb_first_compare {
-    _25 = Eq(copy _16, copy _19); (compare trait vptr to one type's, i.e. Cat's, vptr)
-    // https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/mir/struct.SwitchTargets.html
-    // 0: they're equal, otherwise: they're not equal
-    switchInt(move _25) -> [0: bb_second_compare, otherwise: bb_cat_into_raw];
-}
-
-bb_cat_into_raw {
-    _28 = move _13 (idk why)
-    _27 = Box::<dyn Animal>::into_raw(move _28) -> [return: bb_cat_speak, unwind: bbunwind];
-}
-
-bb_cat_speak {
-    _26 = move _27 as *const () (PtrToPtr);
-    _29 = copy _26 as &Cat (Transmute);
-    _30 = <Cat as Animal>::speak(copy _29) -> [return: bbgotodrop, unwind: bbunwind];
-}
-
-bb_second_compare {
-    _31 = Eq(copy _16, _22); (compare trait vptr to Dog's)
-    switchInt(move _31) -> [0: bbdrop, otherwise: bb_dog_into_raw];
-}
-
-bb_dog_into_raw {
-    _34 = move _13 (idk why)
-    _33 = Box::<dyn Animal>::into_raw(move _34) -> [return: bb_dog_speak, unwind: bbunwind];
-}
-
-bb_dog_speak {
-    _32 = move _33 as *const () (PtrToPtr);
-    _35 = copy _32 as &Dog (Transmute);
-    _36 = <Dog as Animal>::speak(copy _35) -> [return: bbgotodrop2, unwind: bbunwind];
-}
-
-// cleanup mess below
-
-bbunwind (cleanup) {
-    drop(_) -> [return: bbunwind2, unwind terminate(cleanup)];
-}
-
-bbunwind2 (cleanup) {
-    drop(_) -> [return: _, unwind terminate(cleanup)];
-}
-
-bbgotodrop {
-    goto bbdrop
-}
-
-bbgotodrop2 {
-    goto bbdrop
-}
-
-bbdrop {
-    drop ...
-}
-                                
-```
+trying to produce rewrite via `transmute_cp` + `ptr_metadata` -> which is
+simpler?
 
 omitting a lot of StorageLive/Dead statements, and some copies appear as moves
 in the earlier state of the compiler (might be worth looking at the MIR dump
 before we run our pass for a more accurate assessment)
+- indeed a dump @ the exact point in the compiler is better to work with
+
+`ptr_metadata`
+- https://doc.rust-lang.org/nightly/std/intrinsics/fn.ptr_metadata.html
+    - used to implement, e.g., [core::ptr::metadata](https://doc.rust-lang.org/beta/std/ptr/fn.metadata.html)
+- returns
+  [DynMetadata](https://doc.rust-lang.org/beta/std/ptr/struct.DynMetadata.html)
+  - this link reiterates unreliable vptr comparisons - both that same types may
+    map to different vtables, _and_ that different types may map to the *same*
+    vtable (this is bad and hard to check for)
+  - clarifies this is across _codegen units_ (maybe ppl canonically use
+    "compiled units" to mean the same thing, but it is confusing)
+- requires an unstable feature enabled
+    - TODO what does this mean for us???
+- usage examples: https://github.com/rust-lang/rust/blob/master/library/coretests/tests/ptr.rs
+
+how is `ptr_metadata` implemented? 
+
+at MIR level this is just an intrinsic, at the LLVM level this is implemented
+as: 
+
+```llvm
+; core::ptr::metadata::metadata
+; Function Attrs: inlinehint nonlazybind uwtable
+define ptr @_ZN4core3ptr8metadata8metadata17hfa7ca2ff3fb97fb9E(ptr %ptr.0, ptr align 8 %ptr.1) unnamed_addr #0 {
+  ret ptr %ptr.1
+}
+```
+
+which literally just returns the vtable portion of the fat pointer. 
+
+where are intrinsics implemented in general?!?!
+- https://doc.rust-lang.org/nightly/std/intrinsics/index.html
 
 
 

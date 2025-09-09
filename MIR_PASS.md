@@ -328,6 +328,7 @@ there's a query in `rustc_middle/src/query/mod.rs` called `vtable_entries`
 - `pub struct TraitDef { pub def_id: DefId, .. }`
 - line 135: `for_each_relevant_impl()`
 - line 192: `all_impls()` (iterator over all trait impls)
+    - https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.all_impls
 
 `rustc_mir_transform/src/ssa.rs`
 - is this enforcing SSA?

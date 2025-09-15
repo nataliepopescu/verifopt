@@ -13,6 +13,14 @@ fn get_animal(num: usize) -> Box<dyn Animal> {
     }
 }
 
+fn get_cat() -> Box<dyn Animal> {
+    return Box::new(Cat {});
+}
+
+fn get_dog() -> Box<dyn Animal> {
+    return Box::new(Dog {});
+}
+
 struct Bird {}
 struct Cat {}
 struct Dog {}
@@ -44,6 +52,8 @@ fn main() {
         _ => {
             let num = args[1].parse().unwrap();
             let animal = get_animal(num);
+            let cat = get_cat();
+            let dog = get_dog();
             animal.speak();
         }
     }

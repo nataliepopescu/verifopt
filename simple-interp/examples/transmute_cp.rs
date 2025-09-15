@@ -58,24 +58,25 @@ fn main() {
                 let (_, animal_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&animal);
                 let (_, cat_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&cat);
                 let (_, dog_vtable) = std::mem::transmute_copy::<Box<dyn Animal>, (*const u8, *const usize)>(&dog);
-                println!("animal_vtable: {:?}", animal_vtable);
-                println!("cat_vtable: {:?}", cat_vtable);
-                println!("dog_vtable: {:?}", dog_vtable);
+                //println!("animal_vtable: {:?}", animal_vtable);
+                //println!("cat_vtable: {:?}", cat_vtable);
+                //println!("dog_vtable: {:?}", dog_vtable);
 
                 if animal_vtable == cat_vtable {
                     let rawptr = Box::into_raw(animal) as *const ();
                     let cat: &Cat = std::mem::transmute::<*const (), &Cat>(rawptr);
-                    println!("IS CAT!");
+                    //println!("IS CAT!");
                     <Cat as Animal>::speak(cat);
                 } else if animal_vtable == dog_vtable {
                     let rawptr = Box::into_raw(animal) as *const ();
                     let dog: &Dog = std::mem::transmute::<*const (), &Dog>(rawptr);
-                    println!("IS DOG!");
+                    //println!("IS DOG!");
                     <Dog as Animal>::speak(dog);
-                } else {
-                    println!("FALLBACK :(");
-                    animal.speak();
                 }
+                //else {
+                //    println!("FALLBACK :(");
+                //    animal.speak();
+                //}
             }
         }
     }

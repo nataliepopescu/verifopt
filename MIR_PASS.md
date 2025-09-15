@@ -288,6 +288,46 @@ which literally just returns the vtable portion of the fat pointer.
 where are intrinsics implemented in general?!?!
 - https://doc.rust-lang.org/nightly/std/intrinsics/index.html
 
+have been working on modifying the MIR, specifically started by adding a local
+of the type `std::ptr::DynMetadata<dyn Animal>;`
+- running into the following error: 
+
+```
+thread 'rustc' panicked at compiler/rustc_metadata/src/rmeta/decoder/cstore_impl.rs:224:1:
+DefId(2:2430 ~ core[ec2c]::ptr::metadata) does not have a "generics_of" 
+```
+
+- `generics_of` is a query
+- [query docs](https://rustc-dev-guide.rust-lang.org/query.html)
+
+- perhaps the error is happening because queries are registered per-crate, and
+  we're introducing usage of `core::ptr::metadata` after this registration has
+  already happened?
+  - also possibly using a cached result that must be invalidated? i.e. re-run
+    the query after introducing our locals?
+  - can test this guess by modifying the `generics_of` query with the
+    `eval_always` modifier, which ignores cached results...
+    ([query modifiers](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/query/index.html#query-modifiers)
+    - making it `eval_always` requires removing the `feedable` attribute, which
+      breaks stuff, so, no go
+
+- default query providers: https://doc.rust-lang.org/nightly/nightly-rustc/src/rustc_interface/passes.rs.html#883-917
+    - notice there are some in `rustc_mir_transform`...?
+        - these are queries that the `rust_mir_transform` crate adds (none of
+          which are `generics_of`, but rather ones that I've seen mentioned
+          before like `mir_built` and `optimized_mir`. makes sense)
+    - a provider == how the result should be computed (if not already present)
+        - how is the/a `generics_of` provider implemented?
+
+- can we update the result of a query and how does that propagate?
+
+- when does each query run?
+
+- current end-goal: how to run the `generics_of` query on the
+  `core::ptr::metadata` DefId?
+
+- read more about queries and if still have nothing post on zulip tomorrow
+  (monday)
 
 
 ### Things that might be important

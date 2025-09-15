@@ -94,6 +94,11 @@
         - just some not very interesting calls (from registers + static 
         offsets)
         - so we will need to be more high-level than that
+    - [x] revisit how we're identifying dynamic dispatch, b/c running the pass
+      on the handwritten rewrite still shows that there are two locations where
+      we could perform the rewrite (the `into_raw` calls take in a trait object 
+      as the first argument, but they are static calls, so need to refine our 
+      method of identification)
     - [ ] what instruction(s)/statement(s) access the vtable (at MIR level)
         - [ ] some instructions will inevitably be terminators, so the
           transformation will need to happen across basic blocks / create new
@@ -107,11 +112,13 @@
           are + what values they contain
     - [ ] how to modify/add basic blocks to include the above
       instructions/statements
-    - [ ] revisit how we're identifying dynamic dispatch, b/c running the pass
-      on the handwritten rewrite still shows that there are two locations where
-      we could perform the rewrite (the `into_raw` calls take in a trait object 
-      as the first argument, but they are static calls, so need to refine our 
-      method of identification)
+
+- sus implementation things to confirm
+    - `mk_binder_list` which relies on using `rustc_type_ir` (need to remove
+      attribute allowing this) - alternative is a slightly different type that
+      might make some things more difficult? but should probably try it (using
+      `rustc_middle::ty` instead, which omits the TyCtxt stuff, but this creates
+      a type mismatch...)
 
 
 

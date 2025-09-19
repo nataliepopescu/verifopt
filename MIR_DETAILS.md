@@ -112,6 +112,43 @@ bb26: {
     goto -> bb27;
 }
 
+bb27: {
+    StorageDead(_41);
+    goto -> bb28;
+}
+
+bb28: {
+    StorageDead(_33);
+    StorageDead(_30);
+    StorageDead(_27);
+    StorageDead(_24);
+    StorageDead(_21);
+    drop(_20) -> [return: bb29, unwind: bb34];
+}
+
+bb29: {
+    StorageDead(_20);
+    drop(_19) -> [return: bb30, unwind: bb38];
+}
+
+bb30: {
+    StorageDead(_19);
+    _50 = const false;
+    StorageDead(_17);
+    StorageDead(_10);
+    goto -> bb31;
+}
+
+bb31: {
+    drop(_1) -> [return: bb32, unwind: bb36];
+}
+
+bb32: {
+    StorageDead(_1);
+    StorageDead(_3);
+    return;
+}
+
 bb33 (cleanup): {
     drop(_20) -> [return: bb34, unwind terminate(cleanup)];
 }
@@ -229,6 +266,43 @@ bb_goto: {
     StorageDead(_42);
     _0 = const ();
     goto -> bb27;
+}
+
+bb27: {
+    StorageDead(_41);
+    goto -> bb28;
+}
+
+bb28: {
+    StorageDead(_33);
+    StorageDead(_30);
+    StorageDead(_27);
+    StorageDead(_24);
+    StorageDead(_21);
+    drop(_20) -> [return: bb29, unwind: bb34];
+}
+
+bb29: {
+    StorageDead(_20);
+    drop(_19) -> [return: bb30, unwind: bb38];
+}
+
+bb30: {
+    StorageDead(_19);
+    _50 = const false;
+    StorageDead(_17);
+    StorageDead(_10);
+    goto -> bb31;
+}
+
+bb31: {
+    drop(_1) -> [return: bb32, unwind: bb36];
+}
+
+bb32: {
+    StorageDead(_1);
+    StorageDead(_3);
+    return;
 }
 
 bb_unwind (cleanup): {

@@ -99,10 +99,12 @@
       we could perform the rewrite (the `into_raw` calls take in a trait object 
       as the first argument, but they are static calls, so need to refine our 
       method of identification)
-    - [ ] what instruction(s)/statement(s) access the vtable (at MIR level)
-        - [ ] some instructions will inevitably be terminators, so the
+    - [x] what instruction(s)/statement(s) access the vtable (at MIR level)
+        - [x] some instructions will inevitably be terminators, so the
           transformation will need to happen across basic blocks / create new
           basic blocks (see `add_call_guard.rs`)
+    - [x] how to modify/add basic blocks to include the above
+      instructions/statements
     - [ ] how to get the vtable ptrs of all possible types (without "faking"
       instances of those types, like the `transmute_cp` and `vtable_struct`
       examples do)
@@ -110,15 +112,16 @@
         - in particular, print out your own version of the fakes (rather than
           the emitted pretty code) to get an exact answer of what those types
           are + what values they contain
-    - [ ] how to modify/add basic blocks to include the above
-      instructions/statements
+    - [ ] StorageLive/Dead statements
+    - [ ] _ = const true/false statements
 
 - sus implementation things to confirm
-    - `mk_binder_list` which relies on using `rustc_type_ir` (need to remove
+    - [x] `mk_binder_list` which relies on using `rustc_type_ir` (need to remove
       attribute allowing this) - alternative is a slightly different type that
       might make some things more difficult? but should probably try it (using
       `rustc_middle::ty` instead, which omits the TyCtxt stuff, but this creates
       a type mismatch...)
+      - removed
 
 
 

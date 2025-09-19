@@ -330,6 +330,14 @@ DefId(2:2430 ~ core[ec2c]::ptr::metadata) does not have a "generics_of"
   (monday)
 
 
+when trying to add cat_speak block (specifically the terminator call to
+Cat::speak)
+- DefId { index: 13, krate: 0 } -> Impl { of_trait: true }
+- DefId { index: 9, krate: 0 } -> Struct
+
+-> lookup DefKind
+
+
 ### Things that might be important
 
 notice that the `speak()` call we're interested in is a _terminator_ of a basic
@@ -373,6 +381,10 @@ there's a query in `rustc_middle/src/query/mod.rs` called `vtable_entries`
 `rustc_mir_transform/src/ssa.rs`
 - is this enforcing SSA?
 
+https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.return_type_impl_or_dyn_traits
+- impl/dyn traits in _return_ type only
+
+https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.all_traits_including_private
 
 
 

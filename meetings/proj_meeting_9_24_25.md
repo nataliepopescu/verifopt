@@ -27,6 +27,8 @@
         - MIR has more flexible semantics, which may make analysis harder
         - source-Rust has stricter semantics but many more "cases" to handle
 
+- big picture discussion
+
 - `StorageLive` / `StorageDead` instructions
     - https://internals.rust-lang.org/t/semantics-of-storagelive-storagedead-in-mir/16184/10
     - allegedly used for 2 things

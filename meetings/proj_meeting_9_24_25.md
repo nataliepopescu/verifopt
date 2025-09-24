@@ -64,4 +64,21 @@
 
 ## notes
 
+_some_ baseline: synthetic examples are ok (use patterns)
+- just want some promise
+- logic through (synthetic -> real projs)
+- build hypotheses
+
+ideal (i.e. for paper): run on big real proj
+
+lines: 
+- transform code as much as possible -> code size diff (~speed of light
+  baseline, won't get this)
+    - no vtable discriminant, just like an oracle transformation
+    - could be way faster than what we think
+- manual vtable rewrite (doing now)
+    - closer to what the tool will actually achieve
+    - sort of in the middle of above/below baselines
+- sloppy version of tool (ignores things it doesn't know)
+    - conservative lower bound
 

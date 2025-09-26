@@ -1,11 +1,8 @@
-//use rand::Rng;
-
 trait Animal {
     fn speak(&self);
 }
 
 fn get_animal(num: usize) -> Box<dyn Animal> {
-    //let num: u32 = rand::rng().random_range(..2);
     if num == 0 {
         return Box::new(Cat {});
     } else {
@@ -13,23 +10,25 @@ fn get_animal(num: usize) -> Box<dyn Animal> {
     }
 }
 
+#[inline(always)]
 fn get_cat() -> Box<dyn Animal> {
     return Box::new(Cat {});
 }
 
+#[inline(always)]
 fn get_dog() -> Box<dyn Animal> {
     return Box::new(Dog {});
 }
 
-struct Bird {}
+//struct Bird {}
 struct Cat {}
 struct Dog {}
 
-impl Animal for Bird {
-    fn speak(&self) {
-        println!("chirp");
-    }
-}
+//impl Animal for Bird {
+//    fn speak(&self) {
+//        println!("chirp");
+//    }
+//}
 
 impl Animal for Cat {
     fn speak(&self) {
@@ -52,8 +51,9 @@ fn main() {
         _ => {
             let num = args[1].parse().unwrap();
             let animal = get_animal(num);
-            let cat = get_cat();
-            let dog = get_dog();
+            // TODO force inline? should really just be looking up a constant
+            let _cat = get_cat();
+            let _dog = get_dog();
             animal.speak();
         }
     }

@@ -20,17 +20,17 @@ fn get_dog() -> Box<dyn Animal> {
     return Box::new(Dog {});
 }
 
-struct Bird {}
+//struct Bird {}
 
 struct Cat {}
 
 struct Dog {}
 
-impl Animal for Bird {
-    fn speak(&self) {
-        println!("chirp");
-    }
-}
+//impl Animal for Bird {
+//    fn speak(&self) {
+//        println!("chirp");
+//    }
+//}
 
 impl Animal for Cat {
     fn speak(&self) {
@@ -54,6 +54,8 @@ fn main() {
             let num = args[1].parse().unwrap();
             let animal = get_animal(num);
 
+            // this part is hard to get as an elegant source code rewrite
+            // i think, but haven't tried all that hard yet
             let cat = get_cat();
             let dog = get_dog();
 

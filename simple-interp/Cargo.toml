@@ -12,3 +12,16 @@ thiserror = "2.0.12"
 [profile.release]
 lto = true
 codegen-units = 1
+
+[dev-dependencies]
+criterion = "0.7.0"
+
+
+[[example]]
+name = "original"
+bench = true
+
+[[example]]
+name = "ptr_metadata"
+bench = true
+

@@ -1,0 +1,513 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn get_animal(_1: usize) -> Box<dyn Animal> {
+    debug num => _1;
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _2: std::boxed::Box<Cat>;
+    let mut _3: std::boxed::Box<Dog>;
+
+    bb0: {
+        switchInt(move _1) -> [0: bb1, otherwise: bb3];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = Box::<Cat>::new(const Cat {{  }}) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _0 = move _2 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_2);
+        goto -> bb5;
+    }
+
+    bb3: {
+        StorageLive(_3);
+        _3 = Box::<Dog>::new(const Dog {{  }}) -> [return: bb4, unwind continue];
+    }
+
+    bb4: {
+        _0 = move _3 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_3);
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn get_cat() -> Box<dyn Animal> {
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _1: std::boxed::Box<Cat>;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = Box::<Cat>::new(const Cat {{  }}) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _0 = move _1 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_1);
+        return;
+    }
+}
+
+fn get_dog() -> Box<dyn Animal> {
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _1: std::boxed::Box<Dog>;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = Box::<Dog>::new(const Dog {{  }}) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _0 = move _1 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_1);
+        return;
+    }
+}
+
+fn <impl at original_norewrite.rs:30:1: 30:20>::kaeps(_1: &Cat) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    scope 1 (inlined core::fmt::rt::<impl Arguments<'_>>::new_const::<1>) {
+        let mut _4: &[&str];
+        let mut _5: &[core::fmt::rt::Argument<'_>];
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const <Cat as Animal>::kaeps::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_5);
+        _5 = const core::fmt::rt::<impl std::fmt::Arguments<'_>>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _3 = Arguments::<'_> { pieces: copy _4, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: copy _5 };
+        StorageDead(_5);
+        StorageDead(_4);
+        _2 = _print(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        return;
+    }
+}
+
+alloc10 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const <impl at original_norewrite.rs:30:1: 30:20>::kaeps::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "meow\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc1 (size: 5, align: 1) {
+    6d 65 6f 77 0a                                  │ meow.
+}
+
+fn <impl at original_norewrite.rs:36:1: 36:20>::kaeps(_1: &Dog) -> () {
+    debug self => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: std::fmt::Arguments<'_>;
+    scope 1 (inlined core::fmt::rt::<impl Arguments<'_>>::new_const::<1>) {
+        let mut _4: &[&str];
+        let mut _5: &[core::fmt::rt::Argument<'_>];
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const <Dog as Animal>::kaeps::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_5);
+        _5 = const core::fmt::rt::<impl std::fmt::Arguments<'_>>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _3 = Arguments::<'_> { pieces: copy _4, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: copy _5 };
+        StorageDead(_5);
+        StorageDead(_4);
+        _2 = _print(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        return;
+    }
+}
+
+alloc10 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const <impl at original_norewrite.rs:36:1: 36:20>::kaeps::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "woof\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc4 (size: 5, align: 1) {
+    77 6f 6f 66 0a                                  │ woof.
+}
+
+fn run(_1: usize) -> () {
+    debug num => _1;
+    let mut _0: ();
+    let _2: std::boxed::Box<dyn Animal>;
+    let _5: ();
+    let mut _6: &dyn Animal;
+    let mut _7: *const dyn Animal;
+    scope 1 {
+        debug animal => _2;
+        let _3: std::boxed::Box<dyn Animal>;
+        scope 2 {
+            debug _cat => _3;
+            let _4: std::boxed::Box<dyn Animal>;
+            scope 3 {
+                debug _dog => _4;
+            }
+            scope 5 (inlined get_dog) {
+                let mut _9: std::boxed::Box<Dog>;
+            }
+        }
+        scope 4 (inlined get_cat) {
+            let mut _8: std::boxed::Box<Cat>;
+        }
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = get_animal(move _1) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_3);
+        StorageLive(_8);
+        _8 = Box::<Cat>::new(const Cat {{  }}) -> [return: bb10, unwind: bb8];
+    }
+
+    bb2: {
+        StorageDead(_6);
+        drop(_4) -> [return: bb3, unwind: bb7];
+    }
+
+    bb3: {
+        StorageDead(_4);
+        drop(_3) -> [return: bb4, unwind: bb8];
+    }
+
+    bb4: {
+        StorageDead(_3);
+        drop(_2) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        StorageDead(_2);
+        return;
+    }
+
+    bb6 (cleanup): {
+        drop(_4) -> [return: bb7, unwind terminate(cleanup)];
+    }
+
+    bb7 (cleanup): {
+        drop(_3) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        drop(_2) -> [return: bb9, unwind terminate(cleanup)];
+    }
+
+    bb9 (cleanup): {
+        resume;
+    }
+
+    bb10: {
+        _3 = move _8 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_8);
+        StorageLive(_4);
+        StorageLive(_9);
+        _9 = Box::<Dog>::new(const Dog {{  }}) -> [return: bb11, unwind: bb7];
+    }
+
+    bb11: {
+        _4 = move _9 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_9);
+        StorageLive(_6);
+        _7 = copy ((_2.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _6 = &(*_7);
+        _5 = <dyn Animal as Animal>::kaeps(move _6) -> [return: bb2, unwind: bb6];
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::vec::Vec<std::string::String>;
+    let mut _2: std::env::Args;
+    let mut _3: usize;
+    let _4: ();
+    let mut _5: std::fmt::Arguments<'_>;
+    let mut _6: usize;
+    let mut _7: std::result::Result<usize, std::num::ParseIntError>;
+    let _8: &str;
+    let _9: &std::string::String;
+    scope 1 {
+        debug args => _1;
+        scope 2 (inlined Vec::<String>::len) {
+            let mut _10: bool;
+            scope 3 {
+            }
+        }
+        scope 4 (inlined #[track_caller] <Vec<String> as Index<usize>>::index) {
+            scope 5 (inlined <Vec<String> as Deref>::deref) {
+                scope 6 (inlined Vec::<String>::as_slice) {
+                    let mut _11: *const std::string::String;
+                    let mut _12: usize;
+                    scope 7 (inlined Vec::<String>::as_ptr) {
+                        scope 8 (inlined alloc::raw_vec::RawVec::<String>::ptr) {
+                            scope 9 (inlined alloc::raw_vec::RawVecInner::ptr::<String>) {
+                                scope 10 (inlined alloc::raw_vec::RawVecInner::non_null::<String>) {
+                                    let mut _13: std::ptr::NonNull<u8>;
+                                    scope 11 (inlined Unique::<u8>::cast::<String>) {
+                                        scope 12 (inlined NonNull::<u8>::cast::<String>) {
+                                            scope 13 (inlined NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 14 (inlined Unique::<String>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 15 (inlined NonNull::<String>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                    scope 16 (inlined #[track_caller] std::slice::from_raw_parts::<'_, String>) {
+                        let _14: *const [std::string::String];
+                        scope 17 (inlined core::ub_checks::check_language_ub) {
+                            scope 18 (inlined core::ub_checks::check_language_ub::runtime) {
+                            }
+                        }
+                        scope 19 (inlined std::mem::size_of::<String>) {
+                        }
+                        scope 20 (inlined std::mem::align_of::<String>) {
+                        }
+                        scope 21 (inlined slice_from_raw_parts::<String>) {
+                            scope 22 (inlined std::ptr::from_raw_parts::<[String], String>) {
+                            }
+                        }
+                    }
+                }
+            }
+            scope 23 (inlined #[track_caller] core::slice::index::<impl Index<usize> for [String]>::index) {
+                scope 24 (inlined #[track_caller] <usize as SliceIndex<[String]>>::index) {
+                    let mut _15: bool;
+                }
+            }
+        }
+        scope 25 (inlined core::fmt::rt::<impl Arguments<'_>>::new_const::<1>) {
+            let mut _16: &[&str];
+            let mut _17: &[core::fmt::rt::Argument<'_>];
+        }
+        scope 26 (inlined <String as Deref>::deref) {
+            scope 27 (inlined String::as_str) {
+                let _18: &[u8];
+                scope 28 (inlined Vec::<u8>::as_slice) {
+                    let mut _19: *const u8;
+                    let mut _20: usize;
+                    scope 29 (inlined Vec::<u8>::as_ptr) {
+                        scope 30 (inlined alloc::raw_vec::RawVec::<u8>::ptr) {
+                            scope 31 (inlined alloc::raw_vec::RawVecInner::ptr::<u8>) {
+                                scope 32 (inlined alloc::raw_vec::RawVecInner::non_null::<u8>) {
+                                    let mut _21: std::ptr::NonNull<u8>;
+                                    scope 33 (inlined Unique::<u8>::cast::<u8>) {
+                                        scope 34 (inlined NonNull::<u8>::cast::<u8>) {
+                                            scope 35 (inlined NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 36 (inlined Unique::<u8>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 37 (inlined NonNull::<u8>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                    scope 38 (inlined #[track_caller] std::slice::from_raw_parts::<'_, u8>) {
+                        let _22: *const [u8];
+                        scope 39 (inlined core::ub_checks::check_language_ub) {
+                            scope 40 (inlined core::ub_checks::check_language_ub::runtime) {
+                            }
+                        }
+                        scope 41 (inlined std::mem::size_of::<u8>) {
+                        }
+                        scope 42 (inlined std::mem::align_of::<u8>) {
+                        }
+                        scope 43 (inlined slice_from_raw_parts::<u8>) {
+                            scope 44 (inlined std::ptr::from_raw_parts::<[u8], u8>) {
+                            }
+                        }
+                    }
+                }
+                scope 45 (inlined from_utf8_unchecked) {
+                }
+            }
+        }
+        scope 46 (inlined core::str::<impl str>::parse::<usize>) {
+            scope 47 (inlined core::num::<impl FromStr for usize>::from_str) {
+                scope 48 (inlined core::num::<impl usize>::from_str_radix) {
+                    let _23: &[u8];
+                    scope 49 (inlined core::str::<impl str>::as_bytes) {
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = args() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _1 = <Args as Iterator>::collect::<Vec<String>>(move _2) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        StorageDead(_2);
+        StorageLive(_3);
+        _3 = copy (_1.1: usize);
+        StorageLive(_10);
+        _10 = Le(copy _3, const <std::string::String as std::mem::SizedTypeProperties>::MAX_SLICE_LEN);
+        assume(move _10);
+        StorageDead(_10);
+        switchInt(copy _3) -> [1: bb4, otherwise: bb3];
+    }
+
+    bb3: {
+        StorageLive(_6);
+        StorageLive(_7);
+        StorageLive(_13);
+        StorageLive(_11);
+        _13 = copy ((((_1.0: alloc::raw_vec::RawVec<std::string::String>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _11 = copy _13 as *const std::string::String (Transmute);
+        _12 = copy (_1.1: usize);
+        _14 = *const [std::string::String] from (copy _11, copy _12);
+        StorageDead(_11);
+        StorageDead(_13);
+        StorageLive(_15);
+        _15 = Lt(const 1_usize, copy _12);
+        assert(move _15, "index out of bounds: the length is {} but the index is {}", copy _12, const 1_usize) -> [success: bb12, unwind: bb10];
+    }
+
+    bb4: {
+        StorageLive(_5);
+        StorageLive(_16);
+        _16 = const main::promoted[0] as &[&str] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_17);
+        _17 = const core::fmt::rt::<impl std::fmt::Arguments<'_>>::new_const::<1>::promoted[0] as &[core::fmt::rt::Argument<'_>] (PointerCoercion(Unsize, Implicit));
+        _5 = Arguments::<'_> { pieces: copy _16, fmt: const Option::<&[core::fmt::rt::Placeholder]>::None, args: copy _17 };
+        StorageDead(_17);
+        StorageDead(_16);
+        _4 = _print(move _5) -> [return: bb5, unwind: bb10];
+    }
+
+    bb5: {
+        StorageDead(_5);
+        goto -> bb8;
+    }
+
+    bb6: {
+        StorageDead(_7);
+        _0 = run(move _6) -> [return: bb7, unwind: bb10];
+    }
+
+    bb7: {
+        StorageDead(_6);
+        goto -> bb8;
+    }
+
+    bb8: {
+        drop(_1) -> [return: bb9, unwind continue];
+    }
+
+    bb9: {
+        StorageDead(_1);
+        StorageDead(_3);
+        return;
+    }
+
+    bb10 (cleanup): {
+        drop(_1) -> [return: bb11, unwind terminate(cleanup)];
+    }
+
+    bb11 (cleanup): {
+        resume;
+    }
+
+    bb12: {
+        _9 = &(*_14)[1 of 2];
+        StorageDead(_15);
+        StorageLive(_18);
+        StorageLive(_21);
+        StorageLive(_19);
+        _21 = copy ((((((*_9).0: std::vec::Vec<u8>).0: alloc::raw_vec::RawVec<u8>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _19 = copy _21 as *const u8 (Transmute);
+        StorageLive(_20);
+        _20 = copy (((*_9).0: std::vec::Vec<u8>).1: usize);
+        StorageLive(_22);
+        _22 = *const [u8] from (copy _19, copy _20);
+        _18 = &(*_22);
+        StorageDead(_22);
+        StorageDead(_20);
+        StorageDead(_19);
+        StorageDead(_21);
+        _8 = copy _18 as &str (Transmute);
+        StorageDead(_18);
+        StorageLive(_23);
+        _23 = copy _8 as &[u8] (Transmute);
+        _7 = core::num::<impl usize>::from_ascii_radix(move _23, const 10_u32) -> [return: bb13, unwind: bb10];
+    }
+
+    bb13: {
+        StorageDead(_23);
+        _6 = Result::<usize, ParseIntError>::unwrap(move _7) -> [return: bb6, unwind: bb10];
+    }
+}
+
+alloc10 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+const main::promoted[0]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "Pass in a number and see what happens!\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc7 (size: 39, align: 1) {
+    0x00 │ 50 61 73 73 20 69 6e 20 61 20 6e 75 6d 62 65 72 │ Pass in a number
+    0x10 │ 20 61 6e 64 20 73 65 65 20 77 68 61 74 20 68 61 │  and see what ha
+    0x20 │ 70 70 65 6e 73 21 0a                            │ ppens!.
+}

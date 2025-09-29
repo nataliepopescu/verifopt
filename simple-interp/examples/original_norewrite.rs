@@ -1,10 +1,9 @@
-#![feature(ptr_metadata)]
 #![feature(test)]
 
 extern crate test;
 
 trait Animal {
-    fn speak(&self);
+    fn kaeps(&self);
 }
 
 fn get_animal(num: usize) -> Box<dyn Animal> {
@@ -26,46 +25,25 @@ fn get_dog() -> Box<dyn Animal> {
 }
 
 struct Cat {}
-
 struct Dog {}
 
 impl Animal for Cat {
-    fn speak(&self) {
+    fn kaeps(&self) {
         println!("meow");
     }
 }
 
 impl Animal for Dog {
-    fn speak(&self) {
+    fn kaeps(&self) {
         println!("woof");
     }
 }
 
 fn run(num: usize) {
     let animal = get_animal(num);
-
-    // this part is hard to get as an elegant source code rewrite
-    // i think, but haven't tried all that hard yet
-    let cat = get_cat();
-    let dog = get_dog();
-
-    let animal_vtable = core::ptr::metadata(&*animal);
-    let cat_vtable = core::ptr::metadata(&*cat);
-    let dog_vtable = core::ptr::metadata(&*dog);
-
-    let raw_animal = Box::into_raw(animal) as *const ();
-
-    if animal_vtable == cat_vtable {
-        unsafe {
-            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
-            <Cat as Animal>::speak(cat);
-        }
-    } else if animal_vtable == dog_vtable {
-        unsafe {
-            let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
-            <Dog as Animal>::speak(dog);
-        }
-    } 
+    let _cat = get_cat();
+    let _dog = get_dog();
+    animal.kaeps();
 }
 
 // if copying into godbolt, make main `pub`
@@ -85,7 +63,7 @@ mod tests {
     use rand::Rng;
 
     #[bench]
-    fn run_rw(b: &mut Bencher) {
+    fn run_orig(b: &mut Bencher) {
         let mut nums_vec: Vec<usize> = vec![];
         for _ in 0..1000 {
             nums_vec.push(rand::rng().random_range(..2));

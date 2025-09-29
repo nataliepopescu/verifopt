@@ -337,6 +337,18 @@ Cat::speak)
 
 -> lookup DefKind
 
+#### replacing `get_concrete_ty()` fakes
+
+[vtable_entries()](https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.vtable_entries)
+- takes in a
+  [TraitRef](https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/type.TraitRef.html)
+- how to get a `TraitRef`?
+    - [impl_trait_ref()](https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.impl_trait_ref)
+        - from impl_id -> trait_ref...? maybe
+        - calling this func panics...
+
+
+
 
 ### Things that might be important
 
@@ -385,7 +397,6 @@ https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/struct.TyCtxt.ht
 - impl/dyn traits in _return_ type only
 
 https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.all_traits_including_private
-
 
 
 

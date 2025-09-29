@@ -26,7 +26,6 @@ fn get_dog() -> Box<dyn Animal> {
 }
 
 struct Cat {}
-
 struct Dog {}
 
 impl Animal for Cat {

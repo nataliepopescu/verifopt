@@ -17,8 +17,8 @@ target triple = "x86_64-unknown-linux-gnu"
 @alloc_c85489ac7d65f986716cfdb1dc3aed62 = private unnamed_addr constant [39 x i8] c"Pass in a number and see what happens!\0A", align 1
 @alloc_da03007fb5fe1aab10d9ffd81ef29605 = private unnamed_addr constant <{ ptr, [8 x i8] }> <{ ptr @alloc_c85489ac7d65f986716cfdb1dc3aed62, [8 x i8] c"'\00\00\00\00\00\00\00" }>, align 8
 @alloc_91b3c5faf6d9510f9f99ba1e1008760b = private unnamed_addr constant [16 x i8] c"ptr_metadata.rs\00", align 1
-@alloc_7e3c69eed0d248379cb7dd5fa96a3bbe = private unnamed_addr constant <{ ptr, [16 x i8] }> <{ ptr @alloc_91b3c5faf6d9510f9f99ba1e1008760b, [16 x i8] c"\0F\00\00\00\00\00\00\00M\00\00\00\16\00\00\00" }>, align 8
-@alloc_192888bbe58f35ef83f71f1ff01f6a58 = private unnamed_addr constant <{ ptr, [16 x i8] }> <{ ptr @alloc_91b3c5faf6d9510f9f99ba1e1008760b, [16 x i8] c"\0F\00\00\00\00\00\00\00M\00\00\00\22\00\00\00" }>, align 8
+@alloc_e3957b8859ce2aa8b15942dc124100cc = private unnamed_addr constant <{ ptr, [16 x i8] }> <{ ptr @alloc_91b3c5faf6d9510f9f99ba1e1008760b, [16 x i8] c"\0F\00\00\00\00\00\00\00L\00\00\00\16\00\00\00" }>, align 8
+@alloc_e93cfa5780a445ae8fa516e2b18af6ea = private unnamed_addr constant <{ ptr, [16 x i8] }> <{ ptr @alloc_91b3c5faf6d9510f9f99ba1e1008760b, [16 x i8] c"\0F\00\00\00\00\00\00\00L\00\00\00\22\00\00\00" }>, align 8
 @vtable.2 = private unnamed_addr constant <{ [24 x i8], ptr, ptr, ptr }> <{ [24 x i8] c"\00\00\00\00\00\00\00\00\08\00\00\00\00\00\00\00\08\00\00\00\00\00\00\00", ptr @"_ZN4core3ops8function6FnOnce40call_once$u7b$$u7b$vtable.shim$u7d$$u7d$17h2850c0e5ea966220E", ptr @"_ZN3std2rt10lang_start28_$u7b$$u7b$closure$u7d$$u7d$17hf1034f8ce276aa1dE", ptr @"_ZN3std2rt10lang_start28_$u7b$$u7b$closure$u7d$$u7d$17hf1034f8ce276aa1dE" }>, align 8
 @alloc_63b4d328d824ede99567f14ca0e3fc42 = private unnamed_addr constant [60 x i8] c"/home/np/hack/rust/library/core/src/iter/traits/iterator.rs\00", align 1
 @alloc_dd76c2ebd4040649b03f6f1acb7f12b6 = private unnamed_addr constant <{ ptr, [16 x i8] }> <{ ptr @alloc_63b4d328d824ede99567f14ca0e3fc42, [16 x i8] c";\00\00\00\00\00\00\00\EB\07\00\00\09\00\00\00" }>, align 8
@@ -594,7 +594,7 @@ bb20.i:                                           ; preds = %bb15.i
 
 panic:                                            ; preds = %_ZN4core4iter6traits8iterator8Iterator7collect17he5359c3f3066ec82E.exit.thread, %_ZN4core4iter6traits8iterator8Iterator7collect17he5359c3f3066ec82E.exit
 ; invoke core::panicking::panic_bounds_check
-  invoke void @_ZN4core9panicking18panic_bounds_check17h6485479011b18438E(i64 noundef 1, i64 noundef 0, ptr noalias noundef readonly align 8 captures(address, read_provenance) dereferenceable(24) @alloc_7e3c69eed0d248379cb7dd5fa96a3bbe) #21
+  invoke void @_ZN4core9panicking18panic_bounds_check17h6485479011b18438E(i64 noundef 1, i64 noundef 0, ptr noalias noundef readonly align 8 captures(address, read_provenance) dereferenceable(24) @alloc_e3957b8859ce2aa8b15942dc124100cc) #21
           to label %unreachable unwind label %cleanup
 
 unreachable:                                      ; preds = %panic
@@ -605,7 +605,7 @@ bb2.i:                                            ; preds = %bb31.i, %bb34.i, %b
   call void @llvm.lifetime.start.p0(i64 1, ptr nonnull %e.i), !noalias !131
   store i8 %_7.sroa.4.0.ph, ptr %e.i, align 1, !noalias !131
 ; invoke core::result::unwrap_failed
-  invoke void @_ZN4core6result13unwrap_failed17ha0afa5615694ec87E(ptr noalias noundef nonnull readonly align 1 captures(address, read_provenance) @alloc_00ae4b301f7fab8ac9617c03fcbd7274, i64 noundef 43, ptr noundef nonnull align 1 %e.i, ptr noalias noundef readonly align 8 captures(address, read_provenance) dereferenceable(32) @vtable.3, ptr noalias noundef readonly align 8 captures(address, read_provenance) dereferenceable(24) @alloc_192888bbe58f35ef83f71f1ff01f6a58) #21
+  invoke void @_ZN4core6result13unwrap_failed17ha0afa5615694ec87E(ptr noalias noundef nonnull readonly align 1 captures(address, read_provenance) @alloc_00ae4b301f7fab8ac9617c03fcbd7274, i64 noundef 43, ptr noundef nonnull align 1 %e.i, ptr noalias noundef readonly align 8 captures(address, read_provenance) dereferenceable(32) @vtable.3, ptr noalias noundef readonly align 8 captures(address, read_provenance) dereferenceable(24) @alloc_e93cfa5780a445ae8fa516e2b18af6ea) #21
           to label %.noexc unwind label %cleanup
 
 .noexc:                                           ; preds = %bb2.i
@@ -1390,7 +1390,7 @@ attributes #23 = { cold noreturn nounwind }
 !131 = !{!132}
 !132 = distinct !{!132, !133, !"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17h9088647bdb823c1eE: %self"}
 !133 = distinct !{!133, !"_ZN4core6result19Result$LT$T$C$E$GT$6unwrap17h9088647bdb823c1eE"}
-!134 = !{i64 18329365645434451}
+!134 = !{i64 18329361350467154}
 !135 = !{i64 1}
 !136 = !{i8 0, i8 5}
 !137 = !{!138}

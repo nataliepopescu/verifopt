@@ -10,8 +10,9 @@ thiserror = "2.0.12"
 # from https://doc.rust-lang.org/cargo/reference/profiles.html#lto : 
 # "No LTO is performed if codegen units is 1 or opt-level is 0."
 [profile.release]
-lto = true
+#lto = true
 codegen-units = 1
+opt-level = "z"
 
 [dev-dependencies]
 criterion = "0.7.0"

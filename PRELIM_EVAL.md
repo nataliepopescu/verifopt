@@ -1,9 +1,9 @@
 # Preliminary Performance + Code Size Numbers
 
-- <category>:
-    - <code size in bytes>
-    - <LLVM-IR LOC>
-    - <benchmark perf>
+- `category`:
+    - `code size in bytes`
+    - `LLVM-IR LOC`
+    - `benchmark perf`
 
 ## `cgu = 1` (`opt-level = 3`)
 
@@ -17,7 +17,7 @@ unmod
     - 1400 LOC
     - 27.62 ns/iter (+/- 0.08)
 - src-rw: 
-    - 747476 B (-4) !!
+    - 747476 B (-4) ⬅️
     - 1425 LOC
     - 25.49 ns/iter (+/- 0.30)
 
@@ -29,9 +29,9 @@ mod
 - mir-rw:
     - build crashes (illegal instruction)
 - src-rw: 
-    - 747490 B (-4) !!
+    - 747490 B (-4) ⬅️
     - 1428 LOC
-    - 27.47 ns/iter (+/- 0.23) !!
+    - 27.47 ns/iter (+/- 0.23) ⬅️
 
 ## `cgu = 1` && `opt-level = s`
 
@@ -61,7 +61,7 @@ mod
 - src-rw:
     - 747486 B (+8)
     - 1428 LOC
-    - 30.58 ns/iter (+/- 0.32) !!
+    - 30.58 ns/iter (+/- 0.32) ⬅️
 
 ## `cgu = 1` && `opt-level = z`
 
@@ -77,7 +77,7 @@ unmod
 - src-rw:
     - 743380 B (+8)
     - 1424 LOC
-    - 30.45 ns/iter (+/- 0.50) !!
+    - 30.45 ns/iter (+/- 0.50) ⬅️
 
 mod
 - not-rw:
@@ -89,7 +89,7 @@ mod
     - sigill
     - seg fault
 - src-rw:
-    - 747482 B (-8) !!
+    - 747482 B (-8) ⬅️
     - 1428 LOC
     - 32.04 ns/iter (+/- 0.32)
 

@@ -1,80 +1,95 @@
 # Preliminary Performance + Code Size Numbers
 
-code sizes in bytes.
+- <category>:
+    - <code size in bytes>
+    - <LLVM-IR LOC>
+    - <benchmark perf>
 
-## only `lto = true`
-
-no diff to slack
-
-## only `cgu = 1`
+## `cgu = 1` (`opt-level = 3`)
 
 unmod
 - not-rw:
-    - 718812
+    - 747480 B
+    - 1400 LOC
+    - 28.43 ns/iter (+/- 0.39)
 - mir-rw:
-    - 718812
+    - 747480 B
+    - 1400 LOC
+    - 27.62 ns/iter (+/- 0.08)
 - src-rw: 
-    - 718808 (less!)
+    - 747476 B (-4) !!
+    - 1425 LOC
+    - 25.49 ns/iter (+/- 0.30)
 
 mod
 - not-rw:
-    - 747494
+    - 747494 B
+    - 1403 LOC
+    - 31.04 ns/iter (+/- 0.23)
 - mir-rw:
     - build crashes (illegal instruction)
 - src-rw: 
-    - 747490 (less!)
-
-now a 30K code size diff though
+    - 747490 B (-4) !!
+    - 1428 LOC
+    - 27.47 ns/iter (+/- 0.23) !!
 
 ## `cgu = 1` && `opt-level = s`
 
 unmod
 - not-rw:
-    - 718804
+    - 743376 B
+    - 1400 LOC
+    - 32.16 ns/iter (+/- 0.10)
 - mir-rw:
-    - 718804
+    - 743376 B
+    - 1400 LOC
+    - 32.35 ns/iter (+/- 1.51) 
 - src-rw:
-    - 718796 (less!)
+    - 743384 B (+8)
+    - 1424 LOC
+    - 32.32 ns/iter (+/- 1.81)
 
 mod
 - not-rw:
-    - 747478
+    - 747478 B
+    - 1403 LOC
+    - 33.63 ns/iter (+/- 0.10) 
 - mir-rw:
-    - 747478 (text + bss sections are different)
+    - 747478 B (text + bss sections are different)
+    - sigill
+    - seg fault
 - src-rw:
-    - 747486
-
-still a 30K code size diff
+    - 747486 B (+8)
+    - 1428 LOC
+    - 30.58 ns/iter (+/- 0.32) !!
 
 ## `cgu = 1` && `opt-level = z`
 
 unmod
 - not-rw:
-    - 718800
-    - 40.08 ns/iter (+/- 1.01)
-    - 1407 LLVM-IR LOC
+    - 743372 B
+    - 1400 LOC
+    - 34.50 ns/iter (+/- 0.36)
 - mir-rw:
-    - 718800
-    - 39.04 ns/iter (+/- 0.52)
-    - 1407 LLVM-IR LOC
+    - 743372 B
+    - 1400 LOC
+    - 34.20 ns/iter (+/- 0.55)
 - src-rw:
-    - 718792 (less!)
-    - 34.92 ns/iter (+/- 0.58)
-    - 1432 LLVM-IR LOC
+    - 743380 B (+8)
+    - 1424 LOC
+    - 30.45 ns/iter (+/- 0.50) !!
 
 mod
 - not-rw:
-    - 747490
+    - 747490 B
+    - 1403 LOC
     - 32.80 ns/iter (+/- 0.20)
-    - 1403 LLVM-IR LOC
 - mir-rw:
-    - 747490 (text + bss sections are different)
-    - seg fault :) 
-    - sigill :)
+    - 747490 B (text + bss sections are different)
+    - sigill
+    - seg fault
 - src-rw:
-    - 747482 (less!)
+    - 747482 B (-8) !!
+    - 1428 LOC
     - 32.04 ns/iter (+/- 0.32)
-    - 1428 LLVM-IR LOC
-
-still a 30K code size diff
 

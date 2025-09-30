@@ -12,7 +12,7 @@ thiserror = "2.0.12"
 [profile.release]
 #lto = true
 codegen-units = 1
-opt-level = "z"
+#opt-level = "s"
 
 [dev-dependencies]
 criterion = "0.7.0"

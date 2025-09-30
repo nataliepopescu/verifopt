@@ -52,12 +52,15 @@ unmod
 - not-rw:
     - 718800
     - 40.08 ns/iter (+/- 1.01)
+    - 1407 LLVM-IR LOC
 - mir-rw:
     - 718800
     - 39.04 ns/iter (+/- 0.52)
+    - 1407 LLVM-IR LOC
 - src-rw:
     - 718792 (less!)
     - 34.92 ns/iter (+/- 0.58)
+    - 1432 LLVM-IR LOC
 
 mod
 - not-rw:

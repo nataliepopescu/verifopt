@@ -1,5 +1,7 @@
 # Preliminary Performance + Code Size Numbers
 
+code sizes in bytes.
+
 ## only `lto = true`
 
 no diff to slack

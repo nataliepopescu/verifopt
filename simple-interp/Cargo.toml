@@ -13,6 +13,7 @@ thiserror = "2.0.12"
 #lto = true
 codegen-units = 1
 #opt-level = "s"
+opt-level = "z"
 
 [profile.dev]
 codegen-units = 1
@@ -21,14 +22,14 @@ codegen-units = 1
 criterion = "0.7.0"
 
 [[example]]
-name = "original_norewrite"
+name = "not_rw"
 bench = true
 
 [[example]]
-name = "original_torewrite"
+name = "mir_rw"
 bench = true
 
 [[example]]
-name = "ptr_metadata"
+name = "src_rw"
 bench = true
 

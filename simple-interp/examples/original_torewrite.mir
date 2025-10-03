@@ -192,38 +192,6 @@ fn run(_1: usize) -> () {
         _8 = std::ptr::metadata::<dyn Animal>(move _9) -> [return: bb12, unwind: bb8];
     }
 
-    bb4: {
-        drop(_4) -> [return: bb5, unwind: bb9];
-    }
-
-    bb5: {
-        drop(_3) -> [return: bb6, unwind: bb10];
-    }
-
-    bb6: {
-        drop(_2) -> [return: bb7, unwind continue];
-    }
-
-    bb7: {
-        return;
-    }
-
-    bb8 (cleanup): {
-        drop(_4) -> [return: bb9, unwind terminate(cleanup)];
-    }
-
-    bb9 (cleanup): {
-        drop(_3) -> [return: bb10, unwind terminate(cleanup)];
-    }
-
-    bb10 (cleanup): {
-        drop(_2) -> [return: bb11, unwind terminate(cleanup)];
-    }
-
-    bb11 (cleanup): {
-        resume;
-    }
-
     bb12: {
         _11 = copy ((_3.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
         _10 = &(*_11);
@@ -272,6 +240,38 @@ fn run(_1: usize) -> () {
     bb20: {
         _27 = copy _20 as &Dog (Transmute);
         _7 = <Dog as Animal>::speak(move _27) -> [return: bb22, unwind: bb8];
+    }
+
+    bb4: {
+        drop(_4) -> [return: bb5, unwind: bb9];
+    }
+
+    bb5: {
+        drop(_3) -> [return: bb6, unwind: bb10];
+    }
+
+    bb6: {
+        drop(_2) -> [return: bb7, unwind continue];
+    }
+
+    bb7: {
+        return;
+    }
+
+    bb8 (cleanup): {
+        drop(_4) -> [return: bb9, unwind terminate(cleanup)];
+    }
+
+    bb9 (cleanup): {
+        drop(_3) -> [return: bb10, unwind terminate(cleanup)];
+    }
+
+    bb10 (cleanup): {
+        drop(_2) -> [return: bb11, unwind terminate(cleanup)];
+    }
+
+    bb11 (cleanup): {
+        resume;
     }
 
     bb21: {

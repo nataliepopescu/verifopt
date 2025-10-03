@@ -6,7 +6,7 @@ mod/unmod compilers are locally built stage2 rustcs
     - `code size in bytes`
     - `benchmark perf`
 
-why does the mir-rw not improve code size but the src-rw does (w mod rustc)?
+why does the mir-rw not improve in code size but the src-rw does (w mod rustc)?
 
 ## `cgu = 1` (`opt-level = 3`)
 

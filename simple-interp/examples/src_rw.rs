@@ -84,7 +84,7 @@ mod tests {
     use rand::Rng;
 
     #[bench]
-    fn run_rw(b: &mut Bencher) {
+    fn run_src_rw(b: &mut Bencher) {
         let mut nums_vec: Vec<usize> = vec![];
         for _ in 0..1000 {
             nums_vec.push(rand::rng().random_range(..2));

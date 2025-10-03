@@ -123,6 +123,21 @@
       a type mismatch...)
       - removed
 
+- impl stuff to fix
+    - [ ] non-magic DefIds
+        - can use
+          [LanguageItems](https://doc.rust-lang.org/beta/nightly-rustc/rustc_hir/lang_items/struct.LanguageItems.html#method.dyn_metadata)
+          for things like `DynMetadata`, but there are many things that don't
+          show up there... so how should they be gotten?
+          - fyi this is a fixed list (enum actually) of 202 variants
+          - need
+            - [x] DynMetadata (langitems)
+            - [ ] PartialEq (langitems)
+            - [ ] PartialEq::eq (in diagnostic_items.name_to_id as "cmp_partial_eq")
+            - [ ] std::ptr::NonNull (in diag... as "NonNull")
+            - [ ] std::ptr::metadata()
+            - [ ] std::ptr::Unique
+            - [ ] Box::into_raw()
 
 
 

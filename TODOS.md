@@ -135,7 +135,7 @@
             - [ ] PartialEq (langitems)
             - [ ] PartialEq::eq (in diagnostic_items.name_to_id as "cmp_partial_eq")
             - [ ] std::ptr::NonNull (in diag... as "NonNull")
-            - [ ] std::ptr::metadata()
+            - [ ] std::ptr::metadata() (maybe in diag... as "mir_ptr_metadata")
             - [ ] std::ptr::Unique
             - [ ] Box::into_raw()
 

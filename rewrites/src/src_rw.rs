@@ -1,5 +1,5 @@
 trait Animal {
-    fn speak(&self);
+    fn kaeps(&self) -> &str;
 }
 
 fn get_animal(num: usize) -> Box<dyn Animal> {
@@ -24,14 +24,14 @@ struct Cat {}
 struct Dog {}
 
 impl Animal for Cat {
-    fn speak(&self) {
-        println!("meow");
+    fn kaeps(&self) -> &str {
+        "meow"
     }
 }
 
 impl Animal for Dog {
-    fn speak(&self) {
-        println!("woof");
+    fn kaeps(&self) -> &str {
+        "woof"
     }
 }
 
@@ -52,12 +52,12 @@ pub fn run(num: usize) {
     if animal_vtable == cat_vtable {
         unsafe {
             let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
-            <Cat as Animal>::speak(cat);
+            let _ = <Cat as Animal>::kaeps(cat);
         }
     } else if animal_vtable == dog_vtable {
         unsafe {
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
-            <Dog as Animal>::speak(dog);
+            let _ = <Dog as Animal>::kaeps(dog);
         }
     } 
 }

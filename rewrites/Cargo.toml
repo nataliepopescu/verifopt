@@ -8,15 +8,19 @@ rand = "0.9.2"
 
 # from https://doc.rust-lang.org/cargo/reference/profiles.html#lto : 
 # "No LTO is performed if codegen units is 1 or opt-level is 0."
-#[profile.release]
-##lto = true
-#codegen-units = 1
-##opt-level = "s"
-#opt-level = "z"
-#
-#[profile.dev]
-#codegen-units = 1
+[profile.release]
+#lto = true
+codegen-units = 1
+#opt-level = "s"
+opt-level = "z"
 
-#[dev-dependencies]
-#criterion = "0.7.0"
+[profile.dev]
+codegen-units = 1
+
+[dev-dependencies]
+criterion = "0.7.0"
+
+[[bench]]
+name = "criterion"
+harness = false
 

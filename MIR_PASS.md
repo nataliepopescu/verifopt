@@ -163,6 +163,8 @@ similar/helpful existing passes:
 
 ### Progress/plan
 
+`rustc src_rw.rs -C opt-level=0 -Z dump-mir='run & ReplaceDynamicDispatch'`
+
 Just writing a pass that does nothing but emit debug statements for terminators
 of kind `Call` or `TailCall` first
 

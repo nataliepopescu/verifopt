@@ -1,5 +1,5 @@
-trait Animal {
-    fn kaeps(&self) -> &str;
+pub trait Animal {
+    fn speak(&self) -> &str;
 }
 
 fn get_animal(num: usize) -> Box<dyn Animal> {
@@ -15,84 +15,79 @@ fn get_cat() -> Box<dyn Animal> {
     return Box::new(Cat {});
 }
 
-#[inline(always)]
-fn get_dog() -> Box<dyn Animal> {
-    return Box::new(Dog {});
-}
+//#[inline(always)]
+//fn get_dog() -> Box<dyn Animal> {
+//    return Box::new(Dog {});
+//}
 
-struct Cat {}
-struct Dog {}
+pub struct Cat {}
+pub struct Dog {}
 
 impl Animal for Cat {
-    fn kaeps(&self) -> &str {
+    fn speak(&self) -> &str{
         "meow"
     }
 }
 
 impl Animal for Dog {
-    fn kaeps(&self) -> &str {
+    fn speak(&self) -> &str {
         "woof"
     }
 }
 
-pub fn run(num: usize) {
+pub fn run_best(num: usize, cat: &Cat) -> String {
+    let _animal = get_animal(num);
+    let _cat = get_cat();
+    //let _dog = get_dog();
+    <Cat as Animal>::speak(cat).to_string()
+}
+
+pub fn run_not_rw(num: usize) -> String {
+    let animal = get_animal(num);
+    let _cat = get_cat();
+    //let _dog = get_dog();
+    animal.speak().to_string()
+}
+
+pub fn run_src_rw(num: usize) -> String {
     let animal = get_animal(num);
 
     // this part is hard to get as an elegant source code rewrite
     // i think, but haven't tried all that hard yet
     let cat = get_cat();
-    let dog = get_dog();
+    //let dog = get_dog();
 
     let animal_vtable = core::ptr::metadata(&*animal);
     let cat_vtable = core::ptr::metadata(&*cat);
-    let dog_vtable = core::ptr::metadata(&*dog);
+    //let dog_vtable = core::ptr::metadata(&*dog);
 
     let raw_animal = Box::into_raw(animal) as *const ();
 
     if animal_vtable == cat_vtable {
         unsafe {
             let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
-            let _ = <Cat as Animal>::kaeps(cat);
+            <Cat as Animal>::speak(cat).to_string()
         }
-    } else if animal_vtable == dog_vtable {
+    } else { //if animal_vtable == dog_vtable {
         unsafe {
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
-            let _ = <Dog as Animal>::kaeps(dog);
+            <Dog as Animal>::speak(dog).to_string()
         }
-    } 
-}
-
-// if copying into godbolt, make main `pub`
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-
-    match args.len() {
-        1 => println!("Pass in a number and see what happens!"),
-        _ => run(args[1].parse().unwrap()),
     }
 }
 
+// if copying into godbolt, make main `pub`
 /*
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use test::Bencher;
-    use rand::Rng;
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let cat: &Cat = &Cat {};
 
-    #[bench]
-    fn run_src_rw(b: &mut Bencher) {
-        let mut nums_vec: Vec<usize> = vec![];
-        for _ in 0..1000 {
-            nums_vec.push(rand::rng().random_range(..2));
-        }
-        let nums: &[usize] = &nums_vec[..];
-        let mut idx = 0;
-
-        b.iter(|| {
-            let num = test::black_box(nums[idx % 1000]);
-            idx += 1;
-            run(num)
-        })
+    match args.len() {
+        1 => println!("Pass in a number and see what happens!"),
+        _ => {
+            let s = run_best(args[1].parse().unwrap(), cat);
+            println!("{}", s);
+        },
     }
 }
 */

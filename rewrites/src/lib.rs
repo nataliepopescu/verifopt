@@ -1,9 +1,6 @@
 #![feature(ptr_metadata)]
 
-pub mod not_rw;
-pub mod mir_rw;
-pub mod src_rw;
+pub mod simple;
+pub mod pub_trait;
+pub mod vec;
 
-pub fn add_two(a: i32) -> i32 {
-    a + 2
-}

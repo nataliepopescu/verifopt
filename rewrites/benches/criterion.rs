@@ -1,9 +1,12 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
+use std::hint::black_box;
 
 use rand::Rng;
-use rewrites::{not_rw, mir_rw, src_rw};
+use rewrites::{simple, pub_trait, vec};
+use visitor_decl;
+use visitor_use;
 
-fn get_input_vec() -> Vec<usize> {
+fn get_input_num_vec() -> Vec<usize> {
     let mut nums_vec: Vec<usize> = vec![];
     for _ in 0..1000 {
         nums_vec.push(rand::rng().random_range(..2));
@@ -11,28 +14,71 @@ fn get_input_vec() -> Vec<usize> {
     nums_vec
 }
 
-fn bench_not_rw(c: &mut Criterion) {
-    let nums_vec = get_input_vec();
+//fn get_pub_trait_input_animal_vec() -> Vec<Box<dyn pub_trait::Animal>> {
+//    let mut animal_vec: Vec<Box<dyn pub_trait::Animal>> = vec![];
+//    for _ in 0..1000 {
+//        if rand::rng().random_range(..2usize) == 0 {
+//            animal_vec.push(Box::new(pub_trait::Cat{}));
+//        } else {
+//            animal_vec.push(Box::new(pub_trait::Dog{}));
+//        }
+//    }
+//    animal_vec
+//}
+
+//fn get_visitor_input_animal_vec() -> Vec<Box<dyn visitor_decl::Animal>> {
+//    let mut animal_vec: Vec<Box<dyn visitor_decl::Animal>> = vec![];
+//    for _ in 0..1000 {
+//        if rand::rng().random_range(..2usize) == 0 {
+//            animal_vec.push(Box::new(visitor_decl::Cat{}));
+//        } else {
+//            animal_vec.push(Box::new(visitor_decl::Dog{}));
+//        }
+//    }
+//    animal_vec
+//}
+
+//////
+
+fn bench_simple_best(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
+    let cat: &simple::Cat = &simple::Cat {};
 
     c.bench_function(
-        "not_rw",
+        "simple_best",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
-            not_rw::run(num)
+            simple::run_best(num, cat)
         })
     );
 }
 
-fn bench_mir_rw(c: &mut Criterion) {
-    let nums_vec = get_input_vec();
+fn bench_simple_not_rw(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
 
     c.bench_function(
-        "mir_rw",
+        "simple_not_rw",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            idx += 1;
+            simple::run_not_rw(num)
+        })
+    );
+}
+
+/*
+fn bench_simple_mir_rw(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "simple_mir_rw",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
@@ -40,22 +86,170 @@ fn bench_mir_rw(c: &mut Criterion) {
         })
     );
 }
+*/
 
-fn bench_src_rw(c: &mut Criterion) {
-    let nums_vec = get_input_vec();
+fn bench_simple_src_rw(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
 
     c.bench_function(
-        "src_rw",
+        "simple_src_rw",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
-            src_rw::run(num)
+            simple::run_src_rw(num)
         })
     );
 }
 
-criterion_group!(benches, bench_not_rw, bench_mir_rw, bench_src_rw);
+fn bench_pub_trait_best(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    let mut idx = 0;
+    let cat: &pub_trait::Cat = &pub_trait::Cat {};
+
+    c.bench_function(
+        "pub_trait_best",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            idx += 1;
+            pub_trait::run_best(num, cat)
+        })
+    );
+}
+
+fn bench_pub_trait_not_rw(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    //let animal_vec = get_pub_trait_input_animal_vec();
+    //let animals: &[Box<dyn pub_trait::Animal>] = &animal_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "pub_trait_not_rw",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            //let animal = black_box(&*animals[idx % 1000]);
+            idx += 1;
+            pub_trait::run_not_rw(num) //, animal)
+        })
+    );
+}
+
+fn bench_pub_trait_src_rw(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    //let animal_vec = get_pub_trait_input_animal_vec();
+    //let animals: &[Box<dyn pub_trait::Animal>] = &animal_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "pub_trait_src_rw",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            //let animal = black_box(&*animals[idx % 1000]);
+            idx += 1;
+            pub_trait::run_src_rw(num) //, animal)
+        })
+    );
+}
+
+// complicated structs
+
+// multiple trait methods
+
+// different paths
+
+fn bench_vec_best(c: &mut Criterion) {
+	let vec = vec::mk_vec();
+    vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+    vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+    let cat: &vec::Cat = &vec::Cat {};
+
+	c.bench_function(
+		"vec_best",
+		|b| b.iter(|| {
+			vec::run_best(&vec.lock().unwrap(), cat)
+		})
+    );
+}
+
+fn bench_vec_not_rw(c: &mut Criterion) {
+	let vec = vec::mk_vec();
+    for _ in 0..2 {
+        if rand::rng().random_range(..2usize) == 0 {
+            vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+		} else {
+            vec.lock().unwrap().insert(0, Box::new(vec::Dog));
+		}
+	}
+
+	c.bench_function(
+		"vec_not_rw",
+		|b| b.iter(|| {
+			vec::run_not_rw(&vec.lock().unwrap())
+		})
+	);
+}
+
+fn bench_vec_src_rw(c: &mut Criterion) {
+	let vec = vec::mk_vec();
+    for _ in 0..2 {
+        if rand::rng().random_range(..2usize) == 0 {
+            vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+		} else {
+            vec.lock().unwrap().insert(0, Box::new(vec::Dog));
+		}
+	}
+
+	c.bench_function(
+		"vec_src_rw",
+		|b| b.iter(|| {
+			vec::run_src_rw(&vec.lock().unwrap())
+		})
+	);
+}
+
+// TODO
+//fn bench_visitor_best(c: &mut Criterion) {}
+
+//fn bench_visitor_not_rw(c: &mut Criterion) {
+//    //let nums_vec = get_input_num_vec();
+//    //let nums: &[usize] = &nums_vec[..];
+//    let animal_vec = get_visitor_input_animal_vec();
+//    let animals: &[Box<dyn visitor_decl::Animal>] = &animal_vec[..];
+//    let dc = &visitor_use::SpeakBetterDogs {};
+//    let mut idx = 0;
+//
+//    c.bench_function(
+//        "visitor_not_rw",
+//        |b| b.iter(|| {
+//            //let num = black_box(nums[idx % 1000]);
+//            let animal = black_box(&*animals[idx % 1000]);
+//            idx += 1;
+//            visitor_use::run_not_rw(animal, dc)
+//        })
+//    );
+//}
+
+// TODO
+//fn bench_visitor_src_rw(c: &mut Criterion) {}
+
+criterion_group!(benches, 
+                 bench_simple_best, 
+                 bench_simple_not_rw, 
+                 bench_simple_src_rw, 
+                 //bench_mir_rw,
+                 bench_pub_trait_best,
+                 bench_pub_trait_not_rw, 
+                 bench_pub_trait_src_rw, 
+                 bench_vec_best,
+                 bench_vec_not_rw, 
+                 bench_vec_src_rw, 
+                 //bench_visitor_best,
+                 //bench_visitor_not_rw,
+                 //bench_visitor_src_rw,
+);
 criterion_main!(benches);
 

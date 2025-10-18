@@ -19,6 +19,8 @@ codegen-units = 1
 
 [dev-dependencies]
 criterion = "0.7.0"
+visitor-decl = { path = "../visitor-ex/visitor-decl" }
+visitor-use = { path = "../visitor-ex/visitor-use" }
 
 [[bench]]
 name = "criterion"

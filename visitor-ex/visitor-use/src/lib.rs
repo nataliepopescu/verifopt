@@ -1,8 +1,8 @@
 use rand::Rng;
 
-use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
+use visitor_decl::{Animal, AnimalVisitor}; //, Cat, Dog};
 
-struct SpeakBetterDogs;
+pub struct SpeakBetterDogs;
 
 impl AnimalVisitor for SpeakBetterDogs {
     fn receive(&self, a: &dyn Animal) {
@@ -14,6 +14,15 @@ impl AnimalVisitor for SpeakBetterDogs {
     }
 }
 
+//pub fn run_best
+
+pub fn run_not_rw(a: &dyn Animal, dc: &SpeakBetterDogs) {
+    a.visit(dc);
+}
+
+//pub fn run_src_rw(a: &dyn Animal, dc: &SpeakBetterDogs) {}
+
+/*
 fn main() {
     let a: &dyn Animal;
 
@@ -29,3 +38,4 @@ fn main() {
 
     a.visit(dc);
 }
+*/

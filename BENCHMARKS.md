@@ -1,6 +1,6 @@
-# Benchmarks / Smoke Tests Oddities
+# Benchmarks / Smoke Test Oddities
 
-## `simple` + `pub_trait`: `best` performs worse than `src_rw`
+## `simple` + `pub_trait`: `best_norm` performs worse than `src_rw`
 
 just looking at `simple` for simplicity... ha
 
@@ -13,14 +13,17 @@ and `get_cat` calls that help it be a fairer comparison)
   well as `src_rw` for `simple`!
 - that is wild
 
-`best` LLVM IR:
+LLVM IR from godbolt, using `rustc nightly` and `--edition=2024 -Cdebuginfo=0
+-Copt-level=3 --emit=llvm-ir`. 
+
+`best_norm` LLVM IR:
 
 ```llvm
 ; example::run_best
 ; Function Attrs: nonlazybind uwtable
 define void @_ZN7example8run_best17hec4ce4feafcb64c5E(ptr dead_on_unwind noalias noundef writable writeonly sret([24 x i8]) align 8 captures(none) dereferenceable(24) %_0, i64 noundef %num, ptr noalias noundef nonnull readonly align 1 captures(none) %cat) unnamed_addr #1 personality ptr @rust_eh_personality {
   %0 = icmp eq i64 %num, 0
-  %spec.select.i = select i1 %0, ptr @vtable.0, ptr @vtable.1
+  %spec.select.i = select i1 %0, ptr @vtable.0, ptr @vtable.1 ; 
 ; call __rustc::__rust_no_alloc_shim_is_unstable_v2
   tail call void @_RNvCshDZgbIUcEv7_7___rustc35___rust_no_alloc_shim_is_unstable_v2() #8, !noalias !6
 ; call __rustc::__rust_alloc
@@ -48,6 +51,25 @@ is_not_null.i10:                                  ; preds = %bb3
 
 ;;;; cleanup/error bbs (can largely ignore for our purposes)
 ```
+
+start (~get_animal code):
+- compare if %num == 0
+- store either Cat or Dog vtable
+- allocate mem
+
+bb3 (mem alloc succeeds): 
+- store a number/address (`2003789165` - probably the Cat vtable address) in %1
+    - same constant as below IR's integer representation of "meow"
+- store 4 in %_0 (offset 0)
+- store %1 (Cat vtable address) in %_0 (offset 8)
+- store 4 in %_0 (offset 16)
+
+- load the selected vtable from `start` -> %4
+- compare address (?) with null
+
+is_not_null: 
+- call offset vtable method
+    - ah, this may actually be a `drop` function...
 
 <details>
 
@@ -117,6 +139,53 @@ bb6:                                              ; preds = %bb2
 
 ;;;; cleanup/error bbs (can largely ignore for our purposes)
 ```
+
+func def line:
+- return type == void
+    - actual ret value is passed via hidden first pointer argument (sret)
+    - 24 bytes - why?
+- arg list:
+    - %_0
+        - hidden return pointer
+    - %num
+        - actual arg
+- `unnamed_addr #1`
+    - from chatgpt: "the address of this function is not significant (i.e., it
+      can be merged with other identical functions)."
+    - `attributes #1 = { nonlazybind uwtable "probe-stack"="inline-asm" "target-cpu"="x86-64" }`
+- `personality ptr @rust_eh_personality` = error handling
+
+start:
+- allocate 4 byte mem -> %0
+
+bb6 (mem alloc succeeds): 
+- compare if Cat vtable == Dog vtable
+    - vtable.0 == cat's vtable
+    - vtable.1 == dynamically-selected animal's vtable (you sure?)
+- compare if %num == 0
+- or the above two results (if any of the above are true...) -> %_8
+- if any of the above are true, %. = Cat vtable address, otherwise Dog vtable
+  address (just constants, assuming these are vtable addresses)
+    - could hypothetically be the address of the respective strings to return
+    - from chatgpt: "But instead of doing full string handling (which would be
+      expensive in IR), it writes a specific constant — which is likely a
+      precomputed hash or encoded string value for "meow" and "woof"."
+    - this would explain why no function is actually being called
+- store vtable address (%.) in %0
+
+- store 4 in %_0 (offset 0) - String len
+- `%_19.sroa.4.0._0.sroa_idx = getelementptr inbounds nuw i8, ptr %_0, i64 8`
+    - offset 8 into %_0
+- store %0 (vtable address/constant) in %_0 (offset 8) - String ptr
+- `%_19.sroa.5.0._0.sroa_idx = getelementptr inbounds nuw i8, ptr %_0, i64 16`
+    - offset 16 into %_0
+- store 4 in %_0 (offset 16) - String capacity
+
+- from chatgpt: "And knowing how String is laid out internally (len, ptr,
+  capacity, 3 * 8 bytes), we now know that the 24-byte return struct being
+  assembled in the IR is a Rust String."
+    - in the above block of instructions, the IR is assembling a 3-field struct,
+      i.e. the String return value
 
 <details>
 

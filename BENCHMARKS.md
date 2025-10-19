@@ -224,7 +224,7 @@ bb8:                                              ; preds = %cleanup1
 
 ### observations/conclusions
 
-- `best_norm` has more LOCs, while `src_rw` is more streamlined
+- `best_norm` has more LOCs + branches, while `src_rw` is more streamlined
     - more potential optimization opportunities
 - `src_rw` does not create/drop a trait object, while `best_norm` does (even
   though it isn't used)

@@ -222,7 +222,13 @@ bb8:                                              ; preds = %cleanup1
 </details>
 
 
-
+observations/conclusions:
+- `best_norm` has more LOCs, while `src_rw` is more streamlined
+    - more potential optimization opportunities
+- `src_rw` does not create/drop a trait object, while `best_norm` does (even
+  though it isn't used)
+    - less heap traffic / better CPU cache locality
+    - manual dispatch enables elision of vtable/drop glue
 
 
 

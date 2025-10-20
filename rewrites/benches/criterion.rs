@@ -298,6 +298,20 @@ fn bench_vec_best(c: &mut Criterion) {
     );
 }
 
+fn bench_vec_best_normalized(c: &mut Criterion) {
+	let vec = vec::mk_vec();
+    vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+    vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+    let cat: &vec::Cat = &vec::Cat {};
+
+	c.bench_function(
+		"vec_best_normalized",
+		|b| b.iter(|| {
+			vec::run_best_normalized(&vec.lock().unwrap(), cat)
+		})
+    );
+}
+
 fn bench_vec_not_rw(c: &mut Criterion) {
 	let vec = vec::mk_vec();
     for _ in 0..2 {
@@ -370,34 +384,38 @@ criterion_group!{
             ;
     targets = 
         /* simple pattern */
-        bench_simple_best, 
-        bench_simple_best_normalized, 
-        bench_simple_not_rw, 
-        bench_simple_src_rw, 
-        bench_simple_best_normalized_fallback, 
-        bench_simple_not_rw_fallback, 
-        bench_simple_src_rw_fallback, 
-        //bench_simple_mir_rw,
+
+        //bench_simple_best, 
+        //bench_simple_best_normalized, 
+        //bench_simple_not_rw, 
+        //bench_simple_src_rw, 
+        //bench_simple_best_normalized_fallback, 
+        //bench_simple_not_rw_fallback, 
+        //bench_simple_src_rw_fallback, 
+        ////bench_simple_mir_rw,
 
         /* struct fields pattern */
-        bench_struct_fields_best, 
-        bench_struct_fields_best_normalized, 
-        bench_struct_fields_not_rw, 
-        bench_struct_fields_src_rw, 
-        bench_struct_fields_best_normalized_fallback, 
-        bench_struct_fields_not_rw_fallback, 
-        bench_struct_fields_src_rw_fallback, 
+
+        //bench_struct_fields_best, 
+        //bench_struct_fields_best_normalized, 
+        //bench_struct_fields_not_rw, 
+        //bench_struct_fields_src_rw, 
+        //bench_struct_fields_best_normalized_fallback, 
+        //bench_struct_fields_not_rw_fallback, 
+        //bench_struct_fields_src_rw_fallback, 
 
         /* vec pattern */
-        //bench_vec_best,
-        //bench_vec_best_normalized,
-        //bench_vec_not_rw, 
-        //bench_vec_src_rw, 
+
+        bench_vec_best,
+        bench_vec_best_normalized,
+        bench_vec_not_rw, 
+        bench_vec_src_rw,
         //bench_vec_best_normalized_fallback,
         //bench_vec_not_rw_fallback, 
         //bench_vec_src_rw_fallback, 
 
         /* visitor pattern */
+
         //bench_visitor_best,
         //bench_visitor_best_normalized,
         //bench_visitor_not_rw,

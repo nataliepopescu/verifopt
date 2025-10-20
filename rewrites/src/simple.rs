@@ -41,13 +41,13 @@ pub fn run_best(cat: &Cat) -> String {
     return <Cat as Animal>::speak(cat).to_string();
 }
 
-pub fn run_best_norm(num: usize, cat: &Cat) -> String {
+pub fn run_best_normalized(num: usize, cat: &Cat) -> String {
     let _animal = get_animal(num);
     let _cat = get_cat();
     return <Cat as Animal>::speak(cat).to_string();
 }
 
-pub fn run_best_norm_fallback(num: usize, cat: &Cat) -> String {
+pub fn run_best_normalized_fallback(num: usize, cat: &Cat) -> String {
     let _animal = get_animal(num);
     let _cat = get_cat();
     let _dog = get_dog();

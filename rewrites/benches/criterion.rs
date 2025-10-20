@@ -83,17 +83,32 @@ fn bench_simple_not_rw(c: &mut Criterion) {
     );
 }
 
-fn bench_simple_src_rw(c: &mut Criterion) {
+fn bench_simple_src_rw_into_raw(c: &mut Criterion) {
     let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
 
     c.bench_function(
-        "simple_src_rw",
+        "simple_src_rw_into_raw",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
-            simple::run_src_rw(num)
+            simple::run_src_rw_into_raw(num)
+        })
+    );
+}
+
+fn bench_simple_src_rw_transmutes(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "simple_src_rw_transmutes",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            idx += 1;
+            simple::run_src_rw_transmutes(num)
         })
     );
 }
@@ -129,17 +144,32 @@ fn bench_simple_not_rw_fallback(c: &mut Criterion) {
     );
 }
 
-fn bench_simple_src_rw_fallback(c: &mut Criterion) {
+fn bench_simple_src_rw_into_raw_fallback(c: &mut Criterion) {
     let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
 
     c.bench_function(
-        "simple_src_rw_fallback",
+        "simple_src_rw_into_raw_fallback",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
-            simple::run_src_rw_fallback(num)
+            simple::run_src_rw_into_raw_fallback(num)
+        })
+    );
+}
+
+fn bench_simple_src_rw_transmutes_fallback(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "simple_src_rw_transmutes_fallback",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            idx += 1;
+            simple::run_src_rw_transmutes_fallback(num)
         })
     );
 }
@@ -213,17 +243,32 @@ fn bench_struct_fields_not_rw(c: &mut Criterion) {
     );
 }
 
-fn bench_struct_fields_src_rw(c: &mut Criterion) {
+fn bench_struct_fields_src_rw_into_raw(c: &mut Criterion) {
     let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
 
     c.bench_function(
-        "struct_fields_src_rw",
+        "struct_fields_src_rw_into_raw",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
-            struct_fields::run_src_rw(num)
+            struct_fields::run_src_rw_into_raw(num)
+        })
+    );
+}
+
+fn bench_struct_fields_src_rw_transmutes(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "struct_fields_src_rw_transmutes",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            idx += 1;
+            struct_fields::run_src_rw_transmutes(num)
         })
     );
 }
@@ -263,17 +308,32 @@ fn bench_struct_fields_not_rw_fallback(c: &mut Criterion) {
     );
 }
 
-fn bench_struct_fields_src_rw_fallback(c: &mut Criterion) {
+fn bench_struct_fields_src_rw_into_raw_fallback(c: &mut Criterion) {
     let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
 
     c.bench_function(
-        "struct_fields_src_rw_fallback",
+        "struct_fields_src_rw_into_raw_fallback",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
-            struct_fields::run_src_rw_fallback(num)
+            struct_fields::run_src_rw_into_raw_fallback(num)
+        })
+    );
+}
+
+fn bench_struct_fields_src_rw_transmutes_fallback(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "struct_fields_src_rw_transmutes_fallback",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            idx += 1;
+            struct_fields::run_src_rw_transmutes_fallback(num)
         })
     );
 }
@@ -348,6 +408,56 @@ fn bench_vec_src_rw(c: &mut Criterion) {
 	);
 }
 
+fn bench_vec_best_normalized_fallback(c: &mut Criterion) {
+	let vec = vec::mk_vec();
+    vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+    vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+    let cat: &vec::Cat = &vec::Cat {};
+
+	c.bench_function(
+		"vec_best_normalized_fallback",
+		|b| b.iter(|| {
+			vec::run_best_normalized_fallback(&vec.lock().unwrap(), cat)
+		})
+    );
+}
+
+fn bench_vec_not_rw_fallback(c: &mut Criterion) {
+	let vec = vec::mk_vec();
+    for _ in 0..2 {
+        if rand::rng().random_range(..2usize) == 0 {
+            vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+		} else {
+            vec.lock().unwrap().insert(0, Box::new(vec::Dog));
+		}
+	}
+
+	c.bench_function(
+		"vec_not_rw_fallback",
+		|b| b.iter(|| {
+			vec::run_not_rw_fallback(&vec.lock().unwrap())
+		})
+	);
+}
+
+fn bench_vec_src_rw_fallback(c: &mut Criterion) {
+	let vec = vec::mk_vec();
+    for _ in 0..2 {
+        if rand::rng().random_range(..2usize) == 0 {
+            vec.lock().unwrap().insert(0, Box::new(vec::Cat));
+		} else {
+            vec.lock().unwrap().insert(0, Box::new(vec::Dog));
+		}
+	}
+
+	c.bench_function(
+		"vec_src_rw_fallback",
+		|b| b.iter(|| {
+			vec::run_src_rw_fallback(&vec.lock().unwrap())
+		})
+	);
+}
+
 /* visitor pattern */
 
 // TODO
@@ -385,24 +495,27 @@ criterion_group!{
     targets = 
         /* simple pattern */
 
-        //bench_simple_best, 
-        //bench_simple_best_normalized, 
-        //bench_simple_not_rw, 
-        //bench_simple_src_rw, 
-        //bench_simple_best_normalized_fallback, 
-        //bench_simple_not_rw_fallback, 
-        //bench_simple_src_rw_fallback, 
-        ////bench_simple_mir_rw,
+        bench_simple_best, 
+        bench_simple_best_normalized, 
+        bench_simple_not_rw, 
+        bench_simple_src_rw_into_raw, 
+        bench_simple_src_rw_transmutes, 
+        bench_simple_best_normalized_fallback, 
+        bench_simple_not_rw_fallback, 
+        bench_simple_src_rw_into_raw_fallback, 
+        bench_simple_src_rw_transmutes_fallback, 
 
         /* struct fields pattern */
 
-        //bench_struct_fields_best, 
-        //bench_struct_fields_best_normalized, 
-        //bench_struct_fields_not_rw, 
-        //bench_struct_fields_src_rw, 
-        //bench_struct_fields_best_normalized_fallback, 
-        //bench_struct_fields_not_rw_fallback, 
-        //bench_struct_fields_src_rw_fallback, 
+        bench_struct_fields_best, 
+        bench_struct_fields_best_normalized, 
+        bench_struct_fields_not_rw, 
+        bench_struct_fields_src_rw_into_raw, 
+        bench_struct_fields_src_rw_transmutes, 
+        bench_struct_fields_best_normalized_fallback, 
+        bench_struct_fields_not_rw_fallback, 
+        bench_struct_fields_src_rw_into_raw_fallback, 
+        bench_struct_fields_src_rw_transmutes_fallback, 
 
         /* vec pattern */
 
@@ -410,9 +523,9 @@ criterion_group!{
         bench_vec_best_normalized,
         bench_vec_not_rw, 
         bench_vec_src_rw,
-        //bench_vec_best_normalized_fallback,
-        //bench_vec_not_rw_fallback, 
-        //bench_vec_src_rw_fallback, 
+        bench_vec_best_normalized_fallback,
+        bench_vec_not_rw_fallback, 
+        bench_vec_src_rw_fallback, 
 
         /* visitor pattern */
 

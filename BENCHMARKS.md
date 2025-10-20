@@ -1,6 +1,6 @@
 # Benchmarks / Smoke Test Oddities
 
-## `simple` + `pub_trait`: `best_norm` performs worse than `src_rw`
+## `simple` + `pub_trait`: `best_normalized` performs worse than `src_rw`
 
 just looking at `simple` for simplicity... ha
 
@@ -16,7 +16,7 @@ and `get_cat` calls that help it be a fairer comparison)
 LLVM IR from godbolt, using `rustc nightly` and `--edition=2024 -Cdebuginfo=0
 -Copt-level=3 --emit=llvm-ir`. 
 
-`best_norm` LLVM IR:
+`best_normalized` LLVM IR:
 
 <details>
 
@@ -236,9 +236,9 @@ bb6 (mem alloc succeeds):
 
 ### observations/conclusions
 
-- `best_norm` has more LOCs + branches, while `src_rw` is more streamlined
+- `best_normalized` has more LOCs + branches, while `src_rw` is more streamlined
     - more potential optimization opportunities
-- `src_rw` does not create/drop a trait object, while `best_norm` does (even
+- `src_rw` does not create/drop a trait object, while `best_normalized` does (even
   though it isn't used)
     - less heap traffic / better CPU cache locality
     - manual dispatch enables elision of vtable/drop glue
@@ -711,6 +711,8 @@ streamlined/has fewer LOCs but ends up being slower
 - then manually constructs the String retval
 
 TODO would be interesting to see during which LLVM phase the two IRs diverge
+
+update: the `src_rw_transmutes` (as opposed to `src_rw_into_raw`) offsets this effect!
 
 
 

@@ -67,7 +67,7 @@ pub fn run_not_rw_fallback(num: usize) -> String {
     animal.speak().to_string()
 }
 
-pub fn run_src_rw(num: usize) -> String {
+pub fn run_src_rw_into_raw(num: usize) -> String {
     let animal = get_animal(num);
     let cat = get_cat();
 
@@ -88,7 +88,29 @@ pub fn run_src_rw(num: usize) -> String {
     }
 }
 
-pub fn run_src_rw_fallback(num: usize) -> String {
+pub fn run_src_rw_transmutes(num: usize) -> String {
+    let animal = get_animal(num);
+    let cat = get_cat();
+
+    let animal_vtable = core::ptr::metadata(&*animal);
+    let cat_vtable = core::ptr::metadata(&*cat);
+
+    if animal_vtable == cat_vtable {
+        unsafe {
+            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
+            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
+            return <Cat as Animal>::speak(cat).to_string();
+        }
+    } else {
+        unsafe {
+            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
+            let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
+            return <Dog as Animal>::speak(dog).to_string();
+        }
+    }
+}
+
+pub fn run_src_rw_into_raw_fallback(num: usize) -> String {
     let animal = get_animal(num);
     let cat = get_cat();
     let dog = get_dog();
@@ -106,6 +128,32 @@ pub fn run_src_rw_fallback(num: usize) -> String {
     } else if animal_vtable == dog_vtable {
         unsafe {
             let raw_animal = Box::into_raw(animal) as *const ();
+            let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
+            return <Dog as Animal>::speak(dog).to_string();
+        }
+    } else {
+        return animal.speak().to_string();
+    }
+}
+
+pub fn run_src_rw_transmutes_fallback(num: usize) -> String {
+    let animal = get_animal(num);
+    let cat = get_cat();
+    let dog = get_dog();
+
+    let animal_vtable = core::ptr::metadata(&*animal);
+    let cat_vtable = core::ptr::metadata(&*cat);
+    let dog_vtable = core::ptr::metadata(&*dog);
+
+    if animal_vtable == cat_vtable {
+        unsafe {
+            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
+            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
+            return <Cat as Animal>::speak(cat).to_string();
+        }
+    } else if animal_vtable == dog_vtable {
+        unsafe {
+            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
             return <Dog as Animal>::speak(dog).to_string();
         }

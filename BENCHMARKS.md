@@ -18,6 +18,10 @@ LLVM IR from godbolt, using `rustc nightly` and `--edition=2024 -Cdebuginfo=0
 
 `best_norm` LLVM IR:
 
+<details>
+
+<summary>main logic bbs</summary>
+
 ```llvm
 ; example::run_best
 ; Function Attrs: nonlazybind uwtable
@@ -51,6 +55,8 @@ is_not_null.i10:                                  ; preds = %bb3
 
 ;;;; cleanup/error bbs (can largely ignore for our purposes)
 ```
+
+</details>
 
 <details>
 
@@ -113,6 +119,10 @@ is_not_null:
 
 `src_rw` LLVM IR:
 
+<details>
+
+<summary>main logic bbs</summary>
+
 ```llvm
 ; example::run_src_rw
 ; Function Attrs: nonlazybind uwtable
@@ -139,6 +149,8 @@ bb6:                                              ; preds = %bb2
 
 ;;;; cleanup/error bbs (can largely ignore for our purposes)
 ```
+
+</details>
 
 <details>
 
@@ -242,6 +254,10 @@ TODO
 
 `not_rw`:
 
+<details>
+
+<summary>main logic bbs</summary>
+
 ```llvm
 ; example::run_not_rw
 ; Function Attrs: nonlazybind uwtable
@@ -337,6 +353,8 @@ is_not_null.i15:                                  ; preds = %bb3
 
 ;;;; cleanup/error bbs (can largely ignore for our purposes)
 ```
+
+</details>
 
 <details>
 
@@ -466,6 +484,10 @@ bb2:
 
 `src_rw`:
 
+<details>
+
+<summary>main logic bbs</summary>
+
 ```llvm
 ; example::run_src_rw
 ; Function Attrs: nonlazybind uwtable
@@ -535,6 +557,8 @@ bb5:                                              ; preds = %bb10
 
 ;;;; cleanup/error bbs (can largely ignore for our purposes)
 ```
+
+</details>
 
 <details>
 

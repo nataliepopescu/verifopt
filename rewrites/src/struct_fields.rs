@@ -1,35 +1,60 @@
-pub trait Animal {
+trait Animal {
     fn speak(&self) -> &str;
 }
 
 fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        return Box::new(Cat {});
+        return Box::new(Cat {
+            name: "kitty",
+            age: 9,
+            fav_toy: "shoe",
+        });
     } else {
-        return Box::new(Dog {});
+        return Box::new(Dog {
+            name: "doggo",
+            age: 7,
+            fav_walk_route: "anywhere",
+        });
     }
 }
 
 #[inline(always)]
 fn get_cat() -> Box<dyn Animal> {
-    return Box::new(Cat {});
+    return Box::new(Cat {
+        name: "kitty",
+        age: 9,
+        fav_toy: "shoe",
+    });
 }
 
 #[inline(always)]
 fn get_dog() -> Box<dyn Animal> {
-    return Box::new(Dog {});
+    return Box::new(Dog {
+        name: "doggo",
+        age: 7,
+        fav_walk_route: "anywhere",
+    });
 }
 
-pub struct Cat {}
-pub struct Dog {}
+pub struct Cat<'a>{
+    pub name: &'a str,
+    pub age: usize,
+    pub fav_toy: &'a str,
+}
 
-impl Animal for Cat {
+pub struct Dog<'a> {
+    pub name: &'a str,
+    pub age: usize,
+    pub fav_walk_route: &'a str,
+}
+
+impl Animal for Cat<'_> {
     fn speak(&self) -> &str{
         "meow"
     }
 }
 
-impl Animal for Dog {
+impl Animal for Dog<'_> {
     fn speak(&self) -> &str {
         "woof"
     }
@@ -39,33 +64,33 @@ pub fn run_best(cat: &Cat) -> String {
     <Cat as Animal>::speak(cat).to_string()
 }
 
-pub fn run_best_norm(num: usize, cat: &Cat) -> String {
+pub fn run_best_normalized(num: usize, cat: &Cat) -> String {
     let _animal = get_animal(num);
     let _cat = get_cat();
     <Cat as Animal>::speak(cat).to_string()
 }
 
-pub fn run_best_norm_fallback(num: usize, cat: &Cat) -> String {
+pub fn run_best_normalized_fallback(num: usize, cat: &Cat) -> String {
     let _animal = get_animal(num);
     let _cat = get_cat();
     let _dog = get_dog();
     <Cat as Animal>::speak(cat).to_string()
 }
 
-pub fn run_not_rw(num: usize) -> String { //, animal: &dyn Animal) -> String {
+pub fn run_not_rw(num: usize) -> String {
     let animal = get_animal(num);
     let _cat = get_cat();
     animal.speak().to_string()
 }
 
-pub fn run_not_rw_fallback(num: usize) -> String { //, animal: &dyn Animal) -> String {
+pub fn run_not_rw_fallback(num: usize) -> String {
     let animal = get_animal(num);
     let _cat = get_cat();
     let _dog = get_dog();
     animal.speak().to_string()
 }
 
-pub fn run_src_rw(num: usize) -> String { //, animal: &dyn Animal) -> String {
+pub fn run_src_rw(num: usize) -> String {
     let animal = get_animal(num);
     let cat = get_cat();
 
@@ -87,7 +112,7 @@ pub fn run_src_rw(num: usize) -> String { //, animal: &dyn Animal) -> String {
     }
 }
 
-pub fn run_src_rw_fallback(num: usize) -> String { //, animal: &dyn Animal) -> String {
+pub fn run_src_rw_fallback(num: usize) -> String {
     let animal = get_animal(num);
     let cat = get_cat();
     let dog = get_dog();

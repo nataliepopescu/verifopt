@@ -463,6 +463,21 @@ start:
 - alloc mem (40 bytes)
 
 example::get_animal::... : (same as below)
+- first alloc: either "kitty" or "doggo" (1st struct field)
+- second alloc: either "shoe" or "anywhere" (3rd struct field)
+- %_0.sroa...: Cat or Dog vtable ptr
+- %3: phi node for 2nd struct field
+
+- store 1st struct field -> alloc mem
+- store 5 -> alloc mem + 8
+    - 5 might correspond to the length of the 1st field's string, but then why
+      doesn't the 3rd field's string have a similar length field?
+- store 3rd struct field -> alloc mem + 16
+- store 2nd struct field -> alloc mem + 24
+
+    - ^ struct packing? why is the order mixed up?
+
+- alloc more mem (40 bytes) -> %4
 
 bb8: 
 - store "catherine" -> 2nd alloc mem (name)
@@ -478,8 +493,25 @@ bb8:
 
 bb2: 
 - get retval of vtable method call
+    - two parts likely b/c retval == &str (ptr + len)
+    - %_4.0 : ptr
+    - %_4.1 : len
+- from chatgpt:
+    - check length non-negative
+    - check length non-zero?
 
-... rest: confused
+bb5.i.i.i:
+- alloc mem (bytes == length of retval) -> %12
+
+bb10.i.i.i:
+- %14: converts %12 ptr val to integer
+
+bb3:
+- phi node
+- %15: converts %14 back to ptr (newly-alloc mem)
+- memcopy retval into %15
+- %_0 filled (len = %_4.1, ptr = %15, capacity = %_4.1) -> turn &str into String
+- call dealloc/drop method
 
 
 `src_rw`:

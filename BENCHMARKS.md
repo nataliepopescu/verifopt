@@ -680,6 +680,8 @@ bb10:
 - store 7 -> 2nd alloc mem + 24 (fav_toy str len)
 - store 2 -> 2nd alloc mem + 32 (age)
 
+- (^ same as above's bb8)
+
 - alloc more mem (4 bytes) -> %6
 
 bb5:
@@ -697,6 +699,20 @@ bb5:
 contrary to the `simple` example observations, this `src_rw` IR seems more 
 streamlined/has fewer LOCs but ends up being slower
 - perhaps it has been optimized less, but if so, why?
+
+`not_rw`
+- calls the relevant vtable method
+- memcopies the vtable retval (&str)
+- then manually constructs the String retval using previous values
+
+`src_rw`
+- manually loads/stores the correct &str value (a constant depending on the
+  relevant vtable) 
+- then manually constructs the String retval
+
+TODO would be interesting to see during which LLVM phase the two IRs diverge
+
+
 
 ## `vec`: `src_rw` performs worse than `not_rw`
 

@@ -1,3 +1,5 @@
+#![feature(ptr_metadata)]
+
 trait Animal {
     fn speak(&self) -> &str;
 }

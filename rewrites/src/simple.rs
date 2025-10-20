@@ -1,4 +1,4 @@
-pub trait Animal {
+trait Animal {
     fn speak(&self) -> &str;
 }
 

@@ -39,7 +39,7 @@ fn get_input_num_vec() -> Vec<usize> {
 //    animal_vec
 //}
 
-//////
+/* simple pattern */
 
 fn bench_simple_best(c: &mut Criterion) {
     let cat: &simple::Cat = &simple::Cat {};
@@ -161,18 +161,31 @@ fn bench_simple_mir_rw(c: &mut Criterion) {
 }
 */
 
+/* pub_trait pattern */
+
 fn bench_pub_trait_best(c: &mut Criterion) {
+    let cat: &pub_trait::Cat = &pub_trait::Cat {};
+
+    c.bench_function(
+        "pub_trait_best",
+        |b| b.iter(|| {
+            pub_trait::run_best(cat)
+        })
+    );
+}
+
+fn bench_pub_trait_best_norm(c: &mut Criterion) {
     let nums_vec = get_input_num_vec();
     let nums: &[usize] = &nums_vec[..];
     let mut idx = 0;
     let cat: &pub_trait::Cat = &pub_trait::Cat {};
 
     c.bench_function(
-        "pub_trait_best",
+        "pub_trait_best_norm",
         |b| b.iter(|| {
             let num = black_box(nums[idx % 1000]);
             idx += 1;
-            pub_trait::run_best(num, cat)
+            pub_trait::run_best_norm(num, cat)
         })
     );
 }
@@ -213,11 +226,64 @@ fn bench_pub_trait_src_rw(c: &mut Criterion) {
     );
 }
 
+fn bench_pub_trait_best_norm_fallback(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    let mut idx = 0;
+    let cat: &pub_trait::Cat = &pub_trait::Cat {};
+
+    c.bench_function(
+        "pub_trait_best_norm_fallback",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            idx += 1;
+            pub_trait::run_best_norm_fallback(num, cat)
+        })
+    );
+}
+
+fn bench_pub_trait_not_rw_fallback(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    //let animal_vec = get_pub_trait_input_animal_vec();
+    //let animals: &[Box<dyn pub_trait::Animal>] = &animal_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "pub_trait_not_rw_fallback",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            //let animal = black_box(&*animals[idx % 1000]);
+            idx += 1;
+            pub_trait::run_not_rw_fallback(num) //, animal)
+        })
+    );
+}
+
+fn bench_pub_trait_src_rw_fallback(c: &mut Criterion) {
+    let nums_vec = get_input_num_vec();
+    let nums: &[usize] = &nums_vec[..];
+    //let animal_vec = get_pub_trait_input_animal_vec();
+    //let animals: &[Box<dyn pub_trait::Animal>] = &animal_vec[..];
+    let mut idx = 0;
+
+    c.bench_function(
+        "pub_trait_src_rw_fallback",
+        |b| b.iter(|| {
+            let num = black_box(nums[idx % 1000]);
+            //let animal = black_box(&*animals[idx % 1000]);
+            idx += 1;
+            pub_trait::run_src_rw_fallback(num) //, animal)
+        })
+    );
+}
+
+// TODO
 // complicated structs
-
 // multiple trait methods
-
 // different paths
+
+/* vec pattern */
 
 fn bench_vec_best(c: &mut Criterion) {
 	let vec = vec::mk_vec();
@@ -269,6 +335,8 @@ fn bench_vec_src_rw(c: &mut Criterion) {
 	);
 }
 
+/* visitor pattern */
+
 // TODO
 //fn bench_visitor_best(c: &mut Criterion) {}
 
@@ -313,9 +381,13 @@ criterion_group!{
         //bench_mir_rw,
 
         /* pub trait pattern */
-        //bench_pub_trait_best,
-        //bench_pub_trait_not_rw, 
-        //bench_pub_trait_src_rw, 
+        bench_pub_trait_best, 
+        bench_pub_trait_best_norm, 
+        bench_pub_trait_not_rw, 
+        bench_pub_trait_src_rw, 
+        bench_pub_trait_best_norm_fallback, 
+        bench_pub_trait_not_rw_fallback, 
+        bench_pub_trait_src_rw_fallback, 
 
         /* vec pattern */
         //bench_vec_best,

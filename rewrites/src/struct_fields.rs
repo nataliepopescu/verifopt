@@ -62,7 +62,8 @@ impl Animal for Dog<'_> {
     }
 }
 
-pub fn run_best(cat: &Cat) -> String {
+pub fn run_best(num: usize, cat: &Cat) -> String {
+    let _animal = get_animal(num);
     <Cat as Animal>::speak(cat).to_string()
 }
 
@@ -81,11 +82,21 @@ pub fn run_best_normalized_fallback(num: usize, cat: &Cat) -> String {
 
 pub fn run_not_rw(num: usize) -> String {
     let animal = get_animal(num);
+    animal.speak().to_string()
+}
+
+pub fn run_not_rw_normalized(num: usize) -> String {
+    let animal = get_animal(num);
     let _cat = get_cat();
     animal.speak().to_string()
 }
 
 pub fn run_not_rw_fallback(num: usize) -> String {
+    let animal = get_animal(num);
+    animal.speak().to_string()
+}
+
+pub fn run_not_rw_fallback_normalized(num: usize) -> String {
     let animal = get_animal(num);
     let _cat = get_cat();
     let _dog = get_dog();

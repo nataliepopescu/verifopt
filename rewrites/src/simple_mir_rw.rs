@@ -1,5 +1,5 @@
 trait Animal {
-    fn speak(&self) -> &str;
+    fn kaeps(&self) -> &str;
 }
 
 fn get_animal(num: usize) -> Box<dyn Animal> {
@@ -24,24 +24,21 @@ struct Cat {}
 struct Dog {}
 
 impl Animal for Cat {
-    fn speak(&self) -> &str{
+    fn kaeps(&self) -> &str{
         "meow"
     }
 }
 
 impl Animal for Dog {
-    fn speak(&self) -> &str {
+    fn kaeps(&self) -> &str {
         "woof"
     }
 }
 
 pub fn run(num: usize) -> String {
-    //println!("in run");
     let animal = get_animal(num);
-    //println!("got animal");
     let _cat = get_cat();
-    //println!("got cat");
-    animal.speak().to_string()
+    animal.kaeps().to_string()
 }
 
 // if copying into godbolt, make main `pub`

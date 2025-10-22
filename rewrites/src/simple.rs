@@ -174,18 +174,16 @@ pub fn run_src_rw_transmutes_fallback(num: usize) -> String {
 }
 
 // if copying into godbolt, make main `pub`
-/*
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let cat: &Cat = &Cat {};
+    //let cat: &Cat = &Cat {};
 
     match args.len() {
         1 => println!("Pass in a number and see what happens!"),
         _ => {
-            let s = run_best(args[1].parse().unwrap(), cat);
+            let s = run_not_rw_fallback_normalized(args[1].parse().unwrap());
             println!("{}", s);
         },
     }
 }
-*/
 

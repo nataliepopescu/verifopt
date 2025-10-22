@@ -138,6 +138,26 @@
             - [ ] std::ptr::metadata() (maybe in diag... as "mir_ptr_metadata")
             - [ ] std::ptr::Unique
             - [ ] Box::into_raw()
+    - [ ] instead of modifying first dyn dispatch block, create an entirely new
+      one/change pointers to it (maybe)
+        - more wrt storage statement efficiency
+    - [ ] vtable pointers w/out source-level fakes
+    - [ ] debug ret-string version of impl
+        - const true/false statements?
+    - [ ] Storage statements
+
+    - [ ] how to heap allocate something in the MIR??
+        - where/when does heap-allocation happen?
+        - is that whats going on though when we add a new Box stack var, for
+          example?
+
+evaluation smoke tests
+- [ ] performance
+    - [ ] measure different possible source-level rewrites
+    - [ ] measure MIR rewrite impl
+- [ ] code size
+    - [ ] measure different possible source-level rewrites
+    - [ ] measure MIR rewrite impl
 
 
 

@@ -6,9 +6,7 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{simple, struct_fields, vec_simple};
-use visitor_decl;
-use visitor_use;
+use rewrites::{simple, struct_fields, vec_simple, visitor};
 
 fn bench_simple(c: &mut Criterion) {
     let cat: &simple::Cat = &simple::Cat {};
@@ -52,7 +50,7 @@ fn bench_simple(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("simple_src_rw_into_raw_fallback", |b| {
+    /*group.bench_function("simple_src_rw_into_raw_fallback", |b| {
         b.iter_batched(
             || {
                 let animal = simple::get_animal(rand::rng().random_range(..2usize));
@@ -95,7 +93,7 @@ fn bench_simple(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });
+    });*/
     /* FIXME
     group.bench_function(
         "simple_mir_rw_transmutes",
@@ -157,7 +155,7 @@ fn bench_struct_fields(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("struct_fields_src_rw_into_raw_fallback", |b| {
+    /*group.bench_function("struct_fields_src_rw_into_raw_fallback", |b| {
         b.iter_batched(
             || {
                 let animal =
@@ -202,7 +200,7 @@ fn bench_struct_fields(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });
+    });*/
     group.finish();
 }
 
@@ -261,7 +259,7 @@ fn bench_vec_simple(c: &mut Criterion) {
                 BatchSize::SmallInput,
             )
         });
-        group.bench_function(
+        /*group.bench_function(
             BenchmarkId::new("vec_simple_src_rw_fallback", n_elems),
             |b| {
                 b.iter_batched(
@@ -278,35 +276,63 @@ fn bench_vec_simple(c: &mut Criterion) {
                     BatchSize::SmallInput,
                 )
             },
-        );
+        );*/
     }
     group.finish();
+}
+
+fn bench_visitor(c: &mut Criterion) {
+    let cat: &visitor::Cat = &visitor::Cat {};
+    let sbd: &visitor::SpeakBetterDogs = &visitor::SpeakBetterDogs {};
+    let mut group = c.benchmark_group("visitor");
+
+    group.bench_function("visitor_best", |b| {
+        b.iter(|| visitor::run_best(cat, sbd))
+    });
+    group.bench_function("visitor_not_rw", |b| {
+        b.iter_batched(
+            || visitor::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| visitor::run_not_rw(animal, sbd),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                visitor::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                visitor::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
 }
 
 // TODO
 // more than 2 trait implementations
 // multiple trait methods
 // different paths -> trait method call
-// visitor
-
-//fn bench_visitor_not_rw(c: &mut Criterion) {
-//    //let nums_vec = get_input_num_vec();
-//    //let nums: &[usize] = &nums_vec[..];
-//    let animal_vec = get_visitor_input_animal_vec();
-//    let animals: &[Box<dyn visitor_decl::Animal>] = &animal_vec[..];
-//    let dc = &visitor_use::SpeakBetterDogs {};
-//    let mut idx = 0;
-//
-//    c.bench_function(
-//        "visitor_not_rw",
-//        |b| b.iter(|| {
-//            //let num = black_box(nums[idx % 1000]);
-//            let animal = black_box(&*animals[idx % 1000]);
-//            idx += 1;
-//            visitor_use::run_not_rw(animal, dc)
-//        })
-//    );
-//}
+// more traits impl than used
 
 const SAMPLE_SIZE: usize = 200;
 const WARMUP_TIME: u64 = 5;
@@ -339,4 +365,13 @@ criterion_group! {
     targets = bench_vec_simple
 }
 
-criterion_main!(vec_simple_benches);
+criterion_group! {
+    name = visitor_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets = bench_visitor
+}
+
+criterion_main!(visitor_benches);

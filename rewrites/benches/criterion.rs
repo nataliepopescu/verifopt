@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{criterion_group, criterion_main, Criterion, BatchSize, BenchmarkId};
 use std::hint::black_box;
 use std::time::Duration;
 
@@ -7,296 +7,209 @@ use rewrites::{simple, simple_mir_rw, struct_fields, vec_simple};
 use visitor_decl;
 use visitor_use;
 
-fn get_input_num_vec() -> Vec<usize> {
-    let mut nums_vec: Vec<usize> = vec![];
-    for _ in 0..1000 {
-        nums_vec.push(rand::rng().random_range(..2));
-    }
-    nums_vec
-}
-
 fn bench_simple(c: &mut Criterion) {
-    let nums_vec = get_input_num_vec();
-    let nums: &[usize] = &nums_vec[..];
-    let mut idx = 0;
     let cat: &simple::Cat = &simple::Cat {};
-
     let mut group = c.benchmark_group("simple");
 
     group.bench_function(
         "simple_best",
         |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_best(num, cat)
+            simple::run_best(cat)
         })
     );
     group.bench_function(
-        "simple_best_normalized",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_best_normalized(num, cat)
-        })
-    );
-    group.bench_function(
-        "simple_not_rw",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_not_rw(num)
-        })
-    );
-    group.bench_function(
-        "simple_not_rw_normalized",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_not_rw_normalized(num)
-        })
+        "simple_not_rw", 
+        |b| b.iter_batched(|| {
+            simple::get_animal(rand::rng().random_range(..2usize))
+        }, move |animal| {
+            simple::run_not_rw(animal)
+        }, BatchSize::SmallInput)
     );
     group.bench_function(
         "simple_src_rw_into_raw",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_src_rw_into_raw(num)
-        })
-    );
-    group.bench_function(
-        "simple_mir_rw_transmutes",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple_mir_rw::run(num)
-        })
+        |b| b.iter_batched(|| {
+            (
+                simple::get_animal(rand::rng().random_range(..2usize)), 
+                simple::get_cat()
+            )
+        }, move |(animal, cat)| {
+            simple::run_src_rw_into_raw(animal, cat)
+        }, BatchSize::SmallInput)
     );
     group.bench_function(
         "simple_src_rw_transmutes",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_src_rw_transmutes(num)
-        })
-    );
-    group.bench_function(
-        "simple_best_normalized_fallback",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_best_normalized_fallback(num, cat)
-        })
-    );
-    group.bench_function(
-        "simple_not_rw_fallback",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_not_rw_fallback(num)
-        })
-    );
-    group.bench_function(
-        "simple_not_rw_fallback_normalized",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_not_rw_fallback_normalized(num)
-        })
+        |b| b.iter_batched(|| {
+            (
+                simple::get_animal(rand::rng().random_range(..2usize)), 
+                simple::get_cat()
+            )
+        }, move |(animal, cat)| {
+            simple::run_src_rw_transmutes(animal, cat)
+        }, BatchSize::SmallInput)
     );
     group.bench_function(
         "simple_src_rw_into_raw_fallback",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_src_rw_into_raw_fallback(num)
-        })
+        |b| b.iter_batched(|| {
+            (
+                simple::get_animal(rand::rng().random_range(..2usize)),
+                simple::get_cat(),
+                simple::get_dog()
+            )
+        }, move |(animal, cat, dog)| {
+            simple::run_src_rw_into_raw_fallback(animal, cat, dog)
+        }, BatchSize::SmallInput)
     );
     group.bench_function(
         "simple_src_rw_transmutes_fallback",
+        |b| b.iter_batched(|| {
+            (
+                simple::get_animal(rand::rng().random_range(..2usize)),
+                simple::get_cat(),
+                simple::get_dog()
+            )
+        }, move |(animal, cat, dog)| {
+            simple::run_src_rw_transmutes_fallback(animal, cat, dog)
+        }, BatchSize::SmallInput)
+    );
+    /* FIXME
+    group.bench_function(
+        "simple_mir_rw_transmutes",
         |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            simple::run_src_rw_transmutes_fallback(num)
+            simple_mir_rw::run()
         })
     );
+    */
     group.finish();
 }
 
 fn bench_struct_fields(c: &mut Criterion) {
-    let nums_vec = get_input_num_vec();
-    let nums: &[usize] = &nums_vec[..];
-    let mut idx = 0;
     let cat: &struct_fields::Cat = &struct_fields::Cat {
-        name: "sally",
-        age: 9,
-        fav_toy: "curtains",
+        age: 1,
+        num_siblings: 13,
     };
-
     let mut group = c.benchmark_group("struct_fields");
 
     group.bench_function(
         "struct_fields_best",
         |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_best(num, cat)
-        })
-    );
-    group.bench_function(
-        "struct_fields_best_normalized",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_best_normalized(num, cat)
+            struct_fields::run_best(cat)
         })
     );
     group.bench_function(
         "struct_fields_not_rw",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_not_rw(num)
-        })
+        |b| b.iter_batched(|| {
+            struct_fields::get_animal(rand::rng().random_range(..2usize))
+        }, move |animal| {
+            struct_fields::run_not_rw(animal)
+        }, BatchSize::SmallInput)
     );
-    group.bench_function(
-        "struct_fields_not_rw_normalized",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_not_rw_normalized(num)
-        })
-    );
+
     group.bench_function(
         "struct_fields_src_rw_into_raw",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_src_rw_into_raw(num)
-        })
+        |b| b.iter_batched(|| {
+            (
+                struct_fields::get_animal(rand::rng().random_range(..2usize)), 
+                struct_fields::get_cat()
+            )
+        }, move |(animal, cat)| {
+            struct_fields::run_src_rw_into_raw(animal, cat)
+        }, BatchSize::SmallInput)
     );
     group.bench_function(
         "struct_fields_src_rw_transmutes",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_src_rw_transmutes(num)
-        })
-    );
-    group.bench_function(
-        "struct_fields_best_normalized_fallback",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_best_normalized_fallback(num, cat)
-        })
-    );
-    group.bench_function(
-        "struct_fields_not_rw_fallback",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_not_rw_fallback(num)
-        })
-    );
-    group.bench_function(
-        "struct_fields_not_rw_fallback_normalized",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_not_rw_fallback_normalized(num)
-        })
+        |b| b.iter_batched(|| {
+            (
+                struct_fields::get_animal(rand::rng().random_range(..2usize)), 
+                struct_fields::get_cat()
+            )
+        }, move |(animal, cat)| {
+            struct_fields::run_src_rw_transmutes(animal, cat)
+        }, BatchSize::SmallInput)
     );
     group.bench_function(
         "struct_fields_src_rw_into_raw_fallback",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_src_rw_into_raw_fallback(num)
-        })
+        |b| b.iter_batched(|| {
+            (
+                struct_fields::get_animal(rand::rng().random_range(..2usize)),
+                struct_fields::get_cat(),
+                struct_fields::get_dog()
+            )
+        }, move |(animal, cat, dog)| {
+            struct_fields::run_src_rw_into_raw_fallback(animal, cat, dog)
+        }, BatchSize::SmallInput)
     );
     group.bench_function(
         "struct_fields_src_rw_transmutes_fallback",
-        |b| b.iter(|| {
-            let num = black_box(nums[idx % 1000]);
-            idx += 1;
-            struct_fields::run_src_rw_transmutes_fallback(num)
-        })
+        |b| b.iter_batched(|| {
+            (
+                struct_fields::get_animal(rand::rng().random_range(..2usize)),
+                struct_fields::get_cat(),
+                struct_fields::get_dog()
+            )
+        }, move |(animal, cat, dog)| {
+            struct_fields::run_src_rw_transmutes_fallback(animal, cat, dog)
+        }, BatchSize::SmallInput)
     );
     group.finish();
+}
+
+fn new_hc_vec(n_elems: usize) -> Vec<Box<dyn vec_simple::Animal>> {
+	let mut vec = vec_simple::mk_vec();
+    for _ in 0..n_elems {
+        vec.insert(0, vec_simple::get_cat());
+	}
+    vec
+}
+fn new_vec(n_elems: usize) -> Vec<Box<dyn vec_simple::Animal>> {
+	let mut vec = vec_simple::mk_vec();
+    for _ in 0..n_elems {
+        vec.insert(0, vec_simple::get_animal(
+            rand::rng().random_range(..2usize)
+        ));
+	}
+    vec
 }
 
 fn bench_vec_simple(c: &mut Criterion) {
     let mut group = c.benchmark_group("vec_simple");
 
     for n_elems in [1000, 4000, 8000, 12000].iter() {
-	    let vec_hc = vec_simple::mk_vec();
-        for _ in 0..*n_elems {
-            vec_hc.lock().unwrap().insert(0, Box::new(vec_simple::Cat));
-        }
-        let cat: &vec_simple::Cat = &vec_simple::Cat {};
+	    let vec_hc = new_hc_vec(*n_elems);
+        let vec = new_vec(*n_elems);
 
-	    let vec = vec_simple::mk_vec();
-        for _ in 0..*n_elems {
-            if rand::rng().random_range(..2usize) == 0 {
-                vec.lock().unwrap().insert(0, Box::new(vec_simple::Cat));
-	    	} else {
-                vec.lock().unwrap().insert(0, Box::new(vec_simple::Dog));
-	    	}
-	    }
+        let cat: &vec_simple::Cat = &vec_simple::Cat {};
 
 	    group.bench_function(
 	    	BenchmarkId::new("vec_simple_best", n_elems),
 	    	|b| b.iter(|| {
-	    		vec_simple::run_best(&vec_hc.lock().unwrap(), cat)
-	    	})
-        );
-	    group.bench_function(
-	    	BenchmarkId::new("vec_simple_best_normalized", n_elems),
-	    	|b| b.iter(|| {
-	    		vec_simple::run_best_normalized(&vec_hc.lock().unwrap(), cat)
+	    		vec_simple::run_best(&vec_hc, cat)
 	    	})
         );
 	    group.bench_function(
 	    	BenchmarkId::new("vec_simple_not_rw", n_elems),
 	    	|b| b.iter(|| {
-	    		vec_simple::run_not_rw(&vec.lock().unwrap())
-	    	})
-	    );
-	    group.bench_function(
-	    	BenchmarkId::new("vec_simple_not_rw_normalized", n_elems),
-	    	|b| b.iter(|| {
-	    		vec_simple::run_not_rw_normalized(&vec.lock().unwrap())
+	    		vec_simple::run_not_rw(&vec)
 	    	})
 	    );
 	    group.bench_function(
 	    	BenchmarkId::new("vec_simple_src_rw", n_elems),
-	    	|b| b.iter(|| {
-	    		vec_simple::run_src_rw(&vec.lock().unwrap())
-	    	})
-	    );
-	    group.bench_function(
-	    	BenchmarkId::new("vec_simple_best_normalized_fallback", n_elems),
-	    	|b| b.iter(|| {
-	    		vec_simple::run_best_normalized_fallback(&vec_hc.lock().unwrap(), cat)
-	    	})
-        );
-	    group.bench_function(
-	    	BenchmarkId::new("vec_simple_not_rw_fallback", n_elems),
-	    	|b| b.iter(|| {
-	    		vec_simple::run_not_rw_fallback(&vec.lock().unwrap())
-	    	})
-	    );
-	    group.bench_function(
-	    	BenchmarkId::new("vec_simple_not_rw_fallback_normalized", n_elems),
-	    	|b| b.iter(|| {
-	    		vec_simple::run_not_rw_fallback_normalized(&vec.lock().unwrap())
-	    	})
+            |b| b.iter_batched(|| {
+                (new_vec(*n_elems), vec_simple::get_cat())
+            }, move |(vec, cat)| {
+	    		vec_simple::run_src_rw(&vec, cat)
+            }, BatchSize::SmallInput)
 	    );
 	    group.bench_function(
 	    	BenchmarkId::new("vec_simple_src_rw_fallback", n_elems),
-	    	|b| b.iter(|| {
-	    		vec_simple::run_src_rw_fallback(&vec.lock().unwrap())
-	    	})
+	    	|b| b.iter_batched(|| {
+                (
+                    new_vec(*n_elems), 
+                    vec_simple::get_cat(), 
+                    vec_simple::get_dog()
+                )
+            }, move |(vec, cat, dog)| {
+	    		vec_simple::run_src_rw_fallback(&vec, cat, dog)
+	    	}, BatchSize::SmallInput)
 	    );
     }
     group.finish();
@@ -359,5 +272,5 @@ criterion_group!{
     targets = bench_vec_simple
 }
 
-criterion_main!(simple_benches);
+criterion_main!(vec_simple_benches);
 

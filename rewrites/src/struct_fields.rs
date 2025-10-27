@@ -1,4 +1,4 @@
-#![feature(ptr_metadata)]
+use core::ptr::DynMetadata;
 
 pub trait Animal {
     fn speak(&self) -> usize;
@@ -64,9 +64,11 @@ pub fn run_not_rw(animal: Box<dyn Animal>) -> usize {
     animal.speak()
 }
 
-pub fn run_src_rw_into_raw(animal: Box<dyn Animal>, cat: Box<dyn Animal>) -> usize {
-    let animal_vtable = core::ptr::metadata(&*animal);
-    let cat_vtable = core::ptr::metadata(&*cat);
+pub fn run_src_rw_into_raw(
+    animal: Box<dyn Animal>,
+    animal_vtable: DynMetadata<dyn Animal>,
+    cat_vtable: DynMetadata<dyn Animal>,
+) -> usize {
     let raw_animal = Box::into_raw(animal) as *const ();
 
     if animal_vtable == cat_vtable {
@@ -82,30 +84,34 @@ pub fn run_src_rw_into_raw(animal: Box<dyn Animal>, cat: Box<dyn Animal>) -> usi
     }
 }
 
-pub fn run_src_rw_transmutes(animal: Box<dyn Animal>, cat: Box<dyn Animal>) -> usize {
-    let animal_vtable = core::ptr::metadata(&*animal);
-    let cat_vtable = core::ptr::metadata(&*cat);
-
+pub fn run_src_rw_transmutes(
+    animal: Box<dyn Animal>,
+    animal_vtable: DynMetadata<dyn Animal>,
+    cat_vtable: DynMetadata<dyn Animal>,
+) -> usize {
     if animal_vtable == cat_vtable {
         unsafe {
-            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
+            let raw_animal: *const () =
+                std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
             let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
             <Cat as Animal>::speak(cat)
         }
     } else {
         unsafe {
-            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
+            let raw_animal: *const () =
+                std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
             <Dog as Animal>::speak(dog)
         }
     }
 }
 
-pub fn run_src_rw_into_raw_fallback(animal: Box<dyn Animal>, cat: Box<dyn Animal>, dog: Box<dyn Animal>) -> usize {
-    let animal_vtable = core::ptr::metadata(&*animal);
-    let cat_vtable = core::ptr::metadata(&*cat);
-    let dog_vtable = core::ptr::metadata(&*dog);
-
+pub fn run_src_rw_into_raw_fallback(
+    animal: Box<dyn Animal>,
+    animal_vtable: DynMetadata<dyn Animal>,
+    cat_vtable: DynMetadata<dyn Animal>,
+    dog_vtable: DynMetadata<dyn Animal>,
+) -> usize {
     if animal_vtable == cat_vtable {
         let raw_animal = Box::into_raw(animal) as *const ();
         unsafe {
@@ -123,20 +129,23 @@ pub fn run_src_rw_into_raw_fallback(animal: Box<dyn Animal>, cat: Box<dyn Animal
     }
 }
 
-pub fn run_src_rw_transmutes_fallback(animal: Box<dyn Animal>, cat: Box<dyn Animal>, dog: Box<dyn Animal>) -> usize {
-    let animal_vtable = core::ptr::metadata(&*animal);
-    let cat_vtable = core::ptr::metadata(&*cat);
-    let dog_vtable = core::ptr::metadata(&*dog);
-
+pub fn run_src_rw_transmutes_fallback(
+    animal: Box<dyn Animal>,
+    animal_vtable: DynMetadata<dyn Animal>,
+    cat_vtable: DynMetadata<dyn Animal>,
+    dog_vtable: DynMetadata<dyn Animal>,
+) -> usize {
     if animal_vtable == cat_vtable {
         unsafe {
-            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
+            let raw_animal: *const () =
+                std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
             let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
             <Cat as Animal>::speak(cat)
         }
     } else if animal_vtable == dog_vtable {
         unsafe {
-            let raw_animal: *const () = std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
+            let raw_animal: *const () =
+                std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
             <Dog as Animal>::speak(dog)
         }
@@ -162,4 +171,3 @@ fn main() {
     }
 }
 */
-

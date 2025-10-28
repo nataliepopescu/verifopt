@@ -5,11 +5,11 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{og0sf, og2sf, vec0sf, vec2sf, visitor0sf, visitor2sf};
+use rewrites::{og0sf, og2sf, og5sf, vec0sf, vec2sf, visitor0sf, visitor2sf};
 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
-    let mut group = c.benchmark_group("og");
+    let mut group = c.benchmark_group("og0sf");
 
     group.bench_function("og0sf_best", |b| b.iter(|| og0sf::run_best(cat)));
     group.bench_function("og0sf_not_rw", |b| {
@@ -65,7 +65,7 @@ fn bench_og2sf(c: &mut Criterion) {
         age: 1,
         num_siblings: 13,
     };
-    let mut group = c.benchmark_group("og_two_struct_fields");
+    let mut group = c.benchmark_group("og2sf");
 
     group.bench_function("og2sf_best", |b| {
         b.iter(|| og2sf::run_best(cat))
@@ -113,6 +113,62 @@ fn bench_og2sf(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_og5sf(c: &mut Criterion) {
+    let cat: &og5sf::Cat = &og5sf::Cat {
+        age: 1,
+        num_siblings: 13,
+        tmp1: 90,
+        tmp2: 80,
+        tmp3: 70,
+    };
+    let mut group = c.benchmark_group("og5sf");
+
+    group.bench_function("og5sf_best", |b| {
+        b.iter(|| og5sf::run_best(cat))
+    });
+    group.bench_function("og5sf_not_rw", |b| {
+        b.iter_batched(
+            || og5sf::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| og5sf::run_not_rw(animal),
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("og5sf_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal =
+                    og5sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og5sf::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                og5sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("og5sf_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal =
+                    og5sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og5sf::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                og5sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
 fn new_0sf_hc_vec(
     n_elems: usize,
 ) -> Vec<(
@@ -143,7 +199,7 @@ fn new_0sf_vec(
 }
 
 fn bench_vec0sf(c: &mut Criterion) {
-    let mut group = c.benchmark_group("vec");
+    let mut group = c.benchmark_group("vec0sf");
 
     for n_elems in [1000, 4000, 8000, 12000].iter() {
         let vec_hc = new_0sf_hc_vec(*n_elems);
@@ -223,7 +279,7 @@ fn new_2sf_vec(
 }
 
 fn bench_vec2sf(c: &mut Criterion) {
-    let mut group = c.benchmark_group("vec_two_struct_fields");
+    let mut group = c.benchmark_group("vec2sf");
 
     for n_elems in [1000, 4000, 8000, 12000].iter() {
         let vec_hc = new_2sf_hc_vec(*n_elems);
@@ -279,7 +335,7 @@ fn bench_vec2sf(c: &mut Criterion) {
 fn bench_visitor0sf(c: &mut Criterion) {
     let cat: &visitor0sf::Cat = &visitor0sf::Cat {};
     let sbd: &visitor0sf::SpeakBetterDogs = &visitor0sf::SpeakBetterDogs {};
-    let mut group = c.benchmark_group("visitor");
+    let mut group = c.benchmark_group("visitor0sf");
 
     group.bench_function("visitor0sf_best", |b| b.iter(|| visitor0sf::run_best(cat, sbd)));
     group.bench_function("visitor0sf_not_rw", |b| {
@@ -327,7 +383,7 @@ fn bench_visitor2sf(c: &mut Criterion) {
         num_siblings: 13,
     };
     let sbd: &visitor2sf::SpeakBetterDogs = &visitor2sf::SpeakBetterDogs {};
-    let mut group = c.benchmark_group("visitor_two_struct_fields");
+    let mut group = c.benchmark_group("visitor2sf");
 
     group.bench_function("visitor2sf_best", |b| b.iter(|| visitor2sf::run_best(cat, sbd)));
     group.bench_function("visitor2sf_not_rw", |b| {
@@ -398,6 +454,15 @@ criterion_group! {
 }
 
 criterion_group! {
+    name = og5sf_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets = bench_og5sf
+}
+
+criterion_group! {
     name = vec0sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
@@ -433,4 +498,20 @@ criterion_group! {
     targets = bench_visitor2sf
 }
 
-criterion_main!(vec2sf_benches);
+criterion_group! {
+    name = all_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets =
+        bench_og0sf,
+        bench_og2sf,
+        bench_og5sf,
+        bench_vec0sf,
+        bench_vec2sf,
+        bench_visitor0sf,
+        bench_visitor2sf,
+}
+
+criterion_main!(all_benches);

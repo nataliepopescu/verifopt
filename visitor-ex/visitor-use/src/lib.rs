@@ -1,40 +1,29 @@
-use rand::Rng;
-
-use visitor_decl::{Animal, AnimalVisitor}; //, Cat, Dog};
+use visitor_decl::{Animal, AnimalVisitor};
 
 pub struct SpeakBetterDogs;
 
 impl AnimalVisitor for SpeakBetterDogs {
-    fn receive(&self, a: &dyn Animal) {
-        if a.get_type_id() == 1 {
-            println!("grrr");
-        } else {
-            a.speak();
-        }
+    fn receive_dog(&self, _a: &dyn Animal) -> usize {
+        44444
+    }
+    fn receive_cat(&self, a: &dyn Animal) -> usize {
+        a.speak()
     }
 }
 
-//pub fn run_best
-
-pub fn run_not_rw(a: &dyn Animal, dc: &SpeakBetterDogs) {
-    a.visit(dc);
-}
-
-//pub fn run_src_rw(a: &dyn Animal, dc: &SpeakBetterDogs) {}
-
 /*
 fn main() {
-    let a: &dyn Animal;
+    use rand::Rng;
 
+    let a: &dyn Animal;
     let num: u32 = rand::rng().random_range(..2);
+    let dc = &SpeakBetterDogs {};
 
     if num == 0 {
         a = &Cat {};
     } else {
         a = &Dog {};
     }
-
-    let dc = &SpeakBetterDogs {};
 
     a.visit(dc);
 }

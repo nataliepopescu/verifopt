@@ -1,41 +1,33 @@
 pub trait AnimalVisitor {
-    fn receive(&self, a: &dyn Animal);
+    fn receive_dog(&self, a: &dyn Animal) -> usize;
+    fn receive_cat(&self, a: &dyn Animal) -> usize;
 }
 
 pub trait Animal {
-    fn speak(&self);
-    fn visit(&self, av: &dyn AnimalVisitor);
-    fn get_type_id(&self) -> u32;
+    fn speak(&self) -> usize;
+    fn visit(&self, av: &dyn AnimalVisitor) -> usize;
 }
 
 pub struct Cat;
 pub struct Dog;
 
 impl Animal for Cat {
-    fn speak(&self) {
-        println!("meow");
+    fn speak(&self) -> usize {
+        11111
     }
 
-    fn visit(&self, av: &dyn AnimalVisitor) {
-        av.receive(self);
-    }
-
-    fn get_type_id(&self) -> u32 {
-        0
+    fn visit(&self, av: &dyn AnimalVisitor) -> usize {
+        av.receive_cat(self)
     }
 }
 
 impl Animal for Dog {
-    fn speak(&self) {
-        println!("woof");
+    fn speak(&self) -> usize {
+        22222
     }
 
-    fn visit(&self, av: &dyn AnimalVisitor) {
-        av.receive(self);
-    }
-
-    fn get_type_id(&self) -> u32 {
-        1
+    fn visit(&self, av: &dyn AnimalVisitor) -> usize {
+        av.receive_dog(self)
     }
 }
 

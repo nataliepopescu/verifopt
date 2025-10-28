@@ -58,10 +58,10 @@ possible additional experiment
 TODOS
 - [x] pre-alloc objs
 - [x] remove `to_string`s
-- [ ] remove vtable computations
+- [x] remove vtable computations
 
 - [ ] additional benchmarks
-    - [ ] more "realistic" (ask mae what this means)
+    - [ ] more "realistic" (ask mae what this means) -> visitor
     - [ ] CHA
     - [ ] less traits used than implemented
 

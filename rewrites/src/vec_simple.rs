@@ -53,7 +53,32 @@ pub fn run_not_rw(xs: &[(Box<dyn Animal>, DynMetadata<dyn Animal>)]) -> usize {
     ret
 }
 
-pub fn run_src_rw(xs: &[(Box<dyn Animal>, DynMetadata<dyn Animal>)], cat_vtable: DynMetadata<dyn Animal>) -> usize {
+pub fn run_src_rw_into_raw(
+    xs: &[(Box<dyn Animal>, DynMetadata<dyn Animal>)],
+    cat_vtable: DynMetadata<dyn Animal>,
+) -> usize {
+    let mut ret = 0;
+    for (x, x_vtable) in xs.iter() {
+        let raw_x = Box::into_raw(Box::new(x)) as *const ();
+        if *x_vtable == cat_vtable {
+            unsafe {
+                let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_x);
+                ret = <Cat as Animal>::speak(cat);
+            }
+        } else {
+            unsafe {
+                let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_x);
+                ret = <Dog as Animal>::speak(dog);
+            }
+        }
+    }
+    ret
+}
+
+pub fn run_src_rw_transmutes(
+    xs: &[(Box<dyn Animal>, DynMetadata<dyn Animal>)],
+    cat_vtable: DynMetadata<dyn Animal>,
+) -> usize {
     let mut ret = 0;
     for (x, x_vtable) in xs.iter() {
         if *x_vtable == cat_vtable {
@@ -75,7 +100,7 @@ pub fn run_src_rw(xs: &[(Box<dyn Animal>, DynMetadata<dyn Animal>)], cat_vtable:
     ret
 }
 
-pub fn run_src_rw_fallback(
+pub fn run_src_rw_transmutes_fallback(
     xs: &[(Box<dyn Animal>, DynMetadata<dyn Animal>)],
     cat_vtable: DynMetadata<dyn Animal>,
     dog_vtable: DynMetadata<dyn Animal>,

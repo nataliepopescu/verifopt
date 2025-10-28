@@ -71,7 +71,7 @@ pub fn run_not_rw(animal: Box<dyn Animal>, dc: &SpeakBetterDogs) -> usize {
 }
 
 pub fn run_src_rw_into_raw(
-    animal: Box<dyn Animal>, 
+    animal: Box<dyn Animal>,
     dc: &SpeakBetterDogs,
     animal_vtable: DynMetadata<dyn Animal>,
     cat_vtable: DynMetadata<dyn Animal>,
@@ -83,7 +83,8 @@ pub fn run_src_rw_into_raw(
             // FIXME right transformation?
             // 1: which visit method to call
             // 2: which receive method to call
-            // 3?: some receive methods may also have dynamic dispatch, so here we start all over again
+            // 3?: some receive methods may also have dynamic dispatch, so here we start
+            // all over again
             let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
             <Cat as Animal>::speak(cat)
         }
@@ -96,7 +97,7 @@ pub fn run_src_rw_into_raw(
 }
 
 pub fn run_src_rw_transmutes(
-    animal: Box<dyn Animal>, 
+    animal: Box<dyn Animal>,
     dc: &SpeakBetterDogs,
     animal_vtable: DynMetadata<dyn Animal>,
     cat_vtable: DynMetadata<dyn Animal>,

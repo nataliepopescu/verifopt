@@ -24,7 +24,7 @@ struct Cat {}
 struct Dog {}
 
 impl Animal for Cat {
-    fn kaeps(&self) -> &str{
+    fn kaeps(&self) -> &str {
         "meow"
     }
 }
@@ -53,7 +53,6 @@ fn main() {
             println!("parsing args");
             let s = run(args[1].parse().unwrap());
             println!("{}", s);
-        },
+        }
     }
 }
-

@@ -2,7 +2,6 @@
 
 use core::ptr::DynMetadata;
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
-use std::hint::black_box;
 use std::time::Duration;
 
 use rand::Rng;
@@ -248,19 +247,40 @@ fn bench_vec_simple(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("vec_simple_not_rw", n_elems), |b| {
             b.iter(|| vec_simple::run_not_rw(&vec))
         });
-        group.bench_function(BenchmarkId::new("vec_simple_src_rw", n_elems), |b| {
-            b.iter_batched(
-                || {
-                    let cat = vec_simple::get_cat();
-                    let cat_vtable = core::ptr::metadata(&*cat);
-                    (new_vec(*n_elems), cat_vtable)
-                },
-                move |(vec, cat_vtable)| vec_simple::run_src_rw(&vec, cat_vtable),
-                BatchSize::SmallInput,
-            )
-        });
+        //group.bench_function(
+        //    BenchmarkId::new("vec_simple_src_rw_into_raw", n_elems),
+        //    |b| {
+        //        b.iter_batched(
+        //            || {
+        //                let cat = vec_simple::get_cat();
+        //                let cat_vtable = core::ptr::metadata(&*cat);
+        //                (new_vec(*n_elems), cat_vtable)
+        //            },
+        //            move |(vec, cat_vtable)| {
+        //                vec_simple::run_src_rw_into_raw(&vec, cat_vtable)
+        //            },
+        //            BatchSize::SmallInput,
+        //        )
+        //    },
+        //);
+        group.bench_function(
+            BenchmarkId::new("vec_simple_src_rw_transmutes", n_elems),
+            |b| {
+                b.iter_batched(
+                    || {
+                        let cat = vec_simple::get_cat();
+                        let cat_vtable = core::ptr::metadata(&*cat);
+                        (new_vec(*n_elems), cat_vtable)
+                    },
+                    move |(vec, cat_vtable)| {
+                        vec_simple::run_src_rw_transmutes(&vec, cat_vtable)
+                    },
+                    BatchSize::SmallInput,
+                )
+            },
+        );
         /*group.bench_function(
-            BenchmarkId::new("vec_simple_src_rw_fallback", n_elems),
+            BenchmarkId::new("vec_simple_src_rw_transmutes_fallback", n_elems),
             |b| {
                 b.iter_batched(
                     || {
@@ -286,9 +306,7 @@ fn bench_visitor(c: &mut Criterion) {
     let sbd: &visitor::SpeakBetterDogs = &visitor::SpeakBetterDogs {};
     let mut group = c.benchmark_group("visitor");
 
-    group.bench_function("visitor_best", |b| {
-        b.iter(|| visitor::run_best(cat, sbd))
-    });
+    group.bench_function("visitor_best", |b| b.iter(|| visitor::run_best(cat, sbd)));
     group.bench_function("visitor_not_rw", |b| {
         b.iter_batched(
             || visitor::get_animal(rand::rng().random_range(..2usize)),
@@ -374,4 +392,4 @@ criterion_group! {
     targets = bench_visitor
 }
 
-criterion_main!(visitor_benches);
+criterion_main!(vec_simple_benches);

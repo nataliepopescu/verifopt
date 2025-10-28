@@ -49,50 +49,6 @@ fn bench_og0sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    /*group.bench_function("og0sf_src_rw_into_raw_fallback", |b| {
-        b.iter_batched(
-            || {
-                let animal = og0sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = og0sf::get_cat();
-                let dog = og0sf::get_dog();
-                let animal_vtable = core::ptr::metadata(&*animal);
-                let cat_vtable = core::ptr::metadata(&*cat);
-                let dog_vtable = core::ptr::metadata(&*dog);
-                (animal, animal_vtable, cat_vtable, dog_vtable)
-            },
-            move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                og0sf::run_src_rw_into_raw_fallback(
-                    animal,
-                    animal_vtable,
-                    cat_vtable,
-                    dog_vtable,
-                )
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.bench_function("og0sf_src_rw_transmutes_fallback", |b| {
-        b.iter_batched(
-            || {
-                let animal = og0sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = og0sf::get_cat();
-                let dog = og0sf::get_dog();
-                let animal_vtable = core::ptr::metadata(&*animal);
-                let cat_vtable = core::ptr::metadata(&*cat);
-                let dog_vtable = core::ptr::metadata(&*dog);
-                (animal, animal_vtable, cat_vtable, dog_vtable)
-            },
-            move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                og0sf::run_src_rw_transmutes_fallback(
-                    animal,
-                    animal_vtable,
-                    cat_vtable,
-                    dog_vtable,
-                )
-            },
-            BatchSize::SmallInput,
-        )
-    });*/
     /* FIXME
     group.bench_function(
         "og0sf_mir_rw_transmutes",
@@ -154,52 +110,6 @@ fn bench_og2sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    /*group.bench_function("og2sf_src_rw_into_raw_fallback", |b| {
-        b.iter_batched(
-            || {
-                let animal =
-                    og2sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = og2sf::get_cat();
-                let dog = og2sf::get_dog();
-                let animal_vtable = core::ptr::metadata(&*animal);
-                let cat_vtable = core::ptr::metadata(&*cat);
-                let dog_vtable = core::ptr::metadata(&*dog);
-                (animal, animal_vtable, cat_vtable, dog_vtable)
-            },
-            move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                og2sf::run_src_rw_into_raw_fallback(
-                    animal,
-                    animal_vtable,
-                    cat_vtable,
-                    dog_vtable,
-                )
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.bench_function("og2sf_src_rw_transmutes_fallback", |b| {
-        b.iter_batched(
-            || {
-                let animal =
-                    og2sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = og2sf::get_cat();
-                let dog = og2sf::get_dog();
-                let animal_vtable = core::ptr::metadata(&*animal);
-                let cat_vtable = core::ptr::metadata(&*cat);
-                let dog_vtable = core::ptr::metadata(&*dog);
-                (animal, animal_vtable, cat_vtable, dog_vtable)
-            },
-            move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                og2sf::run_src_rw_transmutes_fallback(
-                    animal,
-                    animal_vtable,
-                    cat_vtable,
-                    dog_vtable,
-                )
-            },
-            BatchSize::SmallInput,
-        )
-    });*/
     group.finish();
 }
 
@@ -279,24 +189,6 @@ fn bench_vec0sf(c: &mut Criterion) {
                 )
             },
         );
-        /*group.bench_function(
-            BenchmarkId::new("vec0sf_src_rw_transmutes_fallback", n_elems),
-            |b| {
-                b.iter_batched(
-                    || {
-                        let cat = vec0sf::get_cat();
-                        let dog = vec0sf::get_dog();
-                        let cat_vtable = core::ptr::metadata(&*cat);
-                        let dog_vtable = core::ptr::metadata(&*dog);
-                        (new_0sf_vec(*n_elems), cat_vtable, dog_vtable)
-                    },
-                    move |(vec, cat_vtable, dog_vtable)| {
-                        vec0sf::run_src_rw_fallback(&vec, cat_vtable, dog_vtable)
-                    },
-                    BatchSize::SmallInput,
-                )
-            },
-        );*/
     }
     group.finish();
 }
@@ -380,24 +272,6 @@ fn bench_vec2sf(c: &mut Criterion) {
                 )
             },
         );
-        /*group.bench_function(
-            BenchmarkId::new("vec2sf_src_rw_transmutes_fallback", n_elems),
-            |b| {
-                b.iter_batched(
-                    || {
-                        let cat = vec2sf::get_cat();
-                        let dog = vec2sf::get_dog();
-                        let cat_vtable = core::ptr::metadata(&*cat);
-                        let dog_vtable = core::ptr::metadata(&*dog);
-                        (new_2sf_vec(*n_elems), cat_vtable, dog_vtable)
-                    },
-                    move |(vec, cat_vtable, dog_vtable)| {
-                        vec2sf::run_src_rw_fallback(&vec, cat_vtable, dog_vtable)
-                    },
-                    BatchSize::SmallInput,
-                )
-            },
-        );*/
     }
     group.finish();
 }

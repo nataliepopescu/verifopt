@@ -1,0 +1,452 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn get_animal(_1: usize) -> Box<dyn Animal> {
+    debug num => _1;
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _2: std::boxed::Box<Cat>;
+    let mut _3: std::boxed::Box<Dog>;
+
+    bb0: {
+        switchInt(copy _1) -> [0: bb1, otherwise: bb3];
+    }
+
+    bb1: {
+        _2 = Box::<Cat>::new(const Cat) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _0 = move _2 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb3: {
+        _3 = Box::<Dog>::new(const Dog) -> [return: bb4, unwind continue];
+    }
+
+    bb4: {
+        _0 = move _3 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn get_cat() -> Box<dyn Animal> {
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _1: std::boxed::Box<Cat>;
+
+    bb0: {
+        _1 = Box::<Cat>::new(const Cat) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _0 = move _1 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        return;
+    }
+}
+
+fn get_dog() -> Box<dyn Animal> {
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _1: std::boxed::Box<Dog>;
+
+    bb0: {
+        _1 = Box::<Dog>::new(const Dog) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _0 = move _1 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        return;
+    }
+}
+
+fn <impl at visitor.rs:36:1: 36:20>::speak(_1: &Cat) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 11111_usize;
+        return;
+    }
+}
+
+fn <impl at visitor.rs:36:1: 36:20>::visit(_1: &Cat, _2: &dyn AnimalVisitor) -> usize {
+    debug self => _1;
+    debug av => _2;
+    let mut _0: usize;
+    let mut _3: &dyn Animal;
+
+    bb0: {
+        _3 = copy _1 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _0 = <dyn AnimalVisitor as AnimalVisitor>::receive_cat(copy _2, move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn <impl at visitor.rs:46:1: 46:20>::speak(_1: &Dog) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 22222_usize;
+        return;
+    }
+}
+
+fn <impl at visitor.rs:46:1: 46:20>::visit(_1: &Dog, _2: &dyn AnimalVisitor) -> usize {
+    debug self => _1;
+    debug av => _2;
+    let mut _0: usize;
+    let mut _3: &dyn Animal;
+
+    bb0: {
+        _3 = copy _1 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _0 = <dyn AnimalVisitor as AnimalVisitor>::receive_dog(copy _2, move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn <impl at visitor.rs:58:1: 58:39>::receive_dog(_1: &SpeakBetterDogs, _2: &dyn Animal) -> usize {
+    debug self => _1;
+    debug _a => _2;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 44444_usize;
+        return;
+    }
+}
+
+fn <impl at visitor.rs:58:1: 58:39>::receive_cat(_1: &SpeakBetterDogs, _2: &dyn Animal) -> usize {
+    debug self => _1;
+    debug a => _2;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = <dyn Animal as Animal>::speak(copy _2) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn run_best(_1: &dyn Animal, _2: &SpeakBetterDogs) -> usize {
+    debug animal => _1;
+    debug dc => _2;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = <SpeakBetterDogs as AnimalVisitor>::receive_dog(copy _2, copy _1) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn run_not_rw(_1: Box<dyn Animal>, _2: &SpeakBetterDogs) -> usize {
+    debug animal => _1;
+    debug dc => _2;
+    let mut _0: usize;
+    let mut _3: &dyn Animal;
+    let mut _4: &dyn AnimalVisitor;
+    let mut _5: *const dyn Animal;
+
+    bb0: {
+        _5 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _3 = &(*_5);
+        _4 = copy _2 as &dyn AnimalVisitor (PointerCoercion(Unsize, Implicit));
+        _0 = <dyn Animal as Animal>::visit(move _3, move _4) -> [return: bb1, unwind: bb3];
+    }
+
+    bb1: {
+        drop(_1) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3 (cleanup): {
+        drop(_1) -> [return: bb4, unwind terminate(cleanup)];
+    }
+
+    bb4 (cleanup): {
+        resume;
+    }
+}
+
+fn run_src_rw_into_raw(_1: Box<dyn Animal>, _2: &SpeakBetterDogs, _3: DynMetadata<dyn Animal>, _4: DynMetadata<dyn Animal>) -> usize {
+    debug animal => _1;
+    debug dc => _2;
+    debug animal_vtable => _3;
+    debug cat_vtable => _4;
+    let mut _0: usize;
+    let _5: *const ();
+    let mut _6: *mut dyn Animal;
+    let mut _7: bool;
+    let mut _8: &std::ptr::DynMetadata<dyn Animal>;
+    let mut _9: &std::ptr::DynMetadata<dyn Animal>;
+    let _10: &Cat;
+    let _11: &Dog;
+    let mut _12: &dyn Animal;
+    scope 1 {
+        debug raw_animal => _5;
+        scope 2 {
+            debug cat => _10;
+        }
+        scope 3 {
+            debug dog => _11;
+        }
+    }
+
+    bb0: {
+        _6 = Box::<dyn Animal>::into_raw(move _1) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _5 = move _6 as *const () (PtrToPtr);
+        _8 = &_3;
+        _9 = &_4;
+        _7 = <DynMetadata<dyn Animal> as PartialEq>::eq(move _8, move _9) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        switchInt(move _7) -> [0: bb4, otherwise: bb3];
+    }
+
+    bb3: {
+        _10 = copy _5 as &Cat (Transmute);
+        _0 = <Cat as Animal>::speak(copy _10) -> [return: bb5, unwind continue];
+    }
+
+    bb4: {
+        _11 = copy _5 as &Dog (Transmute);
+        _12 = copy _11 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _0 = <SpeakBetterDogs as AnimalVisitor>::receive_dog(copy _2, move _12) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn run_src_rw_transmutes(_1: Box<dyn Animal>, _2: &SpeakBetterDogs, _3: DynMetadata<dyn Animal>, _4: DynMetadata<dyn Animal>) -> usize {
+    debug animal => _1;
+    debug dc => _2;
+    debug animal_vtable => _3;
+    debug cat_vtable => _4;
+    let mut _0: usize;
+    let mut _5: bool;
+    let mut _6: &std::ptr::DynMetadata<dyn Animal>;
+    let mut _7: &std::ptr::DynMetadata<dyn Animal>;
+    let _8: *const ();
+    let _9: &std::boxed::Box<dyn Animal>;
+    let _10: &Cat;
+    let _11: *const ();
+    let _12: &std::boxed::Box<dyn Animal>;
+    let _13: &Dog;
+    let mut _14: &dyn Animal;
+    scope 1 {
+        debug raw_animal => _8;
+        scope 2 {
+            debug cat => _10;
+        }
+    }
+    scope 3 {
+        debug raw_animal => _11;
+        scope 4 {
+            debug dog => _13;
+        }
+    }
+
+    bb0: {
+        _6 = &_3;
+        _7 = &_4;
+        _5 = <DynMetadata<dyn Animal> as PartialEq>::eq(move _6, move _7) -> [return: bb1, unwind: bb6];
+    }
+
+    bb1: {
+        switchInt(move _5) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        _9 = &_1;
+        _8 = copy _9 as *const () (Transmute);
+        _10 = copy _8 as &Cat (Transmute);
+        _0 = <Cat as Animal>::speak(copy _10) -> [return: bb8, unwind: bb6];
+    }
+
+    bb3: {
+        _12 = &_1;
+        _11 = copy _12 as *const () (Transmute);
+        _13 = copy _11 as &Dog (Transmute);
+        _14 = copy _13 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _0 = <SpeakBetterDogs as AnimalVisitor>::receive_dog(copy _2, move _14) -> [return: bb9, unwind: bb6];
+    }
+
+    bb4: {
+        drop(_1) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        return;
+    }
+
+    bb6 (cleanup): {
+        drop(_1) -> [return: bb7, unwind terminate(cleanup)];
+    }
+
+    bb7 (cleanup): {
+        resume;
+    }
+
+    bb8: {
+        goto -> bb4;
+    }
+
+    bb9: {
+        goto -> bb4;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::vec::Vec<std::string::String>;
+    let mut _2: std::env::Args;
+    let mut _3: usize;
+    let mut _4: &std::vec::Vec<std::string::String>;
+    let _5: ();
+    let mut _6: std::fmt::Arguments<'_>;
+    let _7: &[&str; 1];
+    let mut _9: usize;
+    let mut _10: std::result::Result<usize, std::num::ParseIntError>;
+    let _11: &str;
+    let _12: &std::string::String;
+    let mut _13: &std::vec::Vec<std::string::String>;
+    let _15: usize;
+    scope 1 {
+        debug args => _1;
+        let _8: std::boxed::Box<dyn Animal>;
+        scope 2 {
+            debug a => _8;
+            let _14: &SpeakBetterDogs;
+            scope 3 {
+                debug dc => _14;
+            }
+        }
+    }
+
+    bb0: {
+        _2 = args() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _1 = <Args as Iterator>::collect::<Vec<String>>(move _2) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _4 = &_1;
+        _3 = Vec::<String>::len(move _4) -> [return: bb3, unwind: bb14];
+    }
+
+    bb3: {
+        switchInt(copy _3) -> [1: bb5, otherwise: bb4];
+    }
+
+    bb4: {
+        _13 = &_1;
+        _12 = <Vec<String> as Index<usize>>::index(move _13, const 1_usize) -> [return: bb7, unwind: bb14];
+    }
+
+    bb5: {
+        _7 = const main::promoted[1];
+        _6 = core::fmt::rt::<impl Arguments<'_>>::new_const::<1>(copy _7) -> [return: bb6, unwind: bb14];
+    }
+
+    bb6: {
+        _5 = _print(move _6) -> [return: bb16, unwind: bb14];
+    }
+
+    bb7: {
+        _11 = <String as Deref>::deref(copy _12) -> [return: bb8, unwind: bb14];
+    }
+
+    bb8: {
+        _10 = core::str::<impl str>::parse::<usize>(copy _11) -> [return: bb9, unwind: bb14];
+    }
+
+    bb9: {
+        _9 = Result::<usize, ParseIntError>::unwrap(move _10) -> [return: bb10, unwind: bb14];
+    }
+
+    bb10: {
+        _8 = get_animal(move _9) -> [return: bb11, unwind: bb14];
+    }
+
+    bb11: {
+        _14 = const main::promoted[0];
+        _15 = run_not_rw(move _8, copy _14) -> [return: bb17, unwind: bb14];
+    }
+
+    bb12: {
+        drop(_1) -> [return: bb13, unwind continue];
+    }
+
+    bb13: {
+        return;
+    }
+
+    bb14 (cleanup): {
+        drop(_1) -> [return: bb15, unwind terminate(cleanup)];
+    }
+
+    bb15 (cleanup): {
+        resume;
+    }
+
+    bb16: {
+        goto -> bb12;
+    }
+
+    bb17: {
+        goto -> bb12;
+    }
+}
+
+const main::promoted[0]: &SpeakBetterDogs = {
+    let mut _0: &SpeakBetterDogs;
+    let mut _1: SpeakBetterDogs;
+
+    bb0: {
+        _1 = SpeakBetterDogs;
+        _0 = &_1;
+        return;
+    }
+}
+
+const main::promoted[1]: &[&str; 1] = {
+    let mut _0: &[&str; 1];
+    let mut _1: [&str; 1];
+
+    bb0: {
+        _1 = [const "Pass in a number and see what happens!\n"];
+        _0 = &_1;
+        return;
+    }
+}
+
+alloc1 (size: 39, align: 1) {
+    0x00 │ 50 61 73 73 20 69 6e 20 61 20 6e 75 6d 62 65 72 │ Pass in a number
+    0x10 │ 20 61 6e 64 20 73 65 65 20 77 68 61 74 20 68 61 │  and see what ha
+    0x20 │ 70 70 65 6e 73 21 0a                            │ ppens!.
+}

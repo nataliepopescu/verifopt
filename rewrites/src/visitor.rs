@@ -1,4 +1,6 @@
-use core::ptr::DynMetadata;
+#![feature(ptr_metadata)]
+
+use std::ptr::DynMetadata;
 
 pub trait AnimalVisitor {
     fn receive_dog(&self, a: &dyn Animal) -> usize;
@@ -119,20 +121,16 @@ pub fn run_src_rw_transmutes(
     }
 }
 
-/*
+// if copying into godbolt, make main `pub`
 fn main() {
-    let a: &dyn Animal;
+    let args: Vec<String> = std::env::args().collect();
 
-    let num: u32 = rand::rng().random_range(..2);
-
-    if num == 0 {
-        a = &Cat {};
-    } else {
-        a = &Dog {};
+    match args.len() {
+        1 => println!("Pass in a number and see what happens!"),
+        _ => {
+            let a = get_animal(args[1].parse().unwrap());
+            let dc = &SpeakBetterDogs {};
+            run_not_rw(a, dc);
+        }
     }
-
-    let dc = &SpeakBetterDogs {};
-
-    a.visit(dc);
 }
-*/

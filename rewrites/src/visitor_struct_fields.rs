@@ -1,9 +1,15 @@
 #![feature(ptr_metadata)]
 
-use core::ptr::DynMetadata;
+use std::ptr::DynMetadata;
+
+pub trait AnimalVisitor {
+    fn receive_dog(&self, a: &dyn Animal) -> usize;
+    fn receive_cat(&self, a: &dyn Animal) -> usize;
+}
 
 pub trait Animal {
     fn speak(&self) -> usize;
+    fn visit(&self, av: &dyn AnimalVisitor) -> usize;
 }
 
 pub fn get_animal(num: usize) -> Box<dyn Animal> {
@@ -50,24 +56,44 @@ impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
     }
+
+    fn visit(&self, av: &dyn AnimalVisitor) -> usize {
+        av.receive_cat(self)
+    }
 }
 
 impl Animal for Dog {
     fn speak(&self) -> usize {
         22222
     }
+
+    fn visit(&self, av: &dyn AnimalVisitor) -> usize {
+        av.receive_dog(self)
+    }
 }
 
-pub fn run_best(cat: &Cat) -> usize {
-    <Cat as Animal>::speak(cat)
+pub struct SpeakBetterDogs;
+
+impl AnimalVisitor for SpeakBetterDogs {
+    fn receive_dog(&self, _a: &dyn Animal) -> usize {
+        44444
+    }
+    fn receive_cat(&self, a: &dyn Animal) -> usize {
+        a.speak()
+    }
 }
 
-pub fn run_not_rw(animal: Box<dyn Animal>) -> usize {
-    animal.speak()
+pub fn run_best(animal: &dyn Animal, dc: &SpeakBetterDogs) -> usize {
+    dc.receive_dog(animal)
+}
+
+pub fn run_not_rw(animal: Box<dyn Animal>, dc: &SpeakBetterDogs) -> usize {
+    animal.visit(dc)
 }
 
 pub fn run_src_rw_into_raw(
     animal: Box<dyn Animal>,
+    dc: &SpeakBetterDogs,
     animal_vtable: DynMetadata<dyn Animal>,
     cat_vtable: DynMetadata<dyn Animal>,
 ) -> usize {
@@ -75,19 +101,25 @@ pub fn run_src_rw_into_raw(
 
     if animal_vtable == cat_vtable {
         unsafe {
+            // FIXME right transformation?
+            // 1: which visit method to call
+            // 2: which receive method to call
+            // 3?: some receive methods may also have dynamic dispatch, so here we start
+            // all over again
             let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
             <Cat as Animal>::speak(cat)
         }
     } else {
         unsafe {
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
-            <Dog as Animal>::speak(dog)
+            dc.receive_dog(dog)
         }
     }
 }
 
 pub fn run_src_rw_transmutes(
     animal: Box<dyn Animal>,
+    dc: &SpeakBetterDogs,
     animal_vtable: DynMetadata<dyn Animal>,
     cat_vtable: DynMetadata<dyn Animal>,
 ) -> usize {
@@ -103,73 +135,21 @@ pub fn run_src_rw_transmutes(
             let raw_animal: *const () =
                 std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
             let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
-            <Dog as Animal>::speak(dog)
+            dc.receive_dog(dog)
         }
-    }
-}
-
-pub fn run_src_rw_into_raw_fallback(
-    animal: Box<dyn Animal>,
-    animal_vtable: DynMetadata<dyn Animal>,
-    cat_vtable: DynMetadata<dyn Animal>,
-    dog_vtable: DynMetadata<dyn Animal>,
-) -> usize {
-    if animal_vtable == cat_vtable {
-        let raw_animal = Box::into_raw(animal) as *const ();
-        unsafe {
-            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
-            <Cat as Animal>::speak(cat)
-        }
-    } else if animal_vtable == dog_vtable {
-        let raw_animal = Box::into_raw(animal) as *const ();
-        unsafe {
-            let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
-            <Dog as Animal>::speak(dog)
-        }
-    } else {
-        animal.speak()
-    }
-}
-
-pub fn run_src_rw_transmutes_fallback(
-    animal: Box<dyn Animal>,
-    animal_vtable: DynMetadata<dyn Animal>,
-    cat_vtable: DynMetadata<dyn Animal>,
-    dog_vtable: DynMetadata<dyn Animal>,
-) -> usize {
-    if animal_vtable == cat_vtable {
-        unsafe {
-            let raw_animal: *const () =
-                std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
-            let cat: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
-            <Cat as Animal>::speak(cat)
-        }
-    } else if animal_vtable == dog_vtable {
-        unsafe {
-            let raw_animal: *const () =
-                std::mem::transmute::<&Box<dyn Animal>, *const ()>(&animal);
-            let dog: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
-            <Dog as Animal>::speak(dog)
-        }
-    } else {
-        animal.speak()
     }
 }
 
 // if copying into godbolt, make main `pub`
-/*
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    //let cat: &Cat = &Cat {};
 
     match args.len() {
         1 => println!("Pass in a number and see what happens!"),
         _ => {
-            let animal = get_animal(args[1].parse().unwrap());
-            let cat = get_cat();
-            let s = run_src_rw_transmutes(animal, cat);
-            println!("{}", s);
-        },
+            let a = get_animal(args[1].parse().unwrap());
+            let dc = &SpeakBetterDogs {};
+            run_not_rw(a, dc);
+        }
     }
 }
-*/

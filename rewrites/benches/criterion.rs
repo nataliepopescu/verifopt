@@ -5,7 +5,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{simple, struct_fields, vec_simple, visitor};
+use rewrites::{simple, struct_fields, vec_simple, visitor_simple, visitor_struct_fields};
 
 fn bench_simple(c: &mut Criterion) {
     let cat: &simple::Cat = &simple::Cat {};
@@ -301,45 +301,93 @@ fn bench_vec_simple(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_visitor(c: &mut Criterion) {
-    let cat: &visitor::Cat = &visitor::Cat {};
-    let sbd: &visitor::SpeakBetterDogs = &visitor::SpeakBetterDogs {};
-    let mut group = c.benchmark_group("visitor");
+fn bench_visitor_simple(c: &mut Criterion) {
+    let cat: &visitor_simple::Cat = &visitor_simple::Cat {};
+    let sbd: &visitor_simple::SpeakBetterDogs = &visitor_simple::SpeakBetterDogs {};
+    let mut group = c.benchmark_group("visitor_simple");
 
-    group.bench_function("visitor_best", |b| b.iter(|| visitor::run_best(cat, sbd)));
-    group.bench_function("visitor_not_rw", |b| {
+    group.bench_function("visitor_simple_best", |b| b.iter(|| visitor_simple::run_best(cat, sbd)));
+    group.bench_function("visitor_simple_not_rw", |b| {
         b.iter_batched(
-            || visitor::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| visitor::run_not_rw(animal, sbd),
+            || visitor_simple::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| visitor_simple::run_not_rw(animal, sbd),
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("visitor_src_rw_into_raw", |b| {
+    group.bench_function("visitor_simple_src_rw_into_raw", |b| {
         b.iter_batched(
             || {
-                let animal = visitor::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor::get_cat();
+                let animal = visitor_simple::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor_simple::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+                visitor_simple::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("visitor_src_rw_transmutes", |b| {
+    group.bench_function("visitor_simple_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
-                let animal = visitor::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor::get_cat();
+                let animal = visitor_simple::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor_simple::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+                visitor_simple::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn bench_visitor_struct_fields(c: &mut Criterion) {
+    let cat: &visitor_struct_fields::Cat = &visitor_struct_fields::Cat {
+        age: 1,
+        num_siblings: 13,
+    };
+    let sbd: &visitor_struct_fields::SpeakBetterDogs = &visitor_struct_fields::SpeakBetterDogs {};
+    let mut group = c.benchmark_group("visitor_struct_fields");
+
+    group.bench_function("visitor_struct_fields_best", |b| b.iter(|| visitor_struct_fields::run_best(cat, sbd)));
+    group.bench_function("visitor_struct_fields_not_rw", |b| {
+        b.iter_batched(
+            || visitor_struct_fields::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| visitor_struct_fields::run_not_rw(animal, sbd),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_struct_fields_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor_struct_fields::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor_struct_fields::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                visitor_struct_fields::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_struct_fields_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor_struct_fields::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor_struct_fields::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                visitor_struct_fields::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
@@ -384,12 +432,21 @@ criterion_group! {
 }
 
 criterion_group! {
-    name = visitor_benches;
+    name = visitor_simple_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_visitor
+    targets = bench_visitor_simple
 }
 
-criterion_main!(vec_simple_benches);
+criterion_group! {
+    name = visitor_struct_fields_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets = bench_visitor_struct_fields
+}
+
+criterion_main!(simple_benches);

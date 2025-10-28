@@ -5,63 +5,63 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{simple, struct_fields, vec_simple, vec_struct_fields, visitor_simple, visitor_struct_fields};
+use rewrites::{og0sf, og2sf, vec0sf, vec2sf, visitor0sf, visitor2sf};
 
-fn bench_simple(c: &mut Criterion) {
-    let cat: &simple::Cat = &simple::Cat {};
-    let mut group = c.benchmark_group("simple");
+fn bench_og0sf(c: &mut Criterion) {
+    let cat: &og0sf::Cat = &og0sf::Cat {};
+    let mut group = c.benchmark_group("og");
 
-    group.bench_function("simple_best", |b| b.iter(|| simple::run_best(cat)));
-    group.bench_function("simple_not_rw", |b| {
+    group.bench_function("og0sf_best", |b| b.iter(|| og0sf::run_best(cat)));
+    group.bench_function("og0sf_not_rw", |b| {
         b.iter_batched(
-            || simple::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| simple::run_not_rw(animal),
+            || og0sf::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| og0sf::run_not_rw(animal),
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("simple_src_rw_into_raw", |b| {
+    group.bench_function("og0sf_src_rw_into_raw", |b| {
         b.iter_batched(
             || {
-                let animal = simple::get_animal(rand::rng().random_range(..2usize));
-                let cat = simple::get_cat();
+                let animal = og0sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og0sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                simple::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+                og0sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("simple_src_rw_transmutes", |b| {
+    group.bench_function("og0sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
-                let animal = simple::get_animal(rand::rng().random_range(..2usize));
-                let cat = simple::get_cat();
+                let animal = og0sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og0sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                simple::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+                og0sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
-    /*group.bench_function("simple_src_rw_into_raw_fallback", |b| {
+    /*group.bench_function("og0sf_src_rw_into_raw_fallback", |b| {
         b.iter_batched(
             || {
-                let animal = simple::get_animal(rand::rng().random_range(..2usize));
-                let cat = simple::get_cat();
-                let dog = simple::get_dog();
+                let animal = og0sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og0sf::get_cat();
+                let dog = og0sf::get_dog();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 let dog_vtable = core::ptr::metadata(&*dog);
                 (animal, animal_vtable, cat_vtable, dog_vtable)
             },
             move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                simple::run_src_rw_into_raw_fallback(
+                og0sf::run_src_rw_into_raw_fallback(
                     animal,
                     animal_vtable,
                     cat_vtable,
@@ -71,19 +71,19 @@ fn bench_simple(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("simple_src_rw_transmutes_fallback", |b| {
+    group.bench_function("og0sf_src_rw_transmutes_fallback", |b| {
         b.iter_batched(
             || {
-                let animal = simple::get_animal(rand::rng().random_range(..2usize));
-                let cat = simple::get_cat();
-                let dog = simple::get_dog();
+                let animal = og0sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og0sf::get_cat();
+                let dog = og0sf::get_dog();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 let dog_vtable = core::ptr::metadata(&*dog);
                 (animal, animal_vtable, cat_vtable, dog_vtable)
             },
             move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                simple::run_src_rw_transmutes_fallback(
+                og0sf::run_src_rw_transmutes_fallback(
                     animal,
                     animal_vtable,
                     cat_vtable,
@@ -95,79 +95,79 @@ fn bench_simple(c: &mut Criterion) {
     });*/
     /* FIXME
     group.bench_function(
-        "simple_mir_rw_transmutes",
+        "og0sf_mir_rw_transmutes",
         |b| b.iter(|| {
-            simple_mir_rw::run()
+            og0sf_mir_rw::run()
         })
     );
     */
     group.finish();
 }
 
-fn bench_struct_fields(c: &mut Criterion) {
-    let cat: &struct_fields::Cat = &struct_fields::Cat {
+fn bench_og2sf(c: &mut Criterion) {
+    let cat: &og2sf::Cat = &og2sf::Cat {
         age: 1,
         num_siblings: 13,
     };
-    let mut group = c.benchmark_group("struct_fields");
+    let mut group = c.benchmark_group("og_two_struct_fields");
 
-    group.bench_function("struct_fields_best", |b| {
-        b.iter(|| struct_fields::run_best(cat))
+    group.bench_function("og2sf_best", |b| {
+        b.iter(|| og2sf::run_best(cat))
     });
-    group.bench_function("struct_fields_not_rw", |b| {
+    group.bench_function("og2sf_not_rw", |b| {
         b.iter_batched(
-            || struct_fields::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| struct_fields::run_not_rw(animal),
+            || og2sf::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| og2sf::run_not_rw(animal),
             BatchSize::SmallInput,
         )
     });
 
-    group.bench_function("struct_fields_src_rw_into_raw", |b| {
+    group.bench_function("og2sf_src_rw_into_raw", |b| {
         b.iter_batched(
             || {
                 let animal =
-                    struct_fields::get_animal(rand::rng().random_range(..2usize));
-                let cat = struct_fields::get_cat();
+                    og2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og2sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                struct_fields::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+                og2sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("struct_fields_src_rw_transmutes", |b| {
+    group.bench_function("og2sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
                 let animal =
-                    struct_fields::get_animal(rand::rng().random_range(..2usize));
-                let cat = struct_fields::get_cat();
+                    og2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og2sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                struct_fields::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+                og2sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
-    /*group.bench_function("struct_fields_src_rw_into_raw_fallback", |b| {
+    /*group.bench_function("og2sf_src_rw_into_raw_fallback", |b| {
         b.iter_batched(
             || {
                 let animal =
-                    struct_fields::get_animal(rand::rng().random_range(..2usize));
-                let cat = struct_fields::get_cat();
-                let dog = struct_fields::get_dog();
+                    og2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og2sf::get_cat();
+                let dog = og2sf::get_dog();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 let dog_vtable = core::ptr::metadata(&*dog);
                 (animal, animal_vtable, cat_vtable, dog_vtable)
             },
             move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                struct_fields::run_src_rw_into_raw_fallback(
+                og2sf::run_src_rw_into_raw_fallback(
                     animal,
                     animal_vtable,
                     cat_vtable,
@@ -177,20 +177,20 @@ fn bench_struct_fields(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("struct_fields_src_rw_transmutes_fallback", |b| {
+    group.bench_function("og2sf_src_rw_transmutes_fallback", |b| {
         b.iter_batched(
             || {
                 let animal =
-                    struct_fields::get_animal(rand::rng().random_range(..2usize));
-                let cat = struct_fields::get_cat();
-                let dog = struct_fields::get_dog();
+                    og2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = og2sf::get_cat();
+                let dog = og2sf::get_dog();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 let dog_vtable = core::ptr::metadata(&*dog);
                 (animal, animal_vtable, cat_vtable, dog_vtable)
             },
             move |(animal, animal_vtable, cat_vtable, dog_vtable)| {
-                struct_fields::run_src_rw_transmutes_fallback(
+                og2sf::run_src_rw_transmutes_fallback(
                     animal,
                     animal_vtable,
                     cat_vtable,
@@ -203,95 +203,95 @@ fn bench_struct_fields(c: &mut Criterion) {
     group.finish();
 }
 
-fn new_simple_hc_vec(
+fn new_0sf_hc_vec(
     n_elems: usize,
 ) -> Vec<(
-    Box<dyn vec_simple::Animal>,
-    DynMetadata<dyn vec_simple::Animal>,
+    Box<dyn vec0sf::Animal>,
+    DynMetadata<dyn vec0sf::Animal>,
 )> {
     let mut vec = vec![];
     for _ in 0..n_elems {
-        let cat = vec_simple::get_cat();
+        let cat = vec0sf::get_cat();
         let cat_vtable = core::ptr::metadata(&*cat);
         vec.insert(0, (cat, cat_vtable));
     }
     vec
 }
-fn new_simple_vec(
+fn new_0sf_vec(
     n_elems: usize,
 ) -> Vec<(
-    Box<dyn vec_simple::Animal>,
-    DynMetadata<dyn vec_simple::Animal>,
+    Box<dyn vec0sf::Animal>,
+    DynMetadata<dyn vec0sf::Animal>,
 )> {
     let mut vec = vec![];
     for _ in 0..n_elems {
-        let animal = vec_simple::get_animal(rand::rng().random_range(..2usize));
+        let animal = vec0sf::get_animal(rand::rng().random_range(..2usize));
         let animal_vtable = core::ptr::metadata(&*animal);
         vec.insert(0, (animal, animal_vtable));
     }
     vec
 }
 
-fn bench_vec_simple(c: &mut Criterion) {
-    let mut group = c.benchmark_group("vec_simple");
+fn bench_vec0sf(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vec");
 
     for n_elems in [1000, 4000, 8000, 12000].iter() {
-        let vec_hc = new_simple_hc_vec(*n_elems);
-        let vec = new_simple_vec(*n_elems);
+        let vec_hc = new_0sf_hc_vec(*n_elems);
+        let vec = new_0sf_vec(*n_elems);
 
-        let cat: &vec_simple::Cat = &vec_simple::Cat {};
+        let cat: &vec0sf::Cat = &vec0sf::Cat {};
 
-        group.bench_function(BenchmarkId::new("vec_simple_best", n_elems), |b| {
-            b.iter(|| vec_simple::run_best(&vec_hc, cat))
+        group.bench_function(BenchmarkId::new("vec0sf_best", n_elems), |b| {
+            b.iter(|| vec0sf::run_best(&vec_hc, cat))
         });
-        group.bench_function(BenchmarkId::new("vec_simple_not_rw", n_elems), |b| {
-            b.iter(|| vec_simple::run_not_rw(&vec))
+        group.bench_function(BenchmarkId::new("vec0sf_not_rw", n_elems), |b| {
+            b.iter(|| vec0sf::run_not_rw(&vec))
         });
         //group.bench_function(
-        //    BenchmarkId::new("vec_simple_src_rw_into_raw", n_elems),
+        //    BenchmarkId::new("vec0sf_src_rw_into_raw", n_elems),
         //    |b| {
         //        b.iter_batched(
         //            || {
-        //                let cat = vec_simple::get_cat();
+        //                let cat = vec0sf::get_cat();
         //                let cat_vtable = core::ptr::metadata(&*cat);
-        //                (new_simple_vec(*n_elems), cat_vtable)
+        //                (new_0sf_vec(*n_elems), cat_vtable)
         //            },
         //            move |(vec, cat_vtable)| {
-        //                vec_simple::run_src_rw_into_raw(&vec, cat_vtable)
+        //                vec0sf::run_src_rw_into_raw(&vec, cat_vtable)
         //            },
         //            BatchSize::SmallInput,
         //        )
         //    },
         //);
         group.bench_function(
-            BenchmarkId::new("vec_simple_src_rw_transmutes", n_elems),
+            BenchmarkId::new("vec0sf_src_rw_transmutes", n_elems),
             |b| {
                 b.iter_batched(
                     || {
-                        let cat = vec_simple::get_cat();
+                        let cat = vec0sf::get_cat();
                         let cat_vtable = core::ptr::metadata(&*cat);
-                        (new_simple_vec(*n_elems), cat_vtable)
+                        (new_0sf_vec(*n_elems), cat_vtable)
                     },
                     move |(vec, cat_vtable)| {
-                        vec_simple::run_src_rw_transmutes(&vec, cat_vtable)
+                        vec0sf::run_src_rw_transmutes(&vec, cat_vtable)
                     },
                     BatchSize::SmallInput,
                 )
             },
         );
         /*group.bench_function(
-            BenchmarkId::new("vec_simple_src_rw_transmutes_fallback", n_elems),
+            BenchmarkId::new("vec0sf_src_rw_transmutes_fallback", n_elems),
             |b| {
                 b.iter_batched(
                     || {
-                        let cat = vec_simple::get_cat();
-                        let dog = vec_simple::get_dog();
+                        let cat = vec0sf::get_cat();
+                        let dog = vec0sf::get_dog();
                         let cat_vtable = core::ptr::metadata(&*cat);
                         let dog_vtable = core::ptr::metadata(&*dog);
-                        (new_simple_vec(*n_elems), cat_vtable, dog_vtable)
+                        (new_0sf_vec(*n_elems), cat_vtable, dog_vtable)
                     },
                     move |(vec, cat_vtable, dog_vtable)| {
-                        vec_simple::run_src_rw_fallback(&vec, cat_vtable, dog_vtable)
+                        vec0sf::run_src_rw_fallback(&vec, cat_vtable, dog_vtable)
                     },
                     BatchSize::SmallInput,
                 )
@@ -301,98 +301,98 @@ fn bench_vec_simple(c: &mut Criterion) {
     group.finish();
 }
 
-fn new_struct_fields_hc_vec(
+fn new_2sf_hc_vec(
     n_elems: usize,
 ) -> Vec<(
-    Box<dyn vec_struct_fields::Animal>,
-    DynMetadata<dyn vec_struct_fields::Animal>,
+    Box<dyn vec2sf::Animal>,
+    DynMetadata<dyn vec2sf::Animal>,
 )> {
     let mut vec = vec![];
     for _ in 0..n_elems {
-        let cat = vec_struct_fields::get_cat();
+        let cat = vec2sf::get_cat();
         let cat_vtable = core::ptr::metadata(&*cat);
         vec.insert(0, (cat, cat_vtable));
     }
     vec
 }
-fn new_struct_fields_vec(
+fn new_2sf_vec(
     n_elems: usize,
 ) -> Vec<(
-    Box<dyn vec_struct_fields::Animal>,
-    DynMetadata<dyn vec_struct_fields::Animal>,
+    Box<dyn vec2sf::Animal>,
+    DynMetadata<dyn vec2sf::Animal>,
 )> {
     let mut vec = vec![];
     for _ in 0..n_elems {
-        let animal = vec_struct_fields::get_animal(rand::rng().random_range(..2usize));
+        let animal = vec2sf::get_animal(rand::rng().random_range(..2usize));
         let animal_vtable = core::ptr::metadata(&*animal);
         vec.insert(0, (animal, animal_vtable));
     }
     vec
 }
 
-fn bench_vec_struct_fields(c: &mut Criterion) {
-    let mut group = c.benchmark_group("vec_struct_fields");
+fn bench_vec2sf(c: &mut Criterion) {
+    let mut group = c.benchmark_group("vec_two_struct_fields");
 
     for n_elems in [1000, 4000, 8000, 12000].iter() {
-        let vec_hc = new_struct_fields_hc_vec(*n_elems);
-        let vec = new_struct_fields_vec(*n_elems);
+        let vec_hc = new_2sf_hc_vec(*n_elems);
+        let vec = new_2sf_vec(*n_elems);
 
-        let cat: &vec_struct_fields::Cat = &vec_struct_fields::Cat {
+        let cat: &vec2sf::Cat = &vec2sf::Cat {
             age: 1,
             num_siblings: 13,
         };
 
-        group.bench_function(BenchmarkId::new("vec_struct_fields_best", n_elems), |b| {
-            b.iter(|| vec_struct_fields::run_best(&vec_hc, cat))
+        group.bench_function(BenchmarkId::new("vec2sf_best", n_elems), |b| {
+            b.iter(|| vec2sf::run_best(&vec_hc, cat))
         });
-        group.bench_function(BenchmarkId::new("vec_struct_fields_not_rw", n_elems), |b| {
-            b.iter(|| vec_struct_fields::run_not_rw(&vec))
+        group.bench_function(BenchmarkId::new("vec2sf_not_rw", n_elems), |b| {
+            b.iter(|| vec2sf::run_not_rw(&vec))
         });
         //group.bench_function(
-        //    BenchmarkId::new("vec_struct_fields_src_rw_into_raw", n_elems),
+        //    BenchmarkId::new("vec2sf_src_rw_into_raw", n_elems),
         //    |b| {
         //        b.iter_batched(
         //            || {
-        //                let cat = vec_struct_fields::get_cat();
+        //                let cat = vec2sf::get_cat();
         //                let cat_vtable = core::ptr::metadata(&*cat);
-        //                (new_struct_fields_vec(*n_elems), cat_vtable)
+        //                (new_2sf_vec(*n_elems), cat_vtable)
         //            },
         //            move |(vec, cat_vtable)| {
-        //                vec_struct_fields::run_src_rw_into_raw(&vec, cat_vtable)
+        //                vec2sf::run_src_rw_into_raw(&vec, cat_vtable)
         //            },
         //            BatchSize::SmallInput,
         //        )
         //    },
         //);
         group.bench_function(
-            BenchmarkId::new("vec_struct_fields_src_rw_transmutes", n_elems),
+            BenchmarkId::new("vec2sf_src_rw_transmutes", n_elems),
             |b| {
                 b.iter_batched(
                     || {
-                        let cat = vec_struct_fields::get_cat();
+                        let cat = vec2sf::get_cat();
                         let cat_vtable = core::ptr::metadata(&*cat);
-                        (new_struct_fields_vec(*n_elems), cat_vtable)
+                        (new_2sf_vec(*n_elems), cat_vtable)
                     },
                     move |(vec, cat_vtable)| {
-                        vec_struct_fields::run_src_rw_transmutes(&vec, cat_vtable)
+                        vec2sf::run_src_rw_transmutes(&vec, cat_vtable)
                     },
                     BatchSize::SmallInput,
                 )
             },
         );
         /*group.bench_function(
-            BenchmarkId::new("vec_struct_fields_src_rw_transmutes_fallback", n_elems),
+            BenchmarkId::new("vec2sf_src_rw_transmutes_fallback", n_elems),
             |b| {
                 b.iter_batched(
                     || {
-                        let cat = vec_struct_fields::get_cat();
-                        let dog = vec_struct_fields::get_dog();
+                        let cat = vec2sf::get_cat();
+                        let dog = vec2sf::get_dog();
                         let cat_vtable = core::ptr::metadata(&*cat);
                         let dog_vtable = core::ptr::metadata(&*dog);
-                        (new_struct_fields_vec(*n_elems), cat_vtable, dog_vtable)
+                        (new_2sf_vec(*n_elems), cat_vtable, dog_vtable)
                     },
                     move |(vec, cat_vtable, dog_vtable)| {
-                        vec_struct_fields::run_src_rw_fallback(&vec, cat_vtable, dog_vtable)
+                        vec2sf::run_src_rw_fallback(&vec, cat_vtable, dog_vtable)
                     },
                     BatchSize::SmallInput,
                 )
@@ -402,93 +402,93 @@ fn bench_vec_struct_fields(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_visitor_simple(c: &mut Criterion) {
-    let cat: &visitor_simple::Cat = &visitor_simple::Cat {};
-    let sbd: &visitor_simple::SpeakBetterDogs = &visitor_simple::SpeakBetterDogs {};
-    let mut group = c.benchmark_group("visitor_simple");
+fn bench_visitor0sf(c: &mut Criterion) {
+    let cat: &visitor0sf::Cat = &visitor0sf::Cat {};
+    let sbd: &visitor0sf::SpeakBetterDogs = &visitor0sf::SpeakBetterDogs {};
+    let mut group = c.benchmark_group("visitor");
 
-    group.bench_function("visitor_simple_best", |b| b.iter(|| visitor_simple::run_best(cat, sbd)));
-    group.bench_function("visitor_simple_not_rw", |b| {
+    group.bench_function("visitor0sf_best", |b| b.iter(|| visitor0sf::run_best(cat, sbd)));
+    group.bench_function("visitor0sf_not_rw", |b| {
         b.iter_batched(
-            || visitor_simple::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| visitor_simple::run_not_rw(animal, sbd),
+            || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| visitor0sf::run_not_rw(animal, sbd),
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("visitor_simple_src_rw_into_raw", |b| {
+    group.bench_function("visitor0sf_src_rw_into_raw", |b| {
         b.iter_batched(
             || {
-                let animal = visitor_simple::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor_simple::get_cat();
+                let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor0sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor_simple::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+                visitor0sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("visitor_simple_src_rw_transmutes", |b| {
+    group.bench_function("visitor0sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
-                let animal = visitor_simple::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor_simple::get_cat();
+                let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor0sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor_simple::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+                visitor0sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
 }
 
-fn bench_visitor_struct_fields(c: &mut Criterion) {
-    let cat: &visitor_struct_fields::Cat = &visitor_struct_fields::Cat {
+fn bench_visitor2sf(c: &mut Criterion) {
+    let cat: &visitor2sf::Cat = &visitor2sf::Cat {
         age: 1,
         num_siblings: 13,
     };
-    let sbd: &visitor_struct_fields::SpeakBetterDogs = &visitor_struct_fields::SpeakBetterDogs {};
-    let mut group = c.benchmark_group("visitor_struct_fields");
+    let sbd: &visitor2sf::SpeakBetterDogs = &visitor2sf::SpeakBetterDogs {};
+    let mut group = c.benchmark_group("visitor_two_struct_fields");
 
-    group.bench_function("visitor_struct_fields_best", |b| b.iter(|| visitor_struct_fields::run_best(cat, sbd)));
-    group.bench_function("visitor_struct_fields_not_rw", |b| {
+    group.bench_function("visitor2sf_best", |b| b.iter(|| visitor2sf::run_best(cat, sbd)));
+    group.bench_function("visitor2sf_not_rw", |b| {
         b.iter_batched(
-            || visitor_struct_fields::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| visitor_struct_fields::run_not_rw(animal, sbd),
+            || visitor2sf::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| visitor2sf::run_not_rw(animal, sbd),
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("visitor_struct_fields_src_rw_into_raw", |b| {
+    group.bench_function("visitor2sf_src_rw_into_raw", |b| {
         b.iter_batched(
             || {
-                let animal = visitor_struct_fields::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor_struct_fields::get_cat();
+                let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor2sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor_struct_fields::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+                visitor2sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("visitor_struct_fields_src_rw_transmutes", |b| {
+    group.bench_function("visitor2sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
-                let animal = visitor_struct_fields::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor_struct_fields::get_cat();
+                let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor2sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor_struct_fields::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+                visitor2sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
@@ -506,57 +506,57 @@ const WARMUP_TIME: u64 = 5;
 const MEASUREMENT_TIME: u64 = 10;
 
 criterion_group! {
-    name = simple_benches;
+    name = og0sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_simple
+    targets = bench_og0sf
 }
 
 criterion_group! {
-    name = struct_fields_benches;
+    name = og2sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_struct_fields
+    targets = bench_og2sf
 }
 
 criterion_group! {
-    name = vec_simple_benches;
+    name = vec0sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_vec_simple
+    targets = bench_vec0sf
 }
 
 criterion_group! {
-    name = vec_struct_fields_benches;
+    name = vec2sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_vec_struct_fields
+    targets = bench_vec2sf
 }
 
 criterion_group! {
-    name = visitor_simple_benches;
+    name = visitor0sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_visitor_simple
+    targets = bench_visitor0sf
 }
 
 criterion_group! {
-    name = visitor_struct_fields_benches;
+    name = visitor2sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_visitor_struct_fields
+    targets = bench_visitor2sf
 }
 
-criterion_main!(vec_struct_fields_benches);
+criterion_main!(vec2sf_benches);

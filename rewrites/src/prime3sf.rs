@@ -287,7 +287,6 @@ impl Animal for Monkey {
     }
 }
 
-
 pub fn run_best(cat: &Cat) -> usize {
     <Cat as Animal>::speak(cat)
 }
@@ -319,52 +318,52 @@ pub fn run_naive_cha(
             let a: &Alligator = std::mem::transmute::<*const (), &Alligator>(raw_animal);
             <Alligator as Animal>::speak(a)
         },
-        bird_vtable => unsafe {
-            let a: &Bird = std::mem::transmute::<*const (), &Bird>(raw_animal);
+        bird_vtable => {
+            let a: &Bird = unsafe { std::mem::transmute::<*const (), &Bird>(raw_animal) };
             <Bird as Animal>::speak(a)
         },
-        cat_vtable => unsafe {
-            let a: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
+        cat_vtable => {
+            let a: &Cat = unsafe { std::mem::transmute::<*const (), &Cat>(raw_animal) };
             <Cat as Animal>::speak(a)
         },
-        dog_vtable => unsafe {
-            let a: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
+        dog_vtable => {
+            let a: &Dog = unsafe { std::mem::transmute::<*const (), &Dog>(raw_animal)};
             <Dog as Animal>::speak(a)
         },
-        elephant_vtable => unsafe {
-            let a: &Elephant = std::mem::transmute::<*const (), &Elephant>(raw_animal);
+        elephant_vtable => {
+            let a: &Elephant = unsafe { std::mem::transmute::<*const (), &Elephant>(raw_animal) };
             <Elephant as Animal>::speak(a)
         },
-        frog_vtable => unsafe {
-            let a: &Frog = std::mem::transmute::<*const (), &Frog>(raw_animal);
+        frog_vtable => {
+            let a: &Frog = unsafe { std::mem::transmute::<*const (), &Frog>(raw_animal) };
             <Frog as Animal>::speak(a)
         },
-        giraffe_vtable => unsafe {
-            let a: &Giraffe = std::mem::transmute::<*const (), &Giraffe>(raw_animal);
+        giraffe_vtable => {
+            let a: &Giraffe = unsafe { std::mem::transmute::<*const (), &Giraffe>(raw_animal) };
             <Giraffe as Animal>::speak(a)
         },
-        hippo_vtable => unsafe {
-            let a: &Hippo = std::mem::transmute::<*const (), &Hippo>(raw_animal);
+        hippo_vtable => {
+            let a: &Hippo = unsafe { std::mem::transmute::<*const (), &Hippo>(raw_animal) };
             <Hippo as Animal>::speak(a)
         },
-        iguana_vtable => unsafe {
-            let a: &Iguana = std::mem::transmute::<*const (), &Iguana>(raw_animal);
+        iguana_vtable => {
+            let a: &Iguana = unsafe { std::mem::transmute::<*const (), &Iguana>(raw_animal) };
             <Iguana as Animal>::speak(a)
         },
-        jaguar_vtable => unsafe {
-            let a: &Jaguar = std::mem::transmute::<*const (), &Jaguar>(raw_animal);
+        jaguar_vtable => {
+            let a: &Jaguar = unsafe { std::mem::transmute::<*const (), &Jaguar>(raw_animal) };
             <Jaguar as Animal>::speak(a)
         },
-        kangaroo_vtable => unsafe {
-            let a: &Kangaroo = std::mem::transmute::<*const (), &Kangaroo>(raw_animal);
+        kangaroo_vtable => {
+            let a: &Kangaroo = unsafe { std::mem::transmute::<*const (), &Kangaroo>(raw_animal) };
             <Kangaroo as Animal>::speak(a)
         },
-        lion_vtable => unsafe {
-            let a: &Lion = std::mem::transmute::<*const (), &Lion>(raw_animal);
+        lion_vtable => {
+            let a: &Lion = unsafe { std::mem::transmute::<*const (), &Lion>(raw_animal) };
             <Lion as Animal>::speak(a)
         },
-        _ => unsafe {
-            let a: &Monkey = std::mem::transmute::<*const (), &Monkey>(raw_animal);
+        _ => {
+            let a: &Monkey = unsafe { std::mem::transmute::<*const (), &Monkey>(raw_animal) };
             <Monkey as Animal>::speak(a)
         },
     }

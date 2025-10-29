@@ -1,6 +1,7 @@
 use visitor_decl::{Animal, AnimalVisitor};
 
 pub struct SpeakBetterDogs;
+pub struct SpeakBetterCats;
 
 impl AnimalVisitor for SpeakBetterDogs {
     fn receive_dog(&self, _a: &dyn Animal) -> usize {
@@ -8,6 +9,15 @@ impl AnimalVisitor for SpeakBetterDogs {
     }
     fn receive_cat(&self, a: &dyn Animal) -> usize {
         a.speak()
+    }
+}
+
+impl AnimalVisitor for SpeakBetterCats {
+    fn receive_dog(&self, a: &dyn Animal) -> usize {
+        a.speak()
+    }
+    fn receive_cat(&self, _a: &dyn Animal) -> usize {
+        99999
     }
 }
 

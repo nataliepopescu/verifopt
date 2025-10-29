@@ -5,7 +5,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{og0sf, og2sf, og5sf, vec0sf, vec2sf, visitor0sf, visitor2sf};
+use rewrites::{og0sf, og2sf, og5sf, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf};
 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
@@ -375,6 +375,53 @@ fn bench_visitor0sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
+    group.finish();
+}
+
+fn bench_visitor0sf_import(c: &mut Criterion) {
+    let cat: &visitor_decl::Cat = &visitor_decl::Cat {};
+    let sbd: &visitor_use::SpeakBetterDogs = &visitor_use::SpeakBetterDogs {};
+    let mut group = c.benchmark_group("visitor0sf_import");
+
+    group.bench_function("visitor0sf_import_best", |b| b.iter(|| visitor0sf_import::run_best(cat, sbd)));
+    group.bench_function("visitor0sf_import_not_rw", |b| {
+        b.iter_batched(
+            || visitor_decl::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| visitor0sf_import::run_not_rw(animal, sbd),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_import_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor_decl::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor_decl::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                visitor0sf_import::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_import_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor_decl::get_animal(rand::rng().random_range(..2usize));
+                let cat = visitor_decl::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                visitor0sf_import::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
 }
 
 fn bench_visitor2sf(c: &mut Criterion) {
@@ -408,7 +455,7 @@ fn bench_visitor2sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("visitor2sf_src_rw_transmutes", |b| {
+    /*group.bench_function("visitor2sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
                 let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
@@ -422,7 +469,8 @@ fn bench_visitor2sf(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });
+    });*/
+    group.finish();
 }
 
 // TODO
@@ -490,6 +538,15 @@ criterion_group! {
 }
 
 criterion_group! {
+    name = visitor0sf_import_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets = bench_visitor0sf_import
+}
+
+criterion_group! {
     name = visitor2sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
@@ -514,4 +571,4 @@ criterion_group! {
         bench_visitor2sf,
 }
 
-criterion_main!(all_benches);
+criterion_main!(visitor0sf_import_benches);

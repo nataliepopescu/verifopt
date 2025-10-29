@@ -31,3 +31,21 @@ impl Animal for Dog {
     }
 }
 
+pub fn get_animal(num: usize) -> Box<dyn Animal> {
+    if num == 0 {
+        return Box::new(Cat {});
+    } else {
+        return Box::new(Dog {});
+    }
+}
+
+#[inline(always)]
+pub fn get_cat() -> Box<dyn Animal> {
+    return Box::new(Cat {});
+}
+
+#[inline(always)]
+pub fn get_dog() -> Box<dyn Animal> {
+    return Box::new(Dog {});
+}
+

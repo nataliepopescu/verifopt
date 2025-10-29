@@ -1,100 +1,11 @@
 #![feature(ptr_metadata)]
 
+use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
+use visitor_use::{SpeakBetterDogs, SpeakBetterCats};
 use std::ptr::DynMetadata;
 
-pub trait AnimalVisitor {
-    fn receive_dog(&self, a: &dyn Animal) -> usize;
-    fn receive_cat(&self, a: &dyn Animal) -> usize;
-}
-
-pub trait Animal {
-    fn speak(&self) -> usize;
-    fn visit(&self, av: &dyn AnimalVisitor) -> usize;
-}
-
-pub fn get_animal(num: usize) -> Box<dyn Animal> {
-    if num == 0 {
-        return Box::new(Cat {
-            age: 9,
-            num_siblings: 11,
-        });
-    } else {
-        return Box::new(Dog {
-            age: 7,
-            num_siblings: 3,
-        });
-    }
-}
-
-#[inline(always)]
-pub fn get_cat() -> Box<dyn Animal> {
-    return Box::new(Cat {
-        age: 8,
-        num_siblings: 10,
-    });
-}
-
-#[inline(always)]
-pub fn get_dog() -> Box<dyn Animal> {
-    return Box::new(Dog {
-        age: 4,
-        num_siblings: 2,
-    });
-}
-
-pub struct Cat {
-    pub age: usize,
-    pub num_siblings: usize,
-}
-
-pub struct Dog {
-    pub age: usize,
-    pub num_siblings: usize,
-}
-
-impl Animal for Cat {
-    fn speak(&self) -> usize {
-        11111
-    }
-
-    fn visit(&self, av: &dyn AnimalVisitor) -> usize {
-        av.receive_cat(self)
-    }
-}
-
-impl Animal for Dog {
-    fn speak(&self) -> usize {
-        22222
-    }
-
-    fn visit(&self, av: &dyn AnimalVisitor) -> usize {
-        av.receive_dog(self)
-    }
-}
-
-pub struct SpeakBetterDogs;
-pub struct SpeakBetterCats;
-
-impl AnimalVisitor for SpeakBetterDogs {
-    fn receive_dog(&self, _a: &dyn Animal) -> usize {
-        44444
-    }
-    fn receive_cat(&self, a: &dyn Animal) -> usize {
-        a.speak()
-    }
-}
-
-impl AnimalVisitor for SpeakBetterCats {
-    fn receive_dog(&self, a: &dyn Animal) -> usize {
-        a.speak()
-    }
-    fn receive_cat(&self, _a: &dyn Animal) -> usize {
-        99999
-    }
-}
-
-pub fn run_best(animal: &dyn Animal, dv: &SpeakBetterDogs) -> usize {
-    <SpeakBetterDogs as AnimalVisitor>::receive_dog(dv, animal)
+pub fn run_best(animal: &dyn Animal, dc: &SpeakBetterDogs) -> usize {
+    dc.receive_dog(animal)
 }
 
 pub fn run_not_rw(animal: Box<dyn Animal>, dv: &SpeakBetterDogs) -> usize {
@@ -157,7 +68,7 @@ fn main() {
     match args.len() {
         1 => println!("Pass in a number and see what happens!"),
         _ => {
-            let a = get_animal(args[1].parse().unwrap());
+            let a = visitor_decl::get_animal(args[1].parse().unwrap());
             let dv = &SpeakBetterDogs {};
             run_not_rw(a, dv);
         }

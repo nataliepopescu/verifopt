@@ -314,71 +314,59 @@ pub fn run_naive_cha(
 ) -> usize {
     let raw_animal = Box::into_raw(animal) as *const ();
 
-    if animal_vtable == alligator_vtable {
-        unsafe {
+    match animal_vtable {
+        alligator_vtable => unsafe {
             let a: &Alligator = std::mem::transmute::<*const (), &Alligator>(raw_animal);
             <Alligator as Animal>::speak(a)
-        }
-    } else if animal_vtable == bird_vtable {
-        unsafe {
+        },
+        bird_vtable => unsafe {
             let a: &Bird = std::mem::transmute::<*const (), &Bird>(raw_animal);
             <Bird as Animal>::speak(a)
-        }
-    } else if animal_vtable == cat_vtable {
-        unsafe {
+        },
+        cat_vtable => unsafe {
             let a: &Cat = std::mem::transmute::<*const (), &Cat>(raw_animal);
             <Cat as Animal>::speak(a)
-        }
-    } else if animal_vtable == dog_vtable {
-        unsafe {
+        },
+        dog_vtable => unsafe {
             let a: &Dog = std::mem::transmute::<*const (), &Dog>(raw_animal);
             <Dog as Animal>::speak(a)
-        }
-    } else if animal_vtable == elephant_vtable {
-        unsafe {
+        },
+        elephant_vtable => unsafe {
             let a: &Elephant = std::mem::transmute::<*const (), &Elephant>(raw_animal);
             <Elephant as Animal>::speak(a)
-        }
-    } else if animal_vtable == frog_vtable {
-        unsafe {
+        },
+        frog_vtable => unsafe {
             let a: &Frog = std::mem::transmute::<*const (), &Frog>(raw_animal);
             <Frog as Animal>::speak(a)
-        }
-    } else if animal_vtable == giraffe_vtable {
-        unsafe {
+        },
+        giraffe_vtable => unsafe {
             let a: &Giraffe = std::mem::transmute::<*const (), &Giraffe>(raw_animal);
             <Giraffe as Animal>::speak(a)
-        }
-    } else if animal_vtable == hippo_vtable {
-        unsafe {
+        },
+        hippo_vtable => unsafe {
             let a: &Hippo = std::mem::transmute::<*const (), &Hippo>(raw_animal);
             <Hippo as Animal>::speak(a)
-        }
-    } else if animal_vtable == iguana_vtable {
-        unsafe {
+        },
+        iguana_vtable => unsafe {
             let a: &Iguana = std::mem::transmute::<*const (), &Iguana>(raw_animal);
             <Iguana as Animal>::speak(a)
-        }
-    } else if animal_vtable == jaguar_vtable {
-        unsafe {
+        },
+        jaguar_vtable => unsafe {
             let a: &Jaguar = std::mem::transmute::<*const (), &Jaguar>(raw_animal);
             <Jaguar as Animal>::speak(a)
-        }
-    } else if animal_vtable == kangaroo_vtable {
-        unsafe {
+        },
+        kangaroo_vtable => unsafe {
             let a: &Kangaroo = std::mem::transmute::<*const (), &Kangaroo>(raw_animal);
             <Kangaroo as Animal>::speak(a)
-        }
-    } else if animal_vtable == lion_vtable {
-        unsafe {
+        },
+        lion_vtable => unsafe {
             let a: &Lion = std::mem::transmute::<*const (), &Lion>(raw_animal);
             <Lion as Animal>::speak(a)
-        }
-    } else {
-        unsafe {
+        },
+        _ => unsafe {
             let a: &Monkey = std::mem::transmute::<*const (), &Monkey>(raw_animal);
             <Monkey as Animal>::speak(a)
-        }
+        },
     }
 }
 

@@ -11,3 +11,5 @@ pub mod vec2sf;
 pub mod visitor0sf;
 pub mod visitor0sf_import;
 pub mod visitor2sf;
+
+pub mod prime3sf;

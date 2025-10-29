@@ -5,7 +5,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{og0sf, og2sf, og5sf, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf};
+use rewrites::{og0sf, og2sf, og5sf, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime3sf};
 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
@@ -429,7 +429,7 @@ fn bench_visitor2sf(c: &mut Criterion) {
         age: 1,
         num_siblings: 13,
     };
-    let sbd: &visitor2sf::SpeakBetterDogs = &visitor2sf::SpeakBetterDogs {};
+    let sbd: &visitor2sf::SpeakBetterDogs = &visitor2sf::SpeakBetterDogs { tmp1: 6, tmp2: 7 };
     let mut group = c.benchmark_group("visitor2sf");
 
     group.bench_function("visitor2sf_best", |b| b.iter(|| visitor2sf::run_best(cat, sbd)));
@@ -473,9 +473,139 @@ fn bench_visitor2sf(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_prime3sf(c: &mut Criterion) {
+    let cat: &prime3sf::Cat = &prime3sf::Cat {
+        tmp1: 24,
+        tmp2: 36,
+        tmp3: 48,
+    };
+    let mut group = c.benchmark_group("prime3sf");
+
+    group.bench_function("prime3sf_best", |b| b.iter(|| prime3sf::run_best(cat)));
+    group.bench_function("prime3sf_not_rw", |b| {
+        b.iter_batched(
+            || prime3sf::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| prime3sf::run_not_rw(animal),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("prime3sf_naive_cha", |b| {
+        b.iter_batched(
+            || {
+                let animal = prime3sf::get_animal(rand::rng().random_range(..2usize));
+                let a = prime3sf::get_alligator();
+                let b = prime3sf::get_bird();
+                let c = prime3sf::get_cat();
+                let d = prime3sf::get_dog();
+                let e = prime3sf::get_elephant();
+                let f = prime3sf::get_frog();
+                let g = prime3sf::get_giraffe();
+                let h = prime3sf::get_hippo();
+                let i = prime3sf::get_iguana();
+                let j = prime3sf::get_jaguar();
+                let k = prime3sf::get_kangaroo();
+                let l = prime3sf::get_lion();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let a_vtable = core::ptr::metadata(&*a);
+                let b_vtable = core::ptr::metadata(&*b);
+                let c_vtable = core::ptr::metadata(&*c);
+                let d_vtable = core::ptr::metadata(&*d);
+                let e_vtable = core::ptr::metadata(&*e);
+                let f_vtable = core::ptr::metadata(&*f);
+                let g_vtable = core::ptr::metadata(&*g);
+                let h_vtable = core::ptr::metadata(&*h);
+                let i_vtable = core::ptr::metadata(&*i);
+                let j_vtable = core::ptr::metadata(&*j);
+                let k_vtable = core::ptr::metadata(&*k);
+                let l_vtable = core::ptr::metadata(&*l);
+                (
+                    animal, 
+                    animal_vtable, 
+                    a_vtable,
+                    b_vtable,
+                    c_vtable,
+                    d_vtable,
+                    e_vtable,
+                    f_vtable,
+                    g_vtable,
+                    h_vtable,
+                    i_vtable,
+                    j_vtable,
+                    k_vtable,
+                    l_vtable
+                )
+            },
+            move |(
+                    animal, 
+                    animal_vtable, 
+                    a_vtable,
+                    b_vtable,
+                    c_vtable,
+                    d_vtable,
+                    e_vtable,
+                    f_vtable,
+                    g_vtable,
+                    h_vtable,
+                    i_vtable,
+                    j_vtable,
+                    k_vtable,
+                    l_vtable
+            )| {
+                prime3sf::run_naive_cha(
+                    animal, 
+                    animal_vtable, 
+                    a_vtable,
+                    b_vtable,
+                    c_vtable,
+                    d_vtable,
+                    e_vtable,
+                    f_vtable,
+                    g_vtable,
+                    h_vtable,
+                    i_vtable,
+                    j_vtable,
+                    k_vtable,
+                    l_vtable
+                )
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("prime3sf_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = prime3sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = prime3sf::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                prime3sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("prime3sf_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = prime3sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = prime3sf::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                prime3sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
 // TODO
 // more than 2 trait implementations
-// multiple trait methods
 // different paths -> trait method call
 // more traits impl than used
 
@@ -556,6 +686,15 @@ criterion_group! {
 }
 
 criterion_group! {
+    name = prime3sf_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets = bench_prime3sf
+}
+
+criterion_group! {
     name = all_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
@@ -571,4 +710,4 @@ criterion_group! {
         bench_visitor2sf,
 }
 
-criterion_main!(visitor0sf_import_benches);
+criterion_main!(prime3sf_benches);

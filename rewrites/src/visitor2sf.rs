@@ -72,8 +72,15 @@ impl Animal for Dog {
     }
 }
 
-pub struct SpeakBetterDogs;
-pub struct SpeakBetterCats;
+pub struct SpeakBetterDogs {
+    pub tmp1: usize,
+    pub tmp2: usize,
+}
+
+pub struct SpeakBetterCats {
+    pub tmp1: usize,
+    pub tmp2: usize,
+}
 
 impl AnimalVisitor for SpeakBetterDogs {
     fn receive_dog(&self, _a: &dyn Animal) -> usize {
@@ -158,7 +165,9 @@ fn main() {
         1 => println!("Pass in a number and see what happens!"),
         _ => {
             let a = get_animal(args[1].parse().unwrap());
-            let dv = &SpeakBetterDogs {};
+            let dv = &SpeakBetterDogs {
+                tmp1: 3, tmp2: 4,
+            };
             run_not_rw(a, dv);
         }
     }

@@ -586,7 +586,7 @@ fn bench_prime3sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("prime3sf_src_rw_transmutes", |b| {
+    /*group.bench_function("prime3sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
                 let animal = prime3sf::get_animal(rand::rng().random_range(..2usize));
@@ -600,7 +600,7 @@ fn bench_prime3sf(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });
+    });*/
     group.finish();
 }
 

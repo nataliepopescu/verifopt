@@ -732,4 +732,4 @@ criterion_group! {
         bench_visitor2sf,
 }
 
-criterion_main!(og2sf_benches);
+criterion_main!(og0sf_benches);

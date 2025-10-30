@@ -34,7 +34,7 @@ fn bench_og0sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("og0sf_src_rw_transmutes", |b| {
+    /*group.bench_function("og0sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
                 let animal = og0sf::get_animal(rand::rng().random_range(..2usize));
@@ -48,7 +48,7 @@ fn bench_og0sf(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });
+    });*/
     group.bench_function("og0sf_mir_rw", |b| {
         b.iter_batched(
             || {
@@ -101,7 +101,7 @@ fn bench_og2sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("og2sf_src_rw_transmutes", |b| {
+    /*group.bench_function("og2sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
                 let animal =
@@ -116,7 +116,7 @@ fn bench_og2sf(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });
+    });*/
     group.bench_function("og2sf_mir_rw", |b| {
         b.iter_batched(
             || {

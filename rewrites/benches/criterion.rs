@@ -5,7 +5,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{og0sf, og2sf, og5sf, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime3sf};
+use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime3sf};
 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
@@ -49,14 +49,21 @@ fn bench_og0sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    /* FIXME
-    group.bench_function(
-        "og0sf_mir_rw_transmutes",
-        |b| b.iter(|| {
-            og0sf_mir_rw::run()
-        })
-    );
-    */
+    group.bench_function("og0sf_mir_rw", |b| {
+        b.iter_batched(
+            || {
+                let animal = og0sf_mir_rw::get_animal(rand::rng().random_range(..2usize));
+                let cat = og0sf_mir_rw::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                og0sf_mir_rw::run(animal, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
     group.finish();
 }
 
@@ -106,6 +113,21 @@ fn bench_og2sf(c: &mut Criterion) {
             },
             move |(animal, animal_vtable, cat_vtable)| {
                 og2sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("og2sf_mir_rw", |b| {
+        b.iter_batched(
+            || {
+                let animal = og2sf_mir_rw::get_animal(rand::rng().random_range(..2usize));
+                let cat = og2sf_mir_rw::get_cat();
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                og2sf_mir_rw::run(animal, animal_vtable, cat_vtable)
             },
             BatchSize::SmallInput,
         )
@@ -710,4 +732,4 @@ criterion_group! {
         bench_visitor2sf,
 }
 
-criterion_main!(prime3sf_benches);
+criterion_main!(og2sf_benches);

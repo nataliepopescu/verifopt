@@ -8,24 +8,43 @@ pub trait Animal {
 
 pub fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        return Box::new(Cat {});
+        return Box::new(Cat {
+            age: 9,
+            num_siblings: 11,
+        });
     } else {
-        return Box::new(Dog {});
+        return Box::new(Dog {
+            age: 7,
+            num_siblings: 3,
+        });
     }
 }
 
 #[inline(always)]
 pub fn get_cat() -> Box<dyn Animal> {
-    return Box::new(Cat {});
+    return Box::new(Cat {
+        age: 8,
+        num_siblings: 10,
+    });
 }
 
 #[inline(always)]
 pub fn get_dog() -> Box<dyn Animal> {
-    return Box::new(Dog {});
+    return Box::new(Dog {
+        age: 4,
+        num_siblings: 2,
+    });
 }
 
-struct Cat {}
-struct Dog {}
+pub struct Cat {
+    pub age: usize,
+    pub num_siblings: usize,
+}
+
+pub struct Dog {
+    pub age: usize,
+    pub num_siblings: usize,
+}
 
 impl Animal for Cat {
     fn kaeps(&self) -> usize {

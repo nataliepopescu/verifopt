@@ -44,7 +44,7 @@ fn bench_og0sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og0sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og0sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -75,12 +75,12 @@ fn bench_og2sf(c: &mut Criterion) {
     let mut group = c.benchmark_group("og2sf");
 
     group.bench_function("og2sf_best", |b| {
-        b.iter(|| og2sf::run_best(cat))
+        b.iter(|| std::hint::black_box(og2sf::run_best(cat)))
     });
     group.bench_function("og2sf_not_rw", |b| {
         b.iter_batched(
             || og2sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| og2sf::run_not_rw(animal),
+            move |animal| std::hint::black_box(og2sf::run_not_rw(animal)),
             BatchSize::SmallInput,
         )
     });
@@ -96,7 +96,7 @@ fn bench_og2sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og2sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og2sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -112,7 +112,7 @@ fn bench_og2sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og2sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og2sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -127,7 +127,7 @@ fn bench_og2sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og2sf_mir_rw::run(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og2sf_mir_rw::run(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -146,12 +146,12 @@ fn bench_og5sf(c: &mut Criterion) {
     let mut group = c.benchmark_group("og5sf");
 
     group.bench_function("og5sf_best", |b| {
-        b.iter(|| og5sf::run_best(cat))
+        b.iter(|| std::hint::black_box(og5sf::run_best(cat)))
     });
     group.bench_function("og5sf_not_rw", |b| {
         b.iter_batched(
             || og5sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| og5sf::run_not_rw(animal),
+            move |animal| std::hint::black_box(og5sf::run_not_rw(animal)),
             BatchSize::SmallInput,
         )
     });
@@ -167,7 +167,7 @@ fn bench_og5sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og5sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og5sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -183,7 +183,7 @@ fn bench_og5sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og5sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og5sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -230,10 +230,10 @@ fn bench_vec0sf(c: &mut Criterion) {
         let cat: &vec0sf::Cat = &vec0sf::Cat {};
 
         group.bench_function(BenchmarkId::new("vec0sf_best", n_elems), |b| {
-            b.iter(|| vec0sf::run_best(&vec_hc, cat))
+            b.iter(|| std::hint::black_box(vec0sf::run_best(&vec_hc, cat)))
         });
         group.bench_function(BenchmarkId::new("vec0sf_not_rw", n_elems), |b| {
-            b.iter(|| vec0sf::run_not_rw(&vec))
+            b.iter(|| std::hint::black_box(vec0sf::run_not_rw(&vec)))
         });
         //group.bench_function(
         //    BenchmarkId::new("vec0sf_src_rw_into_raw", n_elems),
@@ -245,7 +245,7 @@ fn bench_vec0sf(c: &mut Criterion) {
         //                (new_0sf_vec(*n_elems), cat_vtable)
         //            },
         //            move |(vec, cat_vtable)| {
-        //                vec0sf::run_src_rw_into_raw(&vec, cat_vtable)
+        //                std::hint::black_box(vec0sf::run_src_rw_into_raw(&vec, cat_vtable))
         //            },
         //            BatchSize::SmallInput,
         //        )
@@ -261,7 +261,7 @@ fn bench_vec0sf(c: &mut Criterion) {
                         (new_0sf_vec(*n_elems), cat_vtable)
                     },
                     move |(vec, cat_vtable)| {
-                        vec0sf::run_src_rw_transmutes(&vec, cat_vtable)
+                        std::hint::black_box(vec0sf::run_src_rw_transmutes(&vec, cat_vtable))
                     },
                     BatchSize::SmallInput,
                 )
@@ -313,10 +313,10 @@ fn bench_vec2sf(c: &mut Criterion) {
         };
 
         group.bench_function(BenchmarkId::new("vec2sf_best", n_elems), |b| {
-            b.iter(|| vec2sf::run_best(&vec_hc, cat))
+            b.iter(|| std::hint::black_box(vec2sf::run_best(&vec_hc, cat)))
         });
         group.bench_function(BenchmarkId::new("vec2sf_not_rw", n_elems), |b| {
-            b.iter(|| vec2sf::run_not_rw(&vec))
+            b.iter(|| std::hint::black_box(vec2sf::run_not_rw(&vec)))
         });
         //group.bench_function(
         //    BenchmarkId::new("vec2sf_src_rw_into_raw", n_elems),
@@ -328,7 +328,7 @@ fn bench_vec2sf(c: &mut Criterion) {
         //                (new_2sf_vec(*n_elems), cat_vtable)
         //            },
         //            move |(vec, cat_vtable)| {
-        //                vec2sf::run_src_rw_into_raw(&vec, cat_vtable)
+        //                std::hint::black_box(vec2sf::run_src_rw_into_raw(&vec, cat_vtable))
         //            },
         //            BatchSize::SmallInput,
         //        )
@@ -344,7 +344,7 @@ fn bench_vec2sf(c: &mut Criterion) {
                         (new_2sf_vec(*n_elems), cat_vtable)
                     },
                     move |(vec, cat_vtable)| {
-                        vec2sf::run_src_rw_transmutes(&vec, cat_vtable)
+                        std::hint::black_box(vec2sf::run_src_rw_transmutes(&vec, cat_vtable))
                     },
                     BatchSize::SmallInput,
                 )
@@ -359,11 +359,11 @@ fn bench_visitor0sf(c: &mut Criterion) {
     let sbd: &visitor0sf::SpeakBetterDogs = &visitor0sf::SpeakBetterDogs {};
     let mut group = c.benchmark_group("visitor0sf");
 
-    group.bench_function("visitor0sf_best", |b| b.iter(|| visitor0sf::run_best(cat, sbd)));
+    group.bench_function("visitor0sf_best", |b| b.iter(|| std::hint::black_box(visitor0sf::run_best(cat, sbd))));
     group.bench_function("visitor0sf_not_rw", |b| {
         b.iter_batched(
             || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| visitor0sf::run_not_rw(animal, sbd),
+            move |animal| std::hint::black_box(visitor0sf::run_not_rw(animal, sbd)),
             BatchSize::SmallInput,
         )
     });
@@ -377,7 +377,7 @@ fn bench_visitor0sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor0sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+                std::hint::black_box(visitor0sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -392,7 +392,7 @@ fn bench_visitor0sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor0sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+                std::hint::black_box(visitor0sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -400,6 +400,7 @@ fn bench_visitor0sf(c: &mut Criterion) {
     group.finish();
 }
 
+/*
 fn bench_visitor0sf_import(c: &mut Criterion) {
     let cat: &visitor_decl::Cat = &visitor_decl::Cat {};
     let sbd: &visitor_use::SpeakBetterDogs = &visitor_use::SpeakBetterDogs {};
@@ -445,6 +446,7 @@ fn bench_visitor0sf_import(c: &mut Criterion) {
     });
     group.finish();
 }
+*/
 
 fn bench_visitor2sf(c: &mut Criterion) {
     let cat: &visitor2sf::Cat = &visitor2sf::Cat {
@@ -454,11 +456,11 @@ fn bench_visitor2sf(c: &mut Criterion) {
     let sbd: &visitor2sf::SpeakBetterDogs = &visitor2sf::SpeakBetterDogs { tmp1: 6, tmp2: 7 };
     let mut group = c.benchmark_group("visitor2sf");
 
-    group.bench_function("visitor2sf_best", |b| b.iter(|| visitor2sf::run_best(cat, sbd)));
+    group.bench_function("visitor2sf_best", |b| b.iter(|| std::hint::black_box(visitor2sf::run_best(cat, sbd))));
     group.bench_function("visitor2sf_not_rw", |b| {
         b.iter_batched(
             || visitor2sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| visitor2sf::run_not_rw(animal, sbd),
+            move |animal| std::hint::black_box(visitor2sf::run_not_rw(animal, sbd)),
             BatchSize::SmallInput,
         )
     });
@@ -472,7 +474,7 @@ fn bench_visitor2sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor2sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable)
+                std::hint::black_box(visitor2sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -487,7 +489,7 @@ fn bench_visitor2sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                visitor2sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable)
+                std::hint::black_box(visitor2sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -507,7 +509,7 @@ fn bench_prime3sf(c: &mut Criterion) {
     group.bench_function("prime3sf_not_rw", |b| {
         b.iter_batched(
             || prime3sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| prime3sf::run_not_rw(animal),
+            move |animal| std::hint::black_box(prime3sf::run_not_rw(animal)),
             BatchSize::SmallInput,
         )
     });
@@ -573,7 +575,7 @@ fn bench_prime3sf(c: &mut Criterion) {
                     k_vtable,
                     l_vtable
             )| {
-                prime3sf::run_naive_cha(
+                std::hint::black_box(prime3sf::run_naive_cha(
                     animal, 
                     animal_vtable, 
                     a_vtable,
@@ -588,7 +590,7 @@ fn bench_prime3sf(c: &mut Criterion) {
                     j_vtable,
                     k_vtable,
                     l_vtable
-                )
+                ))
             },
             BatchSize::SmallInput,
         )
@@ -603,7 +605,7 @@ fn bench_prime3sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                prime3sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(prime3sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -618,7 +620,7 @@ fn bench_prime3sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                prime3sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(prime3sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -689,6 +691,7 @@ criterion_group! {
     targets = bench_visitor0sf
 }
 
+/*
 criterion_group! {
     name = visitor0sf_import_benches;
     config = Criterion::default()
@@ -697,6 +700,7 @@ criterion_group! {
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
     targets = bench_visitor0sf_import
 }
+*/
 
 criterion_group! {
     name = visitor2sf_benches;
@@ -730,6 +734,41 @@ criterion_group! {
         bench_vec2sf,
         bench_visitor0sf,
         bench_visitor2sf,
+        bench_prime3sf,
 }
 
-criterion_main!(og0sf_benches);
+criterion_group! {
+    name = og_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets =
+        bench_og0sf,
+        bench_og2sf,
+        bench_og5sf,
+}
+
+criterion_group! {
+    name = vec_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets =
+        bench_vec0sf,
+        bench_vec2sf,
+}
+
+criterion_group! {
+    name = visitor_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets =
+        bench_visitor0sf,
+        bench_visitor2sf,
+}
+
+criterion_main!(visitor_benches);

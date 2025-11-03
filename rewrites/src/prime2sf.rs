@@ -12,13 +12,11 @@ pub fn get_animal(num: usize) -> Box<dyn Animal> {
         return Box::new(Cat {
             tmp1: rand::rng().random_range(..100usize),
             tmp2: rand::rng().random_range(..100usize),
-            tmp3: rand::rng().random_range(..100usize),
         });
     } else {
         return Box::new(Dog {
             tmp1: rand::rng().random_range(..100usize),
             tmp2: rand::rng().random_range(..100usize),
-            tmp3: rand::rng().random_range(..100usize),
         });
     }
 }
@@ -28,7 +26,6 @@ pub fn get_alligator() -> Box<dyn Animal> {
     return Box::new(Alligator {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -37,7 +34,6 @@ pub fn get_bird() -> Box<dyn Animal> {
     return Box::new(Bird {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -46,7 +42,6 @@ pub fn get_cat() -> Box<dyn Animal> {
     return Box::new(Cat {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -55,7 +50,6 @@ pub fn get_dog() -> Box<dyn Animal> {
     return Box::new(Dog {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -64,7 +58,6 @@ pub fn get_elephant() -> Box<dyn Animal> {
     return Box::new(Elephant {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -73,7 +66,6 @@ pub fn get_frog() -> Box<dyn Animal> {
     return Box::new(Frog {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -82,7 +74,6 @@ pub fn get_giraffe() -> Box<dyn Animal> {
     return Box::new(Giraffe {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -91,7 +82,6 @@ pub fn get_hippo() -> Box<dyn Animal> {
     return Box::new(Hippo {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -100,7 +90,6 @@ pub fn get_iguana() -> Box<dyn Animal> {
     return Box::new(Iguana {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -109,7 +98,6 @@ pub fn get_jaguar() -> Box<dyn Animal> {
     return Box::new(Jaguar {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -118,7 +106,6 @@ pub fn get_kangaroo() -> Box<dyn Animal> {
     return Box::new(Kangaroo {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
@@ -127,86 +114,72 @@ pub fn get_lion() -> Box<dyn Animal> {
     return Box::new(Lion {
         tmp1: rand::rng().random_range(..100usize),
         tmp2: rand::rng().random_range(..100usize),
-        tmp3: rand::rng().random_range(..100usize),
     });
 }
 
 pub struct Alligator {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Bird {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Cat {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Dog {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Elephant {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Frog {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Giraffe {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Hippo {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Iguana {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Jaguar {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Kangaroo {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Lion {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 pub struct Monkey {
     pub tmp1: usize,
     pub tmp2: usize,
-    pub tmp3: usize,
 }
 
 impl Animal for Alligator {

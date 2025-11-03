@@ -5,7 +5,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime3sf};
+use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime2sf};
 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
@@ -497,38 +497,37 @@ fn bench_visitor2sf(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_prime3sf(c: &mut Criterion) {
-    let cat: &prime3sf::Cat = &prime3sf::Cat {
+fn bench_prime2sf(c: &mut Criterion) {
+    let cat: &prime2sf::Cat = &prime2sf::Cat {
         tmp1: 24,
         tmp2: 36,
-        tmp3: 48,
     };
-    let mut group = c.benchmark_group("prime3sf");
+    let mut group = c.benchmark_group("prime2sf");
 
-    group.bench_function("prime3sf_best", |b| b.iter(|| prime3sf::run_best(cat)));
-    group.bench_function("prime3sf_not_rw", |b| {
+    group.bench_function("prime2sf_best", |b| b.iter(|| prime2sf::run_best(cat)));
+    group.bench_function("prime2sf_not_rw", |b| {
         b.iter_batched(
-            || prime3sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| std::hint::black_box(prime3sf::run_not_rw(animal)),
+            || prime2sf::get_animal(rand::rng().random_range(..2usize)),
+            move |animal| std::hint::black_box(prime2sf::run_not_rw(animal)),
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("prime3sf_naive_cha", |b| {
+    group.bench_function("prime2sf_naive_cha", |b| {
         b.iter_batched(
             || {
-                let animal = prime3sf::get_animal(rand::rng().random_range(..2usize));
-                let a = prime3sf::get_alligator();
-                let b = prime3sf::get_bird();
-                let c = prime3sf::get_cat();
-                let d = prime3sf::get_dog();
-                let e = prime3sf::get_elephant();
-                let f = prime3sf::get_frog();
-                let g = prime3sf::get_giraffe();
-                let h = prime3sf::get_hippo();
-                let i = prime3sf::get_iguana();
-                let j = prime3sf::get_jaguar();
-                let k = prime3sf::get_kangaroo();
-                let l = prime3sf::get_lion();
+                let animal = prime2sf::get_animal(rand::rng().random_range(..2usize));
+                let a = prime2sf::get_alligator();
+                let b = prime2sf::get_bird();
+                let c = prime2sf::get_cat();
+                let d = prime2sf::get_dog();
+                let e = prime2sf::get_elephant();
+                let f = prime2sf::get_frog();
+                let g = prime2sf::get_giraffe();
+                let h = prime2sf::get_hippo();
+                let i = prime2sf::get_iguana();
+                let j = prime2sf::get_jaguar();
+                let k = prime2sf::get_kangaroo();
+                let l = prime2sf::get_lion();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let a_vtable = core::ptr::metadata(&*a);
                 let b_vtable = core::ptr::metadata(&*b);
@@ -575,7 +574,7 @@ fn bench_prime3sf(c: &mut Criterion) {
                     k_vtable,
                     l_vtable
             )| {
-                std::hint::black_box(prime3sf::run_naive_cha(
+                std::hint::black_box(prime2sf::run_naive_cha(
                     animal, 
                     animal_vtable, 
                     a_vtable,
@@ -595,32 +594,32 @@ fn bench_prime3sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("prime3sf_src_rw_into_raw", |b| {
+    group.bench_function("prime2sf_src_rw_into_raw", |b| {
         b.iter_batched(
             || {
-                let animal = prime3sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = prime3sf::get_cat();
+                let animal = prime2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = prime2sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                std::hint::black_box(prime3sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable))
+                std::hint::black_box(prime2sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
     });
-    /*group.bench_function("prime3sf_src_rw_transmutes", |b| {
+    /*group.bench_function("prime2sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
-                let animal = prime3sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = prime3sf::get_cat();
+                let animal = prime2sf::get_animal(rand::rng().random_range(..2usize));
+                let cat = prime2sf::get_cat();
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                std::hint::black_box(prime3sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable))
+                std::hint::black_box(prime2sf::run_src_rw_transmutes(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -712,12 +711,12 @@ criterion_group! {
 }
 
 criterion_group! {
-    name = prime3sf_benches;
+    name = prime2sf_benches;
     config = Criterion::default()
         .sample_size(SAMPLE_SIZE)
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
-    targets = bench_prime3sf
+    targets = bench_prime2sf
 }
 
 criterion_group! {
@@ -734,7 +733,7 @@ criterion_group! {
         bench_vec2sf,
         bench_visitor0sf,
         bench_visitor2sf,
-        bench_prime3sf,
+        bench_prime2sf,
 }
 
 criterion_group! {
@@ -771,4 +770,4 @@ criterion_group! {
         bench_visitor2sf,
 }
 
-criterion_main!(visitor_benches);
+criterion_main!(all_benches);

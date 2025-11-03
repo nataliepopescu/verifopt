@@ -1,6 +1,6 @@
 #![feature(ptr_metadata)]
 
-use core::ptr::DynMetadata;
+use std::ptr::DynMetadata;
 
 pub trait Animal {
     fn speak(&self) -> usize;
@@ -157,7 +157,6 @@ pub fn run_src_rw_transmutes_fallback(
 }
 
 // if copying into godbolt, make main `pub`
-/*
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     //let cat: &Cat = &Cat {};
@@ -167,9 +166,10 @@ fn main() {
         _ => {
             let animal = get_animal(args[1].parse().unwrap());
             let cat = get_cat();
-            let s = run_src_rw_transmutes(animal, cat);
+            let animal_vtable = core::ptr::metadata(&*animal);
+            let cat_vtable = core::ptr::metadata(&*cat);
+            let s = run_src_rw_into_raw(animal, animal_vtable, cat_vtable);
             println!("{}", s);
         },
     }
 }
-*/

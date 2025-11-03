@@ -11,11 +11,11 @@ fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
     let mut group = c.benchmark_group("og0sf");
 
-    group.bench_function("og0sf_best", |b| b.iter(|| og0sf::run_best(cat)));
+    group.bench_function("og0sf_best", |b| b.iter(|| std::hint::black_box(og0sf::run_best(cat))));
     group.bench_function("og0sf_not_rw", |b| {
         b.iter_batched(
             || og0sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| og0sf::run_not_rw(animal),
+            move |animal| std::hint::black_box(og0sf::run_not_rw(animal)),
             BatchSize::SmallInput,
         )
     });
@@ -29,7 +29,7 @@ fn bench_og0sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og0sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og0sf::run_src_rw_into_raw(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )
@@ -59,7 +59,7 @@ fn bench_og0sf(c: &mut Criterion) {
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
-                og0sf_mir_rw::run(animal, animal_vtable, cat_vtable)
+                std::hint::black_box(og0sf_mir_rw::run(animal, animal_vtable, cat_vtable))
             },
             BatchSize::SmallInput,
         )

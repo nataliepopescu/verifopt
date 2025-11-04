@@ -160,5 +160,24 @@ evaluation smoke tests
     - [ ] measure MIR rewrite impl
 
 
+- do later: why are og2sf and visitor2sf performing so similarly? (latter has 2x
+  number of virtual calls)
+
+- why naive CHA performing so poorly?? 
+    - apparently C++ dynamic dispatch is notoriously bad, so not surprising that
+      Rust dynamic dispatch would be faster than the equivalent CHA technique
+      (re Mae)
+    - [ ] @ anja for converting CHA ex -> C++
+
+- generalize DefIDs
+
+- generalize pass
+
+- start analysis
+    - get a foothold by ~thursday
+        - [ ] how to hook into MIR?
+        - [ ] how to walk the syntax tree?
+
+
 
 

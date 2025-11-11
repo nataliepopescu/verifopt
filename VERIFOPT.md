@@ -3,6 +3,10 @@
 ## Goal(s)
 
 1. eliminate virtual function calls in certain scenarios
+- consequences:
+    - faster perf + potentially smaller code size (exposes code to more optimizations)
+    - also could improve other static analysis tool accuracy if they skip 
+    dynamically dispatched function calls for simplicity (MIRChecker)
 
 2. explore traits vs generics tradeoff space?
 - maybe a followup proj
@@ -30,6 +34,17 @@ location
 - source-to-source?
     - con: (dumped) MIR syntax is not supposed to be parseable? 
         - https://users.rust-lang.org/t/rust-ast-with-types/24289
+
+## End-to-End Tool
+
+user interface: should somehow collect all deps together (cargo)
+- as in [MirChecker](https://dl.acm.org/doi/pdf/10.1145/3460120.3484541)
+
+analysis phase
+
+rewrite phase
+
+final binary/source code (depending where rewrite happens)
 
 ## Considerations
 

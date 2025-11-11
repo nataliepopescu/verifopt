@@ -178,6 +178,42 @@ evaluation smoke tests
         - [ ] how to hook into MIR?
         - [ ] how to walk the syntax tree?
 
+- another solution to implementing `Eq` for Rvalue? would keeping this be bad in
+  any way? (probably best to ask rust folks later)
 
+
+- analysis, especially for larger programs, by default runs on _everything_. ie
+  it collects _all_ the data! so, to make analysis more efficient, perhaps
+  verifopt can automatically scan first for all the dynamic dispatch things it
+  may ultimately need to replace, and do some sort of _reverse order analysis_,
+  such that it only collects what it needs to
+  - ie start from the dynamic dispatches and work backwards
+  - this sort of optimization would be interesting to evaluate
+  - do this after the naive thing is implemented - so we can compare!
+
+
+- what order are function bodies iterated through in rustc?
+
+- MirChecker callback() mechanism
+    - rustc_driver::Callback trait https://doc.rust-lang.org/nightly/nightly-rustc/rustc_driver/trait.Callbacks.html
+        - `config`
+        - `after_crate_root_parsing`
+        - `after_expansion` ?
+        - `after_analysis` ?
+    - from https://rustc-dev-guide.rust-lang.org/rustc-driver/intro.html
+        - "Callbacks is a trait that allows for custom compiler configuration,
+          as well as allowing custom code to run after different phases of the
+          compilation."
+        - I guess given this, `after_analysis` would be fine to use
+        - keep in mind: https://rustc-dev-guide.rust-lang.org/rustc-driver/remarks-on-perma-unstable-features.html#using-rustc-private-with-custom-toolchains
+            - using Callbacks mechanism will require some extra config if using
+              w custom rustc
+            - i think we do need to use our custom rustc though, b/c will
+              eventually need to call our transformation pass (+ also helps if
+              we've modified some rustc internals for easier implementation for
+              whatever reason)
+
+- traversal::postorder vs cycles?
+    - perhaps try to test/analyze a cycle in the prototype
 
 

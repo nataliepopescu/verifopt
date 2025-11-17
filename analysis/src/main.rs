@@ -69,6 +69,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         if entry_func.is_none() {
             panic!("No main func detected");
+        } else {
+            println!("entry func def_id: {:?}", entry_func.unwrap());
         }
 
         // call analyze_function()

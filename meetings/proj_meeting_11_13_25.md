@@ -77,3 +77,6 @@ TODOS
         - i.e. are we just targeting interproc use-cases?
 
 - storage markers: benchmark big weird complicated graph
+
+- alternative analysis location: add new hook to Callbacks trait called
+  `after_transformation`...

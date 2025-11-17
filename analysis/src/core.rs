@@ -2,15 +2,13 @@ use rustc_middle::mir::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval {
-    //I32(i32),
-    //I64(i64),
-    //U32(u32),
-    //U64(u64),
-    //USIZE(usize),
-    Num(u32),
-    IdkNum(),
-    Var(&'static str),
-    IdkVar(),
+    //Num(u32),
+    //IdkNum(),
+    //Var(&'static str),
+    //IdkVar(),
+
+    // str == Type name
+    IdkType(&'static str),
     Idk(),
 }
 

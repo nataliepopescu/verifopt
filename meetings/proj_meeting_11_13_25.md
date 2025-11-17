@@ -80,3 +80,19 @@ TODOS
 
 - alternative analysis location: add new hook to Callbacks trait called
   `after_transformation`...
+    - where are the various `dyn Callbacks` used?
+    - in `rustc_driver_impl`, but codegen + linker are combined...
+    - what would `after_transformation` imply?
+    - for `after_analysis`, there is a root `analysis` query that is triggered,
+      after which the `after_analysis` hook is invoked
+        - is there a root `tranform` query? / what exactly does the `analysis`
+          query quick off?
+        - _could_ potentially call one of the later queries (i.e.
+          `optimized_mir`, although this takes in a `DefId` so would have to
+          write an `analysis`-like wrapper that takes in the unit type...)
+            - how to find the implementation for the `analysis` query?
+            - several other queries that take in `key: ()` which could also help
+        - i'm also realizing that queries like this don't return anything
+            - how, then, are their query results used??
+            - ex: there is also an `entry_fn` query that would be nice to
+              repurpose

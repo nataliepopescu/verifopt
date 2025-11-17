@@ -10,18 +10,7 @@ use rustc_middle::ty::*;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum VerifoptRval {
-    //I32(i32),
-    //I64(i64),
-    //U32(u32),
-    //U64(u64),
-    //USIZE(usize),
-    Num(u32),
-    IdkNum(),
-    Var(&'static str),
-    IdkVar(),
-}
+use crate::core::VerifoptRval;
 
 // FIXME no negative constraints, resolve negative constraints immediately by removing from positive
 // constraint set
@@ -42,7 +31,7 @@ pub(crate) enum VarType<'tcx> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum MapKey<'tcx> {
     Place(Place<'tcx>),
-    Scope(&'static str),
+    Scope(&'static str), // FIXME Option str? if so, remove from VarType::Scope
 }
 
 #[derive(Debug, Clone, PartialEq)]

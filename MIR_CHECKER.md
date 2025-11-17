@@ -10,6 +10,10 @@ Analysis style (program analysis) is very similar, albeit of a subset of the
 language. Notably, they essentially ignore dynamic dispatch. But the way that
 they _implement_ their analysis is of use to us. 
 
+WTO
+- CFG generally has a topological ordering
+- but WTO is for when there are loops apparently
+
 ## Implementation
 
 Question:

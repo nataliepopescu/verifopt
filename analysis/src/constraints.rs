@@ -1,0 +1,145 @@
+#![allow(dead_code)]
+
+extern crate rustc_data_structures;
+extern crate rustc_middle;
+
+use rustc_middle::mir::*;
+use rustc_middle::ty::*;
+
+//use tracing::debug;
+
+use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum VerifoptRval {
+    //I32(i32),
+    //I64(i64),
+    //U32(u32),
+    //U64(u64),
+    //USIZE(usize),
+    Num(u32),
+    IdkNum(),
+    Var(&'static str),
+    IdkVar(),
+}
+
+// FIXME no negative constraints, resolve negative constraints immediately by removing from positive
+// constraint set
+pub(crate) type Constraints = HashSet<VerifoptRval>; //Rvalue<'tcx>>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum VarType<'tcx> {
+    // scope w backptr to enclosing scope identifier
+    // (None == top-level global scope)
+    Scope(Option<&'static str>, Vec<(Box<Ty<'tcx>>, ConstraintMap<'tcx>)>),
+    // set of positive constraints
+    // FIXME ignoring types for now, can add back in if need, but type-checking has already
+    // happened so maybe we can just trust that
+    //Values(Box<Ty<'tcx>>, Constraints<'tcx>),
+    Values(Constraints),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum MapKey<'tcx> {
+    Place(Place<'tcx>),
+    Scope(&'static str),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ConstraintMap<'tcx> {
+    pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
+}
+
+impl<'tcx> ConstraintMap<'tcx> {
+    pub(crate) fn new() -> Self {
+        Self {
+            cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
+        }
+    }
+
+    pub(crate) fn scoped_get(
+        &self,
+        scope: Option<&'static str>,
+        var: &MapKey<'tcx>,
+        traverse_backptr: bool,
+    ) -> Option<VarType<'tcx>> {
+        // first get the `cmap` object pertaining to `this` scope
+        if scope.is_none() {
+            match self.cmap.get(var) {
+                Some(boxed) => return Some(*boxed.clone()),
+                None => return None,
+            }
+        }
+
+        match self.cmap.get(&MapKey::Scope(scope.unwrap())) {
+            Some(vartype) => match *vartype.clone() {
+                VarType::Scope(backptr, instance_vec) => {
+                    if instance_vec.len() != 1 {
+                        todo!("not impl yet (scope vec)");
+                    }
+                    // is var in inner_cmap? if not:
+                    // - nested funcs: return None
+                    // - closures: recursively follow backptr to enclosing scopes
+                    // FIXME closures should not recurse past enclosing function
+                    match instance_vec[0].1.cmap.get(var) {
+                        Some(boxed) => Some(*boxed.clone()),
+                        None => {
+                            if traverse_backptr {
+                                self.scoped_get(backptr, var, traverse_backptr)
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                }
+                _ => panic!("not a scope: {:?}", scope.unwrap()),
+            },
+            None => panic!("undefined scope: {:?}", scope.unwrap()),
+        }
+    }
+
+    pub(crate) fn scoped_set(
+        &mut self,
+        scope: Option<&'static str>,
+        var: MapKey<'tcx>,
+        value: Box<VarType<'tcx>>,
+    ) {
+        // first get the `cmap` object pertaining to `this` scope
+        if scope.is_none() {
+            // FIXME why are places getting re-assigned, i thought MIR was ssa?
+            // commenting this panic out, i guess _during_ compiler compilation this
+            // assumption may be violated, but when compiling source code the assumption is true...?
+            if self.cmap.contains_key(&var) {
+                //panic!("symbol already exists: {:?}", var);
+                println!("symbol already exists: {:?}", var);
+            }
+
+            self.cmap.insert(var, value.clone());
+            return ();
+        }
+
+        match self.cmap.get(&MapKey::Scope(scope.unwrap())) {
+            Some(vartype) => match *vartype.clone() {
+                VarType::Scope(backptr, mut instance_vec) => {
+                    if instance_vec.len() != 1 {
+                        todo!("not impl yet (scope vec)");
+                    }
+                    if instance_vec[0].1.cmap.contains_key(&var) {
+                        panic!("symbol already exists: {:?}", var);
+                    }
+                    // modify scope w new var
+                    instance_vec[0].1.cmap.insert(var, value);
+                    self.cmap.insert(
+                        MapKey::Scope(scope.unwrap()),
+                        Box::new(VarType::Scope(backptr, instance_vec)),
+                    );
+                }
+                VarType::Values(..) => {
+                    panic!("not a scope: {:?}", scope.unwrap());
+                }
+            },
+            None => panic!("undefined scope: {:?}", scope.unwrap()),
+        }
+    }
+}
+

@@ -146,10 +146,11 @@ fn main() {
         1 => println!("Pass in a number and see what happens!"),
         _ => {
             let animal = get_animal(args[1].parse().unwrap());
-            let cat = get_cat();
-            let animal_vtable = core::ptr::metadata(&*animal);
-            let cat_vtable = core::ptr::metadata(&*cat);
-            let s = run_src_rw_into_raw(animal, animal_vtable, cat_vtable);
+            //let cat = get_cat();
+            //let animal_vtable = core::ptr::metadata(&*animal);
+            //let cat_vtable = core::ptr::metadata(&*cat);
+            //let s = run_src_rw_into_raw(animal, animal_vtable, cat_vtable);
+            let s = run_not_rw(animal);
             println!("{}", s);
         },
     }

@@ -1,14 +1,33 @@
+use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::mir::visit::Visitor;
+use rustc_middle::ty::TyCtxt;
 use rustc_data_structures::fx::{FxHashSet as HashSet};
 
+use crate::func_collect::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::context::GlobalContext;
 use crate::core::VerifoptRval;
 
 pub struct InterpPass<'a, 'tcx> {
-    pub context: &'a mut GlobalContext<'tcx>,
-    pub cmap: ConstraintMap<'tcx>
+    pub tcx: TyCtxt<'tcx>,
+    pub entry_func: DefId,
+    pub funcs: &'a FuncMap,
+    pub cmap: &'a mut ConstraintMap<'tcx>,
+}
+
+impl<'a, 'tcx> InterpPass<'a, 'tcx> {
+    pub fn new(
+        tcx: TyCtxt<'tcx>,
+        entry_func: DefId,
+        funcs: &'a FuncMap,
+        cmap: &'a mut ConstraintMap<'tcx>,
+    ) -> InterpPass<'a, 'tcx> {
+        Self { tcx, entry_func, funcs, cmap }
+    }
+
+    pub fn run(&mut self, body: &Body<'tcx>) {
+        self.visit_body(body);
+    }
 }
 
 impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
@@ -97,40 +116,6 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
             },
             _ => {},
         }
-    }
-}
-
-impl<'a, 'tcx> InterpPass<'a, 'tcx> {
-    pub fn new(context: &'a mut GlobalContext<'tcx>) -> InterpPass<'a, 'tcx> {
-        Self { context, cmap: ConstraintMap::new() }
-    }
-
-    pub fn run(&mut self) {
-        // what are all the DefIds in this crate?
-        //for def_id in tcx.hir_body_owners() {
-        //    println!("def_id: {:?}", def_id);
-        //    let def_kind = tcx.def_kind(def_id);
-        //    if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
-        //        println!("FUNCTION DEFID");
-        //    }
-        //}
-
-        // get entry point DefId
-        let mut entry_func = None;
-        for def_id in self.context.tcx.hir_body_owners() {
-            let item_name = self.context.tcx.item_name(def_id.to_def_id());
-            //println!("item_name: {:?}", item_name.to_string());
-            if item_name.to_string() == "main" {
-                entry_func = Some(def_id);
-            }
-        }
-
-        if entry_func.is_none() {
-            panic!("No main func detected");
-        }
-
-        let body = self.context.tcx.optimized_mir(entry_func.unwrap());
-        self.visit_body(body);
     }
 }
 

@@ -17,6 +17,9 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
         // 
         // is it correct that we don't _really_ need to worry about order of 
         // traversal (assuming NO loops) due to SSA?
+        //
+        // TODO instead of visitor, traverse one-by-one like in SimpleInterp
+        // (easier for, e.g., conditionals state merging)
         for (bb, data) in traversal::preorder(body) {
             println!("bb: {:?}", bb);
             self.visit_basic_block_data(bb, data);
@@ -58,6 +61,15 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
                 println!("func: {:?}", func);
                 println!("args: {:?}", args);
                 println!("place: {:?}", destination);
+                let mut set = HashSet::default();
+                // FIXME should be func call result
+                set.insert(VerifoptRval::Idk());
+                self.cmap.scoped_set(
+                    None,
+                    MapKey::Place(*destination),
+                    Box::new(VarType::Values(set)),
+                );
+                println!("~~~CMAP: {:?}", self.cmap);
             },
             //TailCall
             _ => {},
@@ -81,7 +93,7 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
                 );
-                //println!("CMAP UPDATE: {:?}", self.cmap);
+                println!("~~~CMAP: {:?}", self.cmap);
             },
             _ => {},
         }

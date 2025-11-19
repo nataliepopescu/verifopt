@@ -1,19 +1,42 @@
+use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
+use rustc_span::symbol::Symbol;
 
-pub type FuncName = &'static str;
+pub type FuncName = Symbol;
 
 pub type Type = &'static str;
 
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal {
-    pub name: &'static str,
+    pub def_id: DefId,
+    pub name: Symbol,
     pub is_method: bool,
-    pub params: Vec<(&'static str, Type)>,
-    pub rettype: Option<Box<Type>>,
-    pub body_def_id: DefId,
-    // FIXME DefId instead
+    pub params: Vec<(Symbol, Res)>,
+    pub rettype: Option<Res>,
     //pub body: &'a Body<'tcx>,
+}
+
+impl FuncVal {
+    pub fn new(
+        def_id: DefId,
+        name: Symbol,
+        is_method: bool,
+        arg_names: Vec<Symbol>,
+        arg_types: Vec<Res>,
+        rettype: Option<Res>,
+    ) -> FuncVal {
+        let params;
+        if arg_names.len() == arg_types.len() {
+            params = std::iter::zip(arg_names, arg_types).collect();
+        } else {
+            panic!("arg_names.len() != arg_types.len()");
+        }
+
+        Self {
+            def_id, name, is_method, params, rettype
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

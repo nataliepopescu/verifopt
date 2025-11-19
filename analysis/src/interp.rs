@@ -11,7 +11,7 @@ use crate::core::VerifoptRval;
 pub struct InterpPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub entry_func: DefId,
-    pub funcs: &'a FuncMap,
+    pub func_map: &'a FuncMap,
     pub cmap: &'a mut ConstraintMap<'tcx>,
 }
 
@@ -19,10 +19,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         entry_func: DefId,
-        funcs: &'a FuncMap,
+        func_map: &'a FuncMap,
         cmap: &'a mut ConstraintMap<'tcx>,
     ) -> InterpPass<'a, 'tcx> {
-        Self { tcx, entry_func, funcs, cmap }
+        Self { tcx, entry_func, func_map, cmap }
     }
 
     pub fn run(&mut self, body: &Body<'tcx>) {
@@ -40,7 +40,7 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
         // TODO instead of visitor, traverse one-by-one like in SimpleInterp
         // (easier for, e.g., conditionals state merging)
         for (bb, data) in traversal::preorder(body) {
-            println!("bb: {:?}", bb);
+            //println!("bb: {:?}", bb);
             self.visit_basic_block_data(bb, data);
         }
     }
@@ -76,10 +76,10 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
     ) {
         match &terminator.kind {
             TerminatorKind::Call { func, args, destination, .. } => {
-                println!("call!");
-                println!("func: {:?}", func);
-                println!("args: {:?}", args);
-                println!("place: {:?}", destination);
+                //println!("call!");
+                //println!("func: {:?}", func);
+                //println!("args: {:?}", args);
+                //println!("place: {:?}", destination);
                 let mut set = HashSet::default();
                 // FIXME should be func call result
                 set.insert(VerifoptRval::Idk());
@@ -88,7 +88,7 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
                     MapKey::Place(*destination),
                     Box::new(VarType::Values(set)),
                 );
-                println!("~~~CMAP: {:?}", self.cmap);
+                //println!("~~~CMAP: {:?}", self.cmap);
             },
             //TailCall
             _ => {},
@@ -112,7 +112,7 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
                 );
-                println!("~~~CMAP: {:?}", self.cmap);
+                //println!("~~~CMAP: {:?}", self.cmap);
             },
             _ => {},
         }

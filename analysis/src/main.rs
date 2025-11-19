@@ -6,6 +6,7 @@ extern crate rustc_data_structures;
 extern crate rustc_hir;
 extern crate rustc_interface;
 extern crate rustc_middle;
+extern crate rustc_span;
 
 mod constraints;
 //mod context;
@@ -41,34 +42,30 @@ impl Callbacks for VerifoptCallbacks {
         let mut func_map = FuncMap::new();
         let mut cmap = ConstraintMap::new();
 
-        // get entry point DefId
-        let mut entry_func_opt = None;
-        for def_id in tcx.hir_body_owners() {
-            let item_name = tcx.item_name(def_id.to_def_id());
-            if item_name.to_string() == "main" {
-                entry_func_opt = Some(def_id);
-            }
-        }
-
+        // get entry function DefId
+        let entry_func_opt = tcx.entry_fn(());
         if entry_func_opt.is_none() {
             panic!("No main func detected");
         }
-        let entry_func: DefId = entry_func_opt.unwrap().into();
+        let entry_func: DefId = entry_func_opt.unwrap().0;
 
         // get optimized MIR body of entry point func
         let mir_body = tcx.optimized_mir(entry_func);
 
-        // Function Collection Pass
+        // init + run Function Collection Pass
         let mut func_collect = FuncCollectPass::new(tcx, entry_func, &mut func_map);
-        func_collect.run(mir_body);
+        func_collect.run();
+        // https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_abi_of_instance
+        // ???
 
-        // Function Signature Collection Pass
+        // init + run Function Signature Collection Pass
+        // https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
-        // Interpreter Pass
+        // init + run Interpreter Pass
         let mut interp = InterpPass::new(tcx, entry_func, &func_map, &mut cmap);
         interp.run(mir_body);
 
-        // Rewriter Pass
+        // init + run Rewriter Pass
         //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();
         //let rewriter = RewritePass::new(&global_context);
         //rewriter.run(&mut rw_mir_body);

@@ -3,11 +3,11 @@ use rustc_hir::FnRetTy::*;
 use rustc_hir::def::Res;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
-use rustc_middle::mir::*;
+//use rustc_middle::mir::*;
 use rustc_middle::ty::TyCtxt;
 use rustc_data_structures::fx::{FxHashMap as HashMap};
 
-use crate::core::{FuncName, FuncVal};
+use crate::core::FuncVal;
 
 #[derive(Debug, Clone)]
 pub struct FuncMap {
@@ -43,7 +43,7 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
             },
             rustc_hir::TyKind::Path(qpath) => {
                 match qpath {
-                    rustc_hir::QPath::Resolved(ty_opt, path) => {
+                    rustc_hir::QPath::Resolved(_ty_opt, path) => {
                         Some(path.res)
                     },
                     _ => None,
@@ -100,7 +100,7 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
 
                 let vec_to_insert: Vec<FuncVal>;
                 match self.func_map.funcs.get_mut(&def_id) {
-                    Some(mut func_vec) => {
+                    Some(func_vec) => {
                         func_vec.push(funcval);
                         vec_to_insert = func_vec.to_vec();
                     },

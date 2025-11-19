@@ -60,8 +60,8 @@ impl Callbacks for VerifoptCallbacks {
         // https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         // init + run Interpreter Pass
-        let mut interp = InterpPass::new(tcx, entry_func, &func_map, &mut cmap);
-        interp.run(mir_body);
+        let mut interp = InterpPass::new(tcx, entry_func, &func_map);
+        interp.run(&mut cmap, mir_body);
 
         // init + run Rewriter Pass
         //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();

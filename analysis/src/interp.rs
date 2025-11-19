@@ -1,7 +1,7 @@
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::mir::visit::Visitor;
-use rustc_middle::ty::TyCtxt;
+use rustc_middle::ty::{TyCtxt, TyKind};
 use rustc_data_structures::fx::{FxHashSet as HashSet};
 
 use crate::func_collect::FuncMap;
@@ -76,13 +76,49 @@ impl<'a, 'tcx> Visitor<'tcx> for InterpPass<'a, 'tcx> {
     ) {
         match &terminator.kind {
             TerminatorKind::Call { func, args, destination, .. } => {
-                //println!("call!");
-                //println!("func: {:?}", func);
-                //println!("args: {:?}", args);
-                //println!("place: {:?}", destination);
+                println!("\n-----------\n");
+                println!("call!");
+                println!("func: {:?}", func);
+                println!("args: {:?}", args);
+                println!("place: {:?}", destination);
+
+                println!("\nfunc_map: {:#?}\n", self.func_map);
+
+                match func {
+                    Operand::Constant(box co) => {
+                        match co.const_ {
+                            Const::Val(_, ty) => {
+                                println!("ty: {:?}", ty);
+                                match ty.kind() {
+                                    TyKind::FnDef(def_id, _) => {
+                                        match self.func_map.funcs.get(def_id) {
+                                            Some(funcval_vec) => {
+                                                println!("GOT funcval_vec: {:?}", funcval_vec);
+                                                // TODO modify visitor -> cmap as ARG
+                                                //for funcval in funcval_vec.iter() {
+                                                //}
+                                            },
+                                            None => {
+                                                println!("no such function (might be a dynamic call): {:?}", def_id);
+                                                // TODO dynamic dispatch
+                                                // if first arg == self, use constraints to prune funcvals
+                                            },
+                                        }
+                                    },
+                                    _ => {},
+                                }
+                            },
+                            _ => {},
+                        }
+                    },
+                    // TODO also handle indirect invokes (via variable name, _not_ in func_map)
+                    _ => {},
+                }
+
                 let mut set = HashSet::default();
                 // FIXME should be func call result
                 set.insert(VerifoptRval::Idk());
+
                 self.cmap.scoped_set(
                     None,
                     MapKey::Place(*destination),

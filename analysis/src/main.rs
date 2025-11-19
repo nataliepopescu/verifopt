@@ -55,8 +55,6 @@ impl Callbacks for VerifoptCallbacks {
         // init + run Function Collection Pass
         let mut func_collect = FuncCollectPass::new(tcx, entry_func, &mut func_map);
         func_collect.run();
-        // https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_abi_of_instance
-        // ???
 
         // init + run Function Signature Collection Pass
         // https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig

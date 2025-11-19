@@ -12,7 +12,7 @@ use crate::core::{FuncName, FuncVal};
 #[derive(Debug, Clone)]
 pub struct FuncMap {
     // omitting TraitStructOpt unless useful
-    pub funcs: HashMap<FuncName, Vec<FuncVal>>,
+    pub funcs: HashMap<DefId, Vec<FuncVal>>,
 }
 
 impl<'a, 'tcx> FuncMap {
@@ -54,16 +54,17 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
     }
 
     pub fn run(&mut self) {
-        for def_id in self.tcx.hir_body_owners() {
-            let def_kind = self.tcx.def_kind(def_id);
-            if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
-                let item_name = self.tcx.item_name(def_id.to_def_id());
+        for loc_def_id in self.tcx.hir_body_owners() {
+            let loc_def_kind = self.tcx.def_kind(loc_def_id);
+            if loc_def_kind == DefKind::Fn || loc_def_kind == DefKind::AssocFn {
+                let def_id = loc_def_id.to_def_id();
+                let item_name = self.tcx.item_name(def_id);
 
-                let arg_idents = self.tcx.fn_arg_idents(def_id);
+                let arg_idents = self.tcx.fn_arg_idents(loc_def_id);
                 let arg_names = arg_idents.into_iter().map(|x| x.unwrap().name).collect();
 
                 let mut arg_types = vec![];
-                let hir_id = self.tcx.local_def_id_to_hir_id(def_id);
+                let hir_id = self.tcx.local_def_id_to_hir_id(loc_def_id);
                 let decl = self.tcx.hir_fn_decl_by_hir_id(hir_id).unwrap();
                 for input in decl.inputs {
                     let res_opt = self.get_type_res(input.kind);
@@ -92,13 +93,13 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
                 }
 
                 let funcval = FuncVal::new(
-                    def_id.into(), item_name, is_method, arg_names, arg_types, rettype
+                    def_id, item_name, is_method, arg_names, arg_types, rettype
                 );
 
                 // TODO would TraitStructOpt be useful?
 
                 let vec_to_insert: Vec<FuncVal>;
-                match self.func_map.funcs.get_mut(&item_name) {
+                match self.func_map.funcs.get_mut(&def_id) {
                     Some(mut func_vec) => {
                         func_vec.push(funcval);
                         vec_to_insert = func_vec.to_vec();
@@ -108,7 +109,7 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
                         // TODO handle nested func decls
                     }
                 }
-                self.func_map.funcs.insert(item_name, vec_to_insert);
+                self.func_map.funcs.insert(def_id, vec_to_insert);
             }
         }
     }

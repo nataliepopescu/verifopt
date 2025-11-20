@@ -6,8 +6,9 @@ use rustc_index::IndexSlice;
 use rustc_span::source_map::Spanned;
 
 use crate::func_collect::FuncMap;
-use crate::constraints::{ConstraintMap, MapKey, VarType};
+use crate::constraints::{Constraints, ConstraintMap, MapKey, VarType};
 use crate::core::{FuncVal, VerifoptRval};
+use crate::error::Error;
 
 pub struct InterpPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -25,19 +26,19 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     }
 
     pub fn run(
-        &mut self, 
+        &self, 
         cmap: &mut ConstraintMap<'tcx>, 
         body: &Body<'tcx>,
-    ) {
-        self.visit_body(cmap, None, body);
+    ) -> Result<Option<Constraints>, Error> {
+        self.visit_body(cmap, None, body)
     }
 
     fn visit_body(
-        &mut self, 
+        &self, 
         cmap: &mut ConstraintMap<'tcx>, 
         enclosing_scope: Option<DefId>,
         body: &Body<'tcx>,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         // FIXME how do loops affect this order?
         // 
         // is it correct that we don't _really_ need to worry about order of 
@@ -46,36 +47,41 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // TODO instead of visitor, traverse one-by-one like in SimpleInterp
         // (easier for, e.g., conditionals state merging)
 
+        let mut last_res = None;
         for (bb, data) in traversal::preorder(body) {
-            //println!("bb: {:?}", bb);
-            self.visit_basic_block_data(cmap, body.local_decls.as_slice(), enclosing_scope, bb, data);
+            last_res = self.visit_basic_block_data(cmap, body.local_decls.as_slice(), enclosing_scope, bb, data)?;
         }
+        Ok(last_res)
     }
 
     fn visit_basic_block_data(
-        &mut self,
+        &self,
         cmap: &mut ConstraintMap<'tcx>, 
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         enclosing_scope: Option<DefId>,
         _block: BasicBlock,
         data: &BasicBlockData<'tcx>,
-    ) {
-        for (_, stmt) in data.statements.iter().enumerate() {
-            self.visit_statement(cmap, body_locals, enclosing_scope, stmt);
+    ) -> Result<Option<Constraints>, Error> {
+        let mut last_res = None;
+
+        for (idx, stmt) in data.statements.iter().enumerate() {
+            last_res = self.visit_statement(cmap, body_locals, enclosing_scope, stmt)?;
         }
 
         if let Some(term) = &data.terminator {
-            self.visit_terminator(cmap, body_locals, enclosing_scope, &term);
+            last_res = self.visit_terminator(cmap, body_locals, enclosing_scope, &term)?;
         }
+
+        Ok(last_res)
     }
 
     fn visit_statement(
-        &mut self,
+        &self,
         cmap: &mut ConstraintMap<'tcx>, 
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         enclosing_scope: Option<DefId>,
         statement: &Statement<'tcx>,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         match statement.kind {
             StatementKind::Assign(box (place, ref rvalue)) => {
                 println!("assignment!");
@@ -92,18 +98,20 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Box::new(VarType::Values(set)),
                 );
                 println!("~~~CMAP: {:?}", cmap);
+
+                Ok(None)
             },
-            _ => {},
+            _ => Ok(None),
         }
     }
 
     fn visit_terminator(
-        &mut self,
+        &self,
         cmap: &mut ConstraintMap<'tcx>, 
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         enclosing_scope: Option<DefId>,
         terminator: &Terminator<'tcx>,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         match &terminator.kind {
             TerminatorKind::Call { func, args, destination, .. } => {
                 println!("\n-----------\n");
@@ -137,26 +145,29 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                     );
                                                     //println!("~~~CMAP: {:?}", cmap);
                                                 }
+
+                                                Ok(None)
                                             },
                                             None => {
                                                 println!("no such function (might be a dynamic call): {:?}", def_id);
                                                 // TODO dynamic dispatch
                                                 // if first arg == self, use constraints to prune funcvals
+                                                Ok(None)
                                             },
                                         }
                                     },
-                                    _ => {},
+                                    _ => Ok(None),
                                 }
                             },
-                            _ => {},
+                            _ => Ok(None),
                         }
                     },
                     // TODO also handle indirect invokes (via variable name, _not_ in func_map)
-                    _ => {},
+                    _ => Ok(None),
                 }
             },
             //TailCall
-            _ => {},
+            _ => Ok(None),
         }
     }
 

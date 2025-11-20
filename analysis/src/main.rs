@@ -12,6 +12,7 @@ extern crate rustc_index;
 mod constraints;
 //mod context;
 mod core;
+mod error;
 
 mod func_collect;
 mod interp;
@@ -62,7 +63,7 @@ impl Callbacks for VerifoptCallbacks {
 
         // init + run Interpreter Pass
         let mut interp = InterpPass::new(tcx, entry_func, &func_map);
-        interp.run(&mut cmap, mir_body);
+        let _res = interp.run(&mut cmap, mir_body);
 
         // init + run Rewriter Pass
         //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();

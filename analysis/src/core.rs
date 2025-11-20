@@ -3,26 +3,24 @@ use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_span::symbol::Symbol;
 
-pub type FuncName = Symbol;
-
 pub type Type = &'static str;
 
 #[derive(Debug, Clone, Hash)]
-pub struct FuncVal {
+pub struct FuncVal<'tcx> {
     pub def_id: DefId,
     pub name: Symbol,
     pub is_method: bool,
-    pub params: Vec<(Symbol, Res)>,
+    pub params: Vec<(Place<'tcx>, Res)>,
     pub rettype: Option<Res>,
     //pub body: &'a Body<'tcx>,
 }
 
-impl FuncVal {
+impl<'tcx> FuncVal<'tcx> {
     pub fn new(
         def_id: DefId,
         name: Symbol,
         is_method: bool,
-        arg_names: Vec<Symbol>,
+        arg_names: Vec<Place<'tcx>>,
         arg_types: Vec<Res>,
         rettype: Option<Res>,
     ) -> FuncVal {

@@ -2,22 +2,23 @@ use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::ty::{TyCtxt, TyKind};
 use rustc_data_structures::fx::{FxHashSet as HashSet};
+use rustc_span::source_map::Spanned;
 
 use crate::func_collect::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::VerifoptRval;
+use crate::core::{FuncVal, VerifoptRval};
 
 pub struct InterpPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub entry_func: DefId,
-    pub func_map: &'a FuncMap,
+    pub func_map: &'a FuncMap<'tcx>,
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         entry_func: DefId,
-        func_map: &'a FuncMap,
+        func_map: &'a FuncMap<'tcx>,
     ) -> InterpPass<'a, 'tcx> {
         Self { tcx, entry_func, func_map }
     }
@@ -27,12 +28,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cmap: &mut ConstraintMap<'tcx>, 
         body: &Body<'tcx>,
     ) {
-        self.visit_body(cmap, body);
+        self.visit_body(cmap, None, body);
     }
 
     fn visit_body(
         &mut self, 
         cmap: &mut ConstraintMap<'tcx>, 
+        enclosing_scope: Option<DefId>,
         body: &Body<'tcx>,
     ) {
         // FIXME how do loops affect this order?
@@ -44,28 +46,30 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // (easier for, e.g., conditionals state merging)
         for (bb, data) in traversal::preorder(body) {
             //println!("bb: {:?}", bb);
-            self.visit_basic_block_data(cmap, bb, data);
+            self.visit_basic_block_data(cmap, enclosing_scope, bb, data);
         }
     }
 
     fn visit_basic_block_data(
         &mut self,
         cmap: &mut ConstraintMap<'tcx>, 
+        enclosing_scope: Option<DefId>,
         _block: BasicBlock,
         data: &BasicBlockData<'tcx>,
     ) {
         for (_, stmt) in data.statements.iter().enumerate() {
-            self.visit_statement(cmap, stmt);
+            self.visit_statement(cmap, enclosing_scope, stmt);
         }
 
         if let Some(term) = &data.terminator {
-            self.visit_terminator(cmap, &term);
+            self.visit_terminator(cmap, enclosing_scope, &term);
         }
     }
 
     fn visit_statement(
         &mut self,
         cmap: &mut ConstraintMap<'tcx>, 
+        enclosing_scope: Option<DefId>,
         statement: &Statement<'tcx>,
     ) {
         match statement.kind {
@@ -75,6 +79,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 //println!("rval: {:?}", rvalue);
                 let mut set = HashSet::default();
                 set.insert(rvalue.into());
+
+                // FIXME use enclosing_scope
                 cmap.scoped_set(
                     None,
                     MapKey::Place(place),
@@ -89,6 +95,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn visit_terminator(
         &mut self,
         cmap: &mut ConstraintMap<'tcx>, 
+        enclosing_scope: Option<DefId>,
         terminator: &Terminator<'tcx>,
     ) {
         match &terminator.kind {
@@ -99,7 +106,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("args: {:?}", args);
                 println!("place: {:?}", destination);
 
-                println!("\nfunc_map: {:#?}\n", self.func_map);
+                //println!("\nfunc_map: {:#?}\n", self.func_map);
 
                 match func {
                     Operand::Constant(box co) => {
@@ -110,10 +117,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     TyKind::FnDef(def_id, _) => {
                                         match self.func_map.funcs.get(def_id) {
                                             Some(funcval_vec) => {
-                                                println!("GOT funcval_vec: {:?}", funcval_vec);
-                                                // TODO modify visitor -> cmap as ARG
-                                                //for funcval in funcval_vec.iter() {
-                                                //}
+                                                for funcval in funcval_vec.iter() {
+                                                    let mut cmap_clone = cmap.clone();
+                                                    self.resolve_args(cmap, enclosing_scope, funcval, args);
+                                                }
                                             },
                                             None => {
                                                 println!("no such function (might be a dynamic call): {:?}", def_id);
@@ -136,6 +143,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 // FIXME should be func call result
                 set.insert(VerifoptRval::Idk());
 
+                // FIXME use enclosing_scope
                 cmap.scoped_set(
                     None,
                     MapKey::Place(*destination),
@@ -146,6 +154,75 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             //TailCall
             _ => {},
         }
+    }
+
+    fn resolve_args(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        enclosing_scope: Option<DefId>,
+        funcval: &FuncVal<'tcx>,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
+    ) {
+        println!("RESOLVING ARGS");
+        println!("BEFORE CMAP: {:#?}", cmap);
+
+        let mut func_cmap = ConstraintMap::new();
+
+        let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
+
+        // add arg values into func_cmap
+        for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
+            println!("param_name: {:?}", param_name);
+            println!("param_type: {:?}", param_type);
+            println!("arg: {:?}", arg);
+            println!("enclosing_scope: {:?}", enclosing_scope);
+
+            // FIXME how do outer-scope arg names/places interact w current scope (should
+            // disambiguate when bring into scope)
+            match arg {
+                // TODO cmap.scoped_get + add result to func_cmap
+                Operand::Copy(place)
+                | Operand::Move(place) => {
+                    match cmap.scoped_get(enclosing_scope, &MapKey::Place(place), false) {
+                        Some(vartype) => {
+                            println!("vartype: {:?}", vartype);
+                            match vartype {
+                                VarType::Values(constraints) => {
+                                    func_cmap.cmap.insert(
+                                        MapKey::Place(param_name),
+                                        Box::new(VarType::Values(
+                                            // TODO add type?
+                                            constraints.clone(),
+                                        )),
+                                    );
+                                }
+                                _ => {},
+                            }
+                        }
+                        // TODO func name?
+                        None => {},
+                    }
+                }
+                _ => {},
+            }
+        }
+
+        // add func_cmap to outer cmap
+
+        // FIXME assuming "name" (funcname I believe) does not exist in cmap
+        cmap.cmap.insert(
+            MapKey::ScopeId(funcval.def_id),
+            Box::new(VarType::Scope(
+                enclosing_scope,
+                vec![(
+                    // FIXME forgot what this field is for
+                    Box::new("func"),
+                    func_cmap,
+                )],
+            )),
+        );
+
+        println!("AFTER CMAP: {:#?}", cmap);
     }
 }
 

@@ -3,19 +3,19 @@ use rustc_hir::FnRetTy::*;
 use rustc_hir::def::Res;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
-//use rustc_middle::mir::*;
-use rustc_middle::ty::TyCtxt;
+use rustc_middle::mir::*;
+use rustc_middle::ty::{List, TyCtxt};
 use rustc_data_structures::fx::{FxHashMap as HashMap};
 
 use crate::core::FuncVal;
 
 #[derive(Debug, Clone)]
-pub struct FuncMap {
+pub struct FuncMap<'tcx> {
     // omitting TraitStructOpt unless useful
-    pub funcs: HashMap<DefId, Vec<FuncVal>>,
+    pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
 }
 
-impl<'a, 'tcx> FuncMap {
+impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
         Self { funcs: HashMap::default() }
     }
@@ -24,14 +24,14 @@ impl<'a, 'tcx> FuncMap {
 pub struct FuncCollectPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub entry_func: DefId,
-    pub func_map: &'a mut FuncMap,
+    pub func_map: &'a mut FuncMap<'tcx>,
 }
 
 impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         entry_func: DefId,
-        func_map: &'a mut FuncMap,
+        func_map: &'a mut FuncMap<'tcx>,
     ) -> FuncCollectPass<'a, 'tcx> {
         Self { tcx, entry_func, func_map }
     }
@@ -57,12 +57,13 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
         for loc_def_id in self.tcx.hir_body_owners() {
             let loc_def_kind = self.tcx.def_kind(loc_def_id);
             if loc_def_kind == DefKind::Fn || loc_def_kind == DefKind::AssocFn {
+                // get DefId
                 let def_id = loc_def_id.to_def_id();
+
+                // get function name
                 let item_name = self.tcx.item_name(def_id);
 
-                let arg_idents = self.tcx.fn_arg_idents(loc_def_id);
-                let arg_names = arg_idents.into_iter().map(|x| x.unwrap().name).collect();
-
+                // get argument types
                 let mut arg_types = vec![];
                 let hir_id = self.tcx.local_def_id_to_hir_id(loc_def_id);
                 let decl = self.tcx.hir_fn_decl_by_hir_id(hir_id).unwrap();
@@ -73,6 +74,17 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
                     }
                 }
 
+                // get argument names
+                let mut arg_names = vec![];
+                for i in 1..arg_types.len() + 1 {
+                    let arg_place = Place {
+                        local: Local::from_usize(i),
+                        projection: List::empty(),
+                    };
+                    arg_names.push(arg_place);
+                }
+
+                // is method?
                 let is_method;
                 let arg_types_slice = arg_types.as_slice();
                 if arg_types_slice.len() > 0 {
@@ -84,6 +96,7 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
                     is_method = false;
                 }
 
+                // get return type
                 let rettype;
                 match decl.output {
                     DefaultReturn(_) => rettype = None,
@@ -98,7 +111,7 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
 
                 // TODO would TraitStructOpt be useful?
 
-                let vec_to_insert: Vec<FuncVal>;
+                let vec_to_insert: Vec<FuncVal<'tcx>>;
                 match self.func_map.funcs.get_mut(&def_id) {
                     Some(func_vec) => {
                         func_vec.push(funcval);

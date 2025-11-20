@@ -3,6 +3,7 @@
 extern crate rustc_data_structures;
 extern crate rustc_middle;
 
+use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::ty::*;
 
@@ -10,7 +11,7 @@ use rustc_middle::ty::*;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::core::VerifoptRval;
+use crate::core::{Type, VerifoptRval};
 
 // FIXME no negative constraints, resolve negative constraints immediately by removing from positive
 // constraint set
@@ -20,18 +21,20 @@ pub(crate) type Constraints = HashSet<VerifoptRval>; //Rvalue<'tcx>>;
 pub(crate) enum VarType<'tcx> {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
-    Scope(Option<&'static str>, Vec<(Box<Ty<'tcx>>, ConstraintMap<'tcx>)>),
+    Scope(Option<DefId>, Vec<(Box<Type>, ConstraintMap<'tcx>)>),
     // set of positive constraints
     // FIXME ignoring types for now, can add back in if need, but type-checking has already
     // happened so maybe we can just trust that
     //Values(Box<Ty<'tcx>>, Constraints<'tcx>),
+    // FIXME add type back in?
     Values(Constraints),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum MapKey<'tcx> {
     Place(Place<'tcx>),
-    Scope(&'static str), // FIXME Option str? if so, remove from VarType::Scope
+    // FIXME Option str? if so, remove from VarType::Scope
+    ScopeId(DefId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,7 +51,7 @@ impl<'tcx> ConstraintMap<'tcx> {
 
     pub(crate) fn scoped_get(
         &self,
-        scope: Option<&'static str>,
+        scope: Option<DefId>,
         var: &MapKey<'tcx>,
         traverse_backptr: bool,
     ) -> Option<VarType<'tcx>> {
@@ -60,7 +63,7 @@ impl<'tcx> ConstraintMap<'tcx> {
             }
         }
 
-        match self.cmap.get(&MapKey::Scope(scope.unwrap())) {
+        match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
             Some(vartype) => match *vartype.clone() {
                 VarType::Scope(backptr, instance_vec) => {
                     if instance_vec.len() != 1 {
@@ -89,7 +92,7 @@ impl<'tcx> ConstraintMap<'tcx> {
 
     pub(crate) fn scoped_set(
         &mut self,
-        scope: Option<&'static str>,
+        scope: Option<DefId>,
         var: MapKey<'tcx>,
         value: Box<VarType<'tcx>>,
     ) {
@@ -107,7 +110,7 @@ impl<'tcx> ConstraintMap<'tcx> {
             return ();
         }
 
-        match self.cmap.get(&MapKey::Scope(scope.unwrap())) {
+        match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
             Some(vartype) => match *vartype.clone() {
                 VarType::Scope(backptr, mut instance_vec) => {
                     if instance_vec.len() != 1 {
@@ -119,7 +122,7 @@ impl<'tcx> ConstraintMap<'tcx> {
                     // modify scope w new var
                     instance_vec[0].1.cmap.insert(var, value);
                     self.cmap.insert(
-                        MapKey::Scope(scope.unwrap()),
+                        MapKey::ScopeId(scope.unwrap()),
                         Box::new(VarType::Scope(backptr, instance_vec)),
                     );
                 }

@@ -2,6 +2,8 @@ use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_span::symbol::Symbol;
+use rustc_index::IndexSlice;
+use rustc_middle::ty::Ty;
 
 pub type Type = &'static str;
 
@@ -38,19 +40,30 @@ impl<'tcx> FuncVal<'tcx> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum VerifoptRval {
-    //Num(u32),
-    //IdkNum(),
-    //Var(&'static str),
-    //IdkVar(),
-
-    IdkType(Type),
+pub enum VerifoptRval<'tcx> {
+    Ref(Box<VerifoptRval<'tcx>>),
+    IdkType(Ty<'tcx>),
     Idk(),
 }
 
-impl<'tcx> From<&Rvalue<'tcx>> for VerifoptRval {
-    fn from(item: &Rvalue<'tcx>) -> Self {
+impl<'tcx> VerifoptRval<'tcx> {
+    pub fn from_rvalue(
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
+        item: &Rvalue<'tcx>,
+    ) -> Self {
         match item {
+            Rvalue::Use(op) => {
+                VerifoptRval::Idk()
+            },
+            Rvalue::Ref(_, _, place) => {
+                let local = place.as_local().unwrap();
+                let local_decl = body_locals.get(local).unwrap();
+                VerifoptRval::Ref(
+                    Box::new(
+                        VerifoptRval::IdkType(local_decl.ty)
+                    )
+                )
+            },
             _ => VerifoptRval::Idk(),
         }
     }

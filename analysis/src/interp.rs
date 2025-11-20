@@ -2,6 +2,7 @@ use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::ty::{TyCtxt, TyKind};
 use rustc_data_structures::fx::{FxHashSet as HashSet};
+use rustc_index::IndexSlice;
 use rustc_span::source_map::Spanned;
 
 use crate::func_collect::FuncMap;
@@ -44,41 +45,46 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //
         // TODO instead of visitor, traverse one-by-one like in SimpleInterp
         // (easier for, e.g., conditionals state merging)
+
         for (bb, data) in traversal::preorder(body) {
             //println!("bb: {:?}", bb);
-            self.visit_basic_block_data(cmap, enclosing_scope, bb, data);
+            self.visit_basic_block_data(cmap, body.local_decls.as_slice(), enclosing_scope, bb, data);
         }
     }
 
     fn visit_basic_block_data(
         &mut self,
         cmap: &mut ConstraintMap<'tcx>, 
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         enclosing_scope: Option<DefId>,
         _block: BasicBlock,
         data: &BasicBlockData<'tcx>,
     ) {
         for (_, stmt) in data.statements.iter().enumerate() {
-            self.visit_statement(cmap, enclosing_scope, stmt);
+            self.visit_statement(cmap, body_locals, enclosing_scope, stmt);
         }
 
         if let Some(term) = &data.terminator {
-            self.visit_terminator(cmap, enclosing_scope, &term);
+            self.visit_terminator(cmap, body_locals, enclosing_scope, &term);
         }
     }
 
     fn visit_statement(
         &mut self,
         cmap: &mut ConstraintMap<'tcx>, 
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         enclosing_scope: Option<DefId>,
         statement: &Statement<'tcx>,
     ) {
         match statement.kind {
             StatementKind::Assign(box (place, ref rvalue)) => {
-                //println!("assignment!");
-                //println!("place: {:?}", place);
-                //println!("rval: {:?}", rvalue);
+                println!("assignment!");
+                println!("place: {:?}", place);
+                println!("rval: {:?}", rvalue);
+                println!("enclosing_scope: {:?}", enclosing_scope);
+
                 let mut set = HashSet::default();
-                set.insert(rvalue.into());
+                set.insert(VerifoptRval::from_rvalue(body_locals, rvalue));
 
                 // FIXME use enclosing_scope
                 cmap.scoped_set(
@@ -86,7 +92,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
                 );
-                //println!("~~~CMAP: {:?}", cmap);
+                println!("~~~CMAP: {:?}", cmap);
             },
             _ => {},
         }
@@ -95,6 +101,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn visit_terminator(
         &mut self,
         cmap: &mut ConstraintMap<'tcx>, 
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         enclosing_scope: Option<DefId>,
         terminator: &Terminator<'tcx>,
     ) {
@@ -112,7 +119,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Operand::Constant(box co) => {
                         match co.const_ {
                             Const::Val(_, ty) => {
-                                println!("ty: {:?}", ty);
+                                //println!("ty: {:?}", ty);
                                 match ty.kind() {
                                     TyKind::FnDef(def_id, _) => {
                                         match self.func_map.funcs.get(def_id) {
@@ -172,10 +179,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         // add arg values into func_cmap
         for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
-            println!("param_name: {:?}", param_name);
-            println!("param_type: {:?}", param_type);
-            println!("arg: {:?}", arg);
-            println!("enclosing_scope: {:?}", enclosing_scope);
+            //println!("param_name: {:?}", param_name);
+            //println!("param_type: {:?}", param_type);
+            //println!("arg: {:?}", arg);
+            //println!("enclosing_scope: {:?}", enclosing_scope);
 
             // FIXME how do outer-scope arg names/places interact w current scope (should
             // disambiguate when bring into scope)

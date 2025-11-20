@@ -7,15 +7,13 @@ use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::ty::*;
 
-//use tracing::debug;
-
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use crate::core::{Type, VerifoptRval};
 
 // FIXME no negative constraints, resolve negative constraints immediately by removing from positive
 // constraint set
-pub(crate) type Constraints = HashSet<VerifoptRval>; //Rvalue<'tcx>>;
+pub(crate) type Constraints<'tcx> = HashSet<VerifoptRval<'tcx>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum VarType<'tcx> {
@@ -27,7 +25,7 @@ pub(crate) enum VarType<'tcx> {
     // happened so maybe we can just trust that
     //Values(Box<Ty<'tcx>>, Constraints<'tcx>),
     // FIXME add type back in?
-    Values(Constraints),
+    Values(Constraints<'tcx>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

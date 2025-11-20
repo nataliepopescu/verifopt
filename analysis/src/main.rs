@@ -7,6 +7,7 @@ extern crate rustc_hir;
 extern crate rustc_interface;
 extern crate rustc_middle;
 extern crate rustc_span;
+extern crate rustc_index;
 
 mod constraints;
 //mod context;

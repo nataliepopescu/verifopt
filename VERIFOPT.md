@@ -21,6 +21,20 @@ now
   whole-program optimization will be easier
     - is this just for Rust or is it for languages in general?
 
+during analysis
+- Rust handles a lot of the checks one might have to do during analysis already
+    - in particular: type checking/safety
+    - also mutability/borrow checking
+- as a result the analysis can be cheaper by trusting that Rust has done these
+  checks correctly (as opposed to doing them itself)
+    - e.g. the analysis would benefit from type checking if we're merging the
+      states for one particular value after a conditional branch. if no type
+      checking happened earlier, analysis would have to check that the new
+      resulting values are of the same/compatible types. but because Rust gives
+      us this guarantee earlier, analysis can merge states without checking 
+      this property
+- lots of information that our analysis can just know/rely on
+
 ## Technique(s)
 
 - flow-sensitive program analysis/abstract interpretation

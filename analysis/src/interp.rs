@@ -86,9 +86,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 let mut set = HashSet::default();
                 set.insert(VerifoptRval::from_rvalue(body_locals, rvalue));
 
-                // FIXME use enclosing_scope
                 cmap.scoped_set(
-                    None,
+                    enclosing_scope,
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
                 );
@@ -112,14 +111,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("func: {:?}", func);
                 println!("args: {:?}", args);
                 println!("place: {:?}", destination);
-
                 //println!("\nfunc_map: {:#?}\n", self.func_map);
 
                 match func {
                     Operand::Constant(box co) => {
                         match co.const_ {
                             Const::Val(_, ty) => {
-                                //println!("ty: {:?}", ty);
                                 match ty.kind() {
                                     TyKind::FnDef(def_id, _) => {
                                         match self.func_map.funcs.get(def_id) {
@@ -127,6 +124,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                 for funcval in funcval_vec.iter() {
                                                     let mut cmap_clone = cmap.clone();
                                                     self.resolve_args(cmap, enclosing_scope, funcval, args);
+
+                                                    // visit callee
+
+                                                    let mut set = HashSet::default();
+                                                    // FIXME should be func call result
+                                                    set.insert(VerifoptRval::Idk());
+                                                    cmap.scoped_set(
+                                                        enclosing_scope,
+                                                        MapKey::Place(*destination),
+                                                        Box::new(VarType::Values(set)),
+                                                    );
+                                                    //println!("~~~CMAP: {:?}", cmap);
                                                 }
                                             },
                                             None => {
@@ -145,18 +154,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     // TODO also handle indirect invokes (via variable name, _not_ in func_map)
                     _ => {},
                 }
-
-                let mut set = HashSet::default();
-                // FIXME should be func call result
-                set.insert(VerifoptRval::Idk());
-
-                // FIXME use enclosing_scope
-                cmap.scoped_set(
-                    None,
-                    MapKey::Place(*destination),
-                    Box::new(VarType::Values(set)),
-                );
-                //println!("~~~CMAP: {:?}", cmap);
             },
             //TailCall
             _ => {},

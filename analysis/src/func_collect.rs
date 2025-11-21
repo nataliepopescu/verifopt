@@ -23,17 +23,15 @@ impl<'tcx> FuncMap<'tcx> {
 
 pub struct FuncCollectPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
-    pub entry_func: DefId,
     pub func_map: &'a mut FuncMap<'tcx>,
 }
 
 impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
-        entry_func: DefId,
         func_map: &'a mut FuncMap<'tcx>,
     ) -> FuncCollectPass<'a, 'tcx> {
-        Self { tcx, entry_func, func_map }
+        Self { tcx, func_map }
     }
 
     fn get_type_res(&self, tykind: TyKind) -> Option<Res> {

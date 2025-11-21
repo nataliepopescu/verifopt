@@ -14,7 +14,6 @@ pub struct FuncVal<'tcx> {
     pub is_method: bool,
     pub params: Vec<(Place<'tcx>, Res)>,
     pub rettype: Option<Res>,
-    //pub body: &'a Body<'tcx>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
@@ -25,7 +24,7 @@ impl<'tcx> FuncVal<'tcx> {
         arg_names: Vec<Place<'tcx>>,
         arg_types: Vec<Res>,
         rettype: Option<Res>,
-    ) -> FuncVal {
+    ) -> FuncVal<'tcx> {
         let params;
         if arg_names.len() == arg_types.len() {
             params = std::iter::zip(arg_names, arg_types).collect();
@@ -43,7 +42,7 @@ impl<'tcx> FuncVal<'tcx> {
 pub enum VerifoptRval<'tcx> {
     Ref(Box<VerifoptRval<'tcx>>),
     IdkType(Ty<'tcx>),
-    Idk(),
+    Idk(&'static str),
 }
 
 impl<'tcx> VerifoptRval<'tcx> {
@@ -53,7 +52,17 @@ impl<'tcx> VerifoptRval<'tcx> {
     ) -> Self {
         match item {
             Rvalue::Use(op) => {
-                VerifoptRval::Idk()
+                match op {
+                    Operand::Constant(box co) => {
+                        match co.const_ {
+                            Const::Val(_, ty) => {
+                                VerifoptRval::IdkType(ty)
+                            },
+                            _ => VerifoptRval::Idk("not-val const"),
+                        }
+                    }
+                    _ => VerifoptRval::Idk("not-const (copy/move op)"),
+                }
             },
             Rvalue::Ref(_, _, place) => {
                 let local = place.as_local().unwrap();
@@ -64,7 +73,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                     )
                 )
             },
-            _ => VerifoptRval::Idk(),
+            _ => VerifoptRval::Idk("idk"),
         }
     }
 }

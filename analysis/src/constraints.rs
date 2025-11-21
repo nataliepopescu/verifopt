@@ -5,7 +5,6 @@ extern crate rustc_middle;
 
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::*;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -19,7 +18,7 @@ pub(crate) type Constraints<'tcx> = HashSet<VerifoptRval<'tcx>>;
 pub(crate) enum VarType<'tcx> {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
-    Scope(Option<DefId>, Vec<(Box<Type>, ConstraintMap<'tcx>)>),
+    SubScope(Option<DefId>, Vec<(Box<Type>, ConstraintMap<'tcx>)>),
     // set of positive constraints
     // FIXME ignoring types for now, can add back in if need, but type-checking has already
     // happened so maybe we can just trust that
@@ -63,7 +62,7 @@ impl<'tcx> ConstraintMap<'tcx> {
 
         match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
             Some(vartype) => match *vartype.clone() {
-                VarType::Scope(backptr, instance_vec) => {
+                VarType::SubScope(backptr, instance_vec) => {
                     if instance_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
@@ -110,7 +109,7 @@ impl<'tcx> ConstraintMap<'tcx> {
 
         match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
             Some(vartype) => match *vartype.clone() {
-                VarType::Scope(backptr, mut instance_vec) => {
+                VarType::SubScope(backptr, mut instance_vec) => {
                     if instance_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
@@ -121,7 +120,7 @@ impl<'tcx> ConstraintMap<'tcx> {
                     instance_vec[0].1.cmap.insert(var, value);
                     self.cmap.insert(
                         MapKey::ScopeId(scope.unwrap()),
-                        Box::new(VarType::Scope(backptr, instance_vec)),
+                        Box::new(VarType::SubScope(backptr, instance_vec)),
                     );
                 }
                 VarType::Values(..) => {

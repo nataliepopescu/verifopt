@@ -55,15 +55,16 @@ impl Callbacks for VerifoptCallbacks {
         let mir_body = tcx.optimized_mir(entry_func);
 
         // init + run Function Collection Pass
-        let mut func_collect = FuncCollectPass::new(tcx, entry_func, &mut func_map);
+        let mut func_collect = FuncCollectPass::new(tcx, &mut func_map);
         func_collect.run();
 
         // init + run Function Signature Collection Pass
         // https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         // init + run Interpreter Pass
-        let mut interp = InterpPass::new(tcx, entry_func, &func_map);
-        let _res = interp.run(&mut cmap, mir_body);
+        let interp = InterpPass::new(tcx, &func_map);
+        let res = interp.run(&mut cmap, None, entry_func, mir_body);
+        println!("\nmain res: {:?}", res);
 
         // init + run Rewriter Pass
         //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();

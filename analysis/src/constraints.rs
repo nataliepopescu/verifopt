@@ -8,7 +8,8 @@ use rustc_middle::mir::*;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::core::{Type, VerifoptRval};
+use crate::core::{Merge, Type, VerifoptRval};
+use crate::error::Error;
 
 // FIXME no negative constraints, resolve negative constraints immediately by removing from positive
 // constraint set
@@ -62,15 +63,15 @@ impl<'tcx> ConstraintMap<'tcx> {
 
         match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
             Some(vartype) => match *vartype.clone() {
-                VarType::SubScope(backptr, instance_vec) => {
-                    if instance_vec.len() != 1 {
+                VarType::SubScope(backptr, subscope_cmaps_vec) => {
+                    if subscope_cmaps_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
                     // is var in inner_cmap? if not:
                     // - nested funcs: return None
                     // - closures: recursively follow backptr to enclosing scopes
                     // FIXME closures should not recurse past enclosing function
-                    match instance_vec[0].1.cmap.get(var) {
+                    match subscope_cmaps_vec[0].1.cmap.get(var) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
                             if traverse_backptr {
@@ -109,19 +110,38 @@ impl<'tcx> ConstraintMap<'tcx> {
 
         match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
             Some(vartype) => match *vartype.clone() {
-                VarType::SubScope(backptr, mut instance_vec) => {
-                    if instance_vec.len() != 1 {
+                VarType::SubScope(backptr, mut subscope_cmaps_vec) => {
+                    if subscope_cmaps_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
-                    if instance_vec[0].1.cmap.contains_key(&var) {
-                        panic!("symbol already exists: {:?}", var);
+                    let mut subscope_cmap = &mut subscope_cmaps_vec[0].1.cmap;
+                    let old_vartype_opt = subscope_cmap.get(&var);
+                    match old_vartype_opt {
+                        Some(old_vartype) => {
+                            let mut cvec = vec![];
+                            cvec.push(*value);
+                            cvec.push(*old_vartype.clone());
+                            println!("cvec: {:?}", cvec);
+                            match cvec.merge() {
+                                Ok(Some(new_vartype)) => {
+                                    subscope_cmap.insert(var, Box::new(new_vartype));
+                                    self.cmap.insert(
+                                        MapKey::ScopeId(scope.unwrap()),
+                                        Box::new(VarType::SubScope(backptr, subscope_cmaps_vec)),
+                                    );
+                                },
+                                _ => todo!("not impl yet"),
+                            }
+                        },
+                        None => {
+                            // modify scope w new var
+                            subscope_cmap.insert(var, value);
+                            self.cmap.insert(
+                                MapKey::ScopeId(scope.unwrap()),
+                                Box::new(VarType::SubScope(backptr, subscope_cmaps_vec)),
+                            );
+                        }
                     }
-                    // modify scope w new var
-                    instance_vec[0].1.cmap.insert(var, value);
-                    self.cmap.insert(
-                        MapKey::ScopeId(scope.unwrap()),
-                        Box::new(VarType::SubScope(backptr, instance_vec)),
-                    );
                 }
                 VarType::Values(..) => {
                     panic!("not a scope: {:?}", scope.unwrap());
@@ -131,4 +151,58 @@ impl<'tcx> ConstraintMap<'tcx> {
         }
     }
 }
+
+// Implement Merge trait
+
+impl<'tcx> Merge<VarType<'tcx>> for Vec<VarType<'tcx>> {
+    fn merge(&self) -> Result<Option<VarType<'tcx>>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut merged_vartype = self[0].clone();
+        for new_vartype in self.iter() {
+            match (merged_vartype.clone(), new_vartype.clone()) {
+                (VarType::Values(constraints_a), VarType::Values(constraints_b)) => {
+                    if constraints_a != constraints_b {
+                        let union: HashSet<_> = constraints_a.union(&constraints_b).cloned().collect();
+                        merged_vartype = VarType::Values(union);
+                    }
+                }
+                _ => todo!("merge scopes"),
+            }
+        }
+
+        Ok(Some(merged_vartype))
+    }
+}
+
+/*
+impl<'tcx> Merge<Constraints<'tcx>> for Vec<Constraints<'tcx>> {
+    fn merge(&self) -> Result<Option<Constraints<'tcx>>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut merged_constraints = self[0].clone();
+        for new_constraint_set in self.iter() {
+            if merged_constraints != *new_constraint_set {
+                let union: HashSet<_> = merged_constraints.union(new_constraint_set).cloned().collect();
+                merged_constraints = union;
+            }
+        }
+
+        Ok(Some(merged_constraints))
+    }
+}
+*/
+
 

@@ -81,6 +81,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         let mut last_res = None;
         for (bb, data) in traversal::preorder(body) {
+            println!("bb: {:?}", bb);
             last_res = self.visit_basic_block_data(cmap, body.local_decls.as_slice(), prev_scope, cur_scope, bb, data)?;
         }
         Ok(last_res)
@@ -235,7 +236,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         ) {
             Some(vartype) => {
                 match vartype {
-                    VarType::Values(constraints) => Ok(Some(constraints)),
+                    VarType::Values(constraints) => {
+                        println!("_0 constraints: {:?}", constraints);
+                        Ok(Some(constraints))
+                    },
                     _ => panic!("return scope?"),
                 }
             },
@@ -257,7 +261,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             TerminatorKind::Return => {
                 self.interp_return(cmap, cur_scope)
             }
-            //TailCall
+            // TODO SwitchInt
+            // - note: MIR is _not_ SSA! (_2 is assigned twice in get_animal)
+            // TODO Goto
+            // TODO TailCall
             _ => Ok(None),
         }
     }

@@ -5,6 +5,8 @@ use rustc_span::symbol::Symbol;
 use rustc_index::IndexSlice;
 use rustc_middle::ty::Ty;
 
+use crate::error::Error;
+
 pub type Type = &'static str;
 
 #[derive(Debug, Clone, Hash)]
@@ -77,4 +79,10 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 }
+
+pub trait Merge<T> {
+    fn merge(&self) -> Result<Option<T>, Error>;
+}
+
+
 

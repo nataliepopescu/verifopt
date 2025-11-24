@@ -45,10 +45,10 @@ fn main() {
     // note that even when we pass in a statically-known value to `get_animal`,
     // the information from that function is not propagated, so `speak` remains
     // a dynamic dispatch
-    //let animal = get_animal(0);
+    let animal = get_animal(0);
 
-    //let _s = animal.speak();
+    let _s = animal.speak();
 
-    let cat = Cat {};
-    cat.meow();
+    //let cat = Cat {};
+    //cat.meow();
 }

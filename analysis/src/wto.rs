@@ -7,6 +7,7 @@ pub struct BBDeps<'tcx> {
     pub body: &'tcx Body<'tcx>,
     pub preds: HashMap<BasicBlock, Vec<BasicBlock>>,
     pub ordering: Vec<BasicBlock>,
+    pub visited: Vec<BasicBlock>,
 }
 
 impl<'tcx> BBDeps<'tcx> {
@@ -15,29 +16,63 @@ impl<'tcx> BBDeps<'tcx> {
             body,
             preds: HashMap::default(),
             ordering: Vec::new(),
+            visited: Vec::new(),
         };
 
         for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
-            bb_deps.visit(&bb, bb_data);
+            bb_deps.get_deps(&bb, bb_data);
         }
-
         println!("self.pred: {:?}", bb_deps.preds);
 
-        println!("pre-order traversal");
-        for (bb, _) in traversal::reverse_postorder(body) {
-            println!("bb: {:?}", bb);
-        }
-
-        bb_deps.ordering = bb_deps.order();
-        
+        // FIXME if there is a return before error path, the return will execute first...
+        bb_deps.ordering = traversal::reverse_postorder(body).map(|(x, y)| x).collect();
         println!("self.ordering: {:?}", bb_deps.ordering);
-
         println!("%%%%%");
 
         bb_deps
     }
 
-    pub fn visit(&mut self, bb: &BasicBlock, bb_data: &BasicBlockData) {
+    pub fn prune(&mut self, cur: &BasicBlock, bb_root: BasicBlock) {
+        println!("PRUNING from root bb {:?}", bb_root);
+        println!("self.preds: {:?}", self.preds);
+        println!("self.ordering: {:?}", self.ordering);
+
+        let mut to_remove = Vec::new();
+        let mut worklist = Vec::new();
+        to_remove.push(bb_root);
+        worklist.push(bb_root);
+
+        // update predecessors
+        while !worklist.is_empty() {
+            //println!("~~~worklist: {:?}", worklist);
+            let bb_to_prune = worklist.pop().unwrap();
+
+            for (key, val) in self.preds.iter_mut() {
+                //println!("__PRE val: {:?}", val);
+                if val.contains(&bb_to_prune) {
+                    val.retain(|&x| x != bb_to_prune);
+                    if val.is_empty() {
+                        to_remove.push(*key);
+                        worklist.push(*key);
+                    }
+                }
+                //println!("_POST val: {:?}", val);
+            }
+        }
+
+        // update ordering
+        self.ordering.retain(|x| !to_remove.contains(x));
+        println!("self.preds: {:?}", self.preds);
+        println!("to_remove: {:?}", to_remove);
+        println!("self.ordering: {:?}", self.ordering);
+    }
+
+    pub fn mark_visited(&mut self, bb: &BasicBlock) {
+        println!("DONE VISITING {:?}", bb);
+        self.visited.push(*bb);
+    }
+
+    pub fn get_deps(&mut self, bb: &BasicBlock, bb_data: &BasicBlockData) {
         match &bb_data.terminator {
             Some(term) => {
                 let successors: Vec<BasicBlock> = term.successors().collect();
@@ -62,7 +97,7 @@ impl<'tcx> BBDeps<'tcx> {
         }
     }
 
-    pub fn order(&mut self) -> Vec<BasicBlock> {
+    pub fn update_order(&mut self) -> Vec<BasicBlock> {
         let mut ordering = Vec::new();
 
         for (bb_key, preds_vec) in self.preds.iter() {

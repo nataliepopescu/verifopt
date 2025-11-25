@@ -1,7 +1,9 @@
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
+use rustc_middle::mir::interpret::Scalar; 
 use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_data_structures::fx::{FxHashSet as HashSet};
+use rustc_data_structures::packed::Pu128;
 use rustc_index::IndexSlice;
 use rustc_span::source_map::Spanned;
 
@@ -70,36 +72,34 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         body: &'tcx Body<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // FIXME how do loops affect this order?
-        // 
-        // is it correct that we don't _really_ need to worry about order of 
-        // traversal (assuming NO loops) due to SSA?
-        //
-        // TODO instead of visitor, traverse one-by-one like in SimpleInterp
-        // (easier for, e.g., conditionals state merging)
-
-        // TODO get/calc callgraph for every function body we encounter
 
         println!("\n###### INTERP-ING NEW BODY\n");
         println!("~~~CMAP: {:?}", cmap);
 
         // get Weak Topological Ordering of function body
-        //let bb_deps = BBDeps::new(body);
-
+        let mut bb_deps = BBDeps::new(body);
         let mut last_res = None;
-        for (bb, data) in traversal::reverse_postorder(body) {
-            println!("bb: {:?}", bb);
-            last_res = self.visit_basic_block_data(cmap, body.local_decls.as_slice(), prev_scope, cur_scope, bb, data)?;
+        while true {
+            if bb_deps.ordering.is_empty() {
+                break;
+            }
+            let bb = bb_deps.ordering.remove(0);
+            println!("--NEW BB: {:?}", bb);
+            let data = body.basic_blocks.get(bb).unwrap();
+            last_res = self.visit_basic_block_data(cmap, &mut bb_deps, body.local_decls.as_slice(), prev_scope, cur_scope, &bb, data)?;
         }
+
         Ok(last_res)
     }
 
     fn visit_basic_block_data(
         &self,
         cmap: &mut ConstraintMap<'tcx>, 
+        bb_deps: &mut BBDeps<'tcx>,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         prev_scope: Option<DefId>,
         cur_scope: DefId,
-        _block: BasicBlock,
+        bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         let mut last_res = None;
@@ -109,8 +109,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         if let Some(term) = &data.terminator {
-            last_res = self.visit_terminator(cmap, prev_scope, cur_scope, &term)?;
+            last_res = self.visit_terminator(cmap, bb, bb_deps, prev_scope, cur_scope, &term)?;
         }
+
+        bb_deps.mark_visited(bb);
 
         Ok(last_res)
     }
@@ -253,9 +255,64 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
+    fn interp_switchint(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>, 
+        bb: &BasicBlock,
+        bb_deps: &mut BBDeps<'tcx>,
+        cur_scope: DefId,
+        discr: &Operand<'tcx>,
+        targets: &SwitchTargets,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        match discr {
+            Operand::Copy(place) | Operand::Move(place) => {
+                match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
+                    Some(vartype) => match vartype {
+                        VarType::Values(constraints) => {
+                            let mut num_zeros = 0;
+                            let mut num_nonzeros = 0;
+                            let val = targets.all_values()[0];
+
+                            for constraint in constraints.iter() {
+                                match constraint {
+                                    VerifoptRval::Scalar(scalar) => match scalar {
+                                        Scalar::Int(s_int) => {
+                                            if s_int.to_u64() == val.get() as u64 {
+                                                num_zeros += 1;
+                                            } else {
+                                                num_nonzeros += 1;
+                                            }
+                                        },
+                                        _ => todo!("scalar ptr"),
+                                    },
+                                    _ => todo!("switchint discr"),
+                                }
+                            }
+
+                            if num_zeros == 0 && num_nonzeros != 0 {
+                                // only explore "otherwise" target (prune "0")
+                                bb_deps.prune(bb, targets.all_targets()[0]);
+                            } else if num_nonzeros == 0 && num_zeros != 0 {
+                                // only explore "0" target (prune "otherwise")
+                                bb_deps.prune(bb, targets.all_targets()[1]);
+                            }
+                        },
+                        _ => println!("scope not impl"),
+                    },
+                    None => panic!("place does not exist: {:?}", place),
+                }
+            },
+            _ => println!("const operand"),
+        }
+
+        Ok(None)
+    }
+
     fn visit_terminator(
         &self,
         cmap: &mut ConstraintMap<'tcx>, 
+        bb: &BasicBlock,
+        bb_deps: &mut BBDeps<'tcx>,
         prev_scope: Option<DefId>,
         cur_scope: DefId,
         terminator: &Terminator<'tcx>,
@@ -267,9 +324,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             TerminatorKind::Return => {
                 self.interp_return(cmap, cur_scope)
             }
-            // TODO SwitchInt
-            // - note: MIR is _not_ SSA! (_2 is assigned twice in get_animal)
-            // TODO Goto
+            TerminatorKind::SwitchInt { discr, targets } => {
+                self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
+            }
+            // TODO Goto ?
             // TODO TailCall
             _ => Ok(None),
         }
@@ -293,31 +351,23 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("param_type: {:?}", param_type);
             println!("arg: {:?}", arg);
 
-            // FIXME how do outer-scope arg names/places interact w current scope (should
-            // disambiguate when bring into scope)
             match arg {
-                // TODO cmap.scoped_get + add result to func_cmap
-                Operand::Copy(place)
-                | Operand::Move(place) => {
+                // cmap.scoped_get + add result to func_cmap
+                Operand::Copy(place) | Operand::Move(place) => {
                     match cmap.scoped_get(prev_scope, &MapKey::Place(place), false) {
-                        Some(vartype) => {
-                            println!("vartype: {:?}", vartype);
-                            match vartype {
-                                VarType::Values(constraints) => {
-                                    func_cmap.cmap.insert(
-                                        MapKey::Place(param_name),
-                                        Box::new(VarType::Values(
-                                            // TODO add type?
-                                            constraints.clone(),
-                                        )),
-                                    );
-                                }
-                                _ => {},
+                        Some(vartype) => match vartype {
+                            VarType::Values(constraints) => {
+                                func_cmap.cmap.insert(
+                                    MapKey::Place(param_name),
+                                    Box::new(VarType::Values(
+                                        // TODO add type?
+                                        constraints.clone(),
+                                    )),
+                                );
                             }
+                            _ => {},
                         }
-                        None => {
-                            println!("place doesn't exist in cmap, maybe this is a func name");
-                        },
+                        None => println!("place doesn't exist in cmap, maybe this is a func name"),
                     }
                 }
                 Operand::Constant(box co) => {
@@ -344,8 +394,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         // add func_cmap to outer cmap
-
-        // FIXME assuming "name" (funcname I believe) does not exist in cmap
+        // FIXME assuming funcname does not exist in cmap
         cmap.cmap.insert(
             MapKey::ScopeId(funcval.def_id),
             Box::new(VarType::SubScope(

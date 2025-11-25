@@ -8,6 +8,7 @@ use rustc_span::source_map::Spanned;
 use crate::func_collect::FuncMap;
 use crate::constraints::{Constraints, ConstraintMap, MapKey, VarType};
 use crate::core::{FuncVal, VerifoptRval};
+use crate::wto::BBDeps;
 use crate::error::Error;
 
 pub struct InterpPass<'a, 'tcx> {
@@ -28,7 +29,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cmap: &mut ConstraintMap<'tcx>, 
         prev_scope: Option<DefId>,
         cur_scope: DefId,
-        body: &Body<'tcx>,
+        body: &'tcx Body<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // set up main / entry-point scope
         let locals = body.local_decls.as_slice();
@@ -66,7 +67,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cmap: &mut ConstraintMap<'tcx>, 
         prev_scope: Option<DefId>,
         cur_scope: DefId,
-        body: &Body<'tcx>,
+        body: &'tcx Body<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // FIXME how do loops affect this order?
         // 
@@ -76,11 +77,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // TODO instead of visitor, traverse one-by-one like in SimpleInterp
         // (easier for, e.g., conditionals state merging)
 
+        // TODO get/calc callgraph for every function body we encounter
+
         println!("\n###### INTERP-ING NEW BODY\n");
         println!("~~~CMAP: {:?}", cmap);
 
+        // get Weak Topological Ordering of function body
+        //let bb_deps = BBDeps::new(body);
+
         let mut last_res = None;
-        for (bb, data) in traversal::preorder(body) {
+        for (bb, data) in traversal::reverse_postorder(body) {
             println!("bb: {:?}", bb);
             last_res = self.visit_basic_block_data(cmap, body.local_decls.as_slice(), prev_scope, cur_scope, bb, data)?;
         }

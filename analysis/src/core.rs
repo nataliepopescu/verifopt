@@ -67,7 +67,9 @@ impl<'tcx> VerifoptRval<'tcx> {
                 }
             },
             Rvalue::Ref(_, _, place) => {
-                let local = place.as_local().unwrap();
+                println!("place.loc: {:?}", place.local);
+                println!("place.proj: {:?}", place.projection);
+                let local = place.local_or_deref_local().unwrap();
                 let local_decl = body_locals.get(local).unwrap();
                 VerifoptRval::Ref(
                     Box::new(

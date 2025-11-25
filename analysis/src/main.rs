@@ -10,9 +10,9 @@ extern crate rustc_span;
 extern crate rustc_index;
 
 mod constraints;
-//mod context;
 mod core;
 mod error;
+mod wto;
 
 mod func_collect;
 mod interp;
@@ -44,15 +44,22 @@ impl Callbacks for VerifoptCallbacks {
         let mut func_map = FuncMap::new();
         let mut cmap = ConstraintMap::new();
 
-        // get entry function DefId
+        // get entry point function DefId
         let entry_func_opt = tcx.entry_fn(());
         if entry_func_opt.is_none() {
             panic!("No main func detected");
         }
         let entry_func: DefId = entry_func_opt.unwrap().0;
 
-        // get optimized MIR body of entry point func
+        // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
+
+        //for crate_ in tcx.crates(()).into_iter() {
+        //    println!("CRATE");
+        //    println!("DefId: {:?}", crate_.as_def_id());
+        //    println!("source: {:?}", tcx.used_crate_source(*crate_));
+        //    //println!("defined lang_items: {:?}", tcx.defined_lang_items(*crate_));
+        //}
 
         // init + run Function Collection Pass
         let mut func_collect = FuncCollectPass::new(tcx, &mut func_map);

@@ -1,6 +1,7 @@
 use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
+use rustc_middle::mir::interpret::Scalar;
 use rustc_span::symbol::Symbol;
 use rustc_index::IndexSlice;
 use rustc_middle::ty::Ty;
@@ -42,6 +43,7 @@ impl<'tcx> FuncVal<'tcx> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
+    Scalar(Scalar),
     Ref(Box<VerifoptRval<'tcx>>),
     IdkType(Ty<'tcx>),
     Idk(&'static str),

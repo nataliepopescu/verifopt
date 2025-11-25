@@ -96,11 +96,8 @@ impl<'tcx> ConstraintMap<'tcx> {
     ) {
         // first get the `cmap` object pertaining to `this` scope
         if scope.is_none() {
-            // FIXME why are places getting re-assigned, i thought MIR was ssa?
-            // commenting this panic out, i guess _during_ compiler compilation this
-            // assumption may be violated, but when compiling source code the assumption is true...?
             if self.cmap.contains_key(&var) {
-                //panic!("symbol already exists: {:?}", var);
+                // FIXME MIR is not SSA
                 println!("symbol already exists: {:?}", var);
             }
 

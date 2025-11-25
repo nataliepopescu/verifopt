@@ -288,10 +288,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap
-        for ((param_name, _), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
-            //println!("param_name: {:?}", param_name);
-            //println!("param_type: {:?}", param_type);
-            //println!("arg: {:?}", arg);
+        for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
+            println!("param_name: {:?}", param_name);
+            println!("param_type: {:?}", param_type);
+            println!("arg: {:?}", arg);
 
             // FIXME how do outer-scope arg names/places interact w current scope (should
             // disambiguate when bring into scope)
@@ -315,11 +315,31 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 _ => {},
                             }
                         }
-                        // TODO func name?
-                        None => {},
+                        None => {
+                            println!("place doesn't exist in cmap, maybe this is a func name");
+                        },
                     }
                 }
-                _ => {},
+                Operand::Constant(box co) => {
+                    println!("co.const_: {:?}", co.const_);
+                    match co.const_ {
+                        Const::Val(val, _) => match val {
+                            ConstValue::Scalar(scalar) => {
+                                println!("scalar: {:?}", scalar);
+                                let mut constraints = HashSet::default();
+                                constraints.insert(VerifoptRval::Scalar(scalar));
+                                func_cmap.cmap.insert(
+                                    MapKey::Place(param_name),
+                                    Box::new(VarType::Values(
+                                            constraints,
+                                    )),
+                                );
+                            },
+                            _ => println!("non-scalar val"),
+                        },
+                        _ => println!("non-val const"),
+                    }
+                },
             }
         }
 

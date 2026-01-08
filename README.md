@@ -4,49 +4,53 @@ Using verification / static analysis for optimizing code
 
 ## Repo structure
 
-[flux-examples](https://github.com/nataliepopescu/verifopt/tree/main/flux-examples):
-simplified code to use flux on, mirroring the kinds of constructs we would like
-to verify in the real world
+### Notes / Docs
 
 [meetings](https://github.com/nataliepopescu/verifopt/tree/main/meetings): notes 
 from various meetings on verifopt / related things
+
+[notes](https://github.com/nataliepopescu/verifopt/tree/main/notes): project 
+notes roughly organized into future paper sections
+
+### Motivation Code
+
+[results-test](https://github.com/nataliepopescu/verifopt/tree/main/results-test):
+a python crawler that categorizes `dyn` usage in the top X cargo crates;
+category explanations and results are shown
+[HERE](https://github.com/nataliepopescu/verifopt/blob/main/notes/motivation/DYN_TRAIT_OBS.md)
+
+### Tool Code
+
+[analysis](https://github.com/nataliepopescu/verifopt/tree/main/analysis):
+`Callback`-based analysis pass(es)
 
 [simple-interp](https://github.com/nataliepopescu/verifopt/tree/main/simple-interp): 
 simple interpreter for starting to think about what info we need to collect
 during compilation for vtable optimization
 
-[verus-examples](https://github.com/nataliepopescu/verifopt/tree/main/verus-examples):
+[rewrites](https://github.com/nataliepopescu/verifopt/tree/main/rewrites):
+performs various styles of dynamic-dispatch rewrites (into static-dispatch) and
+benchmarks them to determine which style of rewrite would be best for our tool
+to emulate
+
+### Eval Code
+
+[dp-ex](https://github.com/nataliepopescu/verifopt/tree/main/dp-ex): 
+code that attempts to assess the overhead of dynamic dispatch vs static 
+dispatch, in certain examples
+
+[visitor-ex](https://github.com/nataliepopescu/verifopt/tree/main/visitor-ex):
+a simple visitor pattern implementation to eventually evaluate our tool on
+(note: from the source-level rewrites, we expected this example to have a larger
+perf impact - still TODO)
+
+### Old Code
+
+[old-proj-code/flux-examples](https://github.com/nataliepopescu/verifopt/tree/main/flux-examples):
+simplified code to use flux on, mirroring the kinds of constructs we would like
+to verify in the real world
+
+[old-proj-code/verus-examples](https://github.com/nataliepopescu/verifopt/tree/main/verus-examples):
 simplified code to use verus on, mirroring the kinds of constructs we would like
 to verify in the real world
 
-[NOTES.md](https://github.com/nataliepopescu/verifopt/blob/main/NOTES.md): general 
-project notes (high-level)
-
-[NOVELTY.md](https://github.com/nataliepopescu/verifopt/blob/main/NOVELTY.md):
-related work comparison (table)
-
-[PANICS.md](https://github.com/nataliepopescu/verifopt/blob/main/PANICS.md): notes 
-about attempts to identify the compiled panics in tock
-
-[PERF_ENG.md](https://github.com/nataliepopescu/verifopt/blob/main/PERF_ENG.md): 
-notes on some performance engineering tips/tricks, possible things to try to
-optimize automatically
-
-[PROJECTS.md](https://github.com/nataliepopescu/verifopt/blob/main/PROJECTS.md): 
-list of potential project directions in this area
-
-[RELWORK.md](https://github.com/nataliepopescu/verifopt/blob/main/RELWORK.md): 
-related work notes
-
-[RUST_BENEFITS.md](https://github.com/nataliepopescu/verifopt/blob/main/RUST_BENEFITS.md):
-notes on how Rust may aid in virtual function call analysis
-
-[TRAITS_GENERICS_VTABLES.md](https://github.com/nataliepopescu/verifopt/blob/main/TRAITS_GENERICS_VTABLES.md):
-background notes
-
-[USING_FLUX.md](https://github.com/nataliepopescu/verifopt/blob/main/USING_FLUX.md): 
-notes on how to install / use flux, and experience using it on certain panics in 
-tock
-
-[USING_VERUS.md](https://github.com/nataliepopescu/verifopt/blob/main/USING_VERUS.md):
-notes on experience using verus on some simple toy code

@@ -44,7 +44,7 @@ a simple visitor pattern implementation to eventually evaluate our tool on
 (note: from the source-level rewrites, we expected this example to have a larger
 perf impact - still TODO)
 
-### Old Code
+### Old Proj Code
 
 [old-proj-code/flux-examples](https://github.com/nataliepopescu/verifopt/tree/main/flux-examples):
 simplified code to use flux on, mirroring the kinds of constructs we would like

@@ -1,4 +1,5 @@
 #![feature(ptr_metadata)]
+#![allow(dead_code)]
 
 pub trait Animal {
     fn speak(&self) -> usize;

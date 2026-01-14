@@ -210,6 +210,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     },
                                     None => {
                                         println!("no such function (might be a dynamic call): {:?}", def_id);
+                                        println!("is mir available? {:?}", self.tcx.is_mir_available(def_id));
                                         // TODO dynamic dispatch
                                         // if first arg == self, use constraints to prune funcvals
                                         Ok(None)
@@ -390,6 +391,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         _ => println!("non-val const"),
                     }
                 },
+                _ => println!("runtime checks?"),
             }
         }
 

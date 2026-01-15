@@ -1,7 +1,9 @@
+#![allow(unused_imports)]
+
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::mir::interpret::Scalar; 
-use rustc_middle::ty::{List, TyCtxt, TyKind};
+use rustc_middle::ty::{InstanceKind, List, TyCtxt, TyKind};
 use rustc_data_structures::fx::{FxHashSet as HashSet};
 use rustc_data_structures::packed::Pu128;
 use rustc_index::IndexSlice;
@@ -13,21 +15,22 @@ use crate::core::{FuncVal, VerifoptRval};
 use crate::wto::BBDeps;
 use crate::error::Error;
 
-pub struct InterpPass<'a, 'tcx> {
+pub struct InterpPass<'tcx> {
     pub tcx: TyCtxt<'tcx>,
-    pub func_map: &'a FuncMap<'tcx>,
+    //pub func_map: &'a FuncMap<'tcx>,
 }
 
-impl<'a, 'tcx> InterpPass<'a, 'tcx> {
+impl<'tcx> InterpPass<'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
-        func_map: &'a FuncMap<'tcx>,
-    ) -> InterpPass<'a, 'tcx> {
-        Self { tcx, func_map }
+        //func_map: &'a FuncMap<'tcx>,
+    ) -> InterpPass<'tcx> {
+        Self { tcx } //, func_map }
     }
 
     pub fn run(
         &self, 
+        func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>, 
         prev_scope: Option<DefId>,
         cur_scope: DefId,
@@ -61,11 +64,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         );
 
         // start interpretation
-        self.visit_body(cmap, prev_scope, cur_scope, body)
+        self.visit_body(func_map, cmap, prev_scope, cur_scope, body)
     }
 
     fn visit_body(
         &self, 
+        func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>, 
         prev_scope: Option<DefId>,
         cur_scope: DefId,
@@ -79,14 +83,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // get Weak Topological Ordering of function body
         let mut bb_deps = BBDeps::new(body);
         let mut last_res = None;
-        while true {
+        loop {
             if bb_deps.ordering.is_empty() {
                 break;
             }
             let bb = bb_deps.ordering.remove(0);
             println!("--NEW BB: {:?}", bb);
             let data = body.basic_blocks.get(bb).unwrap();
-            last_res = self.visit_basic_block_data(cmap, &mut bb_deps, body.local_decls.as_slice(), prev_scope, cur_scope, &bb, data)?;
+            last_res = self.visit_basic_block_data(func_map, cmap, &mut bb_deps, body.local_decls.as_slice(), prev_scope, cur_scope, &bb, data)?;
         }
 
         Ok(last_res)
@@ -94,6 +98,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn visit_basic_block_data(
         &self,
+        func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>, 
         bb_deps: &mut BBDeps<'tcx>,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
@@ -105,11 +110,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         let mut last_res = None;
 
         for (_, stmt) in data.statements.iter().enumerate() {
-            last_res = self.visit_statement(cmap, body_locals, cur_scope, stmt)?;
+            last_res = self.visit_statement(func_map, cmap, body_locals, cur_scope, stmt)?;
         }
 
         if let Some(term) = &data.terminator {
-            last_res = self.visit_terminator(cmap, bb, bb_deps, prev_scope, cur_scope, &term)?;
+            last_res = self.visit_terminator(func_map, cmap, bb, bb_deps, prev_scope, cur_scope, &term)?;
         }
 
         bb_deps.mark_visited(bb);
@@ -119,6 +124,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn visit_statement(
         &self,
+        _func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>, 
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         cur_scope: DefId,
@@ -148,6 +154,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn interp_func_call(
         &self,
+        func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>, 
         prev_scope: Option<DefId>,
         cur_scope: DefId,
@@ -167,18 +174,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Const::Val(_, ty) => {
                         match ty.kind() {
                             TyKind::FnDef(def_id, _) => {
-                                match self.func_map.funcs.get(def_id) {
+                                match func_map.funcs.get(def_id) {
                                     Some(funcval_vec) => {
                                         let mut res_vec = vec![];
                                         let mut cmap_vec = vec![];
 
-                                        for funcval in funcval_vec.iter() {
+                                        for funcval in funcval_vec.clone().iter() {
                                             let mut cmap_clone = cmap.clone();
-                                            self.resolve_args(&mut cmap_clone, prev_scope, funcval, args);
+                                            self.resolve_args(func_map, &mut cmap_clone, prev_scope, funcval, args);
 
                                             // visit callee
                                             let callee_body = self.tcx.optimized_mir(*def_id);
-                                            match self.visit_body(&mut cmap_clone, Some(cur_scope), *def_id, callee_body) {
+                                            match self.visit_body(func_map, &mut cmap_clone, Some(cur_scope), *def_id, callee_body) {
                                                 Ok(maybe_constraints) => {
                                                     println!("\n##### DONE\n");
                                                     cmap_vec.push(cmap_clone);
@@ -211,6 +218,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     None => {
                                         println!("no such function (might be a dynamic call): {:?}", def_id);
                                         println!("is mir available? {:?}", self.tcx.is_mir_available(def_id));
+                                        if self.tcx.is_mir_available(def_id) {
+                                            let body = self.tcx.instance_mir(InstanceKind::Item(*def_id));
+
+                                            // add to func_map
+
+                                            // call visit_body()
+                                        }
+
                                         // TODO dynamic dispatch
                                         // if first arg == self, use constraints to prune funcvals
                                         Ok(None)
@@ -258,6 +273,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn interp_switchint(
         &self,
+        _func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>, 
         bb: &BasicBlock,
         bb_deps: &mut BBDeps<'tcx>,
@@ -311,6 +327,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn visit_terminator(
         &self,
+        func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>, 
         bb: &BasicBlock,
         bb_deps: &mut BBDeps<'tcx>,
@@ -320,13 +337,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         match &terminator.kind {
             TerminatorKind::Call { func, args, destination, .. } => {
-                self.interp_func_call(cmap, prev_scope, cur_scope, func, args, destination)
+                self.interp_func_call(func_map, cmap, prev_scope, cur_scope, func, args, destination)
             },
             TerminatorKind::Return => {
                 self.interp_return(cmap, cur_scope)
             }
             TerminatorKind::SwitchInt { discr, targets } => {
-                self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
+                self.interp_switchint(func_map, cmap, bb, bb_deps, cur_scope, discr, targets)
             }
             // TODO Goto ?
             // TODO TailCall
@@ -336,6 +353,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn resolve_args(
         &self,
+        _func_map: &mut FuncMap<'tcx>,
         cmap: &mut ConstraintMap<'tcx>,
         prev_scope: Option<DefId>,
         funcval: &FuncVal<'tcx>,

@@ -125,10 +125,10 @@ impl Callbacks for VerifoptCallbacks {
         //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         //// init + run Interpreter Pass
-        let mut cmap = ConstraintMap::new();
-        let interp = InterpPass::new(tcx);
-        let res = interp.run(&mut func_map, &mut cmap, None, entry_func, mir_body);
-        println!("\nmain res: {:?}", res);
+        //let mut cmap = ConstraintMap::new();
+        //let interp = InterpPass::new(tcx);
+        //let res = interp.run(&mut func_map, &mut cmap, None, entry_func, mir_body);
+        //println!("\nmain res: {:?}", res);
 
         // init + run Rewriter Pass
         //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();

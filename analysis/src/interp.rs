@@ -152,6 +152,15 @@ impl<'tcx> InterpPass<'tcx> {
         }
     }
 
+    fn add_func_to_funcmap(
+        &self,
+        func_map: &mut FuncMap<'tcx>,
+        def_id: &DefId,
+    ) {
+        let func_name = self.tcx.item_name(def_id);
+        println!("func_name: {:?}", func_name);
+    }
+
     fn interp_func_call(
         &self,
         func_map: &mut FuncMap<'tcx>,
@@ -219,9 +228,11 @@ impl<'tcx> InterpPass<'tcx> {
                                         println!("no such function (might be a dynamic call): {:?}", def_id);
                                         println!("is mir available? {:?}", self.tcx.is_mir_available(def_id));
                                         if self.tcx.is_mir_available(def_id) {
+                                            println!("NEW FUNC");
                                             let body = self.tcx.instance_mir(InstanceKind::Item(*def_id));
 
                                             // add to func_map
+                                            self.add_func_to_funcmap(func_map, def_id);
 
                                             // call visit_body()
                                         }

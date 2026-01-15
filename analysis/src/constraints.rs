@@ -111,7 +111,7 @@ impl<'tcx> ConstraintMap<'tcx> {
                     if subscope_cmaps_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
-                    let mut subscope_cmap = &mut subscope_cmaps_vec[0].1.cmap;
+                    let subscope_cmap = &mut subscope_cmaps_vec[0].1.cmap;
                     let old_vartype_opt = subscope_cmap.get(&var);
                     match old_vartype_opt {
                         Some(old_vartype) => {

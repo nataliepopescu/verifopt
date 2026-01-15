@@ -1,5 +1,6 @@
 #![feature(rustc_private)]
 #![feature(box_patterns)]
+#![allow(unused_imports)]
 
 extern crate rustc_driver;
 extern crate rustc_data_structures;
@@ -51,9 +52,6 @@ impl Callbacks for VerifoptCallbacks {
     //fn config(&mut self, config: &mut interface::Config) {}
 
     fn after_analysis(&mut self, _compiler: &Compiler, tcx: TyCtxt<'_>) -> Compilation {
-        let mut func_map = FuncMap::new();
-        let mut cmap = ConstraintMap::new();
-
         // get entry point function DefId
         let entry_func_opt = tcx.entry_fn(());
         if entry_func_opt.is_none() {
@@ -118,17 +116,19 @@ impl Callbacks for VerifoptCallbacks {
 
         // init + run Function Collection Pass
         // TODO collect non-local funcs too
+        let mut func_map = FuncMap::new();
         let mut func_collect = FuncCollectPass::new(tcx, &mut func_map);
         func_collect.run();
-        //println!("func_map: {:#?}", func_map);
+        println!("\nfunc_map: {:#?}\n", func_map);
 
         //// init + run Function Signature Collection Pass
         //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         //// init + run Interpreter Pass
-        let interp = InterpPass::new(tcx, &func_map);
-        let res = interp.run(&mut cmap, None, entry_func, mir_body);
-        println!("\nmain res: {:?}", res);
+        //let mut cmap = ConstraintMap::new();
+        //let interp = InterpPass::new(tcx);
+        //let res = interp.run(&mut func_map, &mut cmap, None, entry_func, mir_body);
+        //println!("\nmain res: {:?}", res);
 
         // init + run Rewriter Pass
         //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();

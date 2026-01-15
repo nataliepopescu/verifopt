@@ -7,5 +7,5 @@
        rustc
     2. even if we _were_ to get it to compile, would it still be possible to get
        all dep MIR in this way? according to a bjorn comment in the latest zulip
-       thread it might not be?
+       thread it might not be? (comment confused me)
 

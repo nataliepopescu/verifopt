@@ -35,7 +35,27 @@ focusing on the Box::new() call first
     - but at that call site tcx.is_mir_available() returns true! even without
       `-Zbuild-std`; maybe we can ignore this for now
     - so perhaps we can lazily populate/memoize this table?
+        - the problem w doing this lazily is that now we have to worry about
+          loops/check for fixpoints
 
 note, our speak() call's DefId returns false when `is_mir_available()` is
 queried
 - TODO
+
+### Lazy FuncMap Population
+
+can eagerly populate funcmap for the current crate easily
+
+doing this for dependent crates is harder
+
+tried populating lazily, i.e. during interpretation, but
+- will require thinking about loops/fixpoint
+- harder to get function signature info during interpretation
+    - for local crate, rely on LocalDefId, which doesn't exist for non-local
+      crates
+        - convert to HirId and then get FnDecl
+    - we only have DefId
+
+what are HirIds? and why do they only exist for local crate items?
+- i guess thats just how thats defined
+

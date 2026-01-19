@@ -55,7 +55,59 @@ tried populating lazily, i.e. during interpretation, but
       crates
         - convert to HirId and then get FnDecl
     - we only have DefId
+    - perhaps we don't need this information? revisit why we want function
+      signatures
 
 what are HirIds? and why do they only exist for local crate items?
-- i guess thats just how thats defined
+- i guess thats just how they're defined
+
+- [ ] _why_ do we want signatures?
+    - enables a sort of reverse search
+    - i.e. can group all functions w the same signature so when we call X that
+      has signature Y we know the fixed set of what functions that may be
+        - i.e. used during the rewrite step
+            - for indirect calls (not necessarily dyn dispatch)
+            - doesn't seem to be used for trait invokes (dyn dispatch)
+        - to check if our constraint set is Top or Bottom?
+- [ ] can we get all the information we _need_ by interpreting the code instead?
+    - assuming we aren't addressing indirect calls
+    - try in branch?
+    - effectively get access to a Body
+      (https://doc.rust-lang.org/nightly/nightly-rustc/rustc_middle/mir/struct.Body.html#method.basic_blocks_mut)
+    - local_decls ("The first local is the return value pointer, followed by
+      arg_count locals for the function arguments, followed by any user-declared
+      variables and temporaries.") field
+        - idx 0: ret type
+        - idx [n]: arg type
+        - i think arg names are just indices? (`arg_count` field can get us
+          that)
+        - otherwise the last thing to figure out would be the `is_method` field
+            - important for determining which type this is being invoked on, but
+              maybe tbd is ok for now?
+
+
+### Eagerly, using CrateMetadata/CrateRoot
+
+- [ ] would this API even work?
+- [ ] if so, make API accessible by building w a modified rustc
+
+#### Custom Rustc
+
+
+
+
+
+## Distinguishing Dynamic Dispatches
+
+e.g. speak() call
+
+as in the interp-func collection, we get access to an MIR Body
+- the local_decls field is what is important: "The first local is the return
+  value pointer, followed by arg_count locals for the function arguments,
+  followed by any user-declared variables and temporaries."
+- so, the second local would be the `self` type that we can use to differentiate
+
+
+
+
 

@@ -175,7 +175,25 @@ build also works w w mod_locllvm toolchain :)
 ## Try testing out some change
 
 made a modification to the compiler to make a certain function pub (vs
-pub(crate) ), and now the original error is back...
+pub(crate) ), and now the original error is back... :'(
+
+## Debugging the error
+
+the specific error is: 
+
+```sh
+error[E0463]: can't find crate for `rustc_driver`                                                                                                                           
+ --> src/main.rs:4:1                                                                                                                                                        
+  |                                                                                                                                                                         
+4 | extern crate rustc_driver;                                                                                                                                              
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate                                                                                                                             
+  |                                                                                                                                                                         
+  = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+```
+
+
+
+
 
 
 

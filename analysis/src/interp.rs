@@ -82,7 +82,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         let mut bb_deps = BBDeps::new(body);
         let mut last_res = None;
         loop {
+            println!("LOOPING");
             if bb_deps.ordering.is_empty() {
+                println!("empty");
                 break;
             }
             let bb = bb_deps.ordering.remove(0);
@@ -106,11 +108,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         let mut last_res = None;
 
+        println!("# visiting BASICBLOCK for {:?}", cur_scope);
+
         for (_, stmt) in data.statements.iter().enumerate() {
+            println!("# visiting STATEMENT");
             last_res = self.visit_statement(cmap, body_locals, cur_scope, stmt)?;
         }
 
         if let Some(term) = &data.terminator {
+            println!("# visiting TERM");
             last_res = self.visit_terminator(cmap, bb, bb_deps, prev_scope, cur_scope, &term)?;
         }
 
@@ -162,6 +168,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         println!("func: {:?}", func);
         println!("args: {:?}", args);
         println!("destination place: {:?}", destination);
+        println!("cmap: {:?}\n", cmap);
 
         match func {
             Operand::Constant(box co) => {
@@ -184,6 +191,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             match self.visit_body(&mut cmap_clone, Some(cur_scope), *def_id, callee_body) {
                                                 Ok(maybe_constraints) => {
                                                     println!("\n##### DONE w func {:?}\n", func);
+                                                    // TODO MIR is not generated for intrinsics...
+                                                    // need to augment interpreter knowledge
+                                                    // somehow
+                                                    println!("maybe_constraints: {:?}", maybe_constraints);
                                                     cmap_vec.push(cmap_clone);
                                                     if let Some(constraints) = maybe_constraints {
                                                         println!("res constraints: {:?}", constraints);
@@ -199,15 +210,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             todo!("TODO: impl cmap_vec/res_vec merge");
                                         }
 
-                                        *cmap = cmap_vec.pop().unwrap();
-                                        let val = res_vec.pop().unwrap();
-                                        println!("val: {:?}", val);
-                                        cmap.scoped_set(
-                                            Some(cur_scope),
-                                            MapKey::Place(*destination),
-                                            Box::new(VarType::Values(val)),
-                                        );
-                                        println!("~~~CMAP: {:?}", cmap);
+                                        if res_vec.len() > 0 && cmap_vec.len() > 0 {
+                                            *cmap = cmap_vec.pop().unwrap();
+                                            let val = res_vec.pop().unwrap();
+                                            println!("val: {:?}", val);
+                                            cmap.scoped_set(
+                                                Some(cur_scope),
+                                                MapKey::Place(*destination),
+                                                Box::new(VarType::Values(val)),
+                                            );
+                                            println!("~~~CMAP: {:?}", cmap);
+                                        }
 
                                         Ok(None)
                                     },
@@ -303,7 +316,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         },
                         _ => println!("scope not impl"),
                     },
-                    None => panic!("place does not exist: {:?}", place),
+                    None => {
+                        println!("\ncmap: {:?}", cmap);
+                        println!("scope to search in: {:?}", cur_scope);
+                        println!("place to get: {:?}", place);
+                        panic!("place does not exist: {:?}", place);
+                    },
                 }
             },
             _ => println!("const operand"),
@@ -358,7 +376,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             match arg {
                 // cmap.scoped_get + add result to func_cmap
                 Operand::Copy(place) | Operand::Move(place) => {
-                    match cmap.scoped_get(prev_scope, &MapKey::Place(place), false) {
+                    match cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false) {
                         Some(vartype) => match vartype {
                             VarType::Values(constraints) => {
                                 func_cmap.cmap.insert(
@@ -375,6 +393,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             println!("place doesn't exist in cmap, maybe this is a func name");
                             println!(".....debugging");
                             println!("prev_scope: {:?}", prev_scope);
+                            println!("cur_scope: {:?}", cur_scope);
                             println!("place: {:?}", place);
                             println!("cmap: {:?}", cmap);
                         }
@@ -383,21 +402,47 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 Operand::Constant(box co) => {
                     println!("co.const_: {:?}", co.const_);
                     match co.const_ {
-                        Const::Val(val, _) => match val {
+                        Const::Val(val, ty) => match val {
                             ConstValue::Scalar(scalar) => {
                                 println!("scalar: {:?}", scalar);
                                 let mut constraints = HashSet::default();
                                 constraints.insert(VerifoptRval::Scalar(scalar));
                                 func_cmap.cmap.insert(
                                     MapKey::Place(param_name),
-                                    Box::new(VarType::Values(
-                                            constraints,
-                                    )),
+                                    Box::new(VarType::Values(constraints)),
                                 );
                             },
-                            _ => todo!("TODO non-scalar val"),
+                            ConstValue::ZeroSized => {
+                                println!("zero-sized");
+                                let mut constraints = HashSet::default();
+                                constraints.insert(VerifoptRval::IdkType(ty));
+                                func_cmap.cmap.insert(
+                                    MapKey::Place(param_name),
+                                    Box::new(VarType::Values(constraints)),
+                                );
+                            },
+                            ConstValue::Slice { alloc_id, meta } => {
+                                todo!("slice");
+                            },
+                            ConstValue::Indirect { alloc_id, offset } => {
+                                todo!("indirect");
+                            },
                         },
-                        _ => todo!("TODO non-val const"),
+                        Const::Ty(..) => {
+                            todo!("ty");
+                        },
+                        Const::Unevaluated(uneval, ty) => {
+                            // TODO do we care about evaluating constants?
+                            println!("unevaluated const");
+                            println!("uneval: {:?}", uneval);
+                            println!("ty: {:?}", ty);
+                            let mut constraints = HashSet::default();
+                            constraints.insert(VerifoptRval::IdkType(ty));
+                            func_cmap.cmap.insert(
+                                MapKey::Place(param_name),
+                                Box::new(VarType::Values(constraints)),
+                            );
+                        },
                     }
                 },
                 _ => todo!("TODO runtime checks?"),

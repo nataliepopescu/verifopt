@@ -122,8 +122,7 @@ impl VerifoptCallbacks {
                     println!("mir available? {:?}", mir_avail);
 
                     if mir_avail {
-                        println!("trying to get func body...");
-                        println!("Item body: \n{:?}", tcx.instance_mir(InstanceKind::Item(def_id)));
+                        println!("optimized body: \n{:#?}", tcx.optimized_mir(def_id)); //InstanceKind::Item(def_id)));
                     }
                 }
                 //    //println!("VTableShim body: \n{:?}", tcx.instance_mir(InstanceKind::VTableShim(def_id)));

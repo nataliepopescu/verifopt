@@ -182,36 +182,49 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         let mut cmap_vec = vec![];
 
                                         for funcval in funcval_vec.iter() {
-                                            let mut cmap_clone = cmap.clone();
-                                            println!("\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n", func);
-                                            self.resolve_args(&mut cmap_clone, prev_scope, cur_scope, funcval, args);
 
-                                            // visit callee
-                                            let callee_body = self.tcx.optimized_mir(*def_id);
-                                            match self.visit_body(&mut cmap_clone, Some(cur_scope), *def_id, callee_body) {
-                                                Ok(maybe_constraints) => {
-                                                    println!("\n##### DONE w func {:?}\n", func);
-                                                    // TODO MIR is not generated for intrinsics...
-                                                    // need to augment interpreter knowledge
-                                                    // somehow
-                                                    println!("maybe_constraints: {:?}", maybe_constraints);
-                                                    cmap_vec.push(cmap_clone);
-                                                    if let Some(constraints) = maybe_constraints {
-                                                        println!("res constraints: {:?}", constraints);
-                                                        res_vec.push(constraints);
-                                                    }
-                                                },
-                                                err @ Err(_) => return err,
+                                            if funcval.is_intrinsic {
+                                                println!("\n### FUNC IS INTRINSIC {:?}\n", funcval.def_id);
+                                                if let Some(rettype) = funcval.rettype {
+                                                    let mut constraints = HashSet::default();
+                                                    constraints.insert(VerifoptRval::IdkType(rettype));
+                                                    res_vec.push(constraints);
+                                                }
+                                            } else {
+                                                let mut cmap_clone = cmap.clone();
+                                                println!("\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n", funcval.def_id);
+                                                self.resolve_args(&mut cmap_clone, prev_scope, cur_scope, funcval, args);
+
+                                                // visit callee
+                                                let callee_body = self.tcx.optimized_mir(*def_id);
+                                                match self.visit_body(&mut cmap_clone, Some(cur_scope), *def_id, callee_body) {
+                                                    Ok(maybe_constraints) => {
+                                                        println!("\n##### DONE w func {:?}\n", func);
+                                                        // TODO MIR is not generated for intrinsics...
+                                                        // need to augment interpreter knowledge
+                                                        // somehow
+                                                        println!("maybe_constraints: {:?}", maybe_constraints);
+                                                        cmap_vec.push(cmap_clone);
+                                                        if let Some(constraints) = maybe_constraints {
+                                                            println!("res constraints: {:?}", constraints);
+                                                            res_vec.push(constraints);
+                                                        }
+                                                    },
+                                                    err @ Err(_) => return err,
+                                                }
                                             }
                                         }
 
                                         // merge cmap / returned value states
-                                        if cmap_vec.len() > 1 {
+                                        if cmap_vec.len() > 1 || res_vec.len() > 1 {
                                             todo!("TODO: impl cmap_vec/res_vec merge");
                                         }
 
-                                        if res_vec.len() > 0 && cmap_vec.len() > 0 {
+                                        if cmap_vec.len() > 0 {
                                             *cmap = cmap_vec.pop().unwrap();
+                                        }
+
+                                        if res_vec.len() > 0 {
                                             let val = res_vec.pop().unwrap();
                                             println!("val: {:?}", val);
                                             cmap.scoped_set(

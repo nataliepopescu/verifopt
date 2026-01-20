@@ -110,7 +110,15 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     //    println!("mir NOT available...");
                     //}
 
-                    let funcval = FuncVal::new(def_id, is_method, arg_names);
+                    let mut is_intrinsic = false;
+                    if self.tcx.intrinsic_raw(def_id).is_some() {
+                        is_intrinsic = true;
+                    }
+
+                    let sig = self.tcx.fn_sig(def_id);
+                    // FIXME skip_binder() generally incorrect but in this instance the return type
+                    // is not generic so I think it is ok
+                    let funcval = FuncVal::new(def_id, is_intrinsic, is_method, arg_names, Some(sig.skip_binder().skip_binder().output()));
                     let vec_to_insert: Vec<FuncVal>;
                     match funcs.funcs.get_mut(&def_id) {
                         Some(func_vec) => {

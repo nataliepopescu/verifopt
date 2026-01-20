@@ -15,21 +15,24 @@ pub type Type = &'static str;
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,
+    pub is_intrinsic: bool,
     //pub name: Symbol,
     pub is_method: bool,
     //pub params: Vec<(Place<'tcx>, Res)>,
     // FIXME names only for now
     pub params: Vec<Place<'tcx>>,
-    //pub rettype: Option<Res>,
+    pub rettype: Option<Ty<'tcx>>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
     pub fn new(
         def_id: DefId,
+        is_intrinsic: bool,
         is_method: bool,
         params: Vec<Place<'tcx>>,
+        rettype: Option<Ty<'tcx>>,
     ) -> FuncVal<'tcx> {
-        Self { def_id, is_method, params }
+        Self { def_id, is_intrinsic, is_method, params, rettype }
     }
 
     /*

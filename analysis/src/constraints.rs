@@ -5,6 +5,7 @@ extern crate rustc_middle;
 
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
+use rustc_span::Ident;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -29,28 +30,28 @@ pub(crate) enum VarType<'tcx> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum MapKey<'tcx> {
-    Place(Place<'tcx>),
+pub(crate) enum MapKey {
+    Place(Option<Ident>), //Place<'tcx>),
     // FIXME Option str? if so, remove from VarType::Scope
     ScopeId(DefId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConstraintMap<'tcx> {
-    pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
+    pub cmap: HashMap<MapKey, Box<VarType<'tcx>>>,
 }
 
 impl<'tcx> ConstraintMap<'tcx> {
     pub(crate) fn new() -> Self {
         Self {
-            cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
+            cmap: HashMap::<MapKey, Box<VarType<'tcx>>>::default(),
         }
     }
 
     pub(crate) fn scoped_get(
         &self,
         scope: Option<DefId>,
-        var: &MapKey<'tcx>,
+        var: &MapKey,
         traverse_backptr: bool,
     ) -> Option<VarType<'tcx>> {
         // first get the `cmap` object pertaining to `this` scope
@@ -91,7 +92,7 @@ impl<'tcx> ConstraintMap<'tcx> {
     pub(crate) fn scoped_set(
         &mut self,
         scope: Option<DefId>,
-        var: MapKey<'tcx>,
+        var: MapKey,
         value: Box<VarType<'tcx>>,
     ) {
         // first get the `cmap` object pertaining to `this` scope

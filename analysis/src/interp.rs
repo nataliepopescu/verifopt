@@ -15,17 +15,18 @@ use crate::error::Error;
 
 pub struct InterpPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
-    pub func_map: &'a FuncMap<'tcx>,
+    pub funcs: &'a FuncMap,
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
-        func_map: &'a FuncMap<'tcx>,
+        funcs: &'a FuncMap,
     ) -> InterpPass<'a, 'tcx> {
-        Self { tcx, func_map }
+        Self { tcx, funcs }
     }
 
+    /*
     pub fn run(
         &self, 
         cmap: &mut ConstraintMap<'tcx>, 
@@ -167,7 +168,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Const::Val(_, ty) => {
                         match ty.kind() {
                             TyKind::FnDef(def_id, _) => {
-                                match self.func_map.funcs.get(def_id) {
+                                match self.funcs.funcs.get(def_id) {
                                     Some(funcval_vec) => {
                                         let mut res_vec = vec![];
                                         let mut cmap_vec = vec![];
@@ -223,7 +224,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     _ => panic!("not a Val Const"),
                 }
             },
-            // TODO also handle indirect invokes (via variable name, _not_ in func_map)
+            // TODO also handle indirect invokes (via variable name, _not_ in funcs)
             _ => panic!("not a Const"),
         }
     }
@@ -338,7 +339,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         prev_scope: Option<DefId>,
-        funcval: &FuncVal<'tcx>,
+        funcval: &FuncVal,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
         println!("RESOLVING ARGS");
@@ -347,9 +348,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap
-        for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
+        //for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
+        for (param_name, arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
             println!("param_name: {:?}", param_name);
-            println!("param_type: {:?}", param_type);
+            //println!("param_type: {:?}", param_type);
             println!("arg: {:?}", arg);
 
             match arg {
@@ -411,5 +413,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         println!("~~~CMAP: {:?}", cmap);
     }
+    */
 }
 

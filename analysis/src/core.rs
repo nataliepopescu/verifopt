@@ -3,6 +3,7 @@ use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_span::symbol::Symbol;
+use rustc_span::Ident;
 use rustc_index::IndexSlice;
 use rustc_middle::ty::Ty;
 
@@ -10,16 +11,27 @@ use crate::error::Error;
 
 pub type Type = &'static str;
 
+// FIXME continue to add stuff to this def as needed
 #[derive(Debug, Clone, Hash)]
-pub struct FuncVal<'tcx> {
+pub struct FuncVal {
     pub def_id: DefId,
-    pub name: Symbol,
-    pub is_method: bool,
-    pub params: Vec<(Place<'tcx>, Res)>,
-    pub rettype: Option<Res>,
+    //pub name: Symbol,
+    //pub is_method: bool,
+    //pub params: Vec<(Place<'tcx>, Res)>,
+    // FIXME names only for now
+    pub params: Vec<Option<Ident>>, //Place<'tcx>>,
+    //pub rettype: Option<Res>,
 }
 
-impl<'tcx> FuncVal<'tcx> {
+impl FuncVal {
+    pub fn new(
+        def_id: DefId,
+        params: Vec<Option<Ident>>, //Place<'tcx>>,
+    ) -> FuncVal {
+        Self { def_id, params }
+    }
+
+    /*
     pub fn new(
         def_id: DefId,
         name: Symbol,
@@ -39,6 +51,7 @@ impl<'tcx> FuncVal<'tcx> {
             def_id, name, is_method, params, rettype
         }
     }
+    */
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

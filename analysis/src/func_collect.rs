@@ -4,34 +4,32 @@ use rustc_hir::def::Res;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{List, TyCtxt};
+use rustc_middle::ty::{InstanceKind, List, TyCtxt};
 use rustc_data_structures::fx::{FxHashMap as HashMap};
 
 use crate::core::FuncVal;
 
 #[derive(Debug, Clone)]
-pub struct FuncMap<'tcx> {
+pub struct FuncMap {
     // omitting TraitStructOpt unless useful
-    pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
+    pub funcs: HashMap<DefId, Vec<FuncVal>>,
 }
 
-impl<'tcx> FuncMap<'tcx> {
+impl FuncMap {
     pub fn new() -> Self {
         Self { funcs: HashMap::default() }
     }
 }
 
-pub struct FuncCollectPass<'a, 'tcx> {
+pub struct FuncCollectPass<'tcx> {
     pub tcx: TyCtxt<'tcx>,
-    pub func_map: &'a mut FuncMap<'tcx>,
 }
 
-impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
+impl<'tcx> FuncCollectPass<'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
-        func_map: &'a mut FuncMap<'tcx>,
-    ) -> FuncCollectPass<'a, 'tcx> {
-        Self { tcx, func_map }
+    ) -> FuncCollectPass<'tcx> {
+        Self { tcx }
     }
 
     fn get_type_res(&self, tykind: TyKind) -> Option<Res> {
@@ -51,7 +49,71 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn run(
+        &self,
+        funcs: &mut FuncMap,
+    ) {
+        // FIXME try past 4
+        //let num_crates = self.tcx.used_crates(()).len();
+        let num_crates = 4u32;
+        for crate_num in 0u32..num_crates + 1 {
+            //println!("\n\ncrate_num: {:?}\n", crate_num);
+            for def_index in 0..u32::MAX {
+                if crate_num == 0 && def_index >= 22
+                || crate_num == 1 && def_index >= 19549
+                || crate_num == 2 && def_index >= 78916
+                || crate_num == 3 && def_index >= 12636
+                || crate_num == 4 && def_index >= 4970
+                //|| crate_num == 5 && def_index >= 12217
+                //|| crate_num == 6 && def_index >= 3
+                //|| crate_num == 7 && def_index >= 94
+                //|| crate_num == 8 && def_index >= 513
+                //|| crate_num == 9 && def_index >= 71
+                { break }
+
+                //println!("\nnew def_index");
+                //println!("crate_num: {:?}", crate_num);
+                //println!("def_index: {:?}", def_index);
+                let def_id = DefId {
+                    index: def_index.into(),
+                    krate: crate_num.into()
+                };
+                let def_kind = self.tcx.def_kind(def_id);
+                //println!("\nforged defid: {:?}", def_id);
+                //println!("def_kind: {:?}", def_kind);
+
+                if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
+                    //println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
+                    let arg_idents = self.tcx.fn_arg_idents(def_id);
+                    //println!("fn_arg_idents: {:?}", arg_idents);
+                    //let mir_avail = self.tcx.is_mir_available(def_id);
+                    //if mir_avail {
+                    //    println!("mir available...");
+                    //    //println!("Body: \n{:?}", self.tcx.instance_mir(InstanceKind::Item(def_id)));
+                    //} else {
+                    //    println!("mir NOT available...");
+                    //}
+
+                    let funcval = FuncVal::new(def_id, arg_idents.to_vec());
+                    let vec_to_insert: Vec<FuncVal>;
+                    match funcs.funcs.get_mut(&def_id) {
+                        Some(func_vec) => {
+                            func_vec.push(funcval);
+                            vec_to_insert = func_vec.to_vec();
+                        },
+                        None => {
+                            vec_to_insert = vec![funcval];
+                            // TODO handle nested func decls
+                        }
+                    }
+                    funcs.funcs.insert(def_id, vec_to_insert);
+                }
+            }
+        }
+    }
+
+/*
+    pub fn run_old(&mut self) {
         for loc_def_id in self.tcx.hir_body_owners() {
             let loc_def_kind = self.tcx.def_kind(loc_def_id);
             if loc_def_kind == DefKind::Fn || loc_def_kind == DefKind::AssocFn {
@@ -124,5 +186,6 @@ impl<'a, 'tcx> FuncCollectPass<'a, 'tcx> {
             }
         }
     }
+*/
 }
 

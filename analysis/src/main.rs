@@ -27,6 +27,7 @@ mod interp;
 
 use rustc_ast::ast::Crate;
 use rustc_hir::def_id::DefId;
+use rustc_hir::def::DefKind;
 use rustc_driver::{Callbacks, Compilation, run_compiler};
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::{InstanceKind, ReifyReason, TyCtxt};
@@ -36,7 +37,6 @@ use rustc_middle::middle::exported_symbols::ExportedSymbol;
 //use rustc_data_structures::stable_hasher::ToStableHashKey;
 
 use std::env;
-use std::panic;
 
 //use context::GlobalContext;
 use constraints::ConstraintMap;
@@ -50,10 +50,10 @@ struct VerifoptCallbacks;
 
 impl VerifoptCallbacks {
     fn try_stuff(tcx: TyCtxt<'_>) {
-        let mut num_crates: u32 = 0;
-        for crate_ in tcx.used_crates(()).into_iter() {
-            num_crates += 1;
-            let def_id = crate_.as_def_id();
+        //let mut num_crates: u32 = 0;
+        //for crate_ in tcx.used_crates(()).into_iter() {
+        //    num_crates += 1;
+            //let def_id = crate_.as_def_id();
             //println!();
             //println!("Crate DefId: {:?}", def_id);
 
@@ -83,10 +83,11 @@ impl VerifoptCallbacks {
             //    println!("SYMBOL mir available? {:?}", tcx.is_mir_available(*key));
             //}
             //println!("CRATE mir available? {:?}", tcx.is_mir_available(def_id));
-        }
+        //}
         //println!("NUM USED CRATES: {:?}", num_crates);
 
         // forge DefIds to see if we can access random MIR
+        //let num_crates = tcx.used_crates(()).len();
         //for crate_num in 1u32..2u32 { //num_crates + 1 {
         let crate_num = 0u32;
             println!("\nnew crate_num\n");
@@ -110,33 +111,41 @@ impl VerifoptCallbacks {
                 println!("def_index: {:?}", def_index);
                 let def_id = DefId { index: def_index.into(), krate: crate_num.into() };
                 println!("forged defid: {:?}", def_id);
-                let mir_avail = tcx.is_mir_available(def_id);
-                println!("mir available? {:?}", mir_avail);
 
-                if mir_avail {
-                    println!("trying to get func body...");
-                    println!("Item body: \n{:?}", tcx.instance_mir(InstanceKind::Item(def_id)));
+                let def_kind = tcx.def_kind(def_id);
+                println!("def_kind: {:?}", def_kind);
+
+                if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
+                    println!("fn_sig: {:?}", tcx.fn_sig(def_id));
+
+                    let mir_avail = tcx.is_mir_available(def_id);
+                    println!("mir available? {:?}", mir_avail);
+
+                    if mir_avail {
+                        println!("trying to get func body...");
+                        println!("Item body: \n{:?}", tcx.instance_mir(InstanceKind::Item(def_id)));
+                    }
+                }
                 //    //println!("VTableShim body: \n{:?}", tcx.instance_mir(InstanceKind::VTableShim(def_id)));
                 //    //println!("ReifyShim (Some(Vtable)) body: \n{:?}", tcx.instance_mir(InstanceKind::ReifyShim(def_id, Some(ReifyReason::Vtable))));
                 //    //println!("ReifyShim (Some(FnPtr)) body: \n{:?}", tcx.instance_mir(InstanceKind::ReifyShim(def_id, Some(ReifyReason::FnPtr))));
                 //    //println!("ReifyShim (None) body: \n{:?}", tcx.instance_mir(InstanceKind::ReifyShim(def_id, None)));
-                }
             }
         //}
-
-        //num_crates = 0;
-        //for crate_ in external_crates().iter() {
-        //    num_crates += 1;
-        //    //let def_id = crate_.id.as_def_id();
-        //    println!("Crate DefId: {:?}", crate_.id); //def_id);
-        //}
-        //println!("NUM EXTERNAL CRATES: {:?}", num_crates);
 
         //let cstore = CStore::from_tcx(tcx);
         //for (cnum, cmeta) in cstore.iter_crate_data() {
         //    println!("CRATE (cstore)");
         //    println!("crate num: {:?}", cnum);
         //    println!("crate metadata: {:?}", cmeta);
+        //}
+
+        //for trait_ in tcx.all_traits_including_private() {
+        //    println!("\ntrait: {:?}", trait_);
+        //    for impl_ in tcx.all_impls(trait_) {
+        //        println!("impl: {:?}", impl_);
+        //        println!("implementors: {:?}", tcx.impl_item_implementor_ids(impl_));
+        //    }
         //}
     }
 }
@@ -145,9 +154,6 @@ impl Callbacks for VerifoptCallbacks {
     //fn config(&mut self, config: &mut interface::Config) {}
 
     fn after_analysis(&mut self, _compiler: &Compiler, tcx: TyCtxt<'_>) -> Compilation {
-        let mut func_map = FuncMap::new();
-        let mut cmap = ConstraintMap::new();
-
         // get entry point function DefId
         let entry_func_opt = tcx.entry_fn(());
         if entry_func_opt.is_none() {
@@ -158,18 +164,20 @@ impl Callbacks for VerifoptCallbacks {
         // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
 
-        Self::try_stuff(tcx);
+        //Self::try_stuff(tcx);
 
         // init + run Function Collection Pass
         // TODO collect non-local funcs too
-        //let mut func_collect = FuncCollectPass::new(tcx, &mut func_map);
-        //func_collect.run();
-        //println!("func_map: {:#?}", func_map);
+        let mut funcs = FuncMap::new();
+        let mut func_collect = FuncCollectPass::new(tcx);
+        func_collect.run(&mut funcs);
+        //println!("funcs: {:#?}", funcs);
 
         //// init + run Function Signature Collection Pass
         //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         //// init + run Interpreter Pass
+        //let mut cmap = ConstraintMap::new();
         //let interp = InterpPass::new(tcx, &func_map);
         //let res = interp.run(&mut cmap, None, entry_func, mir_body);
         //println!("\nmain res: {:?}", res);

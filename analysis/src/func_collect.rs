@@ -1,10 +1,10 @@
 use rustc_hir::TyKind;
-use rustc_hir::FnRetTy::*;
+//use rustc_hir::FnRetTy::*;
 use rustc_hir::def::Res;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{InstanceKind, List, TyCtxt};
+use rustc_middle::ty::{List, TyCtxt};
 use rustc_data_structures::fx::{FxHashMap as HashMap};
 
 use crate::core::FuncVal;

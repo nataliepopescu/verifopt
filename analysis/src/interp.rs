@@ -3,7 +3,7 @@ use rustc_middle::mir::*;
 use rustc_middle::mir::interpret::Scalar; 
 use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_data_structures::fx::{FxHashSet as HashSet};
-use rustc_data_structures::packed::Pu128;
+//use rustc_data_structures::packed::Pu128;
 use rustc_index::IndexSlice;
 use rustc_span::source_map::Spanned;
 
@@ -53,8 +53,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             Box::new(VarType::SubScope(
                 prev_scope,
                 vec![(
-                    // FIXME forgot what this field is for
-                    Box::new("main"),
+                    Box::new("main functype"),
                     main_cmap,
                 )],
             )),
@@ -73,13 +72,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // FIXME how do loops affect this order?
 
-        println!("\n###### INTERP-ING NEW BODY\n");
+        println!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
+        println!("prev_scope: {:?}", prev_scope);
+        println!("cur_scope: {:?}", cur_scope);
         println!("~~~CMAP: {:?}", cmap);
 
         // get Weak Topological Ordering of function body
+        // TODO memoize this ordering
         let mut bb_deps = BBDeps::new(body);
         let mut last_res = None;
-        while true {
+        loop {
             if bb_deps.ordering.is_empty() {
                 break;
             }
@@ -155,11 +157,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
-        println!("-----------");
+        println!("\n-----------");
         println!("call!");
         println!("func: {:?}", func);
         println!("args: {:?}", args);
-        println!("place: {:?}", destination);
+        println!("destination place: {:?}", destination);
 
         match func {
             Operand::Constant(box co) => {
@@ -174,7 +176,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                         for funcval in funcval_vec.iter() {
                                             let mut cmap_clone = cmap.clone();
-                                            self.resolve_args(&mut cmap_clone, prev_scope, funcval, args);
+                                            println!("\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n", func);
+                                            self.resolve_args(&mut cmap_clone, prev_scope, cur_scope, funcval, args);
 
                                             // visit callee
                                             let callee_body = self.tcx.optimized_mir(*def_id);
@@ -193,7 +196,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                         // merge cmap / returned value states
                                         if cmap_vec.len() > 1 {
-                                            panic!("TODO: impl cmap_vec/res_vec merge");
+                                            todo!("TODO: impl cmap_vec/res_vec merge");
                                         }
 
                                         *cmap = cmap_vec.pop().unwrap();
@@ -338,11 +341,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         prev_scope: Option<DefId>,
+        cur_scope: DefId,
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
-        println!("RESOLVING ARGS");
-
         let mut func_cmap = ConstraintMap::new();
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
@@ -393,12 +395,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     )),
                                 );
                             },
-                            _ => println!("non-scalar val"),
+                            _ => todo!("TODO non-scalar val"),
                         },
-                        _ => println!("non-val const"),
+                        _ => todo!("TODO non-val const"),
                     }
                 },
-                _ => println!("runtime checks?"),
+                _ => todo!("TODO runtime checks?"),
             }
         }
 
@@ -408,7 +410,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             MapKey::ScopeId(funcval.def_id),
             Box::new(VarType::SubScope(
                 // FIXME not getting properly set?
-                prev_scope,
+                Some(cur_scope),
                 vec![(
                     // if this item is a function (which i guess since we're using
                     // VarType::SubScope it must be), this first part of the tuple seems to store
@@ -416,7 +418,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     // the return _type_ of the function will correspond to the type of the
                     // invocation result, but I am not sure how useful this is since we have types
                     // in lots of places already...
-                    Box::new("function type (tbd)"),
+                    Box::new("functype (tbd)"),
                     func_cmap,
                 )],
             )),

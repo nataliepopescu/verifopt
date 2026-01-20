@@ -1,4 +1,4 @@
-use rustc_hir::def_id::DefId;
+//use rustc_hir::def_id::DefId;
 use rustc_middle::mir::{BasicBlock, BasicBlockData, Body};
 use rustc_middle::mir::traversal;
 use rustc_data_structures::fx::{FxHashMap as HashMap};

@@ -25,15 +25,15 @@ mod interp;
 // - https://github.com/lizhuohua/rust-mir-checker/blob/master/src/bin/mir-checker.rs
 // - https://rustc-dev-guide.rust-lang.org/rustc-driver/interacting-with-the-ast.html
 
-use rustc_ast::ast::Crate;
+//use rustc_ast::ast::Crate;
 use rustc_hir::def_id::DefId;
 use rustc_hir::def::DefKind;
 use rustc_driver::{Callbacks, Compilation, run_compiler};
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::{InstanceKind, ReifyReason, TyCtxt};
-use rustc_metadata::creader::CStore;
-use rustc_public::external_crates;
-use rustc_middle::middle::exported_symbols::ExportedSymbol;
+//use rustc_metadata::creader::CStore;
+//use rustc_public::external_crates;
+//use rustc_middle::middle::exported_symbols::ExportedSymbol;
 //use rustc_data_structures::stable_hasher::ToStableHashKey;
 
 use std::env;
@@ -88,23 +88,23 @@ impl VerifoptCallbacks {
 
         // forge DefIds to see if we can access random MIR
         //let num_crates = tcx.used_crates(()).len();
-        //for crate_num in 1u32..2u32 { //num_crates + 1 {
-        let crate_num = 0u32;
-            println!("\nnew crate_num\n");
+        for crate_num in 1u32..4u32 { //num_crates + 1 {
+        //let crate_num = 3u32;
+            println!("\ncrate_num {:?}\n", crate_num);
             // when we get a panic in rustc_metadata/src/rmeta/decorder.rs about
             // Option::unwrap() being called on a None value, I think we've run 
             // out of def_indices
             for def_index in 1..u32::MAX {
-                //if crate_num == 1 && def_index >= 19549
-                //|| crate_num == 2 && def_index >= 78916
-                //|| crate_num == 3 && def_index >= 12636
-                //|| crate_num == 4 && def_index >= 4970
-                //|| crate_num == 5 && def_index >= 12217
-                //|| crate_num == 6 && def_index >= 3
-                //|| crate_num == 7 && def_index >= 94
-                //|| crate_num == 8 && def_index >= 513
-                //|| crate_num == 9 && def_index >= 71
-                //{ continue }
+                if crate_num == 1 && def_index >= 19549
+                || crate_num == 2 && def_index >= 78916
+                || crate_num == 3 && def_index >= 12636
+                || crate_num == 4 && def_index >= 4970
+                || crate_num == 5 && def_index >= 12217
+                || crate_num == 6 && def_index >= 3
+                || crate_num == 7 && def_index >= 94
+                || crate_num == 8 && def_index >= 513
+                || crate_num == 9 && def_index >= 71
+                { break }
 
                 println!("\nnew def_index");
                 println!("crate_num: {:?}", crate_num);
@@ -131,7 +131,7 @@ impl VerifoptCallbacks {
                 //    //println!("ReifyShim (Some(FnPtr)) body: \n{:?}", tcx.instance_mir(InstanceKind::ReifyShim(def_id, Some(ReifyReason::FnPtr))));
                 //    //println!("ReifyShim (None) body: \n{:?}", tcx.instance_mir(InstanceKind::ReifyShim(def_id, None)));
             }
-        //}
+        }
 
         //let cstore = CStore::from_tcx(tcx);
         //for (cnum, cmeta) in cstore.iter_crate_data() {
@@ -164,31 +164,33 @@ impl Callbacks for VerifoptCallbacks {
         // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
 
-        //Self::try_stuff(tcx);
+        if false {
+            Self::try_stuff(tcx);
+        } else {
+            // init + run Function Collection Pass
+            // TODO collect non-local funcs too
+            let mut funcs = FuncMap::new();
+            let mut func_collect = FuncCollectPass::new(tcx);
+            func_collect.run(&mut funcs);
+            //println!("funcs: {:#?}", funcs);
 
-        // init + run Function Collection Pass
-        // TODO collect non-local funcs too
-        let mut funcs = FuncMap::new();
-        let mut func_collect = FuncCollectPass::new(tcx);
-        func_collect.run(&mut funcs);
-        //println!("funcs: {:#?}", funcs);
+            //// init + run Function Signature Collection Pass
+            //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
-        //// init + run Function Signature Collection Pass
-        //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
+            //// init + run Interpreter Pass
+            let mut cmap = ConstraintMap::new();
+            let interp = InterpPass::new(tcx, &funcs);
+            let res = interp.run(&mut cmap, None, entry_func, mir_body);
+            println!("\nmain res: {:?}", res);
 
-        //// init + run Interpreter Pass
-        let mut cmap = ConstraintMap::new();
-        let interp = InterpPass::new(tcx, &funcs);
-        let res = interp.run(&mut cmap, None, entry_func, mir_body);
-        println!("\nmain res: {:?}", res);
+            // init + run Rewriter Pass
+            //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();
+            //let rewriter = RewritePass::new(&global_context);
+            //rewriter.run(&mut rw_mir_body);
 
-        // init + run Rewriter Pass
-        //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();
-        //let rewriter = RewritePass::new(&global_context);
-        //rewriter.run(&mut rw_mir_body);
-
-        // TODO is MIR actually modified??
-        // cannot turn mir_body (immut &) into a mutable &...
+            // TODO is MIR actually modified??
+            // cannot turn mir_body (immut &) into a mutable &...
+        }
 
         Compilation::Stop
     }

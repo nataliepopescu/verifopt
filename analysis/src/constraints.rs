@@ -5,7 +5,7 @@ extern crate rustc_middle;
 
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_span::Ident;
+//use rustc_span::Ident;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 

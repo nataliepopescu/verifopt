@@ -15,18 +15,17 @@ use crate::error::Error;
 
 pub struct InterpPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
-    pub funcs: &'a FuncMap,
+    pub funcs: &'a FuncMap<'tcx>,
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
-        funcs: &'a FuncMap,
+        funcs: &'a FuncMap<'tcx>,
     ) -> InterpPass<'a, 'tcx> {
         Self { tcx, funcs }
     }
 
-    /*
     pub fn run(
         &self, 
         cmap: &mut ConstraintMap<'tcx>, 
@@ -181,7 +180,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             let callee_body = self.tcx.optimized_mir(*def_id);
                                             match self.visit_body(&mut cmap_clone, Some(cur_scope), *def_id, callee_body) {
                                                 Ok(maybe_constraints) => {
-                                                    println!("\n##### DONE\n");
+                                                    println!("\n##### DONE w func {:?}\n", func);
                                                     cmap_vec.push(cmap_clone);
                                                     if let Some(constraints) = maybe_constraints {
                                                         println!("res constraints: {:?}", constraints);
@@ -339,7 +338,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         prev_scope: Option<DefId>,
-        funcval: &FuncVal,
+        funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
         println!("RESOLVING ARGS");
@@ -370,7 +369,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             }
                             _ => {},
                         }
-                        None => println!("place doesn't exist in cmap, maybe this is a func name"),
+                        None => {
+                            println!("place doesn't exist in cmap, maybe this is a func name");
+                            println!(".....debugging");
+                            println!("prev_scope: {:?}", prev_scope);
+                            println!("place: {:?}", place);
+                            println!("cmap: {:?}", cmap);
+                        }
                     }
                 }
                 Operand::Constant(box co) => {
@@ -402,10 +407,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cmap.cmap.insert(
             MapKey::ScopeId(funcval.def_id),
             Box::new(VarType::SubScope(
+                // FIXME not getting properly set?
                 prev_scope,
                 vec![(
-                    // FIXME forgot what this field is for
-                    Box::new("func"),
+                    // if this item is a function (which i guess since we're using
+                    // VarType::SubScope it must be), this first part of the tuple seems to store
+                    // the function type, so that if this function is ever (indirectly?) invoked,
+                    // the return _type_ of the function will correspond to the type of the
+                    // invocation result, but I am not sure how useful this is since we have types
+                    // in lots of places already...
+                    Box::new("function type (tbd)"),
                     func_cmap,
                 )],
             )),
@@ -413,6 +424,5 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         println!("~~~CMAP: {:?}", cmap);
     }
-    */
 }
 

@@ -13,22 +13,23 @@ pub type Type = &'static str;
 
 // FIXME continue to add stuff to this def as needed
 #[derive(Debug, Clone, Hash)]
-pub struct FuncVal {
+pub struct FuncVal<'tcx> {
     pub def_id: DefId,
     //pub name: Symbol,
-    //pub is_method: bool,
+    pub is_method: bool,
     //pub params: Vec<(Place<'tcx>, Res)>,
     // FIXME names only for now
-    pub params: Vec<Option<Ident>>, //Place<'tcx>>,
+    pub params: Vec<Place<'tcx>>,
     //pub rettype: Option<Res>,
 }
 
-impl FuncVal {
+impl<'tcx> FuncVal<'tcx> {
     pub fn new(
         def_id: DefId,
-        params: Vec<Option<Ident>>, //Place<'tcx>>,
+        is_method: bool,
+        params: Vec<Place<'tcx>>,
     ) -> FuncVal {
-        Self { def_id, params }
+        Self { def_id, is_method, params }
     }
 
     /*

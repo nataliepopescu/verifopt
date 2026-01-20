@@ -30,28 +30,29 @@ pub(crate) enum VarType<'tcx> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum MapKey {
-    Place(Option<Ident>), //Place<'tcx>),
+pub(crate) enum MapKey<'tcx> {
+    //Arg(Option<Ident>), //Place<'tcx>),
+    Place(Place<'tcx>),
     // FIXME Option str? if so, remove from VarType::Scope
     ScopeId(DefId),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConstraintMap<'tcx> {
-    pub cmap: HashMap<MapKey, Box<VarType<'tcx>>>,
+    pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
 }
 
 impl<'tcx> ConstraintMap<'tcx> {
     pub(crate) fn new() -> Self {
         Self {
-            cmap: HashMap::<MapKey, Box<VarType<'tcx>>>::default(),
+            cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
         }
     }
 
     pub(crate) fn scoped_get(
         &self,
         scope: Option<DefId>,
-        var: &MapKey,
+        var: &MapKey<'tcx>,
         traverse_backptr: bool,
     ) -> Option<VarType<'tcx>> {
         // first get the `cmap` object pertaining to `this` scope
@@ -92,7 +93,7 @@ impl<'tcx> ConstraintMap<'tcx> {
     pub(crate) fn scoped_set(
         &mut self,
         scope: Option<DefId>,
-        var: MapKey,
+        var: MapKey<'tcx>,
         value: Box<VarType<'tcx>>,
     ) {
         // first get the `cmap` object pertaining to `this` scope

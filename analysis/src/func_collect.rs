@@ -10,12 +10,12 @@ use rustc_data_structures::fx::{FxHashMap as HashMap};
 use crate::core::FuncVal;
 
 #[derive(Debug, Clone)]
-pub struct FuncMap {
+pub struct FuncMap<'tcx> {
     // omitting TraitStructOpt unless useful
-    pub funcs: HashMap<DefId, Vec<FuncVal>>,
+    pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
 }
 
-impl FuncMap {
+impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
         Self { funcs: HashMap::default() }
     }
@@ -51,7 +51,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
     pub fn run(
         &self,
-        funcs: &mut FuncMap,
+        funcs: &mut FuncMap<'tcx>,
     ) {
         // FIXME try past 4
         //let num_crates = self.tcx.used_crates(()).len();
@@ -85,6 +85,22 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
                     //println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
                     let arg_idents = self.tcx.fn_arg_idents(def_id);
+                    let num_args = arg_idents.len();
+                    let mut is_method = false;
+                    if num_args > 0 {
+                        if let Some(first) = arg_idents[0] && first.is_special() {
+                            is_method = true;
+                        }
+                    }
+                    let mut arg_names = vec![];
+                    for i in 1..num_args + 1 {
+                        let arg_place = Place {
+                            local: Local::from_usize(i),
+                            projection: List::empty(),
+                        };
+                        arg_names.push(arg_place);
+                    }
+
                     //println!("fn_arg_idents: {:?}", arg_idents);
                     //let mir_avail = self.tcx.is_mir_available(def_id);
                     //if mir_avail {
@@ -94,7 +110,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     //    println!("mir NOT available...");
                     //}
 
-                    let funcval = FuncVal::new(def_id, arg_idents.to_vec());
+                    let funcval = FuncVal::new(def_id, is_method, arg_names);
                     let vec_to_insert: Vec<FuncVal>;
                     match funcs.funcs.get_mut(&def_id) {
                         Some(func_vec) => {

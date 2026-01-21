@@ -323,7 +323,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 match constraint {
                                     VerifoptRval::Scalar(scalar) => match scalar {
                                         Scalar::Int(s_int) => {
-                                            if s_int.to_u64() == val.get() as u64 {
+                                            println!("s_int: {:?}", s_int);
+                                            println!("targets.target_for_value(s_int): {:?}", targets.target_for_value(s_int.to_bits_unchecked()));
+                                            if s_int.to_bits_unchecked() == val.get() {
                                                 num_zeros += 1;
                                             } else {
                                                 num_nonzeros += 1;

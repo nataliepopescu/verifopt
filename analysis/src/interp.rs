@@ -190,10 +190,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                     constraints.insert(VerifoptRval::IdkType(rettype));
                                                     res_vec.push(constraints);
                                                 }
+                                            } else if !self.tcx.is_mir_available(def_id) {
+                                                // FIXME are panics the only possible thing here?
+                                                println!("MIR NOT AVAILABLE for {:?}", def_id);
+                                                let mut constraints = HashSet::default();
+                                                constraints.insert(VerifoptRval::Panic());
+                                                res_vec.push(constraints);
                                             } else {
                                                 let mut cmap_clone = cmap.clone();
                                                 println!("\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n", funcval.def_id);
                                                 self.resolve_args(&mut cmap_clone, prev_scope, cur_scope, funcval, args);
+
 
                                                 // visit callee
                                                 let callee_body = self.tcx.optimized_mir(*def_id);
@@ -264,6 +271,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // return constraints at place _0
         println!("RETURNING...");
+        println!("cmap: {:?}", cmap);
+        println!("scope to check in: {:?}", cur_scope);
         match cmap.scoped_get(
             Some(cur_scope),
             &MapKey::Place(Place {
@@ -281,7 +290,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     _ => panic!("return scope?"),
                 }
             },
-            None => panic!("no _0 local"),
+            None => {
+                // assuming our interpreter is correct, if the local _0 was not assigned to then
+                // this must mean that there is nothing to return. so, return nothing
+                println!("_0 local was not assigned to");
+                Ok(None)
+            }
         }
     }
 
@@ -299,6 +313,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
                     Some(vartype) => match vartype {
                         VarType::Values(constraints) => {
+                            // FIXME zero may not be the only option, or may not be an option
+                            // period (e.g., could be 1)
                             let mut num_zeros = 0;
                             let mut num_nonzeros = 0;
                             let val = targets.all_values()[0];
@@ -315,7 +331,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         },
                                         _ => todo!("scalar ptr"),
                                     },
-                                    _ => todo!("switchint discr"),
+                                    VerifoptRval::Ref(_boxed_rval) => {
+                                        todo!("ref");
+                                    },
+                                    _ => {},
                                 }
                             }
 

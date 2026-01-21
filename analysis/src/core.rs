@@ -64,6 +64,7 @@ pub enum VerifoptRval<'tcx> {
     Ref(Box<VerifoptRval<'tcx>>),
     IdkType(Ty<'tcx>),
     Idk(&'static str),
+    Panic()
 }
 
 impl<'tcx> VerifoptRval<'tcx> {

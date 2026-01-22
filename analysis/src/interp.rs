@@ -192,9 +192,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                 }
                                             } else if !self.tcx.is_mir_available(def_id) {
                                                 // FIXME are panics the only possible thing here?
+                                                // nope :) traits funcs too! must distinguish...
                                                 println!("MIR NOT AVAILABLE for {:?}", def_id);
                                                 let mut constraints = HashSet::default();
-                                                constraints.insert(VerifoptRval::Panic());
+                                                constraints.insert(VerifoptRval::Undef());
                                                 res_vec.push(constraints);
                                             } else {
                                                 let mut cmap_clone = cmap.clone();

@@ -11,6 +11,9 @@ use crate::error::Error;
 
 pub type Type = &'static str;
 
+#[derive(Debug, Clone, Hash)]
+pub struct TraitMetadata {}
+
 // FIXME continue to add stuff to this def as needed
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
@@ -22,6 +25,7 @@ pub struct FuncVal<'tcx> {
     // FIXME names only for now
     pub params: Vec<Place<'tcx>>,
     pub rettype: Option<Ty<'tcx>>,
+    //pub trait_metadata: Option<TraitMetadata>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
@@ -60,11 +64,13 @@ impl<'tcx> FuncVal<'tcx> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
+    //Struct(DefId),
     Scalar(Scalar),
     Ref(Box<VerifoptRval<'tcx>>),
+    // FIXME Idk(DefId),
     IdkType(Ty<'tcx>),
     Idk(&'static str),
-    Panic()
+    Undef()
 }
 
 impl<'tcx> VerifoptRval<'tcx> {

@@ -42,7 +42,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         &self,
         funcs: &mut FuncMap<'tcx>,
     ) {
-        // TODO try past 4
+        // FIXME try past 4
         //let num_crates = self.tcx.used_crates(()).len();
         let num_crates = 4u32;
         for crate_num in 0u32..num_crates + 1 {
@@ -68,17 +68,19 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     krate: crate_num.into()
                 };
                 let def_kind = self.tcx.def_kind(def_id);
-                println!("forged defid: {:?}", def_id);
+                println!("\nforged defid: {:?}", def_id);
                 println!("def_kind: {:?}", def_kind);
 
                 if def_kind == DefKind::Trait {
-                    println!("trait");
+                    println!("is trait");
                     for impl_defid in self.tcx.all_impls(def_id) {
+                        println!("impl: {:?}", impl_defid);
                         let impltors = self.tcx.impl_item_implementor_ids(impl_defid);
+                        println!("impltors: {:?}", impltors);
 
+                        // FIXME really slows down pre-proc
                         impltors.items().all(|(key, val)| {
                             let mut map_lock = funcs.trait_impls.lock().unwrap();
-                            // FIXME also reverse add
                             match map_lock.get_mut(key) {
                                 Some(mut existing_vals) => {
                                     let mut new_vals = existing_vals.clone();
@@ -91,12 +93,12 @@ impl<'tcx> FuncCollectPass<'tcx> {
                             }
                             true
                         });
-                        //println!("trait_impls: {:?}", funcs.trait_impls.lock().unwrap());
+                        println!("trait_impls: {:?}", funcs.trait_impls.lock().unwrap());
                     }
                 }
 
                 if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
-                    //println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
+                    println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
                     let arg_idents = self.tcx.fn_arg_idents(def_id);
                     let num_args = arg_idents.len();
                     let mut is_method = false;
@@ -124,7 +126,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
                     let mut is_intrinsic = false;
                     if self.tcx.intrinsic_raw(def_id).is_some() {
-                        println!("intrinsic");
+                        println!("is intrinsic");
                         is_intrinsic = true;
                     }
 
@@ -149,11 +151,119 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
+    pub fn flag_trait_funcs(
+        &self,
+        funcs: &mut FuncMap<'tcx>,
+    ) {
+        for trait_defid in self.tcx.all_traits_including_private() {
+            println!("\ntrait: {:?}", trait_defid);
+            for impl_defid in self.tcx.all_impls(trait_defid) {
+                println!("impl: {:?}", impl_defid);
+                println!("impltors: {:?}", self.tcx.impl_item_implementor_ids(impl_defid));
+                // item_implementors is what we want; figure out how to deconstruct usefully
+            }
+        }
+    }
+
     pub fn run(
         &self,
         funcs: &mut FuncMap<'tcx>,
     ) {
         self.collect_funcs(funcs);
+        self.flag_trait_funcs(funcs);
     }
+
+    //fn get_type_res(&self, tykind: TyKind) -> Option<Res> {
+    //    match tykind {
+    //        rustc_hir::TyKind::Ref(_lifetime, mut_ty) => {
+    //            self.get_type_res(mut_ty.ty.kind)
+    //        },
+    //        rustc_hir::TyKind::Path(qpath) => {
+    //            match qpath {
+    //                rustc_hir::QPath::Resolved(_ty_opt, path) => {
+    //                    Some(path.res)
+    //                },
+    //                _ => None,
+    //            }
+    //        },
+    //        _ => None,
+    //    }
+    //}
+
+/*
+    pub fn run_old(&mut self) {
+        for loc_def_id in self.tcx.hir_body_owners() {
+            let loc_def_kind = self.tcx.def_kind(loc_def_id);
+            if loc_def_kind == DefKind::Fn || loc_def_kind == DefKind::AssocFn {
+                // get DefId
+                let def_id = loc_def_id.to_def_id();
+
+                // get function name
+                let item_name = self.tcx.item_name(def_id);
+
+                // get argument types
+                let mut arg_types = vec![];
+                let hir_id = self.tcx.local_def_id_to_hir_id(loc_def_id);
+                let decl = self.tcx.hir_fn_decl_by_hir_id(hir_id).unwrap();
+                for input in decl.inputs {
+                    let res_opt = self.get_type_res(input.kind);
+                    if let Some(res) = res_opt {
+                        arg_types.push(res);
+                    }
+                }
+
+                // get argument names
+                let mut arg_names = vec![];
+                for i in 1..arg_types.len() + 1 {
+                    let arg_place = Place {
+                        local: Local::from_usize(i),
+                        projection: List::empty(),
+                    };
+                    arg_names.push(arg_place);
+                }
+
+                // is method?
+                let is_method;
+                let arg_types_slice = arg_types.as_slice();
+                if arg_types_slice.len() > 0 {
+                    match arg_types_slice[0] {
+                        Res::SelfTyAlias { .. } => is_method = true,
+                        _ => is_method = false,
+                    }
+                } else {
+                    is_method = false;
+                }
+
+                // get return type
+                let rettype;
+                match decl.output {
+                    DefaultReturn(_) => rettype = None,
+                    Return(ty) => {
+                        rettype = self.get_type_res(ty.kind);
+                    }
+                }
+
+                let funcval = FuncVal::new(
+                    def_id, item_name, is_method, arg_names, arg_types, rettype
+                );
+
+                // TODO would TraitStructOpt be useful?
+
+                let vec_to_insert: Vec<FuncVal<'tcx>>;
+                match self.func_map.funcs.get_mut(&def_id) {
+                    Some(func_vec) => {
+                        func_vec.push(funcval);
+                        vec_to_insert = func_vec.to_vec();
+                    },
+                    None => {
+                        vec_to_insert = vec![funcval];
+                        // TODO handle nested func decls
+                    }
+                }
+                self.func_map.funcs.insert(def_id, vec_to_insert);
+            }
+        }
+    }
+*/
 }
 

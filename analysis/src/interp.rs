@@ -282,7 +282,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 }
                             }
                             None => {
-                                panic!("no such function (might be a dynamic call): {:?}", def_id);
+                                panic!("no such function: {:?}", def_id);
                             }
                         }
                     }

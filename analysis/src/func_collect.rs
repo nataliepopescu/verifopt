@@ -11,11 +11,15 @@ use crate::core::FuncVal;
 
 use std::sync::{Arc, Mutex};
 
+// omitting TraitStructOpt unless useful
 #[derive(Debug, Clone)]
 pub struct FuncMap<'tcx> {
-    // omitting TraitStructOpt unless useful
+    // all fns, trait-related or not
     pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
-    pub trait_impls: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
+    // assoc fn of a trait -> implementors of that assoc fn
+    pub trait_fn_impltors: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
+    // assoc fn of a trait -> that trait
+    pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
@@ -23,6 +27,7 @@ impl<'tcx> FuncMap<'tcx> {
         Self { 
             funcs: HashMap::default(),
             trait_impls: Arc::new(Mutex::new(HashMap::default())),
+            assocfns_to_traits: Arc::new(Mutex::new(HashMap::default())),
         }
     }
 }
@@ -41,12 +46,13 @@ impl<'tcx> FuncCollectPass<'tcx> {
     pub fn collect_funcs(
         &self,
         funcs: &mut FuncMap<'tcx>,
+        debug: bool,
     ) {
         // TODO try past 4
         //let num_crates = self.tcx.used_crates(()).len();
         let num_crates = 4u32;
         for crate_num in 0u32..num_crates + 1 {
-            println!("\n\ncrate_num: {:?}\n", crate_num);
+            if debug { println!("\n\ncrate_num: {:?}\n", crate_num); }
             for def_index in 0..u32::MAX {
                 if crate_num == 0 && def_index >= 22
                 || crate_num == 1 && def_index >= 19549
@@ -60,39 +66,49 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 //|| crate_num == 9 && def_index >= 71
                 { break }
 
-                println!("\nnew def_index");
-                println!("crate_num: {:?}", crate_num);
-                println!("def_index: {:?}", def_index);
                 let def_id = DefId {
                     index: def_index.into(),
                     krate: crate_num.into()
                 };
                 let def_kind = self.tcx.def_kind(def_id);
-                println!("forged defid: {:?}", def_id);
-                println!("def_kind: {:?}", def_kind);
+
+                if debug {
+                    println!("\nnew def_index");
+                    println!("crate_num: {:?}", crate_num);
+                    println!("def_index: {:?}", def_index);
+                    println!("forged defid: {:?}", def_id);
+                    println!("def_kind: {:?}", def_kind);
+                }
 
                 if def_kind == DefKind::Trait {
-                    println!("trait");
+                    if debug { println!("trait"); }
                     for impl_defid in self.tcx.all_impls(def_id) {
                         let impltors = self.tcx.impl_item_implementor_ids(impl_defid);
+                        if debug { println!("impltors: {:?}", impltors); }
 
                         impltors.items().all(|(key, val)| {
-                            let mut map_lock = funcs.trait_impls.lock().unwrap();
-                            // FIXME also reverse add
-                            match map_lock.get_mut(key) {
+                            let mut trait_map_lock = funcs.trait_impls.lock().unwrap();
+                            match trait_map_lock.get_mut(key) {
                                 Some(mut existing_vals) => {
                                     let mut new_vals = existing_vals.clone();
                                     new_vals.push(val.clone());
-                                    map_lock.insert(key.clone(), new_vals.to_vec());
+                                    trait_map_lock.insert(key.clone(), new_vals.to_vec());
                                 },
                                 None => {
-                                    map_lock.insert(key.clone(), vec![val.clone()]);
+                                    trait_map_lock.insert(key.clone(), vec![val.clone()]);
                                 }
                             }
+
+                            // add for reverse search
+                            funcs.assocfns_to_traits.lock().unwrap().insert(*key, def_id);
+
                             true
                         });
-                        //println!("trait_impls: {:?}", funcs.trait_impls.lock().unwrap());
                     }
+                }
+
+                if def_kind == DefKind::AssocFn {
+                    if debug { println!("assocfn"); }
                 }
 
                 if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
@@ -101,7 +117,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     let num_args = arg_idents.len();
                     let mut is_method = false;
                     if num_args > 0 {
-                        if let Some(first) = arg_idents[0] && first.is_special() {
+                        // FIXME more granular check? i.e. check actual `self` str?
+                        if let Some(first) = arg_idents[0] && first.is_reserved() {
                             is_method = true;
                         }
                     }
@@ -116,15 +133,15 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
                     let mir_avail = self.tcx.is_mir_available(def_id);
                     if mir_avail {
-                        println!("mir available...");
+                        //println!("mir available...");
                         //println!("Body: \n{:?}", self.tcx.instance_mir(InstanceKind::Item(def_id)));
                     } else {
-                        println!("mir NOT available...");
+                        //println!("mir NOT available...");
                     }
 
                     let mut is_intrinsic = false;
                     if self.tcx.intrinsic_raw(def_id).is_some() {
-                        println!("intrinsic");
+                        //println!("intrinsic");
                         is_intrinsic = true;
                     }
 
@@ -153,7 +170,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         &self,
         funcs: &mut FuncMap<'tcx>,
     ) {
-        self.collect_funcs(funcs);
+        self.collect_funcs(funcs, false);
     }
 }
 

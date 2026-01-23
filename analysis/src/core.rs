@@ -11,21 +11,16 @@ use crate::error::Error;
 
 pub type Type = &'static str;
 
-#[derive(Debug, Clone, Hash)]
-pub struct TraitMetadata {}
-
 // FIXME continue to add stuff to this def as needed
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,
     pub is_intrinsic: bool,
-    //pub name: Symbol,
     pub is_method: bool,
     //pub params: Vec<(Place<'tcx>, Res)>,
-    // FIXME names only for now
+    // FIXME param names only for now
     pub params: Vec<Place<'tcx>>,
     pub rettype: Option<Ty<'tcx>>,
-    //pub trait_metadata: Option<TraitMetadata>,
 }
 
 impl<'tcx> FuncVal<'tcx> {

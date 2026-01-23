@@ -75,7 +75,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         println!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
         println!("prev_scope: {:?}", prev_scope);
         println!("cur_scope: {:?}", cur_scope);
-        println!("~~~CMAP: {:?}", cmap);
 
         // get Weak Topological Ordering of function body
         // TODO memoize this ordering
@@ -168,7 +167,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         println!("func: {:?}", func);
         println!("args: {:?}", args);
         println!("destination place: {:?}", destination);
-        println!("cmap: {:?}\n", cmap);
 
         match func {
             Operand::Constant(box co) => {
@@ -182,7 +180,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         let mut cmap_vec = vec![];
 
                                         for funcval in funcval_vec.iter() {
-
                                             if funcval.is_intrinsic {
                                                 println!("\n### FUNC IS INTRINSIC {:?}\n", funcval.def_id);
                                                 if let Some(rettype) = funcval.rettype {
@@ -191,12 +188,28 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                     res_vec.push(constraints);
                                                 }
                                             } else if !self.tcx.is_mir_available(def_id) {
-                                                // FIXME are panics the only possible thing here?
-                                                // nope :) traits funcs too! must distinguish...
                                                 println!("MIR NOT AVAILABLE for {:?}", def_id);
-                                                let mut constraints = HashSet::default();
-                                                constraints.insert(VerifoptRval::Undef());
-                                                res_vec.push(constraints);
+                                                match self.funcs.assocfns_to_traits.lock().unwrap().get(def_id) {
+                                                    Some(trait_def_id) => {
+                                                        println!("found in trait: {:?}", trait_def_id);
+                                                        match self.funcs.trait_impls.lock().unwrap().get(def_id) {
+                                                            Some(impltors) => {
+                                                                println!("impltors: {:?}", impltors);
+                                                                // TODO get type of first arg
+                                                                // (receiver)
+                                                            },
+                                                            None => {
+                                                                panic!("missing implementors");
+                                                            }
+                                                        }
+                                                    },
+                                                    None => {
+                                                        // FIXME are panics the only possible thing here?
+                                                        let mut constraints = HashSet::default();
+                                                        constraints.insert(VerifoptRval::Undef());
+                                                        res_vec.push(constraints);
+                                                    }
+                                                }
                                             } else {
                                                 let mut cmap_clone = cmap.clone();
                                                 println!("\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n", funcval.def_id);
@@ -211,10 +224,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         // TODO MIR is not generated for intrinsics...
                                                         // need to augment interpreter knowledge
                                                         // somehow
-                                                        println!("maybe_constraints: {:?}", maybe_constraints);
                                                         cmap_vec.push(cmap_clone);
                                                         if let Some(constraints) = maybe_constraints {
-                                                            println!("res constraints: {:?}", constraints);
                                                             res_vec.push(constraints);
                                                         }
                                                     },
@@ -234,7 +245,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                         if res_vec.len() > 0 {
                                             let val = res_vec.pop().unwrap();
-                                            println!("val: {:?}", val);
+                                            println!("setting return val: {:?}", val);
                                             cmap.scoped_set(
                                                 Some(cur_scope),
                                                 MapKey::Place(*destination),
@@ -272,8 +283,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // return constraints at place _0
         println!("RETURNING...");
-        println!("cmap: {:?}", cmap);
-        println!("scope to check in: {:?}", cur_scope);
         match cmap.scoped_get(
             Some(cur_scope),
             &MapKey::Place(Place {
@@ -285,7 +294,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             Some(vartype) => {
                 match vartype {
                     VarType::Values(constraints) => {
-                        println!("_0 constraints: {:?}", constraints);
                         Ok(Some(constraints))
                     },
                     _ => panic!("return scope?"),
@@ -324,8 +332,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 match constraint {
                                     VerifoptRval::Scalar(scalar) => match scalar {
                                         Scalar::Int(s_int) => {
-                                            println!("s_int: {:?}", s_int);
-                                            println!("targets.target_for_value(s_int): {:?}", targets.target_for_value(s_int.to_bits_unchecked()));
                                             if s_int.to_bits_unchecked() == val.get() {
                                                 num_zeros += 1;
                                             } else {
@@ -349,7 +355,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 bb_deps.prune(bb, targets.all_targets()[1]);
                             }
                         },
-                        _ => println!("scope not impl"),
+                        _ => todo!("scope not impl"),
                     },
                     None => {
                         println!("\ncmap: {:?}", cmap);
@@ -359,7 +365,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     },
                 }
             },
-            _ => println!("const operand"),
+            Operand::Constant(boxed_co) => {
+                println!("boxed_co: {:?}", boxed_co);
+                todo!("constant operand");
+            }
+            _ => println!("runtime checks (ignoring)"),
         }
 
         Ok(None)
@@ -425,12 +435,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             _ => {},
                         }
                         None => {
-                            println!("place doesn't exist in cmap, maybe this is a func name");
-                            println!(".....debugging");
-                            println!("prev_scope: {:?}", prev_scope);
-                            println!("cur_scope: {:?}", cur_scope);
-                            println!("place: {:?}", place);
-                            println!("cmap: {:?}", cmap);
+                            panic!("place doesn't exist in cmap, maybe this is a func name");
                         }
                     }
                 }

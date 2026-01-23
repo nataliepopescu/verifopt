@@ -175,11 +175,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn handle_dyn_dispatch(
         &self,
-        _cmap: &mut ConstraintMap<'tcx>,
-        _cur_scope: DefId,
-        //args: &Box<[Spanned<Operand<'tcx>>]>,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
         //destination: &Place<'tcx>,
-        assocfn_def_id: &DefId,
+        //assocfn_def_id: &DefId,
+        assoc_funcval: &FuncVal<'tcx>,
         trait_def_id: &DefId,
         debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -191,12 +192,25 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             .trait_fn_impltors
             .lock()
             .unwrap()
-            .get(assocfn_def_id)
+            .get(&assoc_funcval.def_id)
         {
             Some(impltors) => {
-                if debug {
-                    println!("impltors: {:?}", impltors);
+                if args.len() > 0 && assoc_funcval.is_method {
+                    match args[0].node {
+                        Operand::Copy(place) 
+                        | Operand::Move(place) => {
+                            if debug {
+                                println!("first arg: {:?}", args[0]);
+                                println!("impltors: {:?}", impltors);
+                                println!("place: {:?}", place);
+                                //println!("\n~~~CMAP @ scope {:?}: {:?}\n", cur_scope, cmap.cmap.get(&MapKey::ScopeId(cur_scope)));
+                                println!("value: {:?}", cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false));
+                            }
+                        }
+                        _ => {},
+                    }
                 }
+
                 // TODO get type of first arg
                 // (receiver)
             }
@@ -269,7 +283,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         match self.handle_dyn_dispatch(
                                             cmap,
                                             cur_scope,
-                                            def_id,
+                                            args,
+                                            funcval, //def_id,
                                             trait_def_id,
                                             debug,
                                         ) {

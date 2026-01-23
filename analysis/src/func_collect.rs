@@ -85,6 +85,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     for impl_defid in self.tcx.all_impls(def_id) {
                         let impltors = self.tcx.impl_item_implementor_ids(impl_defid);
                         if debug {
+                            println!("impl_defid: {:?}", impl_defid);
                             println!("impltors: {:?}", impltors);
                         }
 

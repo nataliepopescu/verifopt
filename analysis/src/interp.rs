@@ -29,6 +29,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         prev_scope: Option<DefId>,
         cur_scope: DefId,
         body: &'tcx Body<'tcx>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // set up main / entry-point scope
         let locals = body.local_decls.as_slice();
@@ -54,7 +55,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         );
 
         // start interpretation
-        self.visit_body(cmap, prev_scope, cur_scope, body)
+        self.visit_body(cmap, prev_scope, cur_scope, body, debug)
     }
 
     fn visit_body(
@@ -63,25 +64,28 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         prev_scope: Option<DefId>,
         cur_scope: DefId,
         body: &'tcx Body<'tcx>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // TODO how do loops affect this order?
 
-        println!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
-        println!("prev_scope: {:?}", prev_scope);
-        println!("cur_scope: {:?}", cur_scope);
+        if debug {
+            println!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
+            println!("prev_scope: {:?}", prev_scope);
+            println!("cur_scope: {:?}", cur_scope);
+        }
 
         // get Weak Topological Ordering of function body
         // TODO memoize
         let mut bb_deps = BBDeps::new(body);
         let mut last_res = None;
         loop {
-            println!("LOOPING");
             if bb_deps.ordering.is_empty() {
-                println!("empty");
                 break;
             }
             let bb = bb_deps.ordering.remove(0);
-            println!("--NEW BB: {:?}", bb);
+            if debug {
+                println!("--NEW BB: {:?}", bb);
+            }
             let data = body.basic_blocks.get(bb).unwrap();
             last_res = self.visit_basic_block_data(
                 cmap,
@@ -91,6 +95,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 cur_scope,
                 &bb,
                 data,
+                debug,
             )?;
         }
 
@@ -106,19 +111,26 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         let mut last_res = None;
 
-        println!("# visiting BASICBLOCK for {:?}", cur_scope);
+        if debug {
+            println!("# visiting BASICBLOCK for {:?}", cur_scope);
+        }
 
         for (_, stmt) in data.statements.iter().enumerate() {
-            println!("# visiting STATEMENT");
-            last_res = self.visit_statement(cmap, body_locals, cur_scope, stmt)?;
+            if debug {
+                println!("# visiting STATEMENT");
+            }
+            last_res = self.visit_statement(cmap, body_locals, cur_scope, stmt, debug)?;
         }
 
         if let Some(term) = &data.terminator {
-            println!("# visiting TERM");
-            last_res = self.visit_terminator(cmap, bb, bb_deps, cur_scope, &term)?;
+            if debug {
+                println!("# visiting TERM");
+            }
+            last_res = self.visit_terminator(cmap, bb, bb_deps, cur_scope, &term, debug)?;
         }
 
         bb_deps.mark_visited(bb);
@@ -132,12 +144,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         cur_scope: DefId,
         statement: &Statement<'tcx>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         match statement.kind {
             StatementKind::Assign(box (place, ref rvalue)) => {
-                println!("assignment!");
-                println!("place: {:?}", place);
-                println!("rval: {:?}", rvalue);
+                if debug {
+                    println!("assignment!");
+                    println!("place: {:?}", place);
+                    println!("rval: {:?}", rvalue);
+                }
 
                 let mut set = HashSet::default();
                 set.insert(VerifoptRval::from_rvalue(body_locals, rvalue));
@@ -147,12 +162,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
                 );
-                println!("~~~CMAP: {:?}", cmap);
 
-                Ok(None)
+                if debug {
+                    println!("~~~CMAP: {:?}", cmap);
+                }
             }
-            _ => Ok(None),
+            _ => {}
         }
+
+        Ok(None)
     }
 
     fn handle_dyn_dispatch(
@@ -163,8 +181,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //destination: &Place<'tcx>,
         assocfn_def_id: &DefId,
         trait_def_id: &DefId,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
-        println!("found in trait: {:?}", trait_def_id);
+        if debug {
+            println!("found in trait: {:?}", trait_def_id);
+        }
         match self
             .funcs
             .trait_fn_impltors
@@ -173,7 +194,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             .get(assocfn_def_id)
         {
             Some(impltors) => {
-                println!("impltors: {:?}", impltors);
+                if debug {
+                    println!("impltors: {:?}", impltors);
+                }
                 // TODO get type of first arg
                 // (receiver)
             }
@@ -192,17 +215,20 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
-        println!(
-            "\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n",
-            funcval.def_id
-        );
+        if debug {
+            println!(
+                "\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n",
+                funcval.def_id
+            );
+        }
 
-        self.resolve_args(&mut cmap, cur_scope, funcval, args);
+        self.resolve_args(&mut cmap, cur_scope, funcval, args, debug);
 
         // visit callee
         let callee_body = self.tcx.optimized_mir(funcval.def_id);
-        self.visit_body(cmap, Some(cur_scope), funcval.def_id, callee_body)
+        self.visit_body(cmap, Some(cur_scope), funcval.def_id, callee_body, debug)
     }
 
     fn interp_direct_func_call(
@@ -212,83 +238,84 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         co: &ConstOperand<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         let mut res_vec = vec![];
         let mut cmap_vec = vec![];
 
         match co.const_ {
-            Const::Val(_, ty) => {
-                match ty.kind() {
-                    TyKind::FnDef(def_id, _) => {
-                        match self.funcs.funcs.get(def_id) {
-                            Some(funcval_vec) => {
-                                for funcval in funcval_vec.iter() {
-                                    if funcval.is_intrinsic {
-                                        println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
-                                        if let Some(rettype) = funcval.rettype {
-                                            let mut constraints = HashSet::default();
-                                            constraints.insert(VerifoptRval::IdkType(rettype));
-                                            res_vec.push(constraints);
+            Const::Val(_, ty) => match ty.kind() {
+                TyKind::FnDef(def_id, _) => match self.funcs.funcs.get(def_id) {
+                    Some(funcval_vec) => {
+                        for funcval in funcval_vec.iter() {
+                            if funcval.is_intrinsic {
+                                if debug {
+                                    println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
+                                }
+                                if let Some(rettype) = funcval.rettype {
+                                    let mut constraints = HashSet::default();
+                                    constraints.insert(VerifoptRval::IdkType(rettype));
+                                    res_vec.push(constraints);
+                                }
+                            } else if !self.tcx.is_mir_available(def_id) {
+                                if debug {
+                                    println!("MIR NOT AVAILABLE for {:?}", def_id);
+                                }
+                                match self.funcs.assocfns_to_traits.lock().unwrap().get(def_id) {
+                                    Some(trait_def_id) => {
+                                        if debug {
+                                            println!("\n### DYN DISPATCH TO {:?}\n", def_id);
                                         }
-                                    } else if !self.tcx.is_mir_available(def_id) {
-                                        println!("MIR NOT AVAILABLE for {:?}", def_id);
-                                        match self
-                                            .funcs
-                                            .assocfns_to_traits
-                                            .lock()
-                                            .unwrap()
-                                            .get(def_id)
-                                        {
-                                            Some(trait_def_id) => {
-                                                println!("\n### DYN DISPATCH TO {:?}\n", def_id);
-                                                match self.handle_dyn_dispatch(
-                                                    cmap,
-                                                    cur_scope,
-                                                    def_id,
-                                                    trait_def_id,
-                                                ) {
-                                                    Ok(Some(constraints)) => {
-                                                        res_vec.push(constraints)
-                                                    }
-                                                    e @ Err(_) => return e,
-                                                    _ => {}
-                                                }
-                                            }
-                                            None => {
-                                                // FIXME are panics the only possible thing here?
-                                                let mut constraints = HashSet::default();
-                                                constraints.insert(VerifoptRval::Undef());
-                                                res_vec.push(constraints);
-                                            }
-                                        }
-                                    } else {
-                                        let mut cmap_clone = cmap.clone();
-                                        match self.handle_static_dispatch(
-                                            &mut cmap_clone,
+                                        match self.handle_dyn_dispatch(
+                                            cmap,
                                             cur_scope,
-                                            funcval,
-                                            args,
+                                            def_id,
+                                            trait_def_id,
+                                            debug,
                                         ) {
-                                            Ok(maybe_constraints) => {
-                                                println!("\n##### DONE w func {:?}\n", def_id);
-                                                cmap_vec.push(cmap_clone);
-                                                if let Some(constraints) = maybe_constraints {
-                                                    res_vec.push(constraints);
-                                                }
-                                            }
-                                            err @ Err(_) => return err,
+                                            Ok(Some(constraints)) => res_vec.push(constraints),
+                                            e @ Err(_) => return e,
+                                            _ => {}
                                         }
                                     }
+                                    None => {
+                                        if debug {
+                                            println!("\n### UNDEF FN / RES {:?}\n", def_id);
+                                        }
+                                        let mut constraints = HashSet::default();
+                                        constraints.insert(VerifoptRval::Undef());
+                                        res_vec.push(constraints);
+                                    }
                                 }
-                            }
-                            None => {
-                                panic!("no such function: {:?}", def_id);
+                            } else {
+                                let mut cmap_clone = cmap.clone();
+                                match self.handle_static_dispatch(
+                                    &mut cmap_clone,
+                                    cur_scope,
+                                    funcval,
+                                    args,
+                                    debug,
+                                ) {
+                                    Ok(maybe_constraints) => {
+                                        if debug {
+                                            println!("\n##### DONE w func {:?}\n", def_id);
+                                        }
+                                        cmap_vec.push(cmap_clone);
+                                        if let Some(constraints) = maybe_constraints {
+                                            res_vec.push(constraints);
+                                        }
+                                    }
+                                    err @ Err(_) => return err,
+                                }
                             }
                         }
                     }
-                    _ => panic!("not a FnDef"),
-                }
-            }
+                    None => {
+                        panic!("no such function: {:?}", def_id);
+                    }
+                },
+                _ => panic!("not a FnDef"),
+            },
             _ => todo!("not a Val Const"),
         }
 
@@ -297,19 +324,26 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         if cmap_vec.len() > 0 {
-            println!("setting new cmap");
+            if debug {
+                println!("setting new cmap");
+            }
             *cmap = cmap_vec.pop().unwrap();
         }
 
         if res_vec.len() > 0 {
             let val = res_vec.pop().unwrap();
-            println!("setting return val: {:?}", val);
+            if debug {
+                println!("setting return val: {:?}", val);
+            }
             cmap.scoped_set(
                 Some(cur_scope),
                 MapKey::Place(*destination),
                 Box::new(VarType::Values(val)),
             );
-            println!("~~~CMAP: {:?}", cmap);
+
+            if debug {
+                println!("~~~CMAP: {:?}", cmap);
+            }
         }
 
         Ok(None)
@@ -323,16 +357,19 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         func: &Operand<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
-        println!("\n-----------");
-        println!("call!");
-        println!("func: {:?}", func);
-        println!("args: {:?}", args);
-        println!("destination place: {:?}", destination);
+        if debug {
+            println!("\n-----------");
+            println!("call!");
+            println!("func: {:?}", func);
+            println!("args: {:?}", args);
+            println!("destination place: {:?}", destination);
+        }
 
         match func {
             Operand::Constant(box co) => {
-                self.interp_direct_func_call(cmap, cur_scope, co, args, destination)
+                self.interp_direct_func_call(cmap, cur_scope, co, args, destination, debug)
             }
             _ => todo!("handle indirect invocations"),
         }
@@ -342,9 +379,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // return constraints at place _0
-        println!("RETURNING...");
+        if debug {
+            println!("RETURNING...");
+        }
         match cmap.scoped_get(
             Some(cur_scope),
             &MapKey::Place(Place {
@@ -360,7 +400,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             None => {
                 // assuming our interpreter is correct, if the local _0 was not assigned to then
                 // this must mean that there is nothing to return. so, return nothing
-                println!("_0 local was not assigned to");
+                if debug {
+                    println!("_0 local was not assigned to");
+                }
                 Ok(None)
             }
         }
@@ -374,6 +416,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         discr: &Operand<'tcx>,
         targets: &SwitchTargets,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
@@ -416,9 +459,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         _ => todo!("scope not impl"),
                     },
                     None => {
-                        println!("\ncmap: {:?}", cmap);
-                        println!("scope to search in: {:?}", cur_scope);
-                        println!("place to get: {:?}", place);
+                        if debug {
+                            println!("\ncmap: {:?}", cmap);
+                            println!("scope to search in: {:?}", cur_scope);
+                            println!("place to get: {:?}", place);
+                        }
                         panic!("place does not exist: {:?}", place);
                     }
                 }
@@ -426,7 +471,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             Operand::Constant(_boxed_co) => {
                 todo!("constant operand");
             }
-            _ => println!("runtime checks (ignoring)"),
+            _ => {
+                if debug {
+                    println!("runtime checks (ignoring)")
+                }
+            }
         }
 
         Ok(None)
@@ -440,6 +489,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //prev_scope: Option<DefId>,
         cur_scope: DefId,
         terminator: &Terminator<'tcx>,
+        debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         match &terminator.kind {
             TerminatorKind::Call {
@@ -447,10 +497,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 args,
                 destination,
                 ..
-            } => self.interp_func_call(cmap, cur_scope, func, args, destination),
-            TerminatorKind::Return => self.interp_return(cmap, cur_scope),
+            } => self.interp_func_call(cmap, cur_scope, func, args, destination, debug),
+            TerminatorKind::Return => self.interp_return(cmap, cur_scope, debug),
             TerminatorKind::SwitchInt { discr, targets } => {
-                self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
+                self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets, debug)
             }
             // TODO TailCall
             _ => Ok(None),
@@ -462,6 +512,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
         arg: Operand<'tcx>,
+        debug: bool,
     ) -> Constraints<'tcx> {
         let mut constraints = HashSet::default();
         // get arg constraints from cmap
@@ -480,15 +531,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
             }
             Operand::Constant(box co) => {
-                println!("co.const_: {:?}", co.const_);
+                if debug {
+                    println!("co.const_: {:?}", co.const_);
+                }
                 match co.const_ {
                     Const::Val(val, ty) => match val {
                         ConstValue::Scalar(scalar) => {
-                            println!("scalar: {:?}", scalar);
+                            if debug {
+                                println!("scalar: {:?}", scalar);
+                            }
                             constraints.insert(VerifoptRval::Scalar(scalar));
                         }
                         ConstValue::ZeroSized => {
-                            println!("zero-sized");
+                            if debug {
+                                println!("zero-sized");
+                            }
                             constraints.insert(VerifoptRval::IdkType(ty));
                         }
                         ConstValue::Slice { .. } => {
@@ -503,9 +560,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     }
                     Const::Unevaluated(uneval, ty) => {
                         // TODO do we care about evaluating constants?
-                        println!("unevaluated const");
-                        println!("uneval: {:?}", uneval);
-                        println!("ty: {:?}", ty);
+                        if debug {
+                            println!("unevaluated const");
+                            println!("uneval: {:?}", uneval);
+                            println!("ty: {:?}", ty);
+                        }
                         constraints.insert(VerifoptRval::IdkType(ty));
                     }
                 }
@@ -522,6 +581,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
+        debug: bool,
     ) {
         let mut func_cmap = ConstraintMap::new();
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
@@ -529,10 +589,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // add arg values into func_cmap
         //for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
         for (param_name, arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
-            println!("param_name: {:?}", param_name);
-            //println!("param_type: {:?}", param_type);
-            println!("arg: {:?}", arg);
-            let constraints = self.resolve_arg(cmap, cur_scope, arg);
+            if debug {
+                println!("param_name: {:?}", param_name);
+                //println!("param_type: {:?}", param_type);
+                println!("arg: {:?}", arg);
+            }
+
+            let constraints = self.resolve_arg(cmap, cur_scope, arg, debug);
             func_cmap.cmap.insert(
                 MapKey::Place(param_name),
                 Box::new(VarType::Values(constraints)),
@@ -559,6 +622,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             )),
         );
 
-        println!("~~~CMAP: {:?}", cmap);
+        if debug {
+            println!("~~~CMAP: {:?}", cmap);
+        }
     }
 }

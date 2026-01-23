@@ -182,7 +182,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
-    pub fn run(&self, funcs: &mut FuncMap<'tcx>) {
-        self.collect_funcs(funcs, false);
+    pub fn run(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
+        self.collect_funcs(funcs, debug);
     }
 }

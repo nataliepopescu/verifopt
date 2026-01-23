@@ -155,6 +155,166 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
+    fn handle_dyn_dispatch(
+        &self,
+        _cmap: &mut ConstraintMap<'tcx>,
+        _cur_scope: DefId,
+        //args: &Box<[Spanned<Operand<'tcx>>]>,
+        //destination: &Place<'tcx>,
+        assocfn_def_id: &DefId,
+        trait_def_id: &DefId,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        println!("found in trait: {:?}", trait_def_id);
+        match self
+            .funcs
+            .trait_fn_impltors
+            .lock()
+            .unwrap()
+            .get(assocfn_def_id)
+        {
+            Some(impltors) => {
+                println!("impltors: {:?}", impltors);
+                // TODO get type of first arg
+                // (receiver)
+            }
+            None => {
+                panic!("missing implementors");
+            }
+        }
+
+        // FIXME
+        Ok(None)
+    }
+
+    fn handle_static_dispatch(
+        &self,
+        mut cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        funcval: &FuncVal<'tcx>,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        println!(
+            "\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n",
+            funcval.def_id
+        );
+
+        self.resolve_args(&mut cmap, cur_scope, funcval, args);
+
+        // visit callee
+        let callee_body = self.tcx.optimized_mir(funcval.def_id);
+        self.visit_body(cmap, Some(cur_scope), funcval.def_id, callee_body)
+    }
+
+    fn interp_direct_func_call(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        co: &ConstOperand<'tcx>,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
+        destination: &Place<'tcx>,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        let mut res_vec = vec![];
+        let mut cmap_vec = vec![];
+
+        match co.const_ {
+            Const::Val(_, ty) => {
+                match ty.kind() {
+                    TyKind::FnDef(def_id, _) => {
+                        match self.funcs.funcs.get(def_id) {
+                            Some(funcval_vec) => {
+                                for funcval in funcval_vec.iter() {
+                                    if funcval.is_intrinsic {
+                                        println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
+                                        if let Some(rettype) = funcval.rettype {
+                                            let mut constraints = HashSet::default();
+                                            constraints.insert(VerifoptRval::IdkType(rettype));
+                                            res_vec.push(constraints);
+                                        }
+                                    } else if !self.tcx.is_mir_available(def_id) {
+                                        println!("MIR NOT AVAILABLE for {:?}", def_id);
+                                        match self
+                                            .funcs
+                                            .assocfns_to_traits
+                                            .lock()
+                                            .unwrap()
+                                            .get(def_id)
+                                        {
+                                            Some(trait_def_id) => {
+                                                println!("\n### DYN DISPATCH TO {:?}\n", def_id);
+                                                match self.handle_dyn_dispatch(
+                                                    cmap,
+                                                    cur_scope,
+                                                    def_id,
+                                                    trait_def_id,
+                                                ) {
+                                                    Ok(Some(constraints)) => {
+                                                        res_vec.push(constraints)
+                                                    }
+                                                    e @ Err(_) => return e,
+                                                    _ => {}
+                                                }
+                                            }
+                                            None => {
+                                                // FIXME are panics the only possible thing here?
+                                                let mut constraints = HashSet::default();
+                                                constraints.insert(VerifoptRval::Undef());
+                                                res_vec.push(constraints);
+                                            }
+                                        }
+                                    } else {
+                                        let mut cmap_clone = cmap.clone();
+                                        match self.handle_static_dispatch(
+                                            &mut cmap_clone,
+                                            cur_scope,
+                                            funcval,
+                                            args,
+                                        ) {
+                                            Ok(maybe_constraints) => {
+                                                println!("\n##### DONE w func {:?}\n", def_id);
+                                                cmap_vec.push(cmap_clone);
+                                                if let Some(constraints) = maybe_constraints {
+                                                    res_vec.push(constraints);
+                                                }
+                                            }
+                                            err @ Err(_) => return err,
+                                        }
+                                    }
+                                }
+                            }
+                            None => {
+                                panic!("no such function (might be a dynamic call): {:?}", def_id);
+                            }
+                        }
+                    }
+                    _ => panic!("not a FnDef"),
+                }
+            }
+            _ => todo!("not a Val Const"),
+        }
+
+        if cmap_vec.len() > 1 || res_vec.len() > 1 {
+            todo!("impl cmap_vec/res_vec merge");
+        }
+
+        if cmap_vec.len() > 0 {
+            println!("setting new cmap");
+            *cmap = cmap_vec.pop().unwrap();
+        }
+
+        if res_vec.len() > 0 {
+            let val = res_vec.pop().unwrap();
+            println!("setting return val: {:?}", val);
+            cmap.scoped_set(
+                Some(cur_scope),
+                MapKey::Place(*destination),
+                Box::new(VarType::Values(val)),
+            );
+            println!("~~~CMAP: {:?}", cmap);
+        }
+
+        Ok(None)
+    }
+
     fn interp_func_call(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -172,154 +332,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         match func {
             Operand::Constant(box co) => {
-                match co.const_ {
-                    Const::Val(_, ty) => {
-                        match ty.kind() {
-                            TyKind::FnDef(def_id, _) => {
-                                match self.funcs.funcs.get(def_id) {
-                                    Some(funcval_vec) => {
-                                        let mut res_vec = vec![];
-                                        let mut cmap_vec = vec![];
-
-                                        for funcval in funcval_vec.iter() {
-                                            if funcval.is_intrinsic {
-                                                println!(
-                                                    "\n### FUNC IS INTRINSIC {:?}\n",
-                                                    funcval.def_id
-                                                );
-                                                if let Some(rettype) = funcval.rettype {
-                                                    let mut constraints = HashSet::default();
-                                                    constraints
-                                                        .insert(VerifoptRval::IdkType(rettype));
-                                                    res_vec.push(constraints);
-                                                }
-                                            } else if !self.tcx.is_mir_available(def_id) {
-                                                println!("MIR NOT AVAILABLE for {:?}", def_id);
-                                                match self
-                                                    .funcs
-                                                    .assocfns_to_traits
-                                                    .lock()
-                                                    .unwrap()
-                                                    .get(def_id)
-                                                {
-                                                    Some(trait_def_id) => {
-                                                        println!(
-                                                            "found in trait: {:?}",
-                                                            trait_def_id
-                                                        );
-                                                        match self
-                                                            .funcs
-                                                            .trait_fn_impltors
-                                                            .lock()
-                                                            .unwrap()
-                                                            .get(def_id)
-                                                        {
-                                                            Some(impltors) => {
-                                                                println!(
-                                                                    "impltors: {:?}",
-                                                                    impltors
-                                                                );
-                                                                // TODO get type of first arg
-                                                                // (receiver)
-                                                            }
-                                                            None => {
-                                                                panic!("missing implementors");
-                                                            }
-                                                        }
-                                                    }
-                                                    None => {
-                                                        // FIXME are panics the only possible thing here?
-                                                        let mut constraints = HashSet::default();
-                                                        constraints.insert(VerifoptRval::Undef());
-                                                        res_vec.push(constraints);
-                                                    }
-                                                }
-                                            } else {
-                                                let mut cmap_clone = cmap.clone();
-                                                println!(
-                                                    "\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n",
-                                                    funcval.def_id
-                                                );
-                                                self.resolve_args(
-                                                    &mut cmap_clone,
-                                                    //prev_scope,
-                                                    cur_scope,
-                                                    funcval,
-                                                    args,
-                                                );
-
-                                                // visit callee
-                                                let callee_body = self.tcx.optimized_mir(*def_id);
-                                                match self.visit_body(
-                                                    &mut cmap_clone,
-                                                    Some(cur_scope),
-                                                    *def_id,
-                                                    callee_body,
-                                                ) {
-                                                    Ok(maybe_constraints) => {
-                                                        println!(
-                                                            "\n##### DONE w func {:?}\n",
-                                                            func
-                                                        );
-                                                        // TODO MIR is not generated for intrinsics...
-                                                        // need to augment interpreter knowledge
-                                                        // somehow
-                                                        cmap_vec.push(cmap_clone);
-                                                        if let Some(constraints) = maybe_constraints
-                                                        {
-                                                            res_vec.push(constraints);
-                                                        }
-                                                    }
-                                                    err @ Err(_) => return err,
-                                                }
-                                            }
-                                        }
-
-                                        // merge cmap / returned value states
-                                        if cmap_vec.len() > 1 || res_vec.len() > 1 {
-                                            todo!("TODO: impl cmap_vec/res_vec merge");
-                                        }
-
-                                        if cmap_vec.len() > 0 {
-                                            *cmap = cmap_vec.pop().unwrap();
-                                        }
-
-                                        if res_vec.len() > 0 {
-                                            let val = res_vec.pop().unwrap();
-                                            println!("setting return val: {:?}", val);
-                                            cmap.scoped_set(
-                                                Some(cur_scope),
-                                                MapKey::Place(*destination),
-                                                Box::new(VarType::Values(val)),
-                                            );
-                                            println!("~~~CMAP: {:?}", cmap);
-                                        }
-
-                                        Ok(None)
-                                    }
-                                    None => {
-                                        println!(
-                                            "no such function (might be a dynamic call): {:?}",
-                                            def_id
-                                        );
-                                        println!(
-                                            "is mir available? {:?}",
-                                            self.tcx.is_mir_available(def_id)
-                                        );
-                                        // TODO dynamic dispatch
-                                        // if first arg == self, use constraints to prune funcvals
-                                        Ok(None)
-                                    }
-                                }
-                            }
-                            _ => panic!("not a FnDef"),
-                        }
-                    }
-                    _ => panic!("not a Val Const"),
-                }
+                self.interp_direct_func_call(cmap, cur_scope, co, args, destination)
             }
-            // TODO also handle indirect invokes (via variable name, _not_ in funcs)
-            _ => panic!("not a Const"),
+            _ => todo!("handle indirect invocations"),
         }
     }
 
@@ -408,8 +423,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     }
                 }
             }
-            Operand::Constant(boxed_co) => {
-                println!("boxed_co: {:?}", boxed_co);
+            Operand::Constant(_boxed_co) => {
                 todo!("constant operand");
             }
             _ => println!("runtime checks (ignoring)"),
@@ -438,7 +452,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
             }
-            // TODO Goto ?
             // TODO TailCall
             _ => Ok(None),
         }
@@ -519,11 +532,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("param_name: {:?}", param_name);
             //println!("param_type: {:?}", param_type);
             println!("arg: {:?}", arg);
-            let constraints = self.resolve_arg(
-                cmap,
-                cur_scope,
-                arg,
-            );
+            let constraints = self.resolve_arg(cmap, cur_scope, arg);
             func_cmap.cmap.insert(
                 MapKey::Place(param_name),
                 Box::new(VarType::Values(constraints)),
@@ -543,7 +552,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     // the function type, so that if this function is ever (indirectly?) invoked,
                     // the return _type_ of the function will correspond to the type of the
                     // invocation result, but I am not sure how useful this is since we have types
-                    // in lots of places already...
+                    // in lots of places already... not to mention we are not currently using it
                     Box::new("functype (tbd)"),
                     func_cmap,
                 )],

@@ -3,17 +3,17 @@ use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_middle::mir::traversal;
 use rustc_middle::mir::{BasicBlock, BasicBlockData, Body};
 
-pub struct BBDeps<'tcx> {
-    pub body: &'tcx Body<'tcx>,
+pub struct BBDeps {
+    //pub body: &'tcx Body<'tcx>,
     pub preds: HashMap<BasicBlock, Vec<BasicBlock>>,
     pub ordering: Vec<BasicBlock>,
     pub visited: Vec<BasicBlock>,
 }
 
-impl<'tcx> BBDeps<'tcx> {
-    pub fn new(body: &'tcx Body<'tcx>) -> Self {
+impl BBDeps {
+    pub fn new<'tcx>(body: &'tcx Body<'tcx>) -> Self {
         let mut bb_deps = BBDeps {
-            body,
+            //body,
             preds: HashMap::default(),
             ordering: Vec::new(),
             visited: Vec::new(),
@@ -25,14 +25,14 @@ impl<'tcx> BBDeps<'tcx> {
         println!("self.pred: {:?}", bb_deps.preds);
 
         // FIXME if there is a return before error path, the return will execute first...
-        bb_deps.ordering = traversal::reverse_postorder(body).map(|(x, y)| x).collect();
+        bb_deps.ordering = traversal::reverse_postorder(body).map(|(x, _)| x).collect();
         println!("self.ordering: {:?}", bb_deps.ordering);
         println!("%%%%%");
 
         bb_deps
     }
 
-    pub fn prune(&mut self, cur: &BasicBlock, bb_root: BasicBlock) {
+    pub fn prune(&mut self, _cur: &BasicBlock, bb_root: BasicBlock) {
         println!("PRUNING from root bb {:?}", bb_root);
         println!("self.preds: {:?}", self.preds);
         println!("self.ordering: {:?}", self.ordering);
@@ -97,6 +97,7 @@ impl<'tcx> BBDeps<'tcx> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn update_order(&mut self) -> Vec<BasicBlock> {
         let mut ordering = Vec::new();
 

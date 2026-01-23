@@ -1,9 +1,9 @@
-use rustc_hir::TyKind;
+//use rustc_hir::TyKind;
 //use rustc_hir::FnRetTy::*;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_hir::def::DefKind;
-use rustc_hir::def::Res;
-use rustc_hir::def_id::{CrateNum, DefId};
+//use rustc_hir::def::Res;
+use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::ty::{List, TyCtxt};
 
@@ -26,7 +26,7 @@ impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
         Self {
             funcs: HashMap::default(),
-            trait_impls: Arc::new(Mutex::new(HashMap::default())),
+            trait_fn_impltors: Arc::new(Mutex::new(HashMap::default())),
             assocfns_to_traits: Arc::new(Mutex::new(HashMap::default())),
         }
     }
@@ -55,11 +55,11 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636
                     || crate_num == 4 && def_index >= 4970
-                    //|| crate_num == 5 && def_index >= 12217
-                    //|| crate_num == 6 && def_index >= 3
-                    //|| crate_num == 7 && def_index >= 94
-                    //|| crate_num == 8 && def_index >= 513
-                    //|| crate_num == 9 && def_index >= 71
+                //|| crate_num == 5 && def_index >= 12217
+                //|| crate_num == 6 && def_index >= 3
+                //|| crate_num == 7 && def_index >= 94
+                //|| crate_num == 8 && def_index >= 513
+                //|| crate_num == 9 && def_index >= 71
                 {
                     break;
                 }
@@ -89,9 +89,9 @@ impl<'tcx> FuncCollectPass<'tcx> {
                         }
 
                         impltors.items().all(|(key, val)| {
-                            let mut trait_map_lock = funcs.trait_impls.lock().unwrap();
+                            let mut trait_map_lock = funcs.trait_fn_impltors.lock().unwrap();
                             match trait_map_lock.get_mut(key) {
-                                Some(mut existing_vals) => {
+                                Some(existing_vals) => {
                                     let mut new_vals = existing_vals.clone();
                                     new_vals.push(val.clone());
                                     trait_map_lock.insert(key.clone(), new_vals.to_vec());

@@ -27,10 +27,10 @@ mod interp;
 
 //use rustc_ast::ast::Crate;
 use rustc_driver::{Callbacks, Compilation, run_compiler};
-use rustc_hir::def::DefKind;
+//use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
 use rustc_interface::interface::Compiler;
-use rustc_middle::ty::{InstanceKind, ReifyReason, TyCtxt};
+use rustc_middle::ty::TyCtxt;
 //use rustc_metadata::creader::CStore;
 //use rustc_public::external_crates;
 //use rustc_middle::middle::exported_symbols::ExportedSymbol;

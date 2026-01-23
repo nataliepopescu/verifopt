@@ -64,14 +64,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body: &'tcx Body<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
-        // FIXME how do loops affect this order?
+        // TODO how do loops affect this order?
 
         println!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
         println!("prev_scope: {:?}", prev_scope);
         println!("cur_scope: {:?}", cur_scope);
 
         // get Weak Topological Ordering of function body
-        // TODO memoize this ordering
+        // TODO memoize
         let mut bb_deps = BBDeps::new(body);
         let mut last_res = None;
         loop {
@@ -87,7 +87,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 cmap,
                 &mut bb_deps,
                 body.local_decls.as_slice(),
-                prev_scope,
+                //prev_scope,
                 cur_scope,
                 &bb,
                 data,
@@ -100,9 +100,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn visit_basic_block_data(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
-        bb_deps: &mut BBDeps<'tcx>,
+        bb_deps: &mut BBDeps,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-        prev_scope: Option<DefId>,
+        //prev_scope: Option<DefId>,
         cur_scope: DefId,
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
@@ -118,7 +118,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         if let Some(term) = &data.terminator {
             println!("# visiting TERM");
-            last_res = self.visit_terminator(cmap, bb, bb_deps, prev_scope, cur_scope, &term)?;
+            last_res = self.visit_terminator(cmap, bb, bb_deps, cur_scope, &term)?;
         }
 
         bb_deps.mark_visited(bb);
@@ -158,7 +158,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn interp_func_call(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
-        prev_scope: Option<DefId>,
+        //prev_scope: Option<DefId>,
         cur_scope: DefId,
         func: &Operand<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
@@ -209,7 +209,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         );
                                                         match self
                                                             .funcs
-                                                            .trait_impls
+                                                            .trait_fn_impltors
                                                             .lock()
                                                             .unwrap()
                                                             .get(def_id)
@@ -242,7 +242,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                 );
                                                 self.resolve_args(
                                                     &mut cmap_clone,
-                                                    prev_scope,
+                                                    //prev_scope,
                                                     cur_scope,
                                                     funcval,
                                                     args,
@@ -355,7 +355,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         bb: &BasicBlock,
-        bb_deps: &mut BBDeps<'tcx>,
+        bb_deps: &mut BBDeps,
         cur_scope: DefId,
         discr: &Operand<'tcx>,
         targets: &SwitchTargets,
@@ -422,8 +422,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         bb: &BasicBlock,
-        bb_deps: &mut BBDeps<'tcx>,
-        prev_scope: Option<DefId>,
+        bb_deps: &mut BBDeps,
+        //prev_scope: Option<DefId>,
         cur_scope: DefId,
         terminator: &Terminator<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -433,7 +433,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 args,
                 destination,
                 ..
-            } => self.interp_func_call(cmap, prev_scope, cur_scope, func, args, destination),
+            } => self.interp_func_call(cmap, cur_scope, func, args, destination),
             TerminatorKind::Return => self.interp_return(cmap, cur_scope),
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
@@ -444,10 +444,68 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
+    fn resolve_arg(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        arg: Operand<'tcx>,
+    ) -> Constraints<'tcx> {
+        let mut constraints = HashSet::default();
+        // get arg constraints from cmap
+        match arg {
+            Operand::Copy(place) | Operand::Move(place) => {
+                match cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false) {
+                    Some(vartype) => match vartype {
+                        VarType::Values(constraints) => {
+                            return constraints;
+                        }
+                        _ => {}
+                    },
+                    None => {
+                        panic!("place doesn't exist in cmap, maybe this is a func name");
+                    }
+                }
+            }
+            Operand::Constant(box co) => {
+                println!("co.const_: {:?}", co.const_);
+                match co.const_ {
+                    Const::Val(val, ty) => match val {
+                        ConstValue::Scalar(scalar) => {
+                            println!("scalar: {:?}", scalar);
+                            constraints.insert(VerifoptRval::Scalar(scalar));
+                        }
+                        ConstValue::ZeroSized => {
+                            println!("zero-sized");
+                            constraints.insert(VerifoptRval::IdkType(ty));
+                        }
+                        ConstValue::Slice { .. } => {
+                            todo!("slice");
+                        }
+                        ConstValue::Indirect { .. } => {
+                            todo!("indirect");
+                        }
+                    },
+                    Const::Ty(..) => {
+                        todo!("ty");
+                    }
+                    Const::Unevaluated(uneval, ty) => {
+                        // TODO do we care about evaluating constants?
+                        println!("unevaluated const");
+                        println!("uneval: {:?}", uneval);
+                        println!("ty: {:?}", ty);
+                        constraints.insert(VerifoptRval::IdkType(ty));
+                    }
+                }
+            }
+            _ => todo!("TODO runtime checks?"),
+        }
+
+        constraints
+    }
+
     fn resolve_args(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
-        prev_scope: Option<DefId>,
         cur_scope: DefId,
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
@@ -461,76 +519,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("param_name: {:?}", param_name);
             //println!("param_type: {:?}", param_type);
             println!("arg: {:?}", arg);
-
-            match arg {
-                // cmap.scoped_get + add result to func_cmap
-                Operand::Copy(place) | Operand::Move(place) => {
-                    match cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false) {
-                        Some(vartype) => match vartype {
-                            VarType::Values(constraints) => {
-                                func_cmap.cmap.insert(
-                                    MapKey::Place(param_name),
-                                    Box::new(VarType::Values(
-                                        // TODO add type?
-                                        constraints.clone(),
-                                    )),
-                                );
-                            }
-                            _ => {}
-                        },
-                        None => {
-                            panic!("place doesn't exist in cmap, maybe this is a func name");
-                        }
-                    }
-                }
-                Operand::Constant(box co) => {
-                    println!("co.const_: {:?}", co.const_);
-                    match co.const_ {
-                        Const::Val(val, ty) => match val {
-                            ConstValue::Scalar(scalar) => {
-                                println!("scalar: {:?}", scalar);
-                                let mut constraints = HashSet::default();
-                                constraints.insert(VerifoptRval::Scalar(scalar));
-                                func_cmap.cmap.insert(
-                                    MapKey::Place(param_name),
-                                    Box::new(VarType::Values(constraints)),
-                                );
-                            }
-                            ConstValue::ZeroSized => {
-                                println!("zero-sized");
-                                let mut constraints = HashSet::default();
-                                constraints.insert(VerifoptRval::IdkType(ty));
-                                func_cmap.cmap.insert(
-                                    MapKey::Place(param_name),
-                                    Box::new(VarType::Values(constraints)),
-                                );
-                            }
-                            ConstValue::Slice { alloc_id, meta } => {
-                                todo!("slice");
-                            }
-                            ConstValue::Indirect { alloc_id, offset } => {
-                                todo!("indirect");
-                            }
-                        },
-                        Const::Ty(..) => {
-                            todo!("ty");
-                        }
-                        Const::Unevaluated(uneval, ty) => {
-                            // TODO do we care about evaluating constants?
-                            println!("unevaluated const");
-                            println!("uneval: {:?}", uneval);
-                            println!("ty: {:?}", ty);
-                            let mut constraints = HashSet::default();
-                            constraints.insert(VerifoptRval::IdkType(ty));
-                            func_cmap.cmap.insert(
-                                MapKey::Place(param_name),
-                                Box::new(VarType::Values(constraints)),
-                            );
-                        }
-                    }
-                }
-                _ => todo!("TODO runtime checks?"),
-            }
+            let constraints = self.resolve_arg(
+                cmap,
+                cur_scope,
+                arg,
+            );
+            func_cmap.cmap.insert(
+                MapKey::Place(param_name),
+                Box::new(VarType::Values(constraints)),
+            );
         }
 
         // add func_cmap to outer cmap

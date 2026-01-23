@@ -1,11 +1,11 @@
 use rustc_hir::TyKind;
 //use rustc_hir::FnRetTy::*;
-use rustc_hir::def::Res;
+use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_hir::def::DefKind;
+use rustc_hir::def::Res;
 use rustc_hir::def_id::{CrateNum, DefId};
 use rustc_middle::mir::*;
 use rustc_middle::ty::{List, TyCtxt};
-use rustc_data_structures::fx::{FxHashMap as HashMap};
 
 use crate::core::FuncVal;
 
@@ -24,7 +24,7 @@ pub struct FuncMap<'tcx> {
 
 impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
-        Self { 
+        Self {
             funcs: HashMap::default(),
             trait_impls: Arc::new(Mutex::new(HashMap::default())),
             assocfns_to_traits: Arc::new(Mutex::new(HashMap::default())),
@@ -37,38 +37,36 @@ pub struct FuncCollectPass<'tcx> {
 }
 
 impl<'tcx> FuncCollectPass<'tcx> {
-    pub fn new(
-        tcx: TyCtxt<'tcx>,
-    ) -> FuncCollectPass<'tcx> {
+    pub fn new(tcx: TyCtxt<'tcx>) -> FuncCollectPass<'tcx> {
         Self { tcx }
     }
 
-    pub fn collect_funcs(
-        &self,
-        funcs: &mut FuncMap<'tcx>,
-        debug: bool,
-    ) {
+    pub fn collect_funcs(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
         // TODO try past 4
         //let num_crates = self.tcx.used_crates(()).len();
         let num_crates = 4u32;
         for crate_num in 0u32..num_crates + 1 {
-            if debug { println!("\n\ncrate_num: {:?}\n", crate_num); }
+            if debug {
+                println!("\n\ncrate_num: {:?}\n", crate_num);
+            }
             for def_index in 0..u32::MAX {
                 if crate_num == 0 && def_index >= 22
-                || crate_num == 1 && def_index >= 19549
-                || crate_num == 2 && def_index >= 78916
-                || crate_num == 3 && def_index >= 12636
-                || crate_num == 4 && def_index >= 4970
-                //|| crate_num == 5 && def_index >= 12217
-                //|| crate_num == 6 && def_index >= 3
-                //|| crate_num == 7 && def_index >= 94
-                //|| crate_num == 8 && def_index >= 513
-                //|| crate_num == 9 && def_index >= 71
-                { break }
+                    || crate_num == 1 && def_index >= 19549
+                    || crate_num == 2 && def_index >= 78916
+                    || crate_num == 3 && def_index >= 12636
+                    || crate_num == 4 && def_index >= 4970
+                    //|| crate_num == 5 && def_index >= 12217
+                    //|| crate_num == 6 && def_index >= 3
+                    //|| crate_num == 7 && def_index >= 94
+                    //|| crate_num == 8 && def_index >= 513
+                    //|| crate_num == 9 && def_index >= 71
+                {
+                    break;
+                }
 
                 let def_id = DefId {
                     index: def_index.into(),
-                    krate: crate_num.into()
+                    krate: crate_num.into(),
                 };
                 let def_kind = self.tcx.def_kind(def_id);
 
@@ -81,10 +79,14 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 }
 
                 if def_kind == DefKind::Trait {
-                    if debug { println!("trait"); }
+                    if debug {
+                        println!("trait");
+                    }
                     for impl_defid in self.tcx.all_impls(def_id) {
                         let impltors = self.tcx.impl_item_implementor_ids(impl_defid);
-                        if debug { println!("impltors: {:?}", impltors); }
+                        if debug {
+                            println!("impltors: {:?}", impltors);
+                        }
 
                         impltors.items().all(|(key, val)| {
                             let mut trait_map_lock = funcs.trait_impls.lock().unwrap();
@@ -93,14 +95,18 @@ impl<'tcx> FuncCollectPass<'tcx> {
                                     let mut new_vals = existing_vals.clone();
                                     new_vals.push(val.clone());
                                     trait_map_lock.insert(key.clone(), new_vals.to_vec());
-                                },
+                                }
                                 None => {
                                     trait_map_lock.insert(key.clone(), vec![val.clone()]);
                                 }
                             }
 
                             // add for reverse search
-                            funcs.assocfns_to_traits.lock().unwrap().insert(*key, def_id);
+                            funcs
+                                .assocfns_to_traits
+                                .lock()
+                                .unwrap()
+                                .insert(*key, def_id);
 
                             true
                         });
@@ -108,7 +114,9 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 }
 
                 if def_kind == DefKind::AssocFn {
-                    if debug { println!("assocfn"); }
+                    if debug {
+                        println!("assocfn");
+                    }
                 }
 
                 if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
@@ -118,7 +126,9 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     let mut is_method = false;
                     if num_args > 0 {
                         // FIXME more granular check? i.e. check actual `self` str?
-                        if let Some(first) = arg_idents[0] && first.is_reserved() {
+                        if let Some(first) = arg_idents[0]
+                            && first.is_reserved()
+                        {
                             is_method = true;
                         }
                     }
@@ -148,13 +158,19 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     let sig = self.tcx.fn_sig(def_id);
                     // FIXME skip_binder() generally incorrect but in this instance the return type
                     // is not generic so I think it is ok
-                    let funcval = FuncVal::new(def_id, is_intrinsic, is_method, arg_names, Some(sig.skip_binder().skip_binder().output()));
+                    let funcval = FuncVal::new(
+                        def_id,
+                        is_intrinsic,
+                        is_method,
+                        arg_names,
+                        Some(sig.skip_binder().skip_binder().output()),
+                    );
                     let vec_to_insert: Vec<FuncVal>;
                     match funcs.funcs.get_mut(&def_id) {
                         Some(func_vec) => {
                             func_vec.push(funcval);
                             vec_to_insert = func_vec.to_vec();
-                        },
+                        }
                         None => {
                             vec_to_insert = vec![funcval];
                             // TODO handle nested func decls
@@ -166,11 +182,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
-    pub fn run(
-        &self,
-        funcs: &mut FuncMap<'tcx>,
-    ) {
+    pub fn run(&self, funcs: &mut FuncMap<'tcx>) {
         self.collect_funcs(funcs, false);
     }
 }
-

@@ -1,7 +1,7 @@
 //use rustc_hir::def_id::DefId;
-use rustc_middle::mir::{BasicBlock, BasicBlockData, Body};
+use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_middle::mir::traversal;
-use rustc_data_structures::fx::{FxHashMap as HashMap};
+use rustc_middle::mir::{BasicBlock, BasicBlockData, Body};
 
 pub struct BBDeps<'tcx> {
     pub body: &'tcx Body<'tcx>,
@@ -84,13 +84,13 @@ impl<'tcx> BBDeps<'tcx> {
                             } else {
                                 preds_vec.push(*bb);
                             }
-                        },
+                        }
                         None => {
                             self.preds.insert(*successor, vec![*bb]);
-                        },
+                        }
                     }
                 }
-            },
+            }
             None => {
                 panic!("no term");
             }

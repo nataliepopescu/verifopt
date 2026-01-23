@@ -1,16 +1,16 @@
 #![feature(rustc_private)]
 #![feature(box_patterns)]
 
-extern crate rustc_driver;
-extern crate rustc_data_structures;
-extern crate rustc_hir;
-extern crate rustc_interface;
-extern crate rustc_middle;
-extern crate rustc_span;
-extern crate rustc_index;
-extern crate rustc_metadata;
-extern crate rustc_public;
 extern crate rustc_ast;
+extern crate rustc_data_structures;
+extern crate rustc_driver;
+extern crate rustc_hir;
+extern crate rustc_index;
+extern crate rustc_interface;
+extern crate rustc_metadata;
+extern crate rustc_middle;
+extern crate rustc_public;
+extern crate rustc_span;
 
 mod constraints;
 mod core;
@@ -26,9 +26,9 @@ mod interp;
 // - https://rustc-dev-guide.rust-lang.org/rustc-driver/interacting-with-the-ast.html
 
 //use rustc_ast::ast::Crate;
-use rustc_hir::def_id::DefId;
-use rustc_hir::def::DefKind;
 use rustc_driver::{Callbacks, Compilation, run_compiler};
+use rustc_hir::def::DefKind;
+use rustc_hir::def_id::DefId;
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::{InstanceKind, ReifyReason, TyCtxt};
 //use rustc_metadata::creader::CStore;
@@ -100,8 +100,5 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    run_compiler(
-        &rustc_args,
-        &mut VerifoptCallbacks
-    )
+    run_compiler(&rustc_args, &mut VerifoptCallbacks)
 }

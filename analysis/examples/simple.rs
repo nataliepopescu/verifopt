@@ -39,7 +39,7 @@ impl Animal for Dog {
 }
 
 fn main() {
-    // when the below line is uncommented, the speak call is resolved to 
+    // when the below line is uncommented, the speak call is resolved to
     // <Cat as Animal>::speak(), so interprocedural may indeed be the "spot"
     //let animal = Box::new(Cat {});
 

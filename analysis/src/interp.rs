@@ -1,17 +1,17 @@
+use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_hir::def_id::DefId;
+use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
-use rustc_middle::mir::interpret::Scalar; 
 use rustc_middle::ty::{List, TyCtxt, TyKind};
-use rustc_data_structures::fx::{FxHashSet as HashSet};
 //use rustc_data_structures::packed::Pu128;
 use rustc_index::IndexSlice;
 use rustc_span::source_map::Spanned;
 
-use crate::func_collect::FuncMap;
-use crate::constraints::{Constraints, ConstraintMap, MapKey, VarType};
+use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
 use crate::core::{FuncVal, VerifoptRval};
-use crate::wto::BBDeps;
 use crate::error::Error;
+use crate::func_collect::FuncMap;
+use crate::wto::BBDeps;
 
 pub struct InterpPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -19,16 +19,13 @@ pub struct InterpPass<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
-    pub fn new(
-        tcx: TyCtxt<'tcx>,
-        funcs: &'a FuncMap<'tcx>,
-    ) -> InterpPass<'a, 'tcx> {
+    pub fn new(tcx: TyCtxt<'tcx>, funcs: &'a FuncMap<'tcx>) -> InterpPass<'a, 'tcx> {
         Self { tcx, funcs }
     }
 
     pub fn run(
-        &self, 
-        cmap: &mut ConstraintMap<'tcx>, 
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
         prev_scope: Option<DefId>,
         cur_scope: DefId,
         body: &'tcx Body<'tcx>,
@@ -52,10 +49,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             MapKey::ScopeId(cur_scope),
             Box::new(VarType::SubScope(
                 prev_scope,
-                vec![(
-                    Box::new("main functype"),
-                    main_cmap,
-                )],
+                vec![(Box::new("main functype"), main_cmap)],
             )),
         );
 
@@ -64,8 +58,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     }
 
     fn visit_body(
-        &self, 
-        cmap: &mut ConstraintMap<'tcx>, 
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
         prev_scope: Option<DefId>,
         cur_scope: DefId,
         body: &'tcx Body<'tcx>,
@@ -89,7 +83,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             let bb = bb_deps.ordering.remove(0);
             println!("--NEW BB: {:?}", bb);
             let data = body.basic_blocks.get(bb).unwrap();
-            last_res = self.visit_basic_block_data(cmap, &mut bb_deps, body.local_decls.as_slice(), prev_scope, cur_scope, &bb, data)?;
+            last_res = self.visit_basic_block_data(
+                cmap,
+                &mut bb_deps,
+                body.local_decls.as_slice(),
+                prev_scope,
+                cur_scope,
+                &bb,
+                data,
+            )?;
         }
 
         Ok(last_res)
@@ -97,7 +99,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn visit_basic_block_data(
         &self,
-        cmap: &mut ConstraintMap<'tcx>, 
+        cmap: &mut ConstraintMap<'tcx>,
         bb_deps: &mut BBDeps<'tcx>,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         prev_scope: Option<DefId>,
@@ -126,7 +128,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn visit_statement(
         &self,
-        cmap: &mut ConstraintMap<'tcx>, 
+        cmap: &mut ConstraintMap<'tcx>,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         cur_scope: DefId,
         statement: &Statement<'tcx>,
@@ -148,14 +150,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("~~~CMAP: {:?}", cmap);
 
                 Ok(None)
-            },
+            }
             _ => Ok(None),
         }
     }
 
     fn interp_func_call(
         &self,
-        cmap: &mut ConstraintMap<'tcx>, 
+        cmap: &mut ConstraintMap<'tcx>,
         prev_scope: Option<DefId>,
         cur_scope: DefId,
         func: &Operand<'tcx>,
@@ -181,28 +183,50 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                         for funcval in funcval_vec.iter() {
                                             if funcval.is_intrinsic {
-                                                println!("\n### FUNC IS INTRINSIC {:?}\n", funcval.def_id);
+                                                println!(
+                                                    "\n### FUNC IS INTRINSIC {:?}\n",
+                                                    funcval.def_id
+                                                );
                                                 if let Some(rettype) = funcval.rettype {
                                                     let mut constraints = HashSet::default();
-                                                    constraints.insert(VerifoptRval::IdkType(rettype));
+                                                    constraints
+                                                        .insert(VerifoptRval::IdkType(rettype));
                                                     res_vec.push(constraints);
                                                 }
                                             } else if !self.tcx.is_mir_available(def_id) {
                                                 println!("MIR NOT AVAILABLE for {:?}", def_id);
-                                                match self.funcs.assocfns_to_traits.lock().unwrap().get(def_id) {
+                                                match self
+                                                    .funcs
+                                                    .assocfns_to_traits
+                                                    .lock()
+                                                    .unwrap()
+                                                    .get(def_id)
+                                                {
                                                     Some(trait_def_id) => {
-                                                        println!("found in trait: {:?}", trait_def_id);
-                                                        match self.funcs.trait_impls.lock().unwrap().get(def_id) {
+                                                        println!(
+                                                            "found in trait: {:?}",
+                                                            trait_def_id
+                                                        );
+                                                        match self
+                                                            .funcs
+                                                            .trait_impls
+                                                            .lock()
+                                                            .unwrap()
+                                                            .get(def_id)
+                                                        {
                                                             Some(impltors) => {
-                                                                println!("impltors: {:?}", impltors);
+                                                                println!(
+                                                                    "impltors: {:?}",
+                                                                    impltors
+                                                                );
                                                                 // TODO get type of first arg
                                                                 // (receiver)
-                                                            },
+                                                            }
                                                             None => {
                                                                 panic!("missing implementors");
                                                             }
                                                         }
-                                                    },
+                                                    }
                                                     None => {
                                                         // FIXME are panics the only possible thing here?
                                                         let mut constraints = HashSet::default();
@@ -212,23 +236,40 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                 }
                                             } else {
                                                 let mut cmap_clone = cmap.clone();
-                                                println!("\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n", funcval.def_id);
-                                                self.resolve_args(&mut cmap_clone, prev_scope, cur_scope, funcval, args);
-
+                                                println!(
+                                                    "\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n",
+                                                    funcval.def_id
+                                                );
+                                                self.resolve_args(
+                                                    &mut cmap_clone,
+                                                    prev_scope,
+                                                    cur_scope,
+                                                    funcval,
+                                                    args,
+                                                );
 
                                                 // visit callee
                                                 let callee_body = self.tcx.optimized_mir(*def_id);
-                                                match self.visit_body(&mut cmap_clone, Some(cur_scope), *def_id, callee_body) {
+                                                match self.visit_body(
+                                                    &mut cmap_clone,
+                                                    Some(cur_scope),
+                                                    *def_id,
+                                                    callee_body,
+                                                ) {
                                                     Ok(maybe_constraints) => {
-                                                        println!("\n##### DONE w func {:?}\n", func);
+                                                        println!(
+                                                            "\n##### DONE w func {:?}\n",
+                                                            func
+                                                        );
                                                         // TODO MIR is not generated for intrinsics...
                                                         // need to augment interpreter knowledge
                                                         // somehow
                                                         cmap_vec.push(cmap_clone);
-                                                        if let Some(constraints) = maybe_constraints {
+                                                        if let Some(constraints) = maybe_constraints
+                                                        {
                                                             res_vec.push(constraints);
                                                         }
-                                                    },
+                                                    }
                                                     err @ Err(_) => return err,
                                                 }
                                             }
@@ -255,22 +296,28 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
 
                                         Ok(None)
-                                    },
+                                    }
                                     None => {
-                                        println!("no such function (might be a dynamic call): {:?}", def_id);
-                                        println!("is mir available? {:?}", self.tcx.is_mir_available(def_id));
+                                        println!(
+                                            "no such function (might be a dynamic call): {:?}",
+                                            def_id
+                                        );
+                                        println!(
+                                            "is mir available? {:?}",
+                                            self.tcx.is_mir_available(def_id)
+                                        );
                                         // TODO dynamic dispatch
                                         // if first arg == self, use constraints to prune funcvals
                                         Ok(None)
-                                    },
+                                    }
                                 }
-                            },
+                            }
                             _ => panic!("not a FnDef"),
                         }
-                    },
+                    }
                     _ => panic!("not a Val Const"),
                 }
-            },
+            }
             // TODO also handle indirect invokes (via variable name, _not_ in funcs)
             _ => panic!("not a Const"),
         }
@@ -291,13 +338,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }),
             false,
         ) {
-            Some(vartype) => {
-                match vartype {
-                    VarType::Values(constraints) => {
-                        Ok(Some(constraints))
-                    },
-                    _ => panic!("return scope?"),
-                }
+            Some(vartype) => match vartype {
+                VarType::Values(constraints) => Ok(Some(constraints)),
+                _ => panic!("return scope?"),
             },
             None => {
                 // assuming our interpreter is correct, if the local _0 was not assigned to then
@@ -310,7 +353,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn interp_switchint(
         &self,
-        cmap: &mut ConstraintMap<'tcx>, 
+        cmap: &mut ConstraintMap<'tcx>,
         bb: &BasicBlock,
         bb_deps: &mut BBDeps<'tcx>,
         cur_scope: DefId,
@@ -337,13 +380,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             } else {
                                                 num_nonzeros += 1;
                                             }
-                                        },
+                                        }
                                         _ => todo!("scalar ptr"),
                                     },
                                     VerifoptRval::Ref(_boxed_rval) => {
                                         todo!("ref");
-                                    },
-                                    _ => {},
+                                    }
+                                    _ => {}
                                 }
                             }
 
@@ -354,7 +397,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 // only explore "0" target (prune "otherwise")
                                 bb_deps.prune(bb, targets.all_targets()[1]);
                             }
-                        },
+                        }
                         _ => todo!("scope not impl"),
                     },
                     None => {
@@ -362,9 +405,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("scope to search in: {:?}", cur_scope);
                         println!("place to get: {:?}", place);
                         panic!("place does not exist: {:?}", place);
-                    },
+                    }
                 }
-            },
+            }
             Operand::Constant(boxed_co) => {
                 println!("boxed_co: {:?}", boxed_co);
                 todo!("constant operand");
@@ -377,7 +420,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn visit_terminator(
         &self,
-        cmap: &mut ConstraintMap<'tcx>, 
+        cmap: &mut ConstraintMap<'tcx>,
         bb: &BasicBlock,
         bb_deps: &mut BBDeps<'tcx>,
         prev_scope: Option<DefId>,
@@ -385,12 +428,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         terminator: &Terminator<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         match &terminator.kind {
-            TerminatorKind::Call { func, args, destination, .. } => {
-                self.interp_func_call(cmap, prev_scope, cur_scope, func, args, destination)
-            },
-            TerminatorKind::Return => {
-                self.interp_return(cmap, cur_scope)
-            }
+            TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                ..
+            } => self.interp_func_call(cmap, prev_scope, cur_scope, func, args, destination),
+            TerminatorKind::Return => self.interp_return(cmap, cur_scope),
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
             }
@@ -432,8 +476,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     )),
                                 );
                             }
-                            _ => {},
-                        }
+                            _ => {}
+                        },
                         None => {
                             panic!("place doesn't exist in cmap, maybe this is a func name");
                         }
@@ -451,7 +495,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     MapKey::Place(param_name),
                                     Box::new(VarType::Values(constraints)),
                                 );
-                            },
+                            }
                             ConstValue::ZeroSized => {
                                 println!("zero-sized");
                                 let mut constraints = HashSet::default();
@@ -460,17 +504,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     MapKey::Place(param_name),
                                     Box::new(VarType::Values(constraints)),
                                 );
-                            },
+                            }
                             ConstValue::Slice { alloc_id, meta } => {
                                 todo!("slice");
-                            },
+                            }
                             ConstValue::Indirect { alloc_id, offset } => {
                                 todo!("indirect");
-                            },
+                            }
                         },
                         Const::Ty(..) => {
                             todo!("ty");
-                        },
+                        }
                         Const::Unevaluated(uneval, ty) => {
                             // TODO do we care about evaluating constants?
                             println!("unevaluated const");
@@ -482,9 +526,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 MapKey::Place(param_name),
                                 Box::new(VarType::Values(constraints)),
                             );
-                        },
+                        }
                     }
-                },
+                }
                 _ => todo!("TODO runtime checks?"),
             }
         }
@@ -512,4 +556,3 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         println!("~~~CMAP: {:?}", cmap);
     }
 }
-

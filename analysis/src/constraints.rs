@@ -128,10 +128,10 @@ impl<'tcx> ConstraintMap<'tcx> {
                                         MapKey::ScopeId(scope.unwrap()),
                                         Box::new(VarType::SubScope(backptr, subscope_cmaps_vec)),
                                     );
-                                },
+                                }
                                 _ => todo!("not impl yet"),
                             }
-                        },
+                        }
                         None => {
                             // modify scope w new var
                             subscope_cmap.insert(var, value);
@@ -168,7 +168,8 @@ impl<'tcx> Merge<VarType<'tcx>> for Vec<VarType<'tcx>> {
             match (merged_vartype.clone(), new_vartype.clone()) {
                 (VarType::Values(constraints_a), VarType::Values(constraints_b)) => {
                     if constraints_a != constraints_b {
-                        let union: HashSet<_> = constraints_a.union(&constraints_b).cloned().collect();
+                        let union: HashSet<_> =
+                            constraints_a.union(&constraints_b).cloned().collect();
                         merged_vartype = VarType::Values(union);
                     }
                 }
@@ -203,5 +204,3 @@ impl<'tcx> Merge<Constraints<'tcx>> for Vec<Constraints<'tcx>> {
     }
 }
 */
-
-

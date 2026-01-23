@@ -1,7 +1,7 @@
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
-use rustc_middle::mir::*;
 use rustc_middle::mir::interpret::Scalar;
+use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
 use rustc_index::IndexSlice;
@@ -31,7 +31,13 @@ impl<'tcx> FuncVal<'tcx> {
         params: Vec<Place<'tcx>>,
         rettype: Option<Ty<'tcx>>,
     ) -> FuncVal<'tcx> {
-        Self { def_id, is_intrinsic, is_method, params, rettype }
+        Self {
+            def_id,
+            is_intrinsic,
+            is_method,
+            params,
+            rettype,
+        }
     }
 
     /*
@@ -65,7 +71,7 @@ pub enum VerifoptRval<'tcx> {
     // FIXME Idk(DefId),
     IdkType(Ty<'tcx>),
     Idk(&'static str),
-    Undef()
+    Undef(),
 }
 
 impl<'tcx> VerifoptRval<'tcx> {
@@ -74,30 +80,20 @@ impl<'tcx> VerifoptRval<'tcx> {
         item: &Rvalue<'tcx>,
     ) -> Self {
         match item {
-            Rvalue::Use(op) => {
-                match op {
-                    Operand::Constant(box co) => {
-                        match co.const_ {
-                            Const::Val(_, ty) => {
-                                VerifoptRval::IdkType(ty)
-                            },
-                            _ => VerifoptRval::Idk("not-val const"),
-                        }
-                    }
-                    _ => VerifoptRval::Idk("not-const (copy/move op)"),
-                }
+            Rvalue::Use(op) => match op {
+                Operand::Constant(box co) => match co.const_ {
+                    Const::Val(_, ty) => VerifoptRval::IdkType(ty),
+                    _ => VerifoptRval::Idk("not-val const"),
+                },
+                _ => VerifoptRval::Idk("not-const (copy/move op)"),
             },
             Rvalue::Ref(_, _, place) => {
                 println!("place.loc: {:?}", place.local);
                 println!("place.proj: {:?}", place.projection);
                 let local = place.local_or_deref_local().unwrap();
                 let local_decl = body_locals.get(local).unwrap();
-                VerifoptRval::Ref(
-                    Box::new(
-                        VerifoptRval::IdkType(local_decl.ty)
-                    )
-                )
-            },
+                VerifoptRval::Ref(Box::new(VerifoptRval::IdkType(local_decl.ty)))
+            }
             _ => VerifoptRval::Idk("idk"),
         }
     }
@@ -106,6 +102,3 @@ impl<'tcx> VerifoptRval<'tcx> {
 pub trait Merge<T> {
     fn merge(&self) -> Result<Option<T>, Error>;
 }
-
-
-

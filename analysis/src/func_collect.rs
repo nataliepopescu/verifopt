@@ -5,8 +5,7 @@ use rustc_hir::def::DefKind;
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{List, TyCtxt, TyKind};
-//use rustc_middle::ty::{InstanceKind, List, TyCtxt, TyKind};
+use rustc_middle::ty::{InstanceKind, List, TyCtxt, TyKind};
 //use crate::rustc_middle::query::Key;
 
 use crate::core::FuncVal;
@@ -216,11 +215,11 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     }
 
                     let mir_avail = self.tcx.is_mir_available(def_id);
-                    if mir_avail {
-                        //println!("mir available...");
-                        //println!("Body: \n{:#?}", self.tcx.instance_mir(InstanceKind::Item(def_id)));
-                    } else {
-                        //println!("mir NOT available...");
+                    if mir_avail && debug {
+                        println!(
+                            "MIR Body: \n{:#?}",
+                            self.tcx.instance_mir(InstanceKind::Item(def_id))
+                        );
                     }
 
                     let mut is_intrinsic = false;

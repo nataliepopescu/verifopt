@@ -25,7 +25,10 @@ impl BBDeps {
         println!("self.pred: {:?}", bb_deps.preds);
 
         // FIXME if there is a return before error path, the return will execute first...
-        bb_deps.ordering = traversal::reverse_postorder(body).map(|(x, _)| x).collect();
+        bb_deps.ordering = traversal::reverse_postorder(body)
+            .filter(|(_, bbd)| !bbd.is_cleanup)
+            .map(|(bb, _)| bb)
+            .collect();
         println!("self.ordering: {:?}", bb_deps.ordering);
         println!("%%%%%");
 
@@ -33,7 +36,7 @@ impl BBDeps {
     }
 
     pub fn prune(&mut self, _cur: &BasicBlock, bb_root: BasicBlock) {
-        println!("PRUNING from root bb {:?}", bb_root);
+        println!("PRUNING from root basicblock: {:?}", bb_root);
         println!("self.preds: {:?}", self.preds);
         println!("self.ordering: {:?}", self.ordering);
 

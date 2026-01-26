@@ -152,6 +152,30 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     println!("assignment!");
                     println!("place: {:?}", place);
                     println!("rval: {:?}", rvalue);
+
+                    match rvalue {
+                        Rvalue::Use(_op) => {
+                            println!("use");
+                        }
+                        Rvalue::Cast(_, op, _) => {
+                            println!("cast");
+                            match op {
+                                Operand::Copy(place) | Operand::Move(place) => {
+                                    println!("place: {:?}", place);
+                                    println!(
+                                        "value @ place: {:?}",
+                                        cmap.scoped_get(
+                                            Some(cur_scope),
+                                            &MapKey::Place(*place),
+                                            false
+                                        )
+                                    );
+                                }
+                                _ => println!("other op"),
+                            }
+                        }
+                        _ => println!("other rvalue kind"),
+                    }
                 }
 
                 let mut set = HashSet::default();
@@ -162,10 +186,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
                 );
-
-                if debug {
-                    println!("~~~CMAP: {:?}", cmap);
-                }
             }
             _ => {}
         }
@@ -218,7 +238,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             false,
         ) {
             Some(vartype) => match vartype {
-                VarType::Values(constraints) => Ok(Some(constraints)),
+                VarType::Values(constraints) => {
+                    if debug {
+                        println!("returning value w following constraints: {:?}", constraints);
+                    }
+                    Ok(Some(constraints))
+                }
                 _ => panic!("return scope?"),
             },
             None => {
@@ -265,9 +290,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
                                         _ => todo!("scalar ptr"),
                                     },
-                                    //VerifoptRval::Ref(_boxed_rval) => {
-                                    //    todo!("ref");
-                                    //}
                                     VerifoptRval::IdkType(_) | VerifoptRval::Idk(_) => {}
                                     VerifoptRval::Undef() => panic!("undef switchint discr"),
                                 }
@@ -285,7 +307,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     },
                     None => {
                         if debug {
-                            println!("\ncmap: {:?}", cmap);
                             println!("scope to search in: {:?}", cur_scope);
                             println!("place to get: {:?}", place);
                         }
@@ -449,6 +470,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     Ok(maybe_constraints) => {
                                         if debug {
                                             println!("\n##### DONE w func {:?}\n", def_id);
+                                            println!(
+                                                "maybe_constraints from func: {:?}",
+                                                maybe_constraints
+                                            );
                                         }
                                         cmap_vec.push(cmap_clone);
                                         if let Some(constraints) = maybe_constraints {
@@ -478,6 +503,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("setting new cmap");
             }
             *cmap = cmap_vec.pop().unwrap();
+        } else {
+            if debug {
+                println!("cmap_vec is empty");
+            }
         }
 
         if res_vec.len() > 0 {
@@ -490,9 +519,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 MapKey::Place(*destination),
                 Box::new(VarType::Values(val)),
             );
-
+        } else {
             if debug {
-                println!("~~~CMAP: {:?}", cmap);
+                println!("res_vec is empty");
             }
         }
 
@@ -639,9 +668,5 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 )],
             )),
         );
-
-        if debug {
-            println!("~~~CMAP: {:?}", cmap);
-        }
     }
 }

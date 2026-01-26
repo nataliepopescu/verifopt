@@ -173,6 +173,139 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         Ok(None)
     }
 
+    fn visit_terminator(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        bb: &BasicBlock,
+        bb_deps: &mut BBDeps,
+        //prev_scope: Option<DefId>,
+        cur_scope: DefId,
+        terminator: &Terminator<'tcx>,
+        debug: bool,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        match &terminator.kind {
+            TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                ..
+            } => self.interp_func_call(cmap, cur_scope, func, args, destination, debug),
+            TerminatorKind::Return => self.interp_return(cmap, cur_scope, debug),
+            TerminatorKind::SwitchInt { discr, targets } => {
+                self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets, debug)
+            }
+            // TODO TailCall
+            _ => Ok(None),
+        }
+    }
+
+    fn interp_return(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        debug: bool,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        // return constraints at place _0
+        if debug {
+            println!("RETURNING...");
+        }
+        match cmap.scoped_get(
+            Some(cur_scope),
+            &MapKey::Place(Place {
+                local: Local::from_usize(0),
+                projection: List::empty(),
+            }),
+            false,
+        ) {
+            Some(vartype) => match vartype {
+                VarType::Values(constraints) => Ok(Some(constraints)),
+                _ => panic!("return scope?"),
+            },
+            None => {
+                // assuming our interpreter is correct, if the local _0 was not assigned to then
+                // this must mean that there is nothing to return. so, return nothing
+                if debug {
+                    println!("_0 local was not assigned to");
+                }
+                Ok(None)
+            }
+        }
+    }
+
+    fn interp_switchint(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        bb: &BasicBlock,
+        bb_deps: &mut BBDeps,
+        cur_scope: DefId,
+        discr: &Operand<'tcx>,
+        targets: &SwitchTargets,
+        debug: bool,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        match discr {
+            Operand::Copy(place) | Operand::Move(place) => {
+                match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
+                    Some(vartype) => match vartype {
+                        VarType::Values(constraints) => {
+                            // FIXME zero may not be the only option, or may not be an option
+                            // period (e.g., could be 1)
+                            let mut num_zeros = 0;
+                            let mut num_nonzeros = 0;
+                            let val = targets.all_values()[0];
+
+                            for constraint in constraints.iter() {
+                                match constraint {
+                                    VerifoptRval::Scalar(scalar) => match scalar {
+                                        Scalar::Int(s_int) => {
+                                            if s_int.to_bits_unchecked() == val.get() {
+                                                num_zeros += 1;
+                                            } else {
+                                                num_nonzeros += 1;
+                                            }
+                                        }
+                                        _ => todo!("scalar ptr"),
+                                    },
+                                    //VerifoptRval::Ref(_boxed_rval) => {
+                                    //    todo!("ref");
+                                    //}
+                                    VerifoptRval::IdkType(_) | VerifoptRval::Idk(_) => {}
+                                    VerifoptRval::Undef() => panic!("undef switchint discr"),
+                                }
+                            }
+
+                            if num_zeros == 0 && num_nonzeros != 0 {
+                                // only explore "otherwise" target (prune "0")
+                                bb_deps.prune(bb, targets.all_targets()[0]);
+                            } else if num_nonzeros == 0 && num_zeros != 0 {
+                                // only explore "0" target (prune "otherwise")
+                                bb_deps.prune(bb, targets.all_targets()[1]);
+                            }
+                        }
+                        _ => todo!("scope not impl"),
+                    },
+                    None => {
+                        if debug {
+                            println!("\ncmap: {:?}", cmap);
+                            println!("scope to search in: {:?}", cur_scope);
+                            println!("place to get: {:?}", place);
+                        }
+                        panic!("place does not exist: {:?}", place);
+                    }
+                }
+            }
+            Operand::Constant(_boxed_co) => {
+                todo!("constant operand");
+            }
+            _ => {
+                if debug {
+                    println!("runtime checks (ignoring)")
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     fn handle_dyn_dispatch(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -389,139 +522,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 self.interp_direct_func_call(cmap, cur_scope, co, args, destination, debug)
             }
             _ => todo!("handle indirect invocations"),
-        }
-    }
-
-    fn interp_return(
-        &self,
-        cmap: &mut ConstraintMap<'tcx>,
-        cur_scope: DefId,
-        debug: bool,
-    ) -> Result<Option<Constraints<'tcx>>, Error> {
-        // return constraints at place _0
-        if debug {
-            println!("RETURNING...");
-        }
-        match cmap.scoped_get(
-            Some(cur_scope),
-            &MapKey::Place(Place {
-                local: Local::from_usize(0),
-                projection: List::empty(),
-            }),
-            false,
-        ) {
-            Some(vartype) => match vartype {
-                VarType::Values(constraints) => Ok(Some(constraints)),
-                _ => panic!("return scope?"),
-            },
-            None => {
-                // assuming our interpreter is correct, if the local _0 was not assigned to then
-                // this must mean that there is nothing to return. so, return nothing
-                if debug {
-                    println!("_0 local was not assigned to");
-                }
-                Ok(None)
-            }
-        }
-    }
-
-    fn interp_switchint(
-        &self,
-        cmap: &mut ConstraintMap<'tcx>,
-        bb: &BasicBlock,
-        bb_deps: &mut BBDeps,
-        cur_scope: DefId,
-        discr: &Operand<'tcx>,
-        targets: &SwitchTargets,
-        debug: bool,
-    ) -> Result<Option<Constraints<'tcx>>, Error> {
-        match discr {
-            Operand::Copy(place) | Operand::Move(place) => {
-                match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
-                    Some(vartype) => match vartype {
-                        VarType::Values(constraints) => {
-                            // FIXME zero may not be the only option, or may not be an option
-                            // period (e.g., could be 1)
-                            let mut num_zeros = 0;
-                            let mut num_nonzeros = 0;
-                            let val = targets.all_values()[0];
-
-                            for constraint in constraints.iter() {
-                                match constraint {
-                                    VerifoptRval::Scalar(scalar) => match scalar {
-                                        Scalar::Int(s_int) => {
-                                            if s_int.to_bits_unchecked() == val.get() {
-                                                num_zeros += 1;
-                                            } else {
-                                                num_nonzeros += 1;
-                                            }
-                                        }
-                                        _ => todo!("scalar ptr"),
-                                    },
-                                    //VerifoptRval::Ref(_boxed_rval) => {
-                                    //    todo!("ref");
-                                    //}
-                                    VerifoptRval::IdkType(_) | VerifoptRval::Idk(_) => {}
-                                    VerifoptRval::Undef() => panic!("undef switchint discr"),
-                                }
-                            }
-
-                            if num_zeros == 0 && num_nonzeros != 0 {
-                                // only explore "otherwise" target (prune "0")
-                                bb_deps.prune(bb, targets.all_targets()[0]);
-                            } else if num_nonzeros == 0 && num_zeros != 0 {
-                                // only explore "0" target (prune "otherwise")
-                                bb_deps.prune(bb, targets.all_targets()[1]);
-                            }
-                        }
-                        _ => todo!("scope not impl"),
-                    },
-                    None => {
-                        if debug {
-                            println!("\ncmap: {:?}", cmap);
-                            println!("scope to search in: {:?}", cur_scope);
-                            println!("place to get: {:?}", place);
-                        }
-                        panic!("place does not exist: {:?}", place);
-                    }
-                }
-            }
-            Operand::Constant(_boxed_co) => {
-                todo!("constant operand");
-            }
-            _ => {
-                if debug {
-                    println!("runtime checks (ignoring)")
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    fn visit_terminator(
-        &self,
-        cmap: &mut ConstraintMap<'tcx>,
-        bb: &BasicBlock,
-        bb_deps: &mut BBDeps,
-        //prev_scope: Option<DefId>,
-        cur_scope: DefId,
-        terminator: &Terminator<'tcx>,
-        debug: bool,
-    ) -> Result<Option<Constraints<'tcx>>, Error> {
-        match &terminator.kind {
-            TerminatorKind::Call {
-                func,
-                args,
-                destination,
-                ..
-            } => self.interp_func_call(cmap, cur_scope, func, args, destination, debug),
-            TerminatorKind::Return => self.interp_return(cmap, cur_scope, debug),
-            TerminatorKind::SwitchInt { discr, targets } => {
-                self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets, debug)
-            }
-            // TODO TailCall
-            _ => Ok(None),
         }
     }
 

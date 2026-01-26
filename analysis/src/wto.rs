@@ -1,7 +1,7 @@
 //use rustc_hir::def_id::DefId;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_middle::mir::traversal;
-use rustc_middle::mir::{BasicBlock, BasicBlockData, Body};
+use rustc_middle::mir::{BasicBlock, BasicBlockData, Body, TerminatorKind};
 
 pub struct BBDeps {
     //pub body: &'tcx Body<'tcx>,
@@ -27,6 +27,15 @@ impl BBDeps {
         // FIXME if there is a return before error path, the return will execute first...
         bb_deps.ordering = traversal::reverse_postorder(body)
             .filter(|(_, bbd)| !bbd.is_cleanup)
+            .filter(|(_, bbd)| {
+                if let Some(term) = &bbd.terminator {
+                    match term.kind {
+                        TerminatorKind::Unreachable => return false,
+                        _ => {}
+                    }
+                }
+                true
+            })
             .map(|(bb, _)| bb)
             .collect();
         println!("self.ordering: {:?}", bb_deps.ordering);

@@ -3,6 +3,7 @@
 
 pub trait Animal {
     fn speak(&self) -> usize;
+    fn walk(&self) -> usize;
 }
 
 pub fn get_animal(num: usize) -> Box<dyn Animal> {
@@ -30,11 +31,17 @@ impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
     }
+    fn walk(&self) -> usize {
+        33333
+    }
 }
 
 impl Animal for Dog {
     fn speak(&self) -> usize {
         22222
+    }
+    fn walk(&self) -> usize {
+        44444
     }
 }
 

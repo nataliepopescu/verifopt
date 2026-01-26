@@ -5,7 +5,9 @@ use rustc_hir::def::DefKind;
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{List, TyCtxt};
+use rustc_middle::ty::{List, TyCtxt, TyKind};
+//use rustc_middle::ty::{InstanceKind, List, TyCtxt, TyKind};
+//use crate::rustc_middle::query::Key;
 
 use crate::core::FuncVal;
 
@@ -20,6 +22,8 @@ pub struct FuncMap<'tcx> {
     pub trait_fn_impltors: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
     // assoc fn of a trait -> that trait
     pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
+    // trait -> implementors of that trait (i.e. structs)
+    pub trait_impltors: HashMap<DefId, Vec<DefId>>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
@@ -28,6 +32,7 @@ impl<'tcx> FuncMap<'tcx> {
             funcs: HashMap::default(),
             trait_fn_impltors: Arc::new(Mutex::new(HashMap::default())),
             assocfns_to_traits: Arc::new(Mutex::new(HashMap::default())),
+            trait_impltors: HashMap::default(),
         }
     }
 }
@@ -82,6 +87,21 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     if debug {
                         println!("trait");
                     }
+
+                    match funcs.trait_impltors.get(&def_id) {
+                        Some(_) => {
+                            if debug {
+                                println!("trait defid EXISTS - skip adding to trait-struct map");
+                            }
+                        }
+                        None => {
+                            if debug {
+                                println!("trait defid DNE; adding to trait-struct map");
+                            }
+                            funcs.trait_impltors.insert(def_id, vec![]);
+                        }
+                    }
+
                     for impl_defid in self.tcx.all_impls(def_id) {
                         let impltors = self.tcx.impl_item_implementor_ids(impl_defid);
                         if debug {
@@ -114,13 +134,66 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     }
                 }
 
-                if def_kind == DefKind::AssocFn {
+                if def_kind == DefKind::Struct {}
+
+                if def_kind == (DefKind::Impl { of_trait: true }) {
+                    // TODO might be useful once we encounter default trait implementations, to see
+                    // exactly _which_ functions are being implemented/overriden
+                    //println!("assoc_items: {:#?}", self.tcx.associated_items(def_id));
+
+                    let trait_ref = self.tcx.impl_trait_header(def_id).trait_ref.skip_binder();
+                    let trait_defid = trait_ref.def_id;
                     if debug {
-                        println!("assocfn");
+                        println!("trait defid: {:?}", trait_defid);
+                    }
+                    let arglen = trait_ref.args.len();
+                    if arglen == 1 {
+                        let impl_struct = trait_ref.args.as_slice()[0];
+                        if debug {
+                            println!("impl_struct: {:?}", impl_struct.as_type().unwrap().kind());
+                        }
+                        match impl_struct.as_type().unwrap().kind() {
+                            TyKind::Adt(def, _) => {
+                                if debug {
+                                    println!("defid: {:?}", def.did());
+                                }
+
+                                match funcs.trait_impltors.get(&trait_defid) {
+                                    Some(vec_impltors) => {
+                                        if debug {
+                                            println!("adding impltor to trait-struct map");
+                                        }
+                                        let mut new_impltors = vec_impltors.clone();
+                                        new_impltors.push(def.did());
+                                        funcs.trait_impltors.insert(trait_defid, new_impltors);
+                                    }
+                                    None => {
+                                        if debug {
+                                            println!("trait doesn't exist in map yet, adding now");
+                                        }
+                                        funcs.trait_impltors.insert(trait_defid, vec![def.did()]);
+                                    }
+                                }
+                            }
+                            _ => {
+                                if debug {
+                                    println!("other kind")
+                                }
+                            }
+                        }
+                    } else if arglen == 0 {
+                        panic!("arg len 0");
+                    } else {
+                        if debug {
+                            println!("arg len > 1: {:?}", arglen);
+                        }
                     }
                 }
 
                 if def_kind == DefKind::Fn || def_kind == DefKind::AssocFn {
+                    // TODO for AssocFns, might be useful to have a field describing if it has a
+                    // default implementation or not
+
                     //println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
                     let arg_idents = self.tcx.fn_arg_idents(def_id);
                     let num_args = arg_idents.len();
@@ -145,7 +218,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     let mir_avail = self.tcx.is_mir_available(def_id);
                     if mir_avail {
                         //println!("mir available...");
-                        //println!("Body: \n{:?}", self.tcx.instance_mir(InstanceKind::Item(def_id)));
+                        //println!("Body: \n{:#?}", self.tcx.instance_mir(InstanceKind::Item(def_id)));
                     } else {
                         //println!("mir NOT available...");
                     }

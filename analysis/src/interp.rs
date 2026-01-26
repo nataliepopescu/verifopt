@@ -155,7 +155,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
 
                 let mut set = HashSet::default();
-                set.insert(VerifoptRval::from_rvalue(body_locals, rvalue));
+                set.insert(VerifoptRval::from_rvalue(self.tcx, body_locals, rvalue));
 
                 cmap.scoped_set(
                     Some(cur_scope),
@@ -197,17 +197,19 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             Some(impltors) => {
                 if args.len() > 0 && assoc_funcval.is_method {
                     match args[0].node {
-                        Operand::Copy(place) 
-                        | Operand::Move(place) => {
+                        Operand::Copy(place) | Operand::Move(place) => {
                             if debug {
                                 println!("first arg: {:?}", args[0]);
                                 println!("impltors: {:?}", impltors);
                                 println!("place: {:?}", place);
                                 //println!("\n~~~CMAP @ scope {:?}: {:?}\n", cur_scope, cmap.cmap.get(&MapKey::ScopeId(cur_scope)));
-                                println!("value: {:?}", cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false));
+                                println!(
+                                    "value: {:?}",
+                                    cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
+                                );
                             }
                         }
-                        _ => {},
+                        _ => {}
                     }
                 }
 
@@ -456,10 +458,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
                                         _ => todo!("scalar ptr"),
                                     },
-                                    VerifoptRval::Ref(_boxed_rval) => {
-                                        todo!("ref");
-                                    }
-                                    _ => {}
+                                    //VerifoptRval::Ref(_boxed_rval) => {
+                                    //    todo!("ref");
+                                    //}
+                                    VerifoptRval::IdkType(_) | VerifoptRval::Idk(_) => {}
+                                    VerifoptRval::Undef() => panic!("undef switchint discr"),
                                 }
                             }
 

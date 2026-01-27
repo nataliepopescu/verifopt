@@ -482,8 +482,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         if debug {
                                             println!("\n### UNDEF FN / RES {:?}\n", def_id);
                                         }
+                                        // if funcval has a return type, use that as the
+                                        // "summary" constraint
                                         let mut constraints = HashSet::default();
-                                        constraints.insert(VerifoptRval::Undef());
+                                        match funcval.rettype {
+                                            Some(ty) => {
+                                                constraints.insert(VerifoptRval::IdkType(ty))
+                                            }
+                                            None => constraints.insert(VerifoptRval::Undef()),
+                                        };
                                         res_vec.push(constraints);
                                     }
                                 }

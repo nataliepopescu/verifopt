@@ -193,7 +193,6 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     // TODO for AssocFns, might be useful to have a field describing if it has a
                     // default implementation or not
 
-                    //println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
                     let arg_idents = self.tcx.fn_arg_idents(def_id);
                     let num_args = arg_idents.len();
                     let mut is_method = false;
@@ -228,6 +227,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                         is_intrinsic = true;
                     }
 
+                    //println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
                     let sig = self.tcx.fn_sig(def_id);
                     // FIXME skip_binder() generally incorrect but in this instance the return type
                     // is not generic so I think it is ok

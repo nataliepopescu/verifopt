@@ -24,13 +24,20 @@ impl BBDeps {
         }
         println!("self.pred: {:?}", bb_deps.preds);
 
-        // FIXME if there is a return before error path, the return will execute first...
+        let mut ret_bb = BasicBlock::from_u32(0);
+        let mut ret_found = false;
         bb_deps.ordering = traversal::reverse_postorder(body)
             .filter(|(_, bbd)| !bbd.is_cleanup)
-            .filter(|(_, bbd)| {
+            .filter(|(bbi, bbd)| {
                 if let Some(term) = &bbd.terminator {
                     match term.kind {
                         TerminatorKind::Unreachable => return false,
+                        TerminatorKind::Return => {
+                            // add the return bb last so retval doesn't get overriden
+                            ret_bb = bbi.clone();
+                            ret_found = true;
+                            return false;
+                        }
                         _ => {}
                     }
                 }
@@ -38,7 +45,13 @@ impl BBDeps {
             })
             .map(|(bb, _)| bb)
             .collect();
-        println!("self.ordering: {:?}", bb_deps.ordering);
+
+        if !ret_found {
+            panic!("no return block?");
+        }
+        println!("self.ordering pre: {:?}", bb_deps.ordering);
+        bb_deps.ordering.push(ret_bb);
+        println!("self.ordering post: {:?}", bb_deps.ordering);
         println!("%%%%%");
 
         bb_deps

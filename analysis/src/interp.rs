@@ -130,6 +130,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             if debug {
                 println!("# visiting TERM");
             }
+            // FIXME return basic blocks are the only ones whose interp returns Some(_), so could
+            // re-architect this loop to only save the result if it is a Some(_) (then wouldn't
+            // have to worry about executing cleanup blocks afterwards)
             last_res = self.visit_terminator(cmap, bb, bb_deps, cur_scope, &term, debug)?;
         }
 
@@ -444,9 +447,26 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             trait_def_id,
                                             debug,
                                         ) {
-                                            Ok(Some(constraints)) => res_vec.push(constraints),
+                                            Ok(Some(constraints)) => {
+                                                if debug {
+                                                    println!(
+                                                        "\n##### DONE w DYN func {:?}\n",
+                                                        def_id
+                                                    );
+                                                    println!("constraints: {:?}", constraints);
+                                                }
+                                                res_vec.push(constraints);
+                                            }
+                                            Ok(None) => {
+                                                if debug {
+                                                    println!(
+                                                        "\n##### DONE w DYN func {:?}\n",
+                                                        def_id
+                                                    );
+                                                    println!("no retval");
+                                                }
+                                            }
                                             e @ Err(_) => return e,
-                                            _ => {}
                                         }
                                     }
                                     None => {
@@ -459,6 +479,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     }
                                 }
                             } else {
+                                if debug {
+                                    println!("\n### STATIC DISPATCH TO: {:?}\n", def_id);
+                                }
                                 let mut cmap_clone = cmap.clone();
                                 match self.handle_static_dispatch(
                                     &mut cmap_clone,
@@ -578,9 +601,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
             }
             Operand::Constant(box co) => {
-                if debug {
-                    println!("co.const_: {:?}", co.const_);
-                }
                 match co.const_ {
                     Const::Val(val, ty) => match val {
                         ConstValue::Scalar(scalar) => {
@@ -609,7 +629,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         // TODO do we care about evaluating constants?
                         if debug {
                             println!("unevaluated const");
-                            println!("uneval: {:?}", uneval);
+                            println!("defid: {:?}", uneval.def);
+                            println!("args: {:?}", uneval.args);
+                            //println!("args typelist: {:?}", uneval.args.into_type_list(self.tcx));
                             println!("ty: {:?}", ty);
                         }
                         constraints.insert(VerifoptRval::IdkType(ty));

@@ -7,6 +7,8 @@ use rustc_middle::mir::*;
 use rustc_index::IndexSlice;
 use rustc_middle::ty::{Ty, TyCtxt};
 
+use crate::ConstraintMap;
+use crate::constraints::{MapKey, VarType};
 use crate::error::Error;
 
 pub type Type = &'static str;
@@ -76,72 +78,172 @@ pub enum VerifoptRval<'tcx> {
 impl<'tcx> VerifoptRval<'tcx> {
     pub fn from_rvalue(
         tcx: TyCtxt<'tcx>,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
         local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
         item: &Rvalue<'tcx>,
+        debug: bool,
     ) -> Self {
+        println!("\n### IN FROM_RVALUE, item is: {:?}", item);
         match item {
-            Rvalue::Use(op) => VerifoptRval::IdkType(op.ty(local_decls, tcx)),
-            Rvalue::Ref(_, _, place) => VerifoptRval::IdkType(place.ty(local_decls, tcx).ty),
-            Rvalue::RawPtr(_, place) => VerifoptRval::IdkType(place.ty(local_decls, tcx).ty),
-            Rvalue::Cast(_, _, ty) => VerifoptRval::IdkType(*ty),
-            Rvalue::Repeat(_, _) => todo!("repeat"),
-            Rvalue::ThreadLocalRef(_) => todo!("thread local ref"),
-            Rvalue::BinaryOp(binop, boxed_op_tup) => VerifoptRval::IdkType(binop.ty(
-                tcx,
-                boxed_op_tup.0.ty(local_decls, tcx),
-                boxed_op_tup.1.ty(local_decls, tcx),
-            )),
+            Rvalue::Cast(_, op, ty) => {
+                if debug {
+                    println!("--cast");
+                }
+                VerifoptRval::rval_from_op(cmap, cur_scope, op, ty)
+            }
+
+            Rvalue::Use(op) => {
+                if debug {
+                    println!("--use");
+                }
+                VerifoptRval::IdkType(op.ty(local_decls, tcx))
+            }
+            Rvalue::Ref(_, _, place) => {
+                if debug {
+                    println!("--ref");
+                }
+                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
+            }
+            Rvalue::RawPtr(_, place) => {
+                if debug {
+                    println!("--rawptr");
+                }
+                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
+            }
+            Rvalue::BinaryOp(binop, boxed_op_tup) => {
+                if debug {
+                    println!("--binop");
+                }
+                VerifoptRval::IdkType(binop.ty(
+                    tcx,
+                    boxed_op_tup.0.ty(local_decls, tcx),
+                    boxed_op_tup.1.ty(local_decls, tcx),
+                ))
+            }
             Rvalue::UnaryOp(unop, op) => {
+                if debug {
+                    println!("--unop");
+                }
                 VerifoptRval::IdkType(unop.ty(tcx, op.ty(local_decls, tcx)))
             }
-            Rvalue::Discriminant(place) => VerifoptRval::IdkType(place.ty(local_decls, tcx).ty),
+            Rvalue::Discriminant(place) => {
+                if debug {
+                    println!("--discr");
+                }
+                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
+            }
             Rvalue::Aggregate(aggkind, _) => match &**aggkind {
-                AggregateKind::Array(_) => todo!("array"),
-                AggregateKind::Tuple => todo!("tup"),
-                AggregateKind::Adt(defid, ..) => VerifoptRval::Idk(*defid),
+                AggregateKind::Adt(defid, ..) => {
+                    if debug {
+                        println!("--agg-adt");
+                    }
+                    VerifoptRval::Idk(*defid)
+                }
                 AggregateKind::Closure(defid, _)
                 | AggregateKind::Coroutine(defid, _)
-                | AggregateKind::CoroutineClosure(defid, _) => VerifoptRval::Idk(*defid),
+                | AggregateKind::CoroutineClosure(defid, _) => {
+                    if debug {
+                        println!("--agg-closure/coroutine");
+                    }
+                    VerifoptRval::Idk(*defid)
+                }
                 // FIXME ty == type of pointee, not pointer
-                AggregateKind::RawPtr(ty, _) => VerifoptRval::IdkType(*ty),
+                AggregateKind::RawPtr(ty, _) => {
+                    if debug {
+                        println!("--agg-rawpotr");
+                    }
+                    VerifoptRval::IdkType(*ty)
+                }
+                AggregateKind::Array(_) => todo!("array"),
+                AggregateKind::Tuple => todo!("tup"),
             },
-            Rvalue::ShallowInitBox(_, ty) => VerifoptRval::IdkType(*ty),
-            Rvalue::CopyForDeref(place) => VerifoptRval::IdkType(place.ty(local_decls, tcx).ty),
-            Rvalue::WrapUnsafeBinder(_, ty) => VerifoptRval::IdkType(*ty),
+            Rvalue::ShallowInitBox(_, ty) => {
+                if debug {
+                    println!("--shallowinitbox");
+                }
+                VerifoptRval::IdkType(*ty)
+            }
+            Rvalue::CopyForDeref(place) => {
+                if debug {
+                    println!("--copyforderef");
+                }
+                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
+            }
+            Rvalue::WrapUnsafeBinder(_, ty) => {
+                if debug {
+                    println!("--wrapunsafebinder");
+                }
+                VerifoptRval::IdkType(*ty)
+            }
+            Rvalue::Repeat(_, _) => todo!("repeat"),
+            Rvalue::ThreadLocalRef(_) => todo!("thread local ref"),
         }
     }
 
-    // FIXME bring back below functions if want more control over returned types
-    /*
+    // instead of using the type system to resolve value "constraints", use our cmap
     fn rval_from_op(
-        tcx: TyCtxt<'tcx>,
-        local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
         op: &Operand<'tcx>,
+        backup_ty: &Ty<'tcx>,
     ) -> VerifoptRval<'tcx> {
         match op {
             Operand::Constant(box co) => match co.const_ {
-                Const::Val(_, ty) => VerifoptRval::IdkType(ty),
-                _ => todo!("non-val const"), //VerifoptRval::Idk("not-val const"),
+                Const::Val(_, ty) => {
+                    // FIXME don't use ty
+                    VerifoptRval::IdkType(ty)
+                }
+                _ => todo!("non-val const"),
             },
             Operand::Copy(place) | Operand::Move(place) => {
-                VerifoptRval::rval_from_place(local_decls, place)
+                VerifoptRval::rval_from_place(cmap, cur_scope, place, backup_ty)
             }
-            _ => todo!("runtime checks"), //VerifoptRval::Idk("runtime check"),
+            _ => todo!("runtime checks"),
         }
     }
 
     fn rval_from_place(
-        tcx: TyCtxt<'tcx>,
-        local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
         place: &Place<'tcx>,
+        backup_ty: &Ty<'tcx>,
     ) -> VerifoptRval<'tcx> {
-        println!("place.loc: {:?}", place.local);
-        println!("place.proj: {:?}", place.projection);
-        let local = place.local_or_deref_local().unwrap();
-        let local_decl = local_decls.get(local).unwrap();
-        VerifoptRval::Ref(Box::new(VerifoptRval::IdkType(local_decl.ty)))
+        println!("place.local: {:?}", place.local);
+        println!("place.projection: {:?}", place.projection);
+        println!("cur_scope: {:?}", cur_scope);
+        println!(
+            "cur_scope cmap: {:?}",
+            cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+        );
+
+        if place.projection.len() != 0 {
+            todo!("handle projections");
+        }
+
+        match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
+            Some(vartype) => match vartype {
+                VarType::Values(constraints) => {
+                    println!("constraints: {:?}", constraints);
+                    println!("backup_ty: {:?}", backup_ty);
+                    // FIXME think about how to return multiple possible VerifoptRvals
+                    // (for a constraint set of len > 1)
+                    if constraints.len() != 1 {
+                        panic!("unexpected constraint length: {:?}", constraints.len());
+                    }
+                    let mut ret = VerifoptRval::IdkType(*backup_ty);
+                    for sole_constraint in constraints.clone().drain() {
+                        ret = sole_constraint;
+                    }
+                    ret
+                }
+                _ => panic!("value should not be a scope"),
+            },
+            None => {
+                panic!("no val!");
+            }
+        }
     }
-    */
 }
 
 pub trait Merge<T> {

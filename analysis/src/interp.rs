@@ -156,6 +156,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     println!("place: {:?}", place);
                     println!("rval: {:?}", rvalue);
 
+                    /*
                     match rvalue {
                         Rvalue::Use(_op) => {
                             println!("use");
@@ -179,10 +180,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         }
                         _ => println!("other rvalue kind"),
                     }
+                    */
                 }
 
                 let mut set = HashSet::default();
-                set.insert(VerifoptRval::from_rvalue(self.tcx, body_locals, rvalue));
+                set.insert(VerifoptRval::from_rvalue(
+                    self.tcx,
+                    cmap,
+                    cur_scope,
+                    body_locals,
+                    rvalue,
+                    debug,
+                ));
 
                 cmap.scoped_set(
                     Some(cur_scope),
@@ -536,12 +545,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             let val = res_vec.pop().unwrap();
             if debug {
                 println!("setting return val: {:?}", val);
+                println!("destination: {:?}", destination);
             }
             cmap.scoped_set(
                 Some(cur_scope),
                 MapKey::Place(*destination),
                 Box::new(VarType::Values(val)),
             );
+            //println!("cur_scope cmap: {:?}", cmap.cmap.get(&MapKey::ScopeId(cur_scope)));
         } else {
             if debug {
                 println!("res_vec is empty");

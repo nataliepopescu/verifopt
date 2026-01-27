@@ -69,6 +69,10 @@ impl<'tcx> ConstraintMap<'tcx> {
                     if subscope_cmaps_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
+                    //println!("subscope_cmaps_vec: {:?}", subscope_cmaps_vec);
+                    //println!("subscope_cmaps_vec[0].1.cmap: {:?}", subscope_cmaps_vec[0].1.cmap);
+                    //println!("var: {:?}", var);
+
                     // is var in inner_cmap? if not:
                     // - nested funcs: return None
                     // - closures: recursively follow backptr to enclosing scopes

@@ -52,7 +52,7 @@ impl BBDeps {
         println!("self.ordering pre: {:?}", bb_deps.ordering);
         bb_deps.ordering.push(ret_bb);
         println!("self.ordering post: {:?}", bb_deps.ordering);
-        println!("%%%%%");
+        println!("\n%%%%%");
 
         bb_deps
     }

@@ -5,7 +5,7 @@ use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
 use rustc_index::IndexSlice;
-use rustc_middle::ty::{Ty, TyCtxt};
+use rustc_middle::ty::{List, Ty, TyCtxt};
 
 use crate::ConstraintMap;
 use crate::constraints::{MapKey, VarType};
@@ -67,11 +67,15 @@ impl<'tcx> FuncVal<'tcx> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
-    //Struct(DefId),
+    Struct(DefId),
     Scalar(Scalar),
+    Str(Const<'tcx>),
+    ConstSlice(),
+    Ptr(Box<VerifoptRval<'tcx>>),
     //Ref(Box<VerifoptRval<'tcx>>),
     IdkType(Ty<'tcx>),
-    Idk(DefId),
+    IdkDefId(DefId),
+    Idk(),
     Undef(),
 }
 
@@ -86,28 +90,67 @@ impl<'tcx> VerifoptRval<'tcx> {
     ) -> Self {
         println!("\n### IN FROM_RVALUE, item is: {:?}", item);
         match item {
-            Rvalue::Cast(_, op, ty) => {
+            Rvalue::Cast(kind, op, ty) => {
                 if debug {
                     println!("--cast");
+                    println!("kind: {:?}", kind);
+                    println!("op: {:?}", op);
+                    println!("ty: {:?}", ty);
                 }
-                VerifoptRval::rval_from_op(cmap, cur_scope, op, ty)
+                VerifoptRval::rval_from_cast(cmap, cur_scope, kind, op, ty)
             }
-
+            Rvalue::Aggregate(aggkind, fields) => match &**aggkind {
+                AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
+                    if debug {
+                        println!("--agg-adt");
+                        println!("aggkind: {:?}", aggkind);
+                        println!("fields: {:?}", fields);
+                    }
+                    VerifoptRval::Struct(*defid)
+                }
+                AggregateKind::Closure(defid, _)
+                | AggregateKind::Coroutine(defid, _)
+                | AggregateKind::CoroutineClosure(defid, _) => {
+                    if debug {
+                        println!("--agg-closure/coroutine");
+                    }
+                    VerifoptRval::IdkDefId(*defid)
+                }
+                // FIXME ty == type of pointee, not pointer
+                AggregateKind::RawPtr(ty, _) => {
+                    if debug {
+                        println!("--agg-rawpotr");
+                    }
+                    VerifoptRval::IdkType(*ty)
+                }
+                AggregateKind::Array(_) => todo!("array"),
+                AggregateKind::Tuple => todo!("tup"),
+            },
             Rvalue::Use(op) => {
                 if debug {
                     println!("--use");
+                    println!("op: {:?}", op);
                 }
-                VerifoptRval::IdkType(op.ty(local_decls, tcx))
+                VerifoptRval::rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, tcx))
             }
+            Rvalue::RawPtr(kind, place) => {
+                if debug {
+                    println!("--rawptr");
+                    println!("kind: {:?}", kind);
+                    println!("place: {:?}", place);
+                }
+                let inner = VerifoptRval::rval_from_place(
+                    cmap,
+                    cur_scope,
+                    place,
+                    &place.ty(local_decls, tcx).ty,
+                );
+                VerifoptRval::Ptr(Box::new(inner))
+            }
+            /////////////////////////////////////
             Rvalue::Ref(_, _, place) => {
                 if debug {
                     println!("--ref");
-                }
-                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
-            }
-            Rvalue::RawPtr(_, place) => {
-                if debug {
-                    println!("--rawptr");
                 }
                 VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
             }
@@ -133,31 +176,6 @@ impl<'tcx> VerifoptRval<'tcx> {
                 }
                 VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
             }
-            Rvalue::Aggregate(aggkind, _) => match &**aggkind {
-                AggregateKind::Adt(defid, ..) => {
-                    if debug {
-                        println!("--agg-adt");
-                    }
-                    VerifoptRval::Idk(*defid)
-                }
-                AggregateKind::Closure(defid, _)
-                | AggregateKind::Coroutine(defid, _)
-                | AggregateKind::CoroutineClosure(defid, _) => {
-                    if debug {
-                        println!("--agg-closure/coroutine");
-                    }
-                    VerifoptRval::Idk(*defid)
-                }
-                // FIXME ty == type of pointee, not pointer
-                AggregateKind::RawPtr(ty, _) => {
-                    if debug {
-                        println!("--agg-rawpotr");
-                    }
-                    VerifoptRval::IdkType(*ty)
-                }
-                AggregateKind::Array(_) => todo!("array"),
-                AggregateKind::Tuple => todo!("tup"),
-            },
             Rvalue::ShallowInitBox(_, ty) => {
                 if debug {
                     println!("--shallowinitbox");
@@ -181,7 +199,66 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
-    // instead of using the type system to resolve value "constraints", use our cmap
+    fn rval_from_cast(
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        kind: &CastKind,
+        op: &Operand<'tcx>,
+        ty: &Ty<'tcx>,
+    ) -> VerifoptRval<'tcx> {
+        match op {
+            Operand::Copy(place) | Operand::Move(place) => {
+                println!("place.local: {:?}", place.local);
+                println!("place.projection: {:?}", place.projection);
+                //println!("cur_scope: {:?}", cur_scope);
+                //println!(
+                //    "cur_scope cmap: {:?}",
+                //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                //);
+                //println!(
+                //    "scoped_get: {:?}",
+                //    cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
+                //);
+
+                if place.projection.len() != 0 {
+                    match place.projection[0] {
+                        //PlaceElem::Deref => {
+                        //    // FIXME essentially ignoring the deref here, when would this be wrong?
+                        //    newplace = Place {
+                        //        local: Local::from_u32(place.local.as_u32()),
+                        //        projection: List::empty(),
+                        //    };
+                        //    println!("newplace: {:?}", newplace);
+                        //}
+                        PlaceElem::Field(field_idx, ty) => {
+                            println!("field_idx: {:?}", field_idx);
+                            println!("ty: {:?}", ty);
+                            //todo!("field");
+                            // FIXME
+                            return VerifoptRval::IdkType(ty);
+                        }
+                        _ => return VerifoptRval::Idk(),
+                    }
+                }
+
+                match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
+                    Some(vartype) => match vartype {
+                        VarType::Values(constraints) => {
+                            println!("constraints: {:?}", constraints);
+                            // FIXME
+                            VerifoptRval::IdkType(*ty)
+                        }
+                        _ => panic!("should not get scope (cast)"),
+                    },
+                    None => panic!("no val (cast)"),
+                }
+            }
+            // FIXME
+            Operand::Constant(box co) => VerifoptRval::IdkType(*ty),
+            _ => todo!("runtime checks (cast)"),
+        }
+    }
+
     fn rval_from_op(
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
@@ -190,10 +267,33 @@ impl<'tcx> VerifoptRval<'tcx> {
     ) -> VerifoptRval<'tcx> {
         match op {
             Operand::Constant(box co) => match co.const_ {
-                Const::Val(_, ty) => {
-                    // FIXME don't use ty
-                    VerifoptRval::IdkType(ty)
-                }
+                Const::Val(constval, ty) => match constval {
+                    ConstValue::Scalar(scalar) => {
+                        println!("scalar");
+                        VerifoptRval::Scalar(scalar)
+                    }
+                    ConstValue::ZeroSized => {
+                        println!("zerosized");
+                        VerifoptRval::IdkType(ty)
+                    }
+                    ConstValue::Slice { alloc_id, meta } => {
+                        println!("slice");
+                        println!("alloc: {:?}", alloc_id);
+                        println!("meta: {:?}", meta);
+                        println!("ty: {:?}", ty);
+                        if ty.is_str() || ty.is_imm_ref_str() {
+                            println!("got str!");
+                            return VerifoptRval::Str(co.const_);
+                        } else {
+                            println!("not str");
+                            return VerifoptRval::ConstSlice();
+                        }
+                    }
+                    ConstValue::Indirect { .. } => {
+                        println!("indirect");
+                        VerifoptRval::IdkType(ty)
+                    }
+                },
                 _ => todo!("non-val const"),
             },
             Operand::Copy(place) | Operand::Move(place) => {
@@ -216,12 +316,34 @@ impl<'tcx> VerifoptRval<'tcx> {
             "cur_scope cmap: {:?}",
             cmap.cmap.get(&MapKey::ScopeId(cur_scope))
         );
+        println!(
+            "scoped_get: {:?}",
+            cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
+        );
 
+        let mut newplace = *place;
         if place.projection.len() != 0 {
-            todo!("handle projections");
+            match place.projection[0] {
+                PlaceElem::Deref => {
+                    // FIXME essentially ignoring the deref here, when would this be wrong?
+                    newplace = Place {
+                        local: Local::from_u32(place.local.as_u32()),
+                        projection: List::empty(),
+                    };
+                    println!("newplace: {:?}", newplace);
+                }
+                PlaceElem::Field(field_idx, ty) => {
+                    println!("field_idx: {:?}", field_idx);
+                    println!("ty: {:?}", ty);
+                    //todo!("field");
+                    // FIXME
+                    return VerifoptRval::IdkType(ty);
+                }
+                _ => return VerifoptRval::Idk(),
+            }
         }
 
-        match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
+        match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false) {
             Some(vartype) => match vartype {
                 VarType::Values(constraints) => {
                     println!("constraints: {:?}", constraints);

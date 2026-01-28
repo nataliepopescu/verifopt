@@ -84,7 +84,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
             let bb = bb_deps.ordering.remove(0);
             if debug {
-                println!("--NEW BB: {:?}", bb);
+                println!("\n--NEW BB: {:?}", bb);
             }
             let data = body.basic_blocks.get(bb).unwrap();
             last_res = self.visit_basic_block_data(
@@ -116,19 +116,25 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         let mut last_res = None;
 
         if debug {
+            println!("#############################");
             println!("# visiting BASICBLOCK for {:?}", cur_scope);
+            println!("#############################");
         }
 
         for (_, stmt) in data.statements.iter().enumerate() {
             if debug {
+                println!("\n# -------------------------------");
                 println!("# visiting STATEMENT");
+                println!("# -------------------------------");
             }
             last_res = self.visit_statement(cmap, body_locals, cur_scope, stmt, debug)?;
         }
 
         if let Some(term) = &data.terminator {
             if debug {
+                println!("\n# -------------------------------");
                 println!("# visiting TERM");
+                println!("# -------------------------------");
             }
             // FIXME return basic blocks are the only ones whose interp returns Some(_), so could
             // re-architect this loop to only save the result if it is a Some(_) (then wouldn't
@@ -302,8 +308,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
                                         _ => todo!("scalar ptr"),
                                     },
-                                    VerifoptRval::IdkType(_) | VerifoptRval::Idk(_) => {}
-                                    VerifoptRval::Undef() => panic!("undef switchint discr"),
+                                    VerifoptRval::IdkType(_)
+                                    | VerifoptRval::IdkDefId(_)
+                                    | VerifoptRval::Idk() => {}
+                                    _ => panic!("unexpected switchint discr: {:?}", constraint),
                                 }
                             }
 
@@ -496,7 +504,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 }
                             } else {
                                 if debug {
-                                    println!("\n### STATIC DISPATCH TO: {:?}\n", def_id);
+                                    println!("\n### STATIC DISPATCH TO: {:?}", def_id);
                                 }
                                 let mut cmap_clone = cmap.clone();
                                 match self.handle_static_dispatch(

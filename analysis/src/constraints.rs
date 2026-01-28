@@ -94,7 +94,7 @@ impl<'tcx> ConstraintMap<'tcx> {
         }
     }
 
-    pub(crate) fn scoped_set(
+    pub(crate) fn scoped_add(
         &mut self,
         scope: Option<DefId>,
         var: MapKey<'tcx>,

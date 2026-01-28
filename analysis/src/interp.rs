@@ -199,7 +199,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     debug,
                 ));
 
-                cmap.scoped_set(
+                cmap.scoped_add(
                     Some(cur_scope),
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
@@ -562,7 +562,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("setting return val: {:?}", val);
                 println!("destination: {:?}", destination);
             }
-            cmap.scoped_set(
+            cmap.scoped_add(
                 Some(cur_scope),
                 MapKey::Place(*destination),
                 Box::new(VarType::Values(val)),

@@ -13,15 +13,12 @@ use crate::error::Error;
 
 pub type Type = &'static str;
 
-// FIXME continue to add stuff to this def as needed
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,
     pub is_intrinsic: bool,
     pub is_method: bool,
-    //pub params: Vec<(Place<'tcx>, Res)>,
-    // FIXME param names only for now
-    pub params: Vec<Place<'tcx>>,
+    pub params: Vec<(Place<'tcx>, Ty<'tcx>)>,
     pub rettype: Option<Ty<'tcx>>,
 }
 
@@ -30,9 +27,20 @@ impl<'tcx> FuncVal<'tcx> {
         def_id: DefId,
         is_intrinsic: bool,
         is_method: bool,
-        params: Vec<Place<'tcx>>,
+        arg_names: Vec<Place<'tcx>>,
+        arg_types_opt: Option<Vec<Ty<'tcx>>>,
         rettype: Option<Ty<'tcx>>,
     ) -> FuncVal<'tcx> {
+        let params;
+        if let Some(arg_types) = arg_types_opt {
+            params = std::iter::zip(arg_names, arg_types).collect();
+        } else {
+            // dummy value for functions that do not have MIR available (and therefore cannot get
+            // argument types the way we generally get them0 -- this is probably fine since we
+            // won't be executing this particular MIR body anyway
+            params = vec![];
+        }
+
         Self {
             def_id,
             is_intrinsic,
@@ -41,33 +49,11 @@ impl<'tcx> FuncVal<'tcx> {
             rettype,
         }
     }
-
-    /*
-    pub fn new(
-        def_id: DefId,
-        name: Symbol,
-        is_method: bool,
-        arg_names: Vec<Place<'tcx>>,
-        arg_types: Vec<Res>,
-        rettype: Option<Res>,
-    ) -> FuncVal<'tcx> {
-        let params;
-        if arg_names.len() == arg_types.len() {
-            params = std::iter::zip(arg_names, arg_types).collect();
-        } else {
-            panic!("arg_names.len() != arg_types.len()");
-        }
-
-        Self {
-            def_id, name, is_method, params, rettype
-        }
-    }
-    */
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
-    Struct(DefId),
+    IdkStruct(DefId),
     Scalar(Scalar),
     Str(Const<'tcx>),
     ConstSlice(),
@@ -105,8 +91,35 @@ impl<'tcx> VerifoptRval<'tcx> {
                         println!("--agg-adt");
                         println!("aggkind: {:?}", aggkind);
                         println!("fields: {:?}", fields);
+                        println!("defid: {:?}", defid);
+                        println!("vidx: {:?}", vidx);
+                        println!("genargsref: {:?}", genargsref);
+                        //println!("genargs list: {:?}", genargsref.into_type_list(tcx));
+                        println!("maybe_usertyannot: {:?}", maybe_usertyannot);
+                        println!("maybe_fidx: {:?}", maybe_fidx);
+
+                        println!("-cur_scope: {:?}", cur_scope);
+                        println!(
+                            "cur_scope cmap: {:#?}",
+                            cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                        );
+
+                        /*
+                        for ty in genargsref.types() {
+                            println!("--ty: {:?}", ty);
+                            println!("ty.kind(): {:?}", ty.kind());
+                            println!("is adt: {:?}", ty.is_adt());
+                            println!("is any ptr: {:?}", ty.is_any_ptr());
+                            println!("is box: {:?}", ty.is_box());
+                            println!("is fn: {:?}", ty.is_fn());
+                            println!("is impl trait: {:?}", ty.is_impl_trait());
+                            println!("is primitive: {:?}", ty.is_primitive());
+                            println!("is raw ptr: {:?}", ty.is_raw_ptr());
+                            println!("is trait: {:?}", ty.is_trait());
+                        }
+                        */
                     }
-                    VerifoptRval::Struct(*defid)
+                    VerifoptRval::IdkStruct(*defid)
                 }
                 AggregateKind::Closure(defid, _)
                 | AggregateKind::Coroutine(defid, _)
@@ -202,7 +215,7 @@ impl<'tcx> VerifoptRval<'tcx> {
     fn rval_from_cast(
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
-        kind: &CastKind,
+        _kind: &CastKind,
         op: &Operand<'tcx>,
         ty: &Ty<'tcx>,
     ) -> VerifoptRval<'tcx> {
@@ -254,7 +267,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                 }
             }
             // FIXME
-            Operand::Constant(box co) => VerifoptRval::IdkType(*ty),
+            Operand::Constant(_) => VerifoptRval::IdkType(*ty),
             _ => todo!("runtime checks (cast)"),
         }
     }

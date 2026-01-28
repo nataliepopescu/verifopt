@@ -133,7 +133,12 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     }
                 }
 
-                if def_kind == DefKind::Struct {}
+                if def_kind == DefKind::Struct {
+                    // TODO
+                    if debug {
+                        println!("generics: {:#?}", self.tcx.generics_of(def_id));
+                    }
+                }
 
                 if def_kind == (DefKind::Impl { of_trait: true }) {
                     // TODO might be useful once we encounter default trait implementations, to see
@@ -214,29 +219,47 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     }
 
                     let mir_avail = self.tcx.is_mir_available(def_id);
-                    if mir_avail && debug {
-                        println!(
-                            "MIR Body: \n{:#?}",
-                            self.tcx.instance_mir(InstanceKind::Item(def_id))
-                        );
+                    let mut arg_types = None;
+                    if mir_avail {
+                        let mut arg_types_inner = vec![];
+                        let body = self.tcx.instance_mir(InstanceKind::Item(def_id));
+
+                        for (i, loc) in body.local_decls.clone().into_iter_enumerated() {
+                            let idx = i.as_usize();
+                            if idx == 0 || idx > num_args + 1 {
+                                continue;
+                            }
+                            arg_types_inner.push(loc.ty);
+                        }
+
+                        arg_types = Some(arg_types_inner);
+
+                        if debug {
+                            println!("arg_types: {:?}", arg_types);
+                            println!("MIR Body: \n{:#?}", body);
+                        }
                     }
 
                     let mut is_intrinsic = false;
                     if self.tcx.intrinsic_raw(def_id).is_some() {
-                        //println!("intrinsic");
                         is_intrinsic = true;
                     }
 
-                    //println!("fn_sig: {:?}", self.tcx.fn_sig(def_id));
                     let sig = self.tcx.fn_sig(def_id);
                     // FIXME skip_binder() generally incorrect but in this instance the return type
                     // is not generic so I think it is ok
+                    // CORRECTION: binders are not for simple generics but rather https://rustc-dev-guide.rust-lang.org/ty_module/binders.html
+                    let retty = sig.skip_binder().skip_binder().output();
+                    // TODO ty has an is_never() method which we can use to not execute panic
+                    // methods
+
                     let funcval = FuncVal::new(
                         def_id,
                         is_intrinsic,
                         is_method,
                         arg_names,
-                        Some(sig.skip_binder().skip_binder().output()),
+                        arg_types,
+                        Some(retty),
                     );
                     let vec_to_insert: Vec<FuncVal>;
                     match funcs.funcs.get_mut(&def_id) {

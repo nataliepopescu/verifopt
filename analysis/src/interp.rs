@@ -638,6 +638,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         ConstValue::ZeroSized => {
                             if debug {
                                 println!("zero-sized");
+                                println!("ty: {:?}", ty);
                             }
                             constraints.insert(VerifoptRval::IdkType(ty));
                         }
@@ -682,11 +683,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap
-        //for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
-        for (param_name, arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
+        for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
             if debug {
                 println!("param_name: {:?}", param_name);
-                //println!("param_type: {:?}", param_type);
+                println!("param_type: {:?}", param_type);
                 println!("arg: {:?}", arg);
             }
 

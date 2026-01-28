@@ -639,6 +639,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             if debug {
                                 println!("zero-sized");
                                 println!("ty: {:?}", ty);
+                                println!("ty.kind: {:?}", ty.kind());
                             }
                             constraints.insert(VerifoptRval::IdkType(ty));
                         }

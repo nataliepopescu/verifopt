@@ -45,10 +45,12 @@ impl<'tcx> FuncCollectPass<'tcx> {
         Self { tcx }
     }
 
-    pub fn handle_traits(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
+    pub fn handle_trait(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, _debug: bool) {
         match funcs.trait_impltors.get(&def_id) {
             Some(_) => {}
-            None => funcs.trait_impltors.insert(def_id, vec![]),
+            None => {
+                funcs.trait_impltors.insert(def_id, vec![]);
+            }
         }
 
         for impl_defid in self.tcx.all_impls(def_id) {
@@ -83,14 +85,14 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
-    pub fn handle_structs(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
+    pub fn handle_struct(&self, _funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
         // TODO
         if debug {
             println!("generics: {:#?}", self.tcx.generics_of(def_id));
         }
     }
 
-    pub fn handle_trait_impls(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
+    pub fn handle_trait_impl(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
         // TODO might be useful once we encounter default trait implementations, to see
         // exactly _which_ functions are being implemented/overriden
         //println!("assoc_items: {:#?}", self.tcx.associated_items(def_id));
@@ -144,7 +146,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
-    pub fn handle_fns(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
+    pub fn handle_fn(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
         // TODO for AssocFns, might be useful to have a field describing if it has a
         // default implementation or not
 
@@ -263,10 +265,13 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 }
 
                 match def_kind {
-                    DefKind::Trait => self.handle_traits(funcs, debug),
-                    DefKind::Struct => self.handle_structs(funcs, debug),
-                    DefKind::Impl { of_trait: true } => self.handle_trait_impl(funcs, debug),
-                    DefKind::Fn | DefKind::AssocFn => self.handle_fns(funcs, debug),
+                    DefKind::Trait => self.handle_trait(funcs, def_id, debug),
+                    DefKind::Struct => self.handle_struct(funcs, def_id, debug),
+                    DefKind::Impl { of_trait: true } => {
+                        self.handle_trait_impl(funcs, def_id, debug)
+                    }
+                    DefKind::Fn | DefKind::AssocFn => self.handle_fn(funcs, def_id, debug),
+                    _ => {}
                 }
             }
         }

@@ -20,7 +20,7 @@ pub struct FuncMap<'tcx> {
     pub trait_fn_impltors: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
     // assoc fn of a trait -> that trait
     pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
-    // trait -> implementors of that trait (i.e. structs)
+    // trait -> structs
     pub trait_impltors: HashMap<DefId, Vec<DefId>>,
     // struct defid -> generics
     pub struct_generics: HashMap<DefId, Generics>,
@@ -181,7 +181,27 @@ impl<'tcx> FuncCollectPass<'tcx> {
         // default implementation or not
 
         if debug {
+            println!("impl of assoc: {:?}", self.tcx.impl_of_assoc(def_id));
             println!("generics: {:#?}", self.tcx.generics_of(def_id));
+        }
+
+        if let Some(impl_defid) = self.tcx.impl_of_assoc(def_id) {
+            match funcs.impl_blocks_to_impls.get(&impl_defid) {
+                Some(other_assoc) => {
+                    if debug {
+                        println!("others: {:?}", other_assoc);
+                    }
+                    let mut updated_assoc = other_assoc.clone();
+                    updated_assoc.push(def_id);
+                    funcs.impl_blocks_to_impls.insert(impl_defid, updated_assoc);
+                }
+                None => {
+                    if debug {
+                        println!("new");
+                    }
+                    funcs.impl_blocks_to_impls.insert(impl_defid, vec![def_id]);
+                }
+            }
         }
 
         let arg_idents = self.tcx.fn_arg_idents(def_id);

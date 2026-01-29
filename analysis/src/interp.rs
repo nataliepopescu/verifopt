@@ -358,9 +358,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         trait_def_id: &DefId,
         debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
+        //let mut dyn_funcs = vec![];
+
         if debug {
             println!("found in trait: {:?}", trait_def_id);
         }
+
         match self
             .funcs
             .trait_fn_impltors
@@ -396,42 +399,81 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                     for constraint in constraints.clone().drain() {
                                         match constraint {
-                                            VerifoptRval::Ref(inner) => match *inner {
-                                                VerifoptRval::IdkStruct(
-                                                    struct_defid,
-                                                    genarg_vec,
-                                                ) => {
-                                                    // is this a Box?
-                                                    if struct_defid.index.as_usize() == 662
-                                                        && struct_defid.krate.as_usize() == 3
-                                                    {
-                                                        // get first (only, for now) genarg constraint (i.e. IdkType(Cat))
-                                                        if let Some(genargs_outer) = genarg_vec {
-                                                            if genargs_outer.len() != 1 {
-                                                                panic!("handle diff genarg len");
-                                                            }
-                                                            let genarg_constraint_vec =
-                                                                &genargs_outer[0];
-                                                            if genarg_constraint_vec.len() != 1 {
-                                                                panic!(
-                                                                    "handle different genarg constraint len"
+                                            VerifoptRval::Ref(inner) => {
+                                                match *inner {
+                                                    VerifoptRval::IdkStruct(
+                                                        struct_defid,
+                                                        genarg_vec,
+                                                    ) => {
+                                                        // is this a Box?
+                                                        if struct_defid.index.as_usize() == 662
+                                                            && struct_defid.krate.as_usize() == 3
+                                                        {
+                                                            // get first (only, for now) genarg constraint (i.e. IdkType(Cat))
+                                                            if let Some(genargs_outer) = genarg_vec
+                                                            {
+                                                                if genargs_outer.len() != 1 {
+                                                                    panic!(
+                                                                        "handle diff genarg len"
+                                                                    );
+                                                                }
+                                                                let genarg_constraint_vec =
+                                                                    &genargs_outer[0];
+                                                                if genarg_constraint_vec.len() != 1
+                                                                {
+                                                                    panic!(
+                                                                        "handle different genarg constraint len"
+                                                                    );
+                                                                }
+                                                                let constraint =
+                                                                    &genarg_constraint_vec[0];
+                                                                println!(
+                                                                    "constraint: {:?}",
+                                                                    constraint
                                                                 );
-                                                            }
-                                                            let constraint =
-                                                                &genarg_constraint_vec[0];
-                                                            println!(
-                                                                "constraint: {:?}",
-                                                                constraint
-                                                            );
 
-                                                            // TODO assoc Cat w the correct speak() impl
-                                                            //match self.funcs.struct_impls.get() {
-                                                            //}
+                                                                // TODO assoc Cat w the correct speak() impl
+                                                                if let VerifoptRval::IdkStruct(
+                                                                    self_defid,
+                                                                    _,
+                                                                ) = constraint
+                                                                {
+                                                                    match self
+                                                                        .funcs
+                                                                        .struct_impls
+                                                                        .get(self_defid)
+                                                                    {
+                                                                        Some(impl_blocks) => {
+                                                                            if debug {
+                                                                                println!(
+                                                                                    "impl_blocks: {:?}",
+                                                                                    impl_blocks
+                                                                                );
+                                                                            }
+                                                                            match self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
+                                                                            Some(assoc) => {
+                                                                                for impltor in impltors {
+                                                                                    if assoc.contains(impltor) {
+                                                                                        println!("FOUND: {:?}", impltor);
+                                                                                        //dyn_funcs.push(impltor);
+                                                                                    }
+                                                                                }
+                                                                                if debug {
+                                                                                    println!("assoc: {:?}", assoc);
+                                                                                }
+                                                                            }
+                                                                            None => panic!("no"),
+                                                                        }
+                                                                        }
+                                                                        None => panic!("sad"),
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
+                                                    _ => {}
                                                 }
-                                                _ => {}
-                                            },
+                                            }
                                             _ => {}
                                         }
                                     }
@@ -450,6 +492,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 panic!("missing implementors");
             }
         }
+
+        //if !dyn_funcs.is_empty() {
+        //    println!("dispatch the following: {:?}", dyn_funcs);
+        //}
 
         // FIXME
         Ok(None)

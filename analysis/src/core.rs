@@ -59,7 +59,7 @@ pub enum VerifoptRval<'tcx> {
     Str(Const<'tcx>),
     ConstSlice(),
     Ptr(Box<VerifoptRval<'tcx>>),
-    //Ref(Box<VerifoptRval<'tcx>>),
+    Ref(Box<VerifoptRval<'tcx>>),
     IdkType(Ty<'tcx>),
     IdkDefId(DefId),
     Idk(),
@@ -180,13 +180,19 @@ impl<'tcx> VerifoptRval<'tcx> {
                 );
                 VerifoptRval::Ptr(Box::new(inner))
             }
-            /////////////////////////////////////
             Rvalue::Ref(_, _, place) => {
                 if debug {
                     println!("--ref");
                 }
-                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
+                VerifoptRval::Ref(Box::new(VerifoptRval::rval_from_place(
+                    cmap,
+                    cur_scope,
+                    place,
+                    &place.ty(local_decls, tcx).ty,
+                )))
+                //VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
             }
+            /////////////////////////////////////
             Rvalue::BinaryOp(binop, boxed_op_tup) => {
                 if debug {
                     println!("--binop");
@@ -243,21 +249,21 @@ impl<'tcx> VerifoptRval<'tcx> {
             Operand::Copy(place) | Operand::Move(place) => {
                 println!("place.local: {:?}", place.local);
                 println!("place.projection: {:?}", place.projection);
-                //println!("cur_scope: {:?}", cur_scope);
-                //println!(
-                //    "cur_scope cmap: {:?}",
-                //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-                //);
-                //println!(
-                //    "scoped_get: {:?}",
-                //    cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
-                //);
+                println!("cur_scope: {:?}", cur_scope);
+                println!(
+                    "cur_scope cmap: {:?}",
+                    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                );
+                println!(
+                    "scoped_get: {:?}",
+                    cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
+                );
 
                 if place.projection.len() != 0 {
                     match place.projection[0] {
                         //PlaceElem::Deref => {
                         //    // FIXME essentially ignoring the deref here, when would this be wrong?
-                        //    newplace = Place {
+                        //    let newplace = Place {
                         //        local: Local::from_u32(place.local.as_u32()),
                         //        projection: List::empty(),
                         //    };
@@ -266,9 +272,30 @@ impl<'tcx> VerifoptRval<'tcx> {
                         PlaceElem::Field(field_idx, ty) => {
                             println!("field_idx: {:?}", field_idx);
                             println!("ty: {:?}", ty);
-                            //todo!("field");
-                            // FIXME
-                            return VerifoptRval::IdkType(ty);
+                            // FIXME essentially ignoring the deref here, when would this be wrong?
+                            let newplace = Place {
+                                local: Local::from_u32(place.local.as_u32()),
+                                projection: List::empty(),
+                            };
+                            match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false)
+                            {
+                                Some(VarType::Values(constraints)) => {
+                                    println!("constraints: {:?}", constraints);
+                                    if constraints.len() != 1 {
+                                        panic!(
+                                            "handle other constraint lens: {:?}",
+                                            constraints.len()
+                                        );
+                                    }
+                                    for constraint in constraints.iter() {
+                                        return constraint.clone();
+                                    }
+                                    // FIXME
+                                    println!("should not print......");
+                                    return VerifoptRval::IdkType(ty);
+                                }
+                                _ => panic!("unexpected res from scoped_get"),
+                            }
                         }
                         _ => return VerifoptRval::Idk(),
                     }
@@ -278,7 +305,14 @@ impl<'tcx> VerifoptRval<'tcx> {
                     Some(vartype) => match vartype {
                         VarType::Values(constraints) => {
                             println!("constraints: {:?}", constraints);
+                            if constraints.len() != 1 {
+                                todo!("handle other lengths: {:?}", constraints.len());
+                            }
+                            for constraint in constraints.iter() {
+                                return constraint.clone();
+                            }
                             // FIXME
+                            println!("should not print......");
                             VerifoptRval::IdkType(*ty)
                         }
                         _ => panic!("should not get scope (cast)"),

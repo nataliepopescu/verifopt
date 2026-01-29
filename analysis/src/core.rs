@@ -5,7 +5,8 @@ use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
 use rustc_index::IndexSlice;
-use rustc_middle::ty::{List, Ty, TyCtxt};
+use rustc_middle::ty::{GenericArgKind, List, Ty, TyCtxt, TyKind};
+//use rustc_data_structures::fx::{FxHashSet as HashSet};
 
 use crate::ConstraintMap;
 use crate::constraints::{MapKey, VarType};
@@ -53,7 +54,7 @@ impl<'tcx> FuncVal<'tcx> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
-    IdkStruct(DefId),
+    IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
     Scalar(Scalar),
     Str(Const<'tcx>),
     ConstSlice(),
@@ -94,32 +95,51 @@ impl<'tcx> VerifoptRval<'tcx> {
                         println!("defid: {:?}", defid);
                         println!("vidx: {:?}", vidx);
                         println!("genargsref: {:?}", genargsref);
-                        //println!("genargs list: {:?}", genargsref.into_type_list(tcx));
                         println!("maybe_usertyannot: {:?}", maybe_usertyannot);
                         println!("maybe_fidx: {:?}", maybe_fidx);
 
                         println!("-cur_scope: {:?}", cur_scope);
                         println!(
-                            "cur_scope cmap: {:#?}",
+                            "cur_scope cmap: {:?}",
                             cmap.cmap.get(&MapKey::ScopeId(cur_scope))
                         );
-
-                        /*
-                        for ty in genargsref.types() {
-                            println!("--ty: {:?}", ty);
-                            println!("ty.kind(): {:?}", ty.kind());
-                            println!("is adt: {:?}", ty.is_adt());
-                            println!("is any ptr: {:?}", ty.is_any_ptr());
-                            println!("is box: {:?}", ty.is_box());
-                            println!("is fn: {:?}", ty.is_fn());
-                            println!("is impl trait: {:?}", ty.is_impl_trait());
-                            println!("is primitive: {:?}", ty.is_primitive());
-                            println!("is raw ptr: {:?}", ty.is_raw_ptr());
-                            println!("is trait: {:?}", ty.is_trait());
-                        }
-                        */
                     }
-                    VerifoptRval::IdkStruct(*defid)
+
+                    if genargsref.is_empty() {
+                        return VerifoptRval::IdkStruct(*defid, None);
+                    } else {
+                        let mut genarg_vec = vec![];
+                        for i in 0..genargsref.len() {
+                            println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
+                            match genargsref[i].kind() {
+                                GenericArgKind::Type(ty) => match ty.kind() {
+                                    TyKind::Param(param) => {
+                                        println!("param.name: {:?}", param.name);
+                                        match cmap.scoped_get(
+                                            Some(cur_scope),
+                                            &MapKey::Generic(param.name),
+                                            false,
+                                        ) {
+                                            Some(VarType::Values(constraints)) => {
+                                                // turn HashSet constraints into Vec so can store
+                                                // in HashMap (derive `Hash` trait)
+                                                let mut constraint_vec = vec![];
+                                                for constraint in constraints.iter() {
+                                                    constraint_vec.push(constraint.clone());
+                                                }
+                                                genarg_vec.push(constraint_vec);
+                                            }
+                                            _ => panic!("unexpected generic mapping"),
+                                        }
+                                    }
+                                    _ => {}
+                                },
+                                GenericArgKind::Const(_) => println!("const"),
+                                _ => {}
+                            }
+                        }
+                        return VerifoptRval::IdkStruct(*defid, Some(genarg_vec));
+                    }
                 }
                 AggregateKind::Closure(defid, _)
                 | AggregateKind::Coroutine(defid, _)

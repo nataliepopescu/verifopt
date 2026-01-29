@@ -5,7 +5,9 @@ extern crate rustc_middle;
 
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
+//use rustc_middle::ty::ParamTy;
 //use rustc_span::Ident;
+use rustc_span::symbol::Symbol;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -33,6 +35,7 @@ pub(crate) enum VarType<'tcx> {
 pub(crate) enum MapKey<'tcx> {
     //Arg(Option<Ident>), //Place<'tcx>),
     Place(Place<'tcx>),
+    Generic(Symbol),
     // FIXME Option str? if so, remove from VarType::Scope
     ScopeId(DefId),
 }

@@ -5,7 +5,7 @@ use rustc_hir::def::DefKind;
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{InstanceKind, List, TyCtxt, TyKind};
+use rustc_middle::ty::{Generics, InstanceKind, List, TyCtxt, TyKind};
 //use crate::rustc_middle::query::Key;
 
 use crate::core::FuncVal;
@@ -23,6 +23,8 @@ pub struct FuncMap<'tcx> {
     pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
     // trait -> implementors of that trait (i.e. structs)
     pub trait_impltors: HashMap<DefId, Vec<DefId>>,
+    // struct defid -> generics
+    pub struct_generics: HashMap<DefId, Generics>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
@@ -32,6 +34,7 @@ impl<'tcx> FuncMap<'tcx> {
             trait_fn_impltors: Arc::new(Mutex::new(HashMap::default())),
             assocfns_to_traits: Arc::new(Mutex::new(HashMap::default())),
             trait_impltors: HashMap::default(),
+            struct_generics: HashMap::default(),
         }
     }
 }
@@ -45,7 +48,20 @@ impl<'tcx> FuncCollectPass<'tcx> {
         Self { tcx }
     }
 
-    pub fn handle_trait(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, _debug: bool) {
+    pub fn handle_struct(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
+        if debug {
+            println!("generics: {:#?}", self.tcx.generics_of(def_id));
+        }
+        funcs
+            .struct_generics
+            .insert(def_id, self.tcx.generics_of(def_id).clone());
+    }
+
+    pub fn handle_trait(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
+        if debug {
+            println!("generics: {:#?}", self.tcx.generics_of(def_id));
+        }
+
         match funcs.trait_impltors.get(&def_id) {
             Some(_) => {}
             None => {
@@ -82,13 +98,6 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
                 true
             });
-        }
-    }
-
-    pub fn handle_struct(&self, _funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
-        // TODO
-        if debug {
-            println!("generics: {:#?}", self.tcx.generics_of(def_id));
         }
     }
 
@@ -149,6 +158,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
     pub fn handle_fn(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
         // TODO for AssocFns, might be useful to have a field describing if it has a
         // default implementation or not
+
+        if debug {
+            println!("generics: {:#?}", self.tcx.generics_of(def_id));
+        }
 
         let arg_idents = self.tcx.fn_arg_idents(def_id);
         let num_args = arg_idents.len();

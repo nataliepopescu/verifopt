@@ -2,7 +2,7 @@ use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{List, TyCtxt, TyKind};
+use rustc_middle::ty::{List, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::packed::Pu128;
 use rustc_index::IndexSlice;
 use rustc_span::source_map::Spanned;
@@ -639,7 +639,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             if debug {
                                 println!("zero-sized");
                                 println!("ty: {:?}", ty);
-                                println!("ty.kind: {:?}", ty.kind());
+                                self.help_know_type(&ty);
                             }
                             constraints.insert(VerifoptRval::IdkType(ty));
                         }
@@ -672,6 +672,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         constraints
     }
 
+    fn help_know_type(&self, ty: &Ty<'tcx>) {
+        match ty.kind() {
+            TyKind::Adt(_, _) => println!("adt"),
+            TyKind::Param(param) => {
+                println!("param");
+                println!("index: {:?}", param.index);
+                println!("name: {:?}", param.name);
+            }
+            _ => println!("other"),
+        }
+    }
+
     fn resolve_args(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -688,14 +700,27 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             if debug {
                 println!("param_name: {:?}", param_name);
                 println!("param_type: {:?}", param_type);
+                //self.help_know_type(&param_type);
                 println!("arg: {:?}", arg);
             }
 
             let constraints = self.resolve_arg(cmap, cur_scope, arg, debug);
+            println!("resolved constraints: {:?}", constraints);
             func_cmap.cmap.insert(
                 MapKey::Place(param_name),
-                Box::new(VarType::Values(constraints)),
+                Box::new(VarType::Values(constraints.clone())),
             );
+
+            match param_type.kind() {
+                TyKind::Param(param) => {
+                    // e.g. map T -> Cat
+                    func_cmap.cmap.insert(
+                        MapKey::Generic(param.name),
+                        Box::new(VarType::Values(constraints)),
+                    );
+                }
+                _ => {}
+            }
         }
 
         // add func_cmap to outer cmap

@@ -23,6 +23,8 @@ pub struct FuncMap<'tcx> {
     pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
     // trait -> implementors of that trait (i.e. structs)
     pub trait_impltors: HashMap<DefId, Vec<DefId>>,
+    // TODO
+    // pub struct -> trait method(s)?
     // struct defid -> generics
     pub struct_generics: HashMap<DefId, Generics>,
 }

@@ -374,13 +374,66 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         Operand::Copy(place) | Operand::Move(place) => {
                             if debug {
                                 println!("first arg: {:?}", args[0]);
-                                println!("impltors: {:?}", impltors);
                                 println!("place: {:?}", place);
                                 //println!("\n~~~CMAP @ scope {:?}: {:?}\n", cur_scope, cmap.cmap.get(&MapKey::ScopeId(cur_scope)));
                                 println!(
                                     "value: {:?}",
                                     cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                                 );
+                                println!("impltors: {:?}", impltors);
+                                println!(
+                                    "structs: {:?}",
+                                    self.funcs.trait_impltors.get(trait_def_id)
+                                );
+                            }
+
+                            match cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false) {
+                                Some(VarType::Values(constraints)) => {
+                                    if constraints.len() != 1 {
+                                        todo!("halp");
+                                    }
+
+                                    for constraint in constraints.clone().drain() {
+                                        match constraint {
+                                            VerifoptRval::Ref(inner) => match *inner {
+                                                VerifoptRval::IdkStruct(
+                                                    struct_defid,
+                                                    genarg_vec,
+                                                ) => {
+                                                    // is this a Box?
+                                                    if struct_defid.index.as_usize() == 662
+                                                        && struct_defid.krate.as_usize() == 3
+                                                    {
+                                                        // get first (only, for now) genarg constraint (i.e. IdkType(Cat))
+                                                        if let Some(genargs_outer) = genarg_vec {
+                                                            if genargs_outer.len() != 1 {
+                                                                panic!("handle diff genarg len");
+                                                            }
+                                                            let genarg_constraint_vec =
+                                                                &genargs_outer[0];
+                                                            if genarg_constraint_vec.len() != 1 {
+                                                                panic!(
+                                                                    "handle different genarg constraint len"
+                                                                );
+                                                            }
+                                                            let constraint =
+                                                                &genarg_constraint_vec[0];
+                                                            println!(
+                                                                "constraint: {:?}",
+                                                                constraint
+                                                            );
+
+                                                            // TODO assoc Cat w the correct speak() impl
+                                                        }
+                                                    }
+                                                }
+                                                _ => {}
+                                            },
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                                _ => panic!("why"),
                             }
                         }
                         _ => {}

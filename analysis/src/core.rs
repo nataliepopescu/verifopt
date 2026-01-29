@@ -190,7 +190,6 @@ impl<'tcx> VerifoptRval<'tcx> {
                     place,
                     &place.ty(local_decls, tcx).ty,
                 )))
-                //VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
             }
             /////////////////////////////////////
             Rvalue::BinaryOp(binop, boxed_op_tup) => {

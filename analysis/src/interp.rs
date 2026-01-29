@@ -76,7 +76,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         // get Weak Topological Ordering of function body
         // TODO memoize
-        let mut bb_deps = BBDeps::new(body);
+        let mut bb_deps = BBDeps::new(body, debug);
         let mut last_res = None;
         loop {
             if bb_deps.ordering.is_empty() {
@@ -368,6 +368,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             .unwrap()
             .get(&assoc_funcval.def_id)
         {
+            // get actual trait fn implementations
             Some(impltors) => {
                 if args.len() > 0 && assoc_funcval.is_method {
                     match args[0].node {
@@ -424,6 +425,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                             );
 
                                                             // TODO assoc Cat w the correct speak() impl
+                                                            //match self.funcs.struct_impls.get() {
+                                                            //}
                                                         }
                                                     }
                                                 }
@@ -692,9 +695,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             if debug {
                                 println!("zero-sized");
                                 println!("ty: {:?}", ty);
-                                self.help_know_type(&ty);
                             }
-                            constraints.insert(VerifoptRval::IdkType(ty));
+                            match ty.kind() {
+                                TyKind::Adt(def, _) => {
+                                    constraints.insert(VerifoptRval::IdkStruct(def.did(), None))
+                                }
+                                _ => constraints.insert(VerifoptRval::IdkType(ty)),
+                            };
                         }
                         ConstValue::Slice { .. } => {
                             todo!("slice");
@@ -725,18 +732,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         constraints
     }
 
-    fn help_know_type(&self, ty: &Ty<'tcx>) {
-        match ty.kind() {
-            TyKind::Adt(_, _) => println!("adt"),
-            TyKind::Param(param) => {
-                println!("param");
-                println!("index: {:?}", param.index);
-                println!("name: {:?}", param.name);
-            }
-            _ => println!("other"),
-        }
-    }
-
     fn resolve_args(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -753,12 +748,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             if debug {
                 println!("param_name: {:?}", param_name);
                 println!("param_type: {:?}", param_type);
-                //self.help_know_type(&param_type);
                 println!("arg: {:?}", arg);
             }
 
             let constraints = self.resolve_arg(cmap, cur_scope, arg, debug);
-            println!("resolved constraints: {:?}", constraints);
+            if debug {
+                println!("resolved constraints: {:?}", constraints);
+            }
             func_cmap.cmap.insert(
                 MapKey::Place(param_name),
                 Box::new(VarType::Values(constraints.clone())),

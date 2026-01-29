@@ -6,7 +6,6 @@ use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::ty::{Generics, InstanceKind, List, TyCtxt, TyKind};
-//use crate::rustc_middle::query::Key;
 
 use crate::core::FuncVal;
 
@@ -23,10 +22,13 @@ pub struct FuncMap<'tcx> {
     pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
     // trait -> implementors of that trait (i.e. structs)
     pub trait_impltors: HashMap<DefId, Vec<DefId>>,
-    // TODO
-    // pub struct -> trait method(s)?
     // struct defid -> generics
     pub struct_generics: HashMap<DefId, Generics>,
+    // TODO
+    // struct -> [impl blocks]
+    pub struct_impls: HashMap<DefId, Vec<DefId>>,
+    // impl blocks -> [impl fns/methods]
+    pub impl_blocks_to_impls: HashMap<DefId, Vec<DefId>>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
@@ -37,6 +39,8 @@ impl<'tcx> FuncMap<'tcx> {
             assocfns_to_traits: Arc::new(Mutex::new(HashMap::default())),
             trait_impltors: HashMap::default(),
             struct_generics: HashMap::default(),
+            struct_impls: HashMap::default(),
+            impl_blocks_to_impls: HashMap::default(),
         }
     }
 }
@@ -119,10 +123,25 @@ impl<'tcx> FuncCollectPass<'tcx> {
             if debug {
                 println!("impl_struct: {:?}", impl_struct.as_type().unwrap().kind());
             }
+
             match impl_struct.as_type().unwrap().kind() {
                 TyKind::Adt(def, _) => {
+                    let struct_defid = def.did();
+
                     if debug {
-                        println!("defid: {:?}", def.did());
+                        println!("defid: {:?}", struct_defid);
+                    }
+
+                    // add struct -> impl block pairing
+                    match funcs.struct_impls.get(&struct_defid) {
+                        Some(other_impls) => {
+                            let mut updated_impls = other_impls.clone();
+                            updated_impls.push(def_id);
+                            funcs.struct_impls.insert(struct_defid, updated_impls);
+                        }
+                        None => {
+                            funcs.struct_impls.insert(struct_defid, vec![def_id]);
+                        }
                     }
 
                     match funcs.trait_impltors.get(&trait_defid) {

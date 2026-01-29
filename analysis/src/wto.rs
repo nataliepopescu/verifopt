@@ -8,21 +8,26 @@ pub struct BBDeps {
     pub preds: HashMap<BasicBlock, Vec<BasicBlock>>,
     pub ordering: Vec<BasicBlock>,
     pub visited: Vec<BasicBlock>,
+    pub debug: bool,
 }
 
 impl BBDeps {
-    pub fn new<'tcx>(body: &'tcx Body<'tcx>) -> Self {
+    pub fn new<'tcx>(body: &'tcx Body<'tcx>, debug: bool) -> Self {
         let mut bb_deps = BBDeps {
             //body,
             preds: HashMap::default(),
             ordering: Vec::new(),
             visited: Vec::new(),
+            debug,
         };
 
         for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
             bb_deps.get_deps(&bb, bb_data);
         }
-        println!("self.pred: {:?}", bb_deps.preds);
+
+        if debug {
+            println!("self.pred: {:?}", bb_deps.preds);
+        }
 
         let mut ret_bb = BasicBlock::from_u32(0);
         let mut ret_found = false;
@@ -49,18 +54,22 @@ impl BBDeps {
         if !ret_found {
             panic!("no return block?");
         }
-        println!("self.ordering pre: {:?}", bb_deps.ordering);
+        //println!("self.ordering pre: {:?}", bb_deps.ordering);
         bb_deps.ordering.push(ret_bb);
-        println!("self.ordering post: {:?}", bb_deps.ordering);
-        println!("\n%%%%%");
+        if debug {
+            println!("self.ordering: {:?}", bb_deps.ordering);
+            println!("\n%%%%%");
+        }
 
         bb_deps
     }
 
     pub fn prune(&mut self, _cur: &BasicBlock, bb_root: BasicBlock) {
-        println!("PRUNING from root basicblock: {:?}", bb_root);
-        println!("self.preds: {:?}", self.preds);
-        println!("self.ordering: {:?}", self.ordering);
+        if self.debug {
+            println!("PRUNING from root basicblock: {:?}", bb_root);
+            println!("self.preds: {:?}", self.preds);
+            println!("self.ordering: {:?}", self.ordering);
+        }
 
         let mut to_remove = Vec::new();
         let mut worklist = Vec::new();
@@ -87,13 +96,17 @@ impl BBDeps {
 
         // update ordering
         self.ordering.retain(|x| !to_remove.contains(x));
-        println!("self.preds: {:?}", self.preds);
-        println!("to_remove: {:?}", to_remove);
-        println!("self.ordering: {:?}", self.ordering);
+        if self.debug {
+            println!("self.preds: {:?}", self.preds);
+            println!("to_remove: {:?}", to_remove);
+            println!("self.ordering: {:?}", self.ordering);
+        }
     }
 
     pub fn mark_visited(&mut self, bb: &BasicBlock) {
-        println!("DONE VISITING {:?}", bb);
+        if self.debug {
+            println!("DONE VISITING {:?}", bb);
+        }
         self.visited.push(*bb);
     }
 
@@ -127,21 +140,31 @@ impl BBDeps {
         let mut ordering = Vec::new();
 
         for (bb_key, preds_vec) in self.preds.iter() {
-            println!("bb_key: {:?}", bb_key);
-            println!("preds: {:?}", preds_vec);
+            if self.debug {
+                println!("bb_key: {:?}", bb_key);
+                println!("preds: {:?}", preds_vec);
+            }
             for pred in preds_vec.iter() {
                 if !ordering.contains(pred) {
                     ordering.push(*pred);
-                    println!("ordering: {:?}", ordering);
+                    if self.debug {
+                        println!("ordering: {:?}", ordering);
+                    }
                 } else {
-                    println!("ordering CONTAINS pred: {:?}", pred);
+                    if self.debug {
+                        println!("ordering CONTAINS pred: {:?}", pred);
+                    }
                 }
             }
             if !ordering.contains(bb_key) {
                 ordering.push(*bb_key);
-                println!("ordering: {:?}", ordering);
+                if self.debug {
+                    println!("ordering: {:?}", ordering);
+                }
             } else {
-                println!("ordering CONTAINS key: {:?}", bb_key);
+                if self.debug {
+                    println!("ordering CONTAINS key: {:?}", bb_key);
+                }
             }
         }
 

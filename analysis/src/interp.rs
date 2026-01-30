@@ -1,10 +1,9 @@
 use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_hir::def_id::DefId;
+use rustc_index::IndexSlice;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{List, Ty, TyCtxt, TyKind};
-//use rustc_data_structures::packed::Pu128;
-use rustc_index::IndexSlice;
+use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
@@ -358,8 +357,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         trait_def_id: &DefId,
         debug: bool,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
-        //let mut dyn_funcs = vec![];
-
         if debug {
             println!("found in trait: {:?}", trait_def_id);
         }
@@ -432,7 +429,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                                     constraint
                                                                 );
 
-                                                                // TODO assoc Cat w the correct speak() impl
+                                                                // assoc Cat w the correct speak() impl
                                                                 if let VerifoptRval::IdkStruct(
                                                                     self_defid,
                                                                     _,
@@ -455,7 +452,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                                                 for impltor in impltors {
                                                                                     if assoc.contains(impltor) {
                                                                                         println!("FOUND: {:?}", impltor);
-                                                                                        //dyn_funcs.push(impltor);
+                                                                                        let funcvals = self.funcs.funcs.get(impltor);
+                                                                                        if funcvals.is_none() {
+                                                                                            panic!("func not found: {:?}", impltor);
+                                                                                        }
+                                                                                        let funcval_vec = funcvals.unwrap();
+                                                                                        if funcval_vec.len() != 1 {
+                                                                                            panic!("unexpected number of functions");
+                                                                                        }
+                                                                                        return self.handle_static_dispatch(cmap, cur_scope, &funcval_vec[0], args, debug);
                                                                                     }
                                                                                 }
                                                                                 if debug {
@@ -562,7 +567,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             cmap,
                                             cur_scope,
                                             args,
-                                            funcval, //def_id,
+                                            funcval,
                                             trait_def_id,
                                             debug,
                                         ) {

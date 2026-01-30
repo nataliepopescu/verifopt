@@ -31,13 +31,13 @@ have:
 - {impl#1} -> Cat
 
 need:
-- Cat -> {impl#1}
-- {impl#1} -> {impl#1}::speak
+- 1: [x] Cat -> {impl#1}
+- 2: [x] {impl#1} -> {impl#1}::speak
 
 - how to assoc Cat w {impl#1}::speak?
     - can do some trait math, like which trait are we implementing, how many
       methods does that trait have, is this trait within that defid range?
-    - 
+    - jk, found a method that does step 2
 
 ### Generics
 

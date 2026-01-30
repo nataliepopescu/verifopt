@@ -31,19 +31,20 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         body: &'tcx Body<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // set up main / entry-point scope
-        let locals = body.local_decls.as_slice();
-        let ty = locals[Local::from_usize(0)].ty;
-        let mut set = HashSet::default();
-        set.insert(VerifoptRval::IdkType(ty));
-        let mut main_cmap = ConstraintMap::new();
+        // FIXME perhaps add some of this back if entry-point is not `main`
+        //let locals = body.local_decls.as_slice();
+        //let ty = locals[Local::from_usize(0)].ty;
+        //let mut set = HashSet::default();
+        //set.insert(VerifoptRval::IdkType(ty));
+        let main_cmap = ConstraintMap::new();
 
-        main_cmap.cmap.insert(
-            MapKey::Place(Place {
-                local: Local::from_usize(0),
-                projection: List::empty(),
-            }),
-            Box::new(VarType::Values(set)),
-        );
+        //main_cmap.cmap.insert(
+        //    MapKey::Place(Place {
+        //        local: Local::from_usize(0),
+        //        projection: List::empty(),
+        //    }),
+        //    Box::new(VarType::Values(set)),
+        //);
 
         cmap.cmap.insert(
             MapKey::ScopeId(cur_scope),
@@ -156,7 +157,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         match statement.kind {
             StatementKind::Assign(box (place, ref rvalue)) => {
                 if self.debug {
-                    println!("assignment!");
+                    println!("start assignment!");
+                    println!("cur_scope: {:?}", cur_scope);
                     println!("place: {:?}", place);
                     println!("rval: {:?}", rvalue);
                 }
@@ -176,6 +178,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     MapKey::Place(place),
                     Box::new(VarType::Values(set)),
                 );
+
+                //if self.debug {
+                //    println!("end assignment!");
+                //    println!("cur_scope: {:?}", cur_scope);
+                //    println!("place: {:?}", place);
+                //    println!("rval: {:?}", rvalue);
+                //    println!(
+                //        "cur_scope cmap: {:?}",
+                //        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                //    );
+                //}
             }
             _ => {}
         }
@@ -216,6 +229,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // return constraints at place _0
         if self.debug {
             println!("RETURNING...");
+            //println!(
+            //    "cur_scope cmap: {:?}",
+            //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+            //);
         }
         match cmap.scoped_get(
             Some(cur_scope),

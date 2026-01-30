@@ -333,13 +333,116 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         Ok(None)
     }
 
+    fn is_box(&self, def_id: DefId) -> bool {
+        // FIXME does this ever change....
+        def_id.index.as_usize() == 662 && def_id.krate.as_usize() == 3
+    }
+
+    fn resolve_dyn_self_constraint(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        impltors: &Vec<DefId>,
+        constraint: VerifoptRval<'tcx>,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
+    ) -> Option<VerifoptRval<'tcx>> {
+        match constraint {
+            VerifoptRval::Ref(inner) => {
+                self.resolve_dyn_self_constraint(cmap, cur_scope, impltors, *inner, args)
+            }
+            VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
+                if self.is_box(struct_defid) {
+                    // get first (and only, for now) genarg constraint (i.e. IdkType(Cat))
+                    if let Some(genargs_outer) = genarg_vec {
+                        if genargs_outer.len() != 1 {
+                            panic!("handle diff genarg len");
+                        }
+                        let genarg_constraint_vec = &genargs_outer[0];
+                        if genarg_constraint_vec.len() != 1 {
+                            panic!("handle different genarg constraint len");
+                        }
+                        let genarg_constraint = &genarg_constraint_vec[0];
+
+                        // FIXME does this need to be in a separate function?
+                        // otherwise could save a clone()
+                        return Some(genarg_constraint.clone());
+                    } else {
+                        return None;
+                    }
+                } else {
+                    todo!("struct is not a box");
+                }
+            }
+            _ => todo!("handle other types"),
+        }
+    }
+
+    fn get_trait_fn_impls(
+        &self,
+        self_constraint: VerifoptRval<'tcx>,
+        impltors: &Vec<DefId>,
+    ) -> Vec<DefId> {
+        let mut to_dispatch = vec![];
+        match self_constraint {
+            VerifoptRval::IdkStruct(self_defid, _) => {
+                if let Some(impl_blocks) = self.funcs.struct_impls.get(&self_defid) {
+                    if self.debug {
+                        println!("impl_blocks: {:?}", impl_blocks);
+                    }
+
+                    match self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
+                        Some(assoc) => {
+                            if self.debug {
+                                println!("assoc: {:?}", assoc);
+                            }
+                            for impltor in impltors {
+                                if assoc.contains(impltor) {
+                                    to_dispatch.push(*impltor);
+                                }
+                            }
+                            return to_dispatch;
+                        }
+                        None => panic!("no"),
+                    }
+                } else {
+                    panic!("cannot get struct impl_blocks: {:?}", self_defid);
+                }
+            }
+            _ => todo!("handle other types"),
+        }
+    }
+
+    fn dyn_to_static_dispatch(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        to_dispatch: Vec<DefId>,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
+    ) -> Result<Option<Constraints<'tcx>>, Error> {
+        if to_dispatch.len() != 1 {
+            todo!("unexpected to_dispatch len");
+        }
+
+        for func_defid in to_dispatch {
+            let funcvals = self.funcs.funcs.get(&func_defid);
+            if funcvals.is_none() {
+                panic!("func not found: {:?}", func_defid);
+            }
+            let funcval_vec = funcvals.unwrap();
+            if funcval_vec.len() != 1 {
+                panic!("unexpected number of functions");
+            }
+            return self.handle_static_dispatch(cmap, cur_scope, &funcval_vec[0], args);
+        }
+
+        Ok(None)
+    }
+
     fn handle_dyn_dispatch(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
         args: &Box<[Spanned<Operand<'tcx>>]>,
-        //destination: &Place<'tcx>,
-        //assocfn_def_id: &DefId,
         assoc_funcval: &FuncVal<'tcx>,
         trait_def_id: &DefId,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -347,143 +450,72 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("found in trait: {:?}", trait_def_id);
         }
 
-        match self
+        if let Some(impltors) = self
             .funcs
             .trait_fn_impltors
             .lock()
             .unwrap()
             .get(&assoc_funcval.def_id)
         {
-            // get actual trait fn implementations
-            Some(impltors) => {
-                if args.len() > 0 && assoc_funcval.is_method {
-                    match args[0].node {
-                        Operand::Copy(place) | Operand::Move(place) => {
-                            if self.debug {
-                                println!("first arg: {:?}", args[0]);
-                                println!("place: {:?}", place);
-                                //println!("\n~~~CMAP @ scope {:?}: {:?}\n", cur_scope, cmap.cmap.get(&MapKey::ScopeId(cur_scope)));
-                                println!(
-                                    "value: {:?}",
-                                    cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
+            if args.len() == 0 {
+                if self.debug {
+                    println!("argments list empty: cannot determine self type");
+                }
+                return Ok(None);
+            }
+
+            if !assoc_funcval.is_method {
+                panic!("not a method");
+            }
+
+            match args[0].node {
+                Operand::Copy(place) | Operand::Move(place) => {
+                    if self.debug {
+                        println!("first arg: {:?}", args[0]);
+                        println!("place: {:?}", place);
+                        println!(
+                            "value: {:?}",
+                            cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
+                        );
+                        println!("impltors: {:?}", impltors);
+                        println!("structs: {:?}", self.funcs.trait_impltors.get(trait_def_id));
+                    }
+
+                    if let Some(VarType::Values(constraints)) =
+                        cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
+                    {
+                        if constraints.len() != 1 {
+                            todo!("unexpected number of constraints");
+                        }
+
+                        for constraint in constraints.clone().drain() {
+                            // get dyn obj type
+                            if let Some(self_constraint) = self.resolve_dyn_self_constraint(
+                                cmap, cur_scope, impltors, constraint, args,
+                            ) {
+                                // assoc dyn obj w the correct trait fn impl
+                                let to_dispatch =
+                                    self.get_trait_fn_impls(self_constraint, impltors);
+
+                                // call impls
+                                return self.dyn_to_static_dispatch(
+                                    cmap,
+                                    cur_scope,
+                                    to_dispatch,
+                                    args,
                                 );
-                                println!("impltors: {:?}", impltors);
-                                println!(
-                                    "structs: {:?}",
-                                    self.funcs.trait_impltors.get(trait_def_id)
-                                );
-                            }
-
-                            match cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false) {
-                                Some(VarType::Values(constraints)) => {
-                                    if constraints.len() != 1 {
-                                        todo!("halp");
-                                    }
-
-                                    for constraint in constraints.clone().drain() {
-                                        match constraint {
-                                            VerifoptRval::Ref(inner) => {
-                                                match *inner {
-                                                    VerifoptRval::IdkStruct(
-                                                        struct_defid,
-                                                        genarg_vec,
-                                                    ) => {
-                                                        // is this a Box?
-                                                        if struct_defid.index.as_usize() == 662
-                                                            && struct_defid.krate.as_usize() == 3
-                                                        {
-                                                            // get first (only, for now) genarg constraint (i.e. IdkType(Cat))
-                                                            if let Some(genargs_outer) = genarg_vec
-                                                            {
-                                                                if genargs_outer.len() != 1 {
-                                                                    panic!(
-                                                                        "handle diff genarg len"
-                                                                    );
-                                                                }
-                                                                let genarg_constraint_vec =
-                                                                    &genargs_outer[0];
-                                                                if genarg_constraint_vec.len() != 1
-                                                                {
-                                                                    panic!(
-                                                                        "handle different genarg constraint len"
-                                                                    );
-                                                                }
-                                                                let constraint =
-                                                                    &genarg_constraint_vec[0];
-                                                                if self.debug {
-                                                                    println!(
-                                                                        "constraint: {:?}",
-                                                                        constraint
-                                                                    );
-                                                                }
-
-                                                                // assoc Cat w the correct speak() impl
-                                                                if let VerifoptRval::IdkStruct(
-                                                                    self_defid,
-                                                                    _,
-                                                                ) = constraint
-                                                                {
-                                                                    match self
-                                                                        .funcs
-                                                                        .struct_impls
-                                                                        .get(self_defid)
-                                                                    {
-                                                                        Some(impl_blocks) => {
-                                                                            if self.debug {
-                                                                                println!(
-                                                                                    "impl_blocks: {:?}",
-                                                                                    impl_blocks
-                                                                                );
-                                                                            }
-                                                                            match self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
-                                                                            Some(assoc) => {
-                                                                                for impltor in impltors {
-                                                                                    if assoc.contains(impltor) {
-                                                                                        if self.debug { println!("FOUND: {:?}", impltor); }
-                                                                                        let funcvals = self.funcs.funcs.get(impltor);
-                                                                                        if funcvals.is_none() {
-                                                                                            panic!("func not found: {:?}", impltor);
-                                                                                        }
-                                                                                        let funcval_vec = funcvals.unwrap();
-                                                                                        if funcval_vec.len() != 1 {
-                                                                                            panic!("unexpected number of functions");
-                                                                                        }
-                                                                                        return self.handle_static_dispatch(cmap, cur_scope, &funcval_vec[0], args);
-                                                                                    }
-                                                                                }
-                                                                                if self.debug {
-                                                                                    println!("assoc: {:?}", assoc);
-                                                                                }
-                                                                            }
-                                                                            None => panic!("no"),
-                                                                        }
-                                                                        }
-                                                                        None => panic!("sad"),
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                }
-                                _ => panic!("why"),
+                            } else {
+                                todo!("no self constraint");
                             }
                         }
-                        _ => {}
+                    } else {
+                        panic!("first argument place does not exist: {:?}", place);
                     }
                 }
-
-                // TODO get type of first arg
-                // (receiver)
+                _ => {}
             }
-            None => {
-                panic!("missing implementors");
-            }
+        } else {
+            panic!("missing implementors");
         }
 
         Ok(None)

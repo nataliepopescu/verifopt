@@ -22,6 +22,7 @@ pub(crate) type Constraints<'tcx> = HashSet<VerifoptRval<'tcx>>;
 pub(crate) enum VarType<'tcx> {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
+    // FIXME change meaning of backptr: only closures have one (not regular functions)
     SubScope(Option<DefId>, Vec<(Box<Type>, ConstraintMap<'tcx>)>),
     // set of positive constraints
     // FIXME ignoring types for now, can add back in if need, but type-checking has already
@@ -127,7 +128,7 @@ impl<'tcx> ConstraintMap<'tcx> {
                             let mut cvec = vec![];
                             cvec.push(*value);
                             cvec.push(*old_vartype.clone());
-                            println!("cvec: {:?}", cvec);
+                            //println!("cvec: {:?}", cvec);
                             match cvec.merge() {
                                 Ok(Some(new_vartype)) => {
                                     subscope_cmap.insert(var, Box::new(new_vartype));

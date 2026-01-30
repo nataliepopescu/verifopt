@@ -47,15 +47,16 @@ impl<'tcx> FuncMap<'tcx> {
 
 pub struct FuncCollectPass<'tcx> {
     pub tcx: TyCtxt<'tcx>,
+    pub debug: bool,
 }
 
 impl<'tcx> FuncCollectPass<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>) -> FuncCollectPass<'tcx> {
-        Self { tcx }
+    pub fn new(tcx: TyCtxt<'tcx>, debug: bool) -> FuncCollectPass<'tcx> {
+        Self { tcx, debug }
     }
 
-    pub fn handle_struct(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
-        if debug {
+    pub fn handle_struct(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
+        if self.debug {
             println!("generics: {:#?}", self.tcx.generics_of(def_id));
         }
         funcs
@@ -63,8 +64,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
             .insert(def_id, self.tcx.generics_of(def_id).clone());
     }
 
-    pub fn handle_trait(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
-        if debug {
+    pub fn handle_trait(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
+        if self.debug {
             println!("generics: {:#?}", self.tcx.generics_of(def_id));
         }
 
@@ -77,7 +78,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
         for impl_defid in self.tcx.all_impls(def_id) {
             let impltors = self.tcx.impl_item_implementor_ids(impl_defid);
-            //if debug {
+            //if self.debug {
             //    println!("impl_defid: {:?}", impl_defid);
             //    println!("impltors: {:?}", impltors);
             //}
@@ -107,20 +108,20 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
-    pub fn handle_trait_impl(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
+    pub fn handle_trait_impl(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
         // TODO might be useful once we encounter default trait implementations, to see
         // exactly _which_ functions are being implemented/overriden
         //println!("assoc_items: {:#?}", self.tcx.associated_items(def_id));
 
         let trait_ref = self.tcx.impl_trait_header(def_id).trait_ref.skip_binder();
         let trait_defid = trait_ref.def_id;
-        if debug {
+        if self.debug {
             println!("trait defid: {:?}", trait_defid);
         }
         let arglen = trait_ref.args.len();
         if arglen == 1 {
             let impl_struct = trait_ref.args.as_slice()[0];
-            if debug {
+            if self.debug {
                 println!("impl_struct: {:?}", impl_struct.as_type().unwrap().kind());
             }
 
@@ -128,7 +129,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 TyKind::Adt(def, _) => {
                     let struct_defid = def.did();
 
-                    if debug {
+                    if self.debug {
                         println!("defid: {:?}", struct_defid);
                     }
 
@@ -146,7 +147,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
                     match funcs.trait_impltors.get(&trait_defid) {
                         Some(vec_impltors) => {
-                            //if debug {
+                            //if self.debug {
                             //    println!("adding impltor to trait-struct map");
                             //}
                             let mut new_impltors = vec_impltors.clone();
@@ -154,7 +155,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                             funcs.trait_impltors.insert(trait_defid, new_impltors);
                         }
                         None => {
-                            //if debug {
+                            //if self.debug {
                             //    println!("trait doesn't exist in map yet, adding now");
                             //}
                             funcs.trait_impltors.insert(trait_defid, vec![def.did()]);
@@ -162,7 +163,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     }
                 }
                 _ => {
-                    if debug {
+                    if self.debug {
                         println!("other kind")
                     }
                 }
@@ -170,17 +171,17 @@ impl<'tcx> FuncCollectPass<'tcx> {
         } else if arglen == 0 {
             panic!("arg len 0");
         } else {
-            if debug {
+            if self.debug {
                 println!("arg len > 1: {:?}", arglen);
             }
         }
     }
 
-    pub fn handle_fn(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, debug: bool) {
+    pub fn handle_fn(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
         // TODO for AssocFns, might be useful to have a field describing if it has a
         // default implementation or not
 
-        if debug {
+        if self.debug {
             println!("impl of assoc: {:?}", self.tcx.impl_of_assoc(def_id));
             println!("generics: {:#?}", self.tcx.generics_of(def_id));
         }
@@ -188,7 +189,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         if let Some(impl_defid) = self.tcx.impl_of_assoc(def_id) {
             match funcs.impl_blocks_to_impls.get(&impl_defid) {
                 Some(other_assoc) => {
-                    if debug {
+                    if self.debug {
                         println!("others: {:?}", other_assoc);
                     }
                     let mut updated_assoc = other_assoc.clone();
@@ -196,7 +197,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     funcs.impl_blocks_to_impls.insert(impl_defid, updated_assoc);
                 }
                 None => {
-                    if debug {
+                    if self.debug {
                         println!("new");
                     }
                     funcs.impl_blocks_to_impls.insert(impl_defid, vec![def_id]);
@@ -240,7 +241,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
             arg_types = Some(arg_types_inner);
 
-            if debug {
+            if self.debug {
                 println!("arg_types: {:?}", arg_types);
                 println!("MIR Body: \n{:#?}", body);
             }
@@ -281,12 +282,12 @@ impl<'tcx> FuncCollectPass<'tcx> {
         funcs.funcs.insert(def_id, vec_to_insert);
     }
 
-    pub fn collect_funcs(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
+    pub fn collect_funcs(&self, funcs: &mut FuncMap<'tcx>) {
         // TODO try past 4
         let num_crates = 4u32;
         //let num_crates = self.tcx.used_crates(()).len();
         for crate_num in 0u32..num_crates + 1 {
-            if debug {
+            if self.debug {
                 println!("\n\ncrate_num: {:?}\n", crate_num);
             }
             for def_index in 0..u32::MAX {
@@ -310,7 +311,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 };
                 let def_kind = self.tcx.def_kind(def_id);
 
-                if debug {
+                if self.debug {
                     println!("\nnew def_index");
                     println!("crate_num: {:?}", crate_num);
                     println!("def_index: {:?}", def_index);
@@ -319,19 +320,17 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 }
 
                 match def_kind {
-                    DefKind::Trait => self.handle_trait(funcs, def_id, debug),
-                    DefKind::Struct => self.handle_struct(funcs, def_id, debug),
-                    DefKind::Impl { of_trait: true } => {
-                        self.handle_trait_impl(funcs, def_id, debug)
-                    }
-                    DefKind::Fn | DefKind::AssocFn => self.handle_fn(funcs, def_id, debug),
+                    DefKind::Trait => self.handle_trait(funcs, def_id),
+                    DefKind::Struct => self.handle_struct(funcs, def_id),
+                    DefKind::Impl { of_trait: true } => self.handle_trait_impl(funcs, def_id),
+                    DefKind::Fn | DefKind::AssocFn => self.handle_fn(funcs, def_id),
                     _ => {}
                 }
             }
         }
     }
 
-    pub fn run(&self, funcs: &mut FuncMap<'tcx>, debug: bool) {
-        self.collect_funcs(funcs, debug);
+    pub fn run(&self, funcs: &mut FuncMap<'tcx>) {
+        self.collect_funcs(funcs);
     }
 }

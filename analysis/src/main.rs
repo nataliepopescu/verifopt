@@ -65,8 +65,8 @@ impl Callbacks for VerifoptCallbacks {
         // init + run Function Collection Pass
         // TODO collect non-local funcs too
         let mut funcs = FuncMap::new();
-        let func_collect = FuncCollectPass::new(tcx);
-        func_collect.run(&mut funcs, false);
+        let func_collect = FuncCollectPass::new(tcx, false);
+        func_collect.run(&mut funcs);
         //println!("funcs: {:#?}", funcs);
 
         //// init + run Function Signature Collection Pass
@@ -74,8 +74,8 @@ impl Callbacks for VerifoptCallbacks {
 
         //// init + run Interpreter Pass
         let mut cmap = ConstraintMap::new();
-        let interp = InterpPass::new(tcx, &funcs);
-        let res = interp.run(&mut cmap, None, entry_func, mir_body, true);
+        let interp = InterpPass::new(tcx, &funcs, false);
+        let res = interp.run(&mut cmap, None, entry_func, mir_body);
         println!("\nmain res: {:?}", res);
 
         // init + run Rewriter Pass

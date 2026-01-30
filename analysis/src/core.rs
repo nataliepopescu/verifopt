@@ -75,7 +75,9 @@ impl<'tcx> VerifoptRval<'tcx> {
         item: &Rvalue<'tcx>,
         debug: bool,
     ) -> Self {
-        println!("\n### IN FROM_RVALUE, item is: {:?}", item);
+        if debug {
+            println!("\n### IN FROM_RVALUE, item is: {:?}", item);
+        }
         match item {
             Rvalue::Cast(kind, op, ty) => {
                 if debug {
@@ -84,7 +86,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                     println!("op: {:?}", op);
                     println!("ty: {:?}", ty);
                 }
-                VerifoptRval::rval_from_cast(cmap, cur_scope, kind, op, ty)
+                VerifoptRval::rval_from_cast(cmap, cur_scope, kind, op, ty, debug)
             }
             Rvalue::Aggregate(aggkind, fields) => match &**aggkind {
                 AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
@@ -110,11 +112,15 @@ impl<'tcx> VerifoptRval<'tcx> {
                     } else {
                         let mut genarg_vec = vec![];
                         for i in 0..genargsref.len() {
-                            println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
+                            if debug {
+                                println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
+                            }
                             match genargsref[i].kind() {
                                 GenericArgKind::Type(ty) => match ty.kind() {
                                     TyKind::Param(param) => {
-                                        println!("param.name: {:?}", param.name);
+                                        if debug {
+                                            println!("param.name: {:?}", param.name);
+                                        }
                                         match cmap.scoped_get(
                                             Some(cur_scope),
                                             &MapKey::Generic(param.name),
@@ -134,7 +140,11 @@ impl<'tcx> VerifoptRval<'tcx> {
                                     }
                                     _ => {}
                                 },
-                                GenericArgKind::Const(_) => println!("const"),
+                                GenericArgKind::Const(_) => {
+                                    if debug {
+                                        println!("const");
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -164,7 +174,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                     println!("--use");
                     println!("op: {:?}", op);
                 }
-                VerifoptRval::rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, tcx))
+                VerifoptRval::rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, tcx), debug)
             }
             Rvalue::RawPtr(kind, place) => {
                 if debug {
@@ -177,6 +187,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                     cur_scope,
                     place,
                     &place.ty(local_decls, tcx).ty,
+                    debug,
                 );
                 VerifoptRval::Ptr(Box::new(inner))
             }
@@ -189,6 +200,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                     cur_scope,
                     place,
                     &place.ty(local_decls, tcx).ty,
+                    debug,
                 )))
             }
             /////////////////////////////////////
@@ -243,20 +255,23 @@ impl<'tcx> VerifoptRval<'tcx> {
         _kind: &CastKind,
         op: &Operand<'tcx>,
         ty: &Ty<'tcx>,
+        debug: bool,
     ) -> VerifoptRval<'tcx> {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                println!("place.local: {:?}", place.local);
-                println!("place.projection: {:?}", place.projection);
-                println!("cur_scope: {:?}", cur_scope);
-                println!(
-                    "cur_scope cmap: {:?}",
-                    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-                );
-                println!(
-                    "scoped_get: {:?}",
-                    cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
-                );
+                if debug {
+                    println!("place.local: {:?}", place.local);
+                    println!("place.projection: {:?}", place.projection);
+                    println!("cur_scope: {:?}", cur_scope);
+                    println!(
+                        "cur_scope cmap: {:?}",
+                        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                    );
+                    println!(
+                        "scoped_get: {:?}",
+                        cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
+                    );
+                }
 
                 if place.projection.len() != 0 {
                     match place.projection[0] {
@@ -269,8 +284,10 @@ impl<'tcx> VerifoptRval<'tcx> {
                         //    println!("newplace: {:?}", newplace);
                         //}
                         PlaceElem::Field(field_idx, ty) => {
-                            println!("field_idx: {:?}", field_idx);
-                            println!("ty: {:?}", ty);
+                            if debug {
+                                println!("field_idx: {:?}", field_idx);
+                                println!("ty: {:?}", ty);
+                            }
                             // FIXME essentially ignoring the deref here, when would this be wrong?
                             let newplace = Place {
                                 local: Local::from_u32(place.local.as_u32()),
@@ -279,7 +296,9 @@ impl<'tcx> VerifoptRval<'tcx> {
                             match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false)
                             {
                                 Some(VarType::Values(constraints)) => {
-                                    println!("constraints: {:?}", constraints);
+                                    if debug {
+                                        println!("constraints: {:?}", constraints);
+                                    }
                                     if constraints.len() != 1 {
                                         panic!(
                                             "handle other constraint lens: {:?}",
@@ -290,7 +309,9 @@ impl<'tcx> VerifoptRval<'tcx> {
                                         return constraint.clone();
                                     }
                                     // FIXME
-                                    println!("should not print......");
+                                    if debug {
+                                        println!("should not print......");
+                                    }
                                     return VerifoptRval::IdkType(ty);
                                 }
                                 _ => panic!("unexpected res from scoped_get"),
@@ -303,7 +324,9 @@ impl<'tcx> VerifoptRval<'tcx> {
                 match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
                     Some(vartype) => match vartype {
                         VarType::Values(constraints) => {
-                            println!("constraints: {:?}", constraints);
+                            if debug {
+                                println!("constraints: {:?}", constraints);
+                            }
                             if constraints.len() != 1 {
                                 todo!("handle other lengths: {:?}", constraints.len());
                             }
@@ -311,7 +334,9 @@ impl<'tcx> VerifoptRval<'tcx> {
                                 return constraint.clone();
                             }
                             // FIXME
-                            println!("should not print......");
+                            if debug {
+                                println!("should not print......");
+                            }
                             VerifoptRval::IdkType(*ty)
                         }
                         _ => panic!("should not get scope (cast)"),
@@ -330,40 +355,53 @@ impl<'tcx> VerifoptRval<'tcx> {
         cur_scope: DefId,
         op: &Operand<'tcx>,
         backup_ty: &Ty<'tcx>,
+        debug: bool,
     ) -> VerifoptRval<'tcx> {
         match op {
             Operand::Constant(box co) => match co.const_ {
                 Const::Val(constval, ty) => match constval {
                     ConstValue::Scalar(scalar) => {
-                        println!("scalar");
+                        if debug {
+                            println!("scalar");
+                        }
                         VerifoptRval::Scalar(scalar)
                     }
                     ConstValue::ZeroSized => {
-                        println!("zerosized");
+                        if debug {
+                            println!("zerosized");
+                        }
                         VerifoptRval::IdkType(ty)
                     }
                     ConstValue::Slice { alloc_id, meta } => {
-                        println!("slice");
-                        println!("alloc: {:?}", alloc_id);
-                        println!("meta: {:?}", meta);
-                        println!("ty: {:?}", ty);
+                        if debug {
+                            println!("slice");
+                            println!("alloc: {:?}", alloc_id);
+                            println!("meta: {:?}", meta);
+                            println!("ty: {:?}", ty);
+                        }
                         if ty.is_str() || ty.is_imm_ref_str() {
-                            println!("got str!");
+                            if debug {
+                                println!("got str!");
+                            }
                             return VerifoptRval::Str(co.const_);
                         } else {
-                            println!("not str");
+                            if debug {
+                                println!("not str");
+                            }
                             return VerifoptRval::ConstSlice();
                         }
                     }
                     ConstValue::Indirect { .. } => {
-                        println!("indirect");
+                        if debug {
+                            println!("indirect");
+                        }
                         VerifoptRval::IdkType(ty)
                     }
                 },
                 _ => todo!("non-val const"),
             },
             Operand::Copy(place) | Operand::Move(place) => {
-                VerifoptRval::rval_from_place(cmap, cur_scope, place, backup_ty)
+                VerifoptRval::rval_from_place(cmap, cur_scope, place, backup_ty, debug)
             }
             _ => todo!("runtime checks"),
         }
@@ -374,18 +412,21 @@ impl<'tcx> VerifoptRval<'tcx> {
         cur_scope: DefId,
         place: &Place<'tcx>,
         backup_ty: &Ty<'tcx>,
+        debug: bool,
     ) -> VerifoptRval<'tcx> {
-        println!("place.local: {:?}", place.local);
-        println!("place.projection: {:?}", place.projection);
-        println!("cur_scope: {:?}", cur_scope);
-        println!(
-            "cur_scope cmap: {:?}",
-            cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-        );
-        println!(
-            "scoped_get: {:?}",
-            cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
-        );
+        if debug {
+            println!("place.local: {:?}", place.local);
+            println!("place.projection: {:?}", place.projection);
+            println!("cur_scope: {:?}", cur_scope);
+            println!(
+                "cur_scope cmap: {:?}",
+                cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+            );
+            println!(
+                "scoped_get: {:?}",
+                cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
+            );
+        }
 
         let mut newplace = *place;
         if place.projection.len() != 0 {
@@ -396,12 +437,15 @@ impl<'tcx> VerifoptRval<'tcx> {
                         local: Local::from_u32(place.local.as_u32()),
                         projection: List::empty(),
                     };
-                    println!("newplace: {:?}", newplace);
+                    if debug {
+                        println!("newplace: {:?}", newplace);
+                    }
                 }
                 PlaceElem::Field(field_idx, ty) => {
-                    println!("field_idx: {:?}", field_idx);
-                    println!("ty: {:?}", ty);
-                    //todo!("field");
+                    if debug {
+                        println!("field_idx: {:?}", field_idx);
+                        println!("ty: {:?}", ty);
+                    }
                     // FIXME
                     return VerifoptRval::IdkType(ty);
                 }
@@ -412,8 +456,10 @@ impl<'tcx> VerifoptRval<'tcx> {
         match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false) {
             Some(vartype) => match vartype {
                 VarType::Values(constraints) => {
-                    println!("constraints: {:?}", constraints);
-                    println!("backup_ty: {:?}", backup_ty);
+                    if debug {
+                        println!("constraints: {:?}", constraints);
+                        println!("backup_ty: {:?}", backup_ty);
+                    }
                     // FIXME think about how to return multiple possible VerifoptRvals
                     // (for a constraint set of len > 1)
                     if constraints.len() != 1 {

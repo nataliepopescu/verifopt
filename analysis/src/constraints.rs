@@ -5,6 +5,9 @@ extern crate rustc_middle;
 
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
+//use rustc_middle::ty::ParamTy;
+//use rustc_span::Ident;
+use rustc_span::symbol::Symbol;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
@@ -19,6 +22,7 @@ pub(crate) type Constraints<'tcx> = HashSet<VerifoptRval<'tcx>>;
 pub(crate) enum VarType<'tcx> {
     // scope w backptr to enclosing scope identifier
     // (None == top-level global scope)
+    // FIXME change meaning of backptr: only closures have one (not regular functions)
     SubScope(Option<DefId>, Vec<(Box<Type>, ConstraintMap<'tcx>)>),
     // set of positive constraints
     // FIXME ignoring types for now, can add back in if need, but type-checking has already
@@ -30,7 +34,9 @@ pub(crate) enum VarType<'tcx> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum MapKey<'tcx> {
+    //Arg(Option<Ident>), //Place<'tcx>),
     Place(Place<'tcx>),
+    Generic(Symbol),
     // FIXME Option str? if so, remove from VarType::Scope
     ScopeId(DefId),
 }
@@ -67,6 +73,10 @@ impl<'tcx> ConstraintMap<'tcx> {
                     if subscope_cmaps_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
+                    //println!("subscope_cmaps_vec: {:?}", subscope_cmaps_vec);
+                    //println!("subscope_cmaps_vec[0].1.cmap: {:?}", subscope_cmaps_vec[0].1.cmap);
+                    //println!("var: {:?}", var);
+
                     // is var in inner_cmap? if not:
                     // - nested funcs: return None
                     // - closures: recursively follow backptr to enclosing scopes
@@ -88,7 +98,7 @@ impl<'tcx> ConstraintMap<'tcx> {
         }
     }
 
-    pub(crate) fn scoped_set(
+    pub(crate) fn scoped_add(
         &mut self,
         scope: Option<DefId>,
         var: MapKey<'tcx>,
@@ -111,14 +121,14 @@ impl<'tcx> ConstraintMap<'tcx> {
                     if subscope_cmaps_vec.len() != 1 {
                         todo!("not impl yet (scope vec)");
                     }
-                    let mut subscope_cmap = &mut subscope_cmaps_vec[0].1.cmap;
+                    let subscope_cmap = &mut subscope_cmaps_vec[0].1.cmap;
                     let old_vartype_opt = subscope_cmap.get(&var);
                     match old_vartype_opt {
                         Some(old_vartype) => {
                             let mut cvec = vec![];
                             cvec.push(*value);
                             cvec.push(*old_vartype.clone());
-                            println!("cvec: {:?}", cvec);
+                            //println!("cvec: {:?}", cvec);
                             match cvec.merge() {
                                 Ok(Some(new_vartype)) => {
                                     subscope_cmap.insert(var, Box::new(new_vartype));
@@ -126,10 +136,10 @@ impl<'tcx> ConstraintMap<'tcx> {
                                         MapKey::ScopeId(scope.unwrap()),
                                         Box::new(VarType::SubScope(backptr, subscope_cmaps_vec)),
                                     );
-                                },
+                                }
                                 _ => todo!("not impl yet"),
                             }
-                        },
+                        }
                         None => {
                             // modify scope w new var
                             subscope_cmap.insert(var, value);
@@ -166,7 +176,8 @@ impl<'tcx> Merge<VarType<'tcx>> for Vec<VarType<'tcx>> {
             match (merged_vartype.clone(), new_vartype.clone()) {
                 (VarType::Values(constraints_a), VarType::Values(constraints_b)) => {
                     if constraints_a != constraints_b {
-                        let union: HashSet<_> = constraints_a.union(&constraints_b).cloned().collect();
+                        let union: HashSet<_> =
+                            constraints_a.union(&constraints_b).cloned().collect();
                         merged_vartype = VarType::Values(union);
                     }
                 }
@@ -201,5 +212,3 @@ impl<'tcx> Merge<Constraints<'tcx>> for Vec<Constraints<'tcx>> {
     }
 }
 */
-
-

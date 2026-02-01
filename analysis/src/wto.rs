@@ -1,41 +1,75 @@
-use rustc_hir::def_id::DefId;
-use rustc_middle::mir::{BasicBlock, BasicBlockData, Body};
+//use rustc_hir::def_id::DefId;
+use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_middle::mir::traversal;
-use rustc_data_structures::fx::{FxHashMap as HashMap};
+use rustc_middle::mir::{BasicBlock, BasicBlockData, Body, TerminatorKind};
 
-pub struct BBDeps<'tcx> {
-    pub body: &'tcx Body<'tcx>,
+pub struct BBDeps {
+    //pub body: &'tcx Body<'tcx>,
     pub preds: HashMap<BasicBlock, Vec<BasicBlock>>,
     pub ordering: Vec<BasicBlock>,
     pub visited: Vec<BasicBlock>,
+    pub debug: bool,
 }
 
-impl<'tcx> BBDeps<'tcx> {
-    pub fn new(body: &'tcx Body<'tcx>) -> Self {
+impl BBDeps {
+    pub fn new<'tcx>(body: &'tcx Body<'tcx>, debug: bool) -> Self {
         let mut bb_deps = BBDeps {
-            body,
+            //body,
             preds: HashMap::default(),
             ordering: Vec::new(),
             visited: Vec::new(),
+            debug,
         };
 
         for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
             bb_deps.get_deps(&bb, bb_data);
         }
-        println!("self.pred: {:?}", bb_deps.preds);
 
-        // FIXME if there is a return before error path, the return will execute first...
-        bb_deps.ordering = traversal::reverse_postorder(body).map(|(x, y)| x).collect();
-        println!("self.ordering: {:?}", bb_deps.ordering);
-        println!("%%%%%");
+        if debug {
+            println!("self.pred: {:?}", bb_deps.preds);
+        }
+
+        let mut ret_bb = BasicBlock::from_u32(0);
+        let mut ret_found = false;
+        bb_deps.ordering = traversal::reverse_postorder(body)
+            .filter(|(_, bbd)| !bbd.is_cleanup)
+            .filter(|(bbi, bbd)| {
+                if let Some(term) = &bbd.terminator {
+                    match term.kind {
+                        TerminatorKind::Unreachable => return false,
+                        TerminatorKind::Return => {
+                            // add the return bb last so retval doesn't get overriden
+                            ret_bb = bbi.clone();
+                            ret_found = true;
+                            return false;
+                        }
+                        _ => {}
+                    }
+                }
+                true
+            })
+            .map(|(bb, _)| bb)
+            .collect();
+
+        if !ret_found {
+            panic!("no return block?");
+        }
+        //println!("self.ordering pre: {:?}", bb_deps.ordering);
+        bb_deps.ordering.push(ret_bb);
+        if debug {
+            println!("self.ordering: {:?}", bb_deps.ordering);
+            println!("\n%%%%%");
+        }
 
         bb_deps
     }
 
-    pub fn prune(&mut self, cur: &BasicBlock, bb_root: BasicBlock) {
-        println!("PRUNING from root bb {:?}", bb_root);
-        println!("self.preds: {:?}", self.preds);
-        println!("self.ordering: {:?}", self.ordering);
+    pub fn prune(&mut self, _cur: &BasicBlock, bb_root: BasicBlock) {
+        if self.debug {
+            println!("PRUNING from root basicblock: {:?}", bb_root);
+            println!("self.preds: {:?}", self.preds);
+            println!("self.ordering: {:?}", self.ordering);
+        }
 
         let mut to_remove = Vec::new();
         let mut worklist = Vec::new();
@@ -62,13 +96,17 @@ impl<'tcx> BBDeps<'tcx> {
 
         // update ordering
         self.ordering.retain(|x| !to_remove.contains(x));
-        println!("self.preds: {:?}", self.preds);
-        println!("to_remove: {:?}", to_remove);
-        println!("self.ordering: {:?}", self.ordering);
+        if self.debug {
+            println!("self.preds: {:?}", self.preds);
+            println!("to_remove: {:?}", to_remove);
+            println!("self.ordering: {:?}", self.ordering);
+        }
     }
 
     pub fn mark_visited(&mut self, bb: &BasicBlock) {
-        println!("DONE VISITING {:?}", bb);
+        if self.debug {
+            println!("DONE VISITING {:?}", bb);
+        }
         self.visited.push(*bb);
     }
 
@@ -84,38 +122,49 @@ impl<'tcx> BBDeps<'tcx> {
                             } else {
                                 preds_vec.push(*bb);
                             }
-                        },
+                        }
                         None => {
                             self.preds.insert(*successor, vec![*bb]);
-                        },
+                        }
                     }
                 }
-            },
+            }
             None => {
                 panic!("no term");
             }
         }
     }
 
+    #[allow(dead_code)]
     pub fn update_order(&mut self) -> Vec<BasicBlock> {
         let mut ordering = Vec::new();
 
         for (bb_key, preds_vec) in self.preds.iter() {
-            println!("bb_key: {:?}", bb_key);
-            println!("preds: {:?}", preds_vec);
+            if self.debug {
+                println!("bb_key: {:?}", bb_key);
+                println!("preds: {:?}", preds_vec);
+            }
             for pred in preds_vec.iter() {
                 if !ordering.contains(pred) {
                     ordering.push(*pred);
-                    println!("ordering: {:?}", ordering);
+                    if self.debug {
+                        println!("ordering: {:?}", ordering);
+                    }
                 } else {
-                    println!("ordering CONTAINS pred: {:?}", pred);
+                    if self.debug {
+                        println!("ordering CONTAINS pred: {:?}", pred);
+                    }
                 }
             }
             if !ordering.contains(bb_key) {
                 ordering.push(*bb_key);
-                println!("ordering: {:?}", ordering);
+                if self.debug {
+                    println!("ordering: {:?}", ordering);
+                }
             } else {
-                println!("ordering CONTAINS key: {:?}", bb_key);
+                if self.debug {
+                    println!("ordering CONTAINS key: {:?}", bb_key);
+                }
             }
         }
 

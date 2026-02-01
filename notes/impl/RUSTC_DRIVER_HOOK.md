@@ -107,6 +107,22 @@ as in the interp-func collection, we get access to an MIR Body
   followed by any user-declared variables and temporaries."
 - so, the second local would be the `self` type that we can use to differentiate
 
+- knowing _which_ speak to call would require knowing what the `self` type is of
+  the current object the func is being called on (if any) + if the called func
+  is a method (has a self type) and what _that_ self type is
+  - i guess we can assume that, since type checking has passed, the self types
+    match up
+        - maybe call 
+          https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.has_typeck_results
+          to double check
+  - so we just need
+    - current self type?
+    - / if the func is a method?
+
+    - is it possible to tell if a function is being called on an object (as
+      opposed to `Self::`) at the MIR level?
+        - i.e. a trait implementation (*this* is really what we want to know)
+
 
 
 

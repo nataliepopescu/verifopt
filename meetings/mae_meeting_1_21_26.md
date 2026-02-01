@@ -2,21 +2,35 @@
 
 ## agenda
 
-- how to populate functions table across all crates used? (+ all functions used)
-    - in our prototype we also store function _signatures_ for the purpose of
-      distinguishing indirect calls
-    - but signatures were not used for dynamic dispatches
-    - how do indirect function calls fit into our story? is this something we
-      wanted to address, or was this just an impl step on the way to
-      implementing verifopt for dynamic dispatches?
+- populating functions: solution
+    - iterating through `crates_used`, and for each crate all possible DefIds
+      until the code panics (still need to figure out how to handle this)
+    - for each forged DefId, if it is a function, add it to our function map
 
-    - currently have two possible routes
-        1. an interp pass that collects function info (would likely _not_ be
-           able to get signatures from this directly, although maybe once we
-           have function operands or something we can query something else to
-           get sigs? but this is unknown)
-        2. eagerly get function info + maybe signatures from a CrateMetadata
-           struct
-           - would have to figure out how to run rustc_driver stuff with a
-             modified rustc, which i have yet been unable to do
+- moving on to interpretation...
+    - MIR is not generated for intrinsics, so when our interpreter tries to
+      execute an intrinsic function call, it doesn't see anything to execute
+        - https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/enum.InstanceKind.html#variant.Intrinsic
+    - currently effectively using summaries, but we could theoretically have
+      like an intrinsic library that we pull from to augment interpreter
+      knowledge - is this something we may want?
+
+- currently working on collecting trait impls into an easily accessible table
+
+## notes
+
+next steps
+- more type info for vars
+- what is the "self" / struct type of potential dynamic calls
+
+- concretely
+    - at least just get Idk(Ty)
+
+- want to know more for specifically the potential dynamic dispatch calls
+
+- since going forward, want to know as much as we can about types, always
+
+- will want to store _struct_ as well (in trait_impls map)
+    - i.e. "what are the Animals"
+
 

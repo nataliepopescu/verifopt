@@ -1,12 +1,11 @@
 use rustc_middle::mir::*;
-//use rustc_middle::mir::visit::MutVisitor;
 use rustc_index::IndexSlice;
 use rustc_middle::ty::{Ty, TyCtxt, TyKind};
-use rustc_mir_transform::patch::MirPatch;
 use rustc_span::def_id::DefId;
 
 use crate::FuncMap;
 use crate::constraints::ConstraintMap;
+use crate::patch::MirPatch;
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,

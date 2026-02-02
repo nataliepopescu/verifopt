@@ -16,6 +16,7 @@ extern crate rustc_mir_transform;
 mod constraints;
 mod core;
 mod error;
+mod patch;
 mod wto;
 
 mod func_collect;

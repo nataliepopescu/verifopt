@@ -11,6 +11,7 @@ extern crate rustc_metadata;
 extern crate rustc_middle;
 extern crate rustc_public;
 extern crate rustc_span;
+extern crate rustc_mir_transform;
 
 mod constraints;
 mod core;
@@ -19,7 +20,7 @@ mod wto;
 
 mod func_collect;
 mod interp;
-//mod rewrite;
+mod rewrite;
 
 // inspiration from
 // - https://github.com/lizhuohua/rust-mir-checker/blob/master/src/bin/mir-checker.rs
@@ -30,6 +31,7 @@ use rustc_driver::{Callbacks, Compilation, run_compiler};
 //use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
 use rustc_interface::interface::Compiler;
+use rustc_middle::mir::Body;
 use rustc_middle::ty::TyCtxt;
 //use rustc_metadata::creader::CStore;
 //use rustc_public::external_crates;
@@ -38,19 +40,17 @@ use rustc_middle::ty::TyCtxt;
 
 use std::env;
 
-//use context::GlobalContext;
 use constraints::ConstraintMap;
 use func_collect::{FuncCollectPass, FuncMap};
 use interp::InterpPass;
-//use rewrite::RewritePass;
-
-//impl ToStableHashKey<DefId> for DefId { }
+use rewrite::RewritePass;
 
 struct VerifoptCallbacks;
 
 impl Callbacks for VerifoptCallbacks {
     //fn config(&mut self, config: &mut interface::Config) {}
 
+    #[allow(invalid_reference_casting)]
     fn after_analysis(&mut self, _compiler: &Compiler, tcx: TyCtxt<'_>) -> Compilation {
         // get entry point function DefId
         let entry_func_opt = tcx.entry_fn(());
@@ -74,19 +74,20 @@ impl Callbacks for VerifoptCallbacks {
 
         //// init + run Interpreter Pass
         let mut cmap = ConstraintMap::new();
-        let interp = InterpPass::new(tcx, &funcs, true);
-        let res = interp.run(&mut cmap, None, entry_func, mir_body);
-        println!("\nmain res: {:?}", res);
+        let interp = InterpPass::new(tcx, &funcs, false);
+        let _res = interp.run(&mut cmap, None, entry_func, mir_body);
+        //println!("\nmain res: {:?}", res);
 
         // init + run Rewriter Pass
-        //let mut rw_mir_body: rustc_middle::mir::Body<'_> = mir_body.clone();
-        //let rewriter = RewritePass::new(&global_context);
-        //rewriter.run(&mut rw_mir_body);
+        let rewriter = RewritePass::new(tcx, &funcs, &cmap, true);
+        // turn &mir_body _&mut_ mir_body
+        let const_body_ptr: *const Body = &*mir_body;
+        let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+        unsafe {
+            rewriter.run(&mut *mut_body_ptr);
+        }
 
-        // TODO is MIR actually modified??
-        // cannot turn mir_body (immut &) into a mutable &...
-
-        Compilation::Stop
+        Compilation::Continue
     }
 }
 

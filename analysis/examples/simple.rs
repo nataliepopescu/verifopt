@@ -1,6 +1,10 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
+//extern crate rand;
+//
+//use rand::Rng;
+
 pub trait Animal {
     fn speak(&self) -> usize;
     fn walk(&self) -> usize;
@@ -12,6 +16,11 @@ pub fn get_animal(num: usize) -> Box<dyn Animal> {
     } else {
         Box::new(Dog {})
     }
+}
+
+#[inline(always)]
+pub fn get_cat() -> Box<dyn Animal> {
+    return Box::new(Cat {});
 }
 
 pub fn many_args(first: usize, second: usize, third: usize, fourth: usize) -> usize {
@@ -53,9 +62,13 @@ fn main() {
     // note that even when we pass in a statically-known value to `get_animal`,
     // the information from that function is not propagated, so `speak` remains
     // a dynamic dispatch
-    let animal = get_animal(0);
+    //let animal = get_animal(rand::rng().random_range(..2usize));
+    let animal_really_cat = get_animal(0);
+    let cat = get_cat();
+    let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
+    let _cat_vtable = core::ptr::metadata(&*cat);
 
-    let _s = animal.speak();
+    let _res = animal_really_cat.speak();
 
     //let cat = Cat {};
     //cat.meow();

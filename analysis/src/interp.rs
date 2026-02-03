@@ -7,6 +7,7 @@ use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
+use crate::core::is_box;
 use crate::core::{FuncVal, VerifoptRval};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
@@ -353,11 +354,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         Ok(None)
     }
 
-    fn is_box(&self, def_id: DefId) -> bool {
-        // FIXME does this ever change....
-        def_id.index.as_usize() == 662 && def_id.krate.as_usize() == 3
-    }
-
     fn resolve_dyn_self_constraint(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -371,7 +367,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 self.resolve_dyn_self_constraint(cmap, cur_scope, impltors, *inner, args)
             }
             VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
-                if self.is_box(struct_defid) {
+                if is_box(struct_defid) {
                     // get first (and only, for now) genarg constraint (i.e. IdkType(Cat))
                     if let Some(genargs_outer) = genarg_vec {
                         if genargs_outer.len() != 1 {

@@ -168,7 +168,10 @@ impl<'tcx> MirPatch<'tcx> {
 
     pub(crate) fn terminator_loc(&self, body: &Body<'tcx>, bb: BasicBlock) -> Location {
         let offset = self.block(body, bb).statements.len();
-        Location { block: bb, statement_index: offset }
+        Location {
+            block: bb,
+            statement_index: offset,
+        }
     }
 
     /// Queues the addition of a new temporary with additional local info.
@@ -288,7 +291,10 @@ impl<'tcx> MirPatch<'tcx> {
                 delta = 0;
                 last_bb = loc.block;
             }
-            debug!("MirPatch: adding statement {:?} at loc {:?}+{}", stmt, loc, delta);
+            debug!(
+                "MirPatch: adding statement {:?} at loc {:?}+{}",
+                stmt, loc, delta
+            );
             loc.statement_index += delta;
             let source_info = Self::source_info_for_index(&bbs[loc.block], loc);
             bbs[loc.block]

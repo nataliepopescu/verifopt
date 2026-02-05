@@ -77,12 +77,14 @@ impl Callbacks for VerifoptCallbacks {
         //println!("\nmain res: {:?}", res);
 
         // init + run Rewriter Pass
-        let rewriter = RewritePass::new(tcx, &funcs, &cmap, true);
+        let rewriter = RewritePass::new(tcx, &funcs, &cmap, false);
         // turn &mir_body _&mut_ mir_body
         let const_body_ptr: *const Body = &*mir_body;
         let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
         unsafe {
+            //println!("{:#?}", *mut_body_ptr);
             rewriter.run(entry_func, &mut *mut_body_ptr);
+            //println!("{:#?}", *mut_body_ptr);
         }
 
         Compilation::Continue

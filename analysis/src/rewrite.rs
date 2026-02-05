@@ -13,7 +13,8 @@ use crate::patch::MirPatch;
 
 // FIXME get dynamically
 const INTO_RAW_FN_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(731),
+    //index: DefIndex::from_u32(731),
+    index: DefIndex::from_u32(749),
     krate: CrateNum::from_u32(3),
 };
 const EQ_FN_DEFID: DefId = DefId {
@@ -51,6 +52,19 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut patch = MirPatch::new(body);
         let old_locals = body.local_decls();
         for (bb, data) in body.basic_blocks.iter_enumerated() {
+            // TODO add some notion of WTO
+            if data.is_cleanup {
+                continue;
+            }
+            for stmt in &data.statements {
+                match &stmt.kind {
+                    StatementKind::Assign(boxed) => {
+                        println!("place: {:?}", boxed.0);
+                        //println!("rval: {:?}", boxed.1);
+                    }
+                    _ => {}
+                }
+            }
             match &data.terminator().kind {
                 TerminatorKind::Call {
                     func,
@@ -58,6 +72,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     destination,
                     ..
                 } => {
+                    println!("place: {:?}", destination);
                     if let Some((defid, rawlist)) = func.const_fn_def() {
                         if rawlist.len() == 0 {
                             continue;
@@ -203,6 +218,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     todo!("handle diff lens: {:?}", first_arg_constraints.len());
                 }
                 for first_arg_constraint in first_arg_constraints.iter() {
+                    if self.debug {
+                        println!("first_arg_constraint: {:?}", first_arg_constraint);
+                    }
                     match first_arg_constraint {
                         VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
                             if is_box(*struct_defid) {
@@ -246,9 +264,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut impls = vec![];
         for struct_ in structs.iter() {
             if let Some(impl_blocks) = self.funcs.struct_impls.get(struct_) {
-                println!("impl_blocks: {:?}", impl_blocks);
+                if self.debug {
+                    println!("impl_blocks: {:?}", impl_blocks);
+                }
                 if let Some(assoc) = self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
-                    println!("assoc: {:?}", assoc);
+                    if self.debug {
+                        println!("assoc: {:?}", assoc);
+                    }
                     for impltor in impltors {
                         if assoc.contains(impltor) {
                             impls.push(*impltor);
@@ -879,28 +901,28 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             // goto (to bb_old_return)
             let bb_variant_ret = self.add_goto_block(patch, bb_old_return);
 
-            // speak
-            let raw_traitobj1 = self.add_raw_traitobj_temp(patch);
-            let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
-            let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
-
-            let bb_variant_speak = self.add_speak_block(
-                patch,
-                bb_variant_ret,
-                bb_old_cleanup,
-                raw_traitobj1,
-                raw_traitobj2,
-                retval,
-                struct_obj,
-                *struct_did,
-                *func_did,
-                None,
-            );
-            last_variant_speak = Some(bb_variant_speak);
-
-            // comparison & switch (if > 1 variant)
-            let first_eq_res = self.add_mut_bool_temp(patch);
             if i > 0 && last_variant_speak.is_some() {
+                // speak
+                let raw_traitobj1 = self.add_raw_traitobj_temp(patch);
+                let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
+                let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
+
+                let bb_variant_speak = self.add_speak_block(
+                    patch,
+                    bb_variant_ret,
+                    bb_old_cleanup,
+                    raw_traitobj1,
+                    raw_traitobj2,
+                    retval,
+                    struct_obj,
+                    *struct_did,
+                    *func_did,
+                    None,
+                );
+                last_variant_speak = Some(bb_variant_speak);
+
+                // comparison & switch (if > 1 variant)
+                let first_eq_res = self.add_mut_bool_temp(patch);
                 let bb_switch =
                     self.add_switch_block(patch, bb_variant_speak, bb_variant_speak, first_eq_res);
 
@@ -921,6 +943,23 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 );
                 into_raw_target = Some(bb_compare);
             } else {
+                // speak
+                let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
+                let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
+
+                let bb_variant_speak = self.add_speak_block(
+                    patch,
+                    bb_variant_ret,
+                    bb_old_cleanup,
+                    mut_dyn_traitobj,
+                    raw_traitobj2,
+                    retval,
+                    struct_obj,
+                    *struct_did,
+                    *func_did,
+                    None,
+                );
+                last_variant_speak = Some(bb_variant_speak);
                 into_raw_target = Some(bb_variant_speak);
             }
         }

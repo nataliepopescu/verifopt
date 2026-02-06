@@ -967,7 +967,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             bb_old_cleanup,
             mut_dyn_traitobj,
             boxed_dyn_traitobj1,
-            animal,
+            traitobj,
             traitobj_did,
             None,
         );

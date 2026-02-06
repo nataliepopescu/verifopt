@@ -11,7 +11,6 @@ use tracing::debug;
 /// various changes, such as the addition of new statements and basic blocks
 /// and replacement of terminators, and then apply the queued changes all at
 /// once with `apply`. This is useful for MIR transformation passes.
-#[derive(Debug)]
 pub(crate) struct MirPatch<'tcx> {
     term_patch_map: FxHashMap<BasicBlock, TerminatorKind<'tcx>>,
     /// Set of statements that should be replaced by `Nop`.

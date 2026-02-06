@@ -691,6 +691,47 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         Ty::new_adt(self.tcx, dynmetadata_adt_def, gen_args_ref)
     }
 
+    fn add_compare_shim(
+        &self,
+        patch: &mut MirPatch<'tcx>,
+        bb_func_call: BasicBlock,
+        raw_traitobj1_loc: Local,
+        mut_dyn_traitobj_loc: Local,
+    ) -> BasicBlock {
+        let empty_proj_slice: &[ProjectionElem<Local, Ty<'_>>] = &[];
+        let empty_proj = self.tcx.mk_place_elems(empty_proj_slice);
+
+        let mut stmts: Vec<Statement<'tcx>> = Vec::new();
+
+        stmts.push(Statement::new(
+            self.dummy_source_info(),
+            StatementKind::Assign(Box::new((
+                Place {
+                    local: raw_traitobj1_loc,
+                    projection: empty_proj,
+                },
+                Rvalue::Cast(
+                    CastKind::PtrToPtr,
+                    Operand::Move(Place {
+                        local: mut_dyn_traitobj_loc,
+                        projection: empty_proj,
+                    }),
+                    Ty::new_imm_ptr(self.tcx, self.make_empty_tup()),
+                ),
+            ))),
+        ));
+
+        let term = Terminator {
+            source_info: self.dummy_source_info(),
+            kind: TerminatorKind::Goto {
+                target: bb_func_call,
+            },
+        };
+
+        let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
+        patch.new_block(bb_data)
+    }
+
     fn add_compare_vtable_block(
         &self,
         patch: &mut MirPatch<'tcx>,
@@ -891,53 +932,56 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("traitobj_did: {:?}", traitobj_did);
             println!("cur_bb: {:?}", bb);
             println!("dids: {:?}", dids);
+            println!("speak dest: {:?}", term_dst_place);
         }
 
-        // FIXME get these dynamically
+        // FIXME get dynamically
         let traitobj = Local::from_u32(1);
-        let trait_vtable = Local::from_u32(3);
-        let variant_vtable = Local::from_u32(4);
 
+        let mut trait_vtable = None;
+        let mut variant_vtable = None;
         let mut trait_vtable_ref = None;
         let mut variant_vtable_ref = None;
         if dids.len() > 1 {
+            // FIXME get dynamically
+            trait_vtable = Some(Local::from_u32(3));
+            variant_vtable = Some(Local::from_u32(4));
+
             // FIXME do these locals already exist?
             trait_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
         }
 
-        // for into_raw
+        // for into_raw -> speak
+        let raw_traitobj1 = self.add_raw_traitobj_temp(patch);
         let mut_dyn_traitobj = self.add_mut_dyn_traitobj_temp(patch, traitobj_did);
         let boxed_dyn_traitobj1 = self.add_boxed_dyn_traitobj_temp(patch, traitobj_did);
 
-        let mut last_variant_speak = None;
         let mut into_raw_target = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
             // goto (to bb_old_return)
             let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
 
-            if i > 0 && last_variant_speak.is_some() {
-                // speak
-                let raw_traitobj1 = self.add_raw_traitobj_temp(patch);
-                let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
-                let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
+            // speak
+            let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
+            let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
+            let bb_variant_speak = self.add_speak_block(
+                patch,
+                bb_variant_ret,
+                bb_old_cleanup,
+                raw_traitobj1,
+                raw_traitobj2,
+                term_dst_place,
+                struct_obj,
+                *struct_did,
+                *func_did,
+                None,
+            );
 
-                let bb_variant_speak = self.add_speak_block(
-                    patch,
-                    bb_variant_ret,
-                    bb_old_cleanup,
-                    raw_traitobj1,
-                    raw_traitobj2,
-                    term_dst_place,
-                    struct_obj,
-                    *struct_did,
-                    *func_did,
-                    None,
-                );
-                last_variant_speak = Some(bb_variant_speak);
-
+            if i > 0 {
                 // comparison & switch (if > 1 variant)
                 let first_eq_res = self.add_mut_bool_temp(patch);
+                // TODO bb order may need to switch?
                 let bb_switch =
                     self.add_switch_block(patch, bb_variant_speak, bb_variant_speak, first_eq_res);
 
@@ -947,9 +991,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
-                    trait_vtable,
+                    trait_vtable.unwrap(),
                     trait_vtable_ref.unwrap(),
-                    variant_vtable,
+                    variant_vtable.unwrap(),
                     variant_vtable_ref.unwrap(),
                     first_eq_res,
                     traitobj_did,
@@ -958,24 +1002,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 );
                 into_raw_target = Some(bb_compare);
             } else {
-                // speak
-                let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
-                let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
-
-                let bb_variant_speak = self.add_speak_block(
-                    patch,
-                    bb_variant_ret,
-                    bb_old_cleanup,
-                    mut_dyn_traitobj,
-                    raw_traitobj2,
-                    term_dst_place,
-                    struct_obj,
-                    *struct_did,
-                    *func_did,
-                    None,
-                );
-                last_variant_speak = Some(bb_variant_speak);
-                into_raw_target = Some(bb_variant_speak);
+                // shim compare block, which does a necessary type cast
+                let bb_shim =
+                    self.add_compare_shim(patch, bb_variant_speak, raw_traitobj1, mut_dyn_traitobj);
+                into_raw_target = Some(bb_shim);
             }
         }
 

@@ -38,7 +38,7 @@ impl Cat {
 
 impl Animal for Cat {
     fn speak(&self) -> usize {
-        println!("in cat speak!");
+        //println!("in cat speak!");
         11111
     }
     fn walk(&self) -> usize {
@@ -48,7 +48,7 @@ impl Animal for Cat {
 
 impl Animal for Dog {
     fn speak(&self) -> usize {
-        println!("in dog speak!");
+        //println!("in dog speak!");
         22222
     }
     fn walk(&self) -> usize {
@@ -69,9 +69,9 @@ fn main() {
     let cat = get_cat();
     let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
     let _cat_vtable = core::ptr::metadata(&*cat);
-    println!("pre");
+    //println!("pre");
     let _res = animal_really_cat.speak();
-    println!("post");
+    //println!("post");
 
     //let cat = Cat {};
     //cat.meow();

@@ -59,7 +59,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             for stmt in &data.statements {
                 match &stmt.kind {
                     StatementKind::Assign(boxed) => {
-                        println!("place: {:?}", boxed.0);
+                        //println!("PLACE BEFORE: {:?}", boxed.0);
                         //println!("rval: {:?}", boxed.1);
                     }
                     _ => {}
@@ -72,7 +72,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     destination,
                     ..
                 } => {
-                    println!("place: {:?}", destination);
+                    //println!("PLACE BEFORE (term): {:?}", destination);
                     if let Some((defid, rawlist)) = func.const_fn_def() {
                         if rawlist.len() == 0 {
                             continue;
@@ -399,6 +399,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 })),
             ))),
         ));
+        //println!("PLACE AFTER: {:?}", boxed_dyn_traitobj_loc);
 
         // add terminator
         let dyn_traitobj_tykind = self.make_dyn_traitobj_tykind(traitobj_did);
@@ -435,6 +436,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 fn_span: self.dummy_span(),
             },
         };
+        //println!("PLACE AFTER (term): {:?}", mut_dyn_traitobj_loc);
 
         let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
         patch.new_block(bb_data)
@@ -538,6 +540,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 })),
             ))),
         ));
+        //println!("PLACE AFTER: {:?}", raw_traitobj2_loc);
 
         // transmute raw_animal copy into &concrete_ty
         let cat_adt_def = self.tcx.adt_def(concrete_ty_did);
@@ -566,6 +569,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 ),
             ))),
         ));
+        //println!("PLACE AFTER: {:?}", concrete_ty_loc);
 
         stmts.push(Statement::new(
             self.dummy_source_info(),
@@ -615,6 +619,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 fn_span: self.dummy_span(),
             },
         };
+        //println!("PLACE AFTER (term): {:?}", func_ret_loc);
 
         let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
         patch.new_block(bb_data)
@@ -881,15 +886,19 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("dids: {:?}", dids);
         }
 
-        let retval = Local::from_u32(0);
-
         // FIXME get these dynamically
+        let retval = Local::from_u32(9);
         let animal = Local::from_u32(1);
         let animal_vtable = Local::from_u32(3);
         let cat_vtable = Local::from_u32(4);
 
-        let animal_vtable_ref = self.add_dynmetadata_ref_temp(patch, traitobj_did);
-        let cat_vtable_ref = self.add_dynmetadata_ref_temp(patch, traitobj_did);
+        let mut animal_vtable_ref = None;
+        let mut cat_vtable_ref = None;
+        if dids.len() > 1 {
+            // FIXME do these locals already exist?
+            animal_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            cat_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+        }
 
         // for into_raw
         let mut_dyn_traitobj = self.add_mut_dyn_traitobj_temp(patch, traitobj_did);
@@ -933,9 +942,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     animal_vtable,
-                    animal_vtable_ref,
+                    animal_vtable_ref.unwrap(),
                     cat_vtable,
-                    cat_vtable_ref,
+                    cat_vtable_ref.unwrap(),
                     first_eq_res,
                     traitobj_did,
                     false,

@@ -77,10 +77,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("cur_scope: {:?}", cur_scope);
         }
 
-        // get Weak Topological Ordering of function body
-        // TODO memoize (the starting point at list, since some bbs can get pruned out
-        // depending on statically-known values; e.g. in switchint)
-        let mut bb_deps = BBDeps::new(body, self.debug);
+        // if there exists a memoized WTO, use it; otherwise, create and save it
+        let mut bb_deps;
+        if let Some(mem_bb_deps) = cmap.wtos.get(&cur_scope) {
+            bb_deps = mem_bb_deps.clone();
+        } else {
+            bb_deps = BBDeps::new(body, self.debug);
+            cmap.wtos.insert(cur_scope, bb_deps.clone());
+        }
+
         let mut last_res = None;
         loop {
             if bb_deps.ordering.is_empty() {

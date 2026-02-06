@@ -13,6 +13,7 @@ use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
 use crate::core::{Merge, Type, VerifoptRval};
 use crate::error::Error;
+use crate::wto::BBDeps;
 
 // FIXME no negative constraints, resolve negative constraints immediately by removing from positive
 // constraint set
@@ -44,12 +45,14 @@ pub(crate) enum MapKey<'tcx> {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConstraintMap<'tcx> {
     pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
+    pub wtos: HashMap<DefId, BBDeps>,
 }
 
 impl<'tcx> ConstraintMap<'tcx> {
     pub(crate) fn new() -> Self {
         Self {
             cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
+            wtos: HashMap::<DefId, BBDeps>::default(),
         }
     }
 

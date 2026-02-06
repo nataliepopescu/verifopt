@@ -591,18 +591,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     println!("MIR NOT AVAILABLE for {:?}", def_id);
                                 }
 
-                                match self.funcs.assocfns_to_traits.lock().unwrap().get(def_id) {
+                                let mutex = self.funcs.assocfns_to_traits.lock().unwrap();
+                                match mutex.get(def_id) {
                                     Some(trait_def_id) => {
                                         if self.debug {
                                             println!("\n### DYN DISPATCH TO {:?}\n", def_id);
                                         }
+                                        let trait_def_id_clone = trait_def_id.clone();
+                                        std::mem::drop(mutex);
 
                                         match self.handle_dyn_dispatch(
                                             cmap,
                                             cur_scope,
                                             args,
                                             funcval,
-                                            trait_def_id,
+                                            &trait_def_id_clone,
                                         ) {
                                             Ok(Some(constraints)) => {
                                                 if self.debug {
@@ -631,6 +634,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         if self.debug {
                                             println!("\n### UNDEF FN / RES {:?}\n", def_id);
                                         }
+                                        std::mem::drop(mutex);
 
                                         // if funcval has a return type, use that as the
                                         // "summary" constraint
@@ -788,7 +792,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             };
                         }
                         ConstValue::Slice { .. } => {
-                            todo!("slice");
+                            constraints.insert(VerifoptRval::Str(co.const_));
+                            //todo!("slice");
                         }
                         ConstValue::Indirect { .. } => {
                             todo!("indirect");

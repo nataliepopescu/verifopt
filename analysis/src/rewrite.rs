@@ -48,6 +48,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
 
     pub fn visit_body(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
+        if self.debug {
+            println!("#############################");
+            println!("IN SCOPE: {:?}", cur_scope);
+            println!("#############################");
+        }
         let mut patch = MirPatch::new(body);
         for (bb, data) in body.basic_blocks.iter_enumerated() {
             // TODO add some notion of WTO
@@ -71,36 +76,51 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     ..
                 } => {
                     //println!("PLACE BEFORE (term): {:?}", destination);
-                    if let Some((defid, rawlist)) = func.const_fn_def() {
-                        if rawlist.len() == 0 {
+                    if let Some((defid, genargs)) = func.const_fn_def() {
+                        if genargs.len() == 0 {
                             continue;
                         }
 
-                        let ty = rawlist.type_at(0);
-                        if ty.is_trait() {
-                            if !self.tcx.def_path_debug_str(defid).contains("Animal::speak") {
-                                if self.debug {
-                                    println!("SKIPPING: {:?}", defid);
+                        if self.debug {
+                            println!("\n# -------------------------------");
+                            println!("# CALL term: {:?}", defid);
+                            println!("# -------------------------------");
+                            println!("genargs: {:?}", genargs);
+                            println!("printed as str: {:?}", genargs.print_as_list());
+                        }
+
+                        let genargs_slice = genargs.as_slice();
+                        let first = genargs_slice[0];
+                        if let Some(ty) = first.as_type() {
+                            if ty.is_trait() {
+                                if !self.tcx.def_path_debug_str(defid).contains("Animal::speak") {
+                                    if self.debug {
+                                        println!("SKIPPING: {:?}", defid);
+                                    }
+                                    continue;
                                 }
-                                continue;
-                            }
 
+                                if self.debug {
+                                    println!("\nFIRST ARG == TRAIT: {:?} ({:?})", func, defid);
+                                }
+
+                                let num_bbs = body.basic_blocks.len();
+                                self.replace_dynamic_dispatch(
+                                    cur_scope,
+                                    &mut patch,
+                                    &defid,
+                                    ty,
+                                    *destination,
+                                    bb,
+                                    data,
+                                    num_bbs,
+                                );
+                            }
+                        } else {
                             if self.debug {
-                                println!("FIRST ARG == TRAIT: {:?} ({:?})", func, defid);
-                                println!("in scope: {:?}", cur_scope);
+                                println!("first arg no type, continuing...");
                             }
-
-                            let num_bbs = body.basic_blocks.len();
-                            self.replace_dynamic_dispatch(
-                                cur_scope,
-                                &mut patch,
-                                &defid,
-                                ty,
-                                *destination,
-                                bb,
-                                data,
-                                num_bbs,
-                            );
+                            continue;
                         }
                     }
                 }
@@ -206,6 +226,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             false,
         );
         if self.debug {
+            println!("\n##### Getting Struct DefIds\n");
             println!("first arg: {:?}", first_arg);
         }
 
@@ -215,9 +236,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     todo!("handle diff lens: {:?}", first_arg_constraints.len());
                 }
                 for first_arg_constraint in first_arg_constraints.iter() {
-                    if self.debug {
-                        println!("first_arg_constraint: {:?}", first_arg_constraint);
-                    }
+                    //if self.debug {
+                    //    println!("first_arg_constraint: {:?}", first_arg_constraint);
+                    //}
                     match first_arg_constraint {
                         VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
                             if is_box(*struct_defid) {
@@ -261,13 +282,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut impls = vec![];
         for struct_ in structs.iter() {
             if let Some(impl_blocks) = self.funcs.struct_impls.get(struct_) {
-                if self.debug {
-                    println!("impl_blocks: {:?}", impl_blocks);
-                }
+                //if self.debug {
+                //    println!("impl_blocks: {:?}", impl_blocks);
+                //}
                 if let Some(assoc) = self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
-                    if self.debug {
-                        println!("assoc: {:?}", assoc);
-                    }
+                    //if self.debug {
+                    //    println!("assoc: {:?}", assoc);
+                    //}
                     for impltor in impltors {
                         if assoc.contains(impltor) {
                             impls.push(*impltor);
@@ -865,6 +886,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid);
 
         if self.debug {
+            println!("\n##### STARTING\n");
             println!("num_bbs: {:?}", num_bbs);
             println!("traitobj_did: {:?}", traitobj_did);
             println!("cur_bb: {:?}", bb);

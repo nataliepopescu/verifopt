@@ -1,4 +1,3 @@
-use rustc_index::IndexSlice;
 use rustc_middle::mir::*;
 use rustc_middle::ty::*;
 use rustc_span::def_id::{CrateNum, DefId, DefIndex};
@@ -50,21 +49,20 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
     pub fn visit_body(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
         let mut patch = MirPatch::new(body);
-        let old_locals = body.local_decls();
         for (bb, data) in body.basic_blocks.iter_enumerated() {
             // TODO add some notion of WTO
             if data.is_cleanup {
                 continue;
             }
-            for stmt in &data.statements {
-                match &stmt.kind {
-                    StatementKind::Assign(boxed) => {
-                        //println!("PLACE BEFORE: {:?}", boxed.0);
-                        //println!("rval: {:?}", boxed.1);
-                    }
-                    _ => {}
-                }
-            }
+            //for stmt in &data.statements {
+            //    match &stmt.kind {
+            //        StatementKind::Assign(_boxed) => {
+            //            //println!("PLACE BEFORE: {:?}", boxed.0);
+            //            //println!("rval: {:?}", boxed.1);
+            //        }
+            //        _ => {}
+            //    }
+            //}
             match &data.terminator().kind {
                 TerminatorKind::Call {
                     func,
@@ -97,7 +95,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 cur_scope,
                                 &mut patch,
                                 &defid,
-                                old_locals,
                                 ty,
                                 *destination,
                                 bb,
@@ -151,17 +148,17 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         (bb_old_next, bb_old_cleanup)
     }
 
-    fn dyndispatch_retval(
-        &self,
-        old_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-        term_dst_place: Place<'tcx>,
-    ) -> bool {
-        if old_locals.get(term_dst_place.local).is_some() {
-            true
-        } else {
-            false
-        }
-    }
+    //fn dyndispatch_retval(
+    //    &self,
+    //    old_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
+    //    term_dst_place: Place<'tcx>,
+    //) -> bool {
+    //    if old_locals.get(term_dst_place.local).is_some() {
+    //        true
+    //    } else {
+    //        false
+    //    }
+    //}
 
     fn get_traitobj_did(&self, ty: Ty<'tcx>) -> DefId {
         let traitobj_did: Option<DefId>;
@@ -352,8 +349,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         bb_next: BasicBlock,
         bb_cleanup: BasicBlock,
         mut_dyn_traitobj_loc: Local,
-        boxed_dyn_traitobj_loc: Local,
-        boxed_dyn_traitobj_animal_loc: Local,
+        boxed_dyn_traitobj_variant_loc: Local,
+        boxed_dyn_traitobj_trait_loc: Local,
         traitobj_did: DefId,
         to_free_opt: Option<Vec<Local>>,
     ) -> BasicBlock {
@@ -377,11 +374,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         ));
         stmts.push(Statement::new(
             self.dummy_source_info(),
-            StatementKind::StorageLive(boxed_dyn_traitobj_loc),
+            StatementKind::StorageLive(boxed_dyn_traitobj_variant_loc),
         ));
         stmts.push(Statement::new(
             self.dummy_source_info(),
-            StatementKind::StorageLive(boxed_dyn_traitobj_animal_loc),
+            StatementKind::StorageLive(boxed_dyn_traitobj_trait_loc),
         ));
 
         // TODO const false ?
@@ -390,16 +387,16 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             self.dummy_source_info(),
             StatementKind::Assign(Box::new((
                 Place {
-                    local: boxed_dyn_traitobj_loc,
+                    local: boxed_dyn_traitobj_variant_loc,
                     projection: empty_proj,
                 },
                 Rvalue::Use(Operand::Move(Place {
-                    local: boxed_dyn_traitobj_animal_loc,
+                    local: boxed_dyn_traitobj_trait_loc,
                     projection: empty_proj,
                 })),
             ))),
         ));
-        //println!("PLACE AFTER: {:?}", boxed_dyn_traitobj_loc);
+        //println!("PLACE AFTER: {:?}", boxed_dyn_traitobj_variant_loc);
 
         // add terminator
         let dyn_traitobj_tykind = self.make_dyn_traitobj_tykind(traitobj_did);
@@ -408,7 +405,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         let args: Box<[Spanned<Operand<'tcx>>]> = Box::new([Spanned {
             node: Operand::Move(Place {
-                local: boxed_dyn_traitobj_loc,
+                local: boxed_dyn_traitobj_variant_loc,
                 projection: empty_proj,
             }),
             span: self.dummy_span(),
@@ -472,15 +469,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
      * or
      * let _: &Dog;
      */
-    fn add_concretety_ref_temp(&self, patch: &mut MirPatch<'tcx>, cat_did: DefId) -> Local {
-        let cat_adt_def = self.tcx.adt_def(cat_did);
+    fn add_concretety_ref_temp(&self, patch: &mut MirPatch<'tcx>, struct_did: DefId) -> Local {
+        let struct_adt_def = self.tcx.adt_def(struct_did);
         let gen_args: &[GenericArg<'tcx>] = &[];
         let gen_args_ref = self.tcx.mk_args(gen_args);
         patch.new_temp(
             Ty::new_ref(
                 self.tcx,
                 Region::new_from_kind(self.tcx, RegionKind::ReErased),
-                Ty::new_adt(self.tcx, cat_adt_def, gen_args_ref),
+                Ty::new_adt(self.tcx, struct_adt_def, gen_args_ref),
                 Mutability::Not,
             ),
             self.dummy_span(),
@@ -494,7 +491,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         bb_cleanup: BasicBlock,
         raw_traitobj1_loc: Local,
         raw_traitobj2_loc: Local,
-        func_ret_loc: Local,
+        ret_place: Place<'tcx>,
         concrete_ty_loc: Local,
         concrete_ty_did: DefId,
         speak_fn_did: DefId,
@@ -523,7 +520,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         ));
         stmts.push(Statement::new(
             self.dummy_source_info(),
-            StatementKind::StorageLive(func_ret_loc),
+            StatementKind::StorageLive(ret_place.local),
         ));
 
         // copy raw_animal ptr
@@ -543,7 +540,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         //println!("PLACE AFTER: {:?}", raw_traitobj2_loc);
 
         // transmute raw_animal copy into &concrete_ty
-        let cat_adt_def = self.tcx.adt_def(concrete_ty_did);
+        let struct_adt_def = self.tcx.adt_def(concrete_ty_did);
         let gen_args: &[GenericArg<'tcx>] = &[];
         let gen_args_ref = self.tcx.mk_args(gen_args);
 
@@ -563,7 +560,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     Ty::new_ref(
                         self.tcx,
                         Region::new_from_kind(self.tcx, RegionKind::ReErased),
-                        Ty::new_adt(self.tcx, cat_adt_def, gen_args_ref),
+                        Ty::new_adt(self.tcx, struct_adt_def, gen_args_ref),
                         Mutability::Not,
                     ),
                 ),
@@ -609,10 +606,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     ),
                 })),
                 args,
-                destination: Place {
-                    local: func_ret_loc,
-                    projection: empty_proj,
-                },
+                destination: ret_place,
                 target: Some(bb_ret),
                 unwind: UnwindAction::Cleanup(bb_cleanup),
                 call_source: CallSource::Normal,
@@ -859,7 +853,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         cur_scope: DefId,
         patch: &mut MirPatch<'tcx>,
         dynfunc_defid: &DefId,
-        old_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         ty: Ty<'tcx>,
         term_dst_place: Place<'tcx>,
         bb: BasicBlock,
@@ -868,14 +861,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     ) {
         // get old terminator's edges
         let (bb_old_next, bb_old_cleanup) = self.get_bbs(data);
-        let has_retval = self.dyndispatch_retval(old_locals, term_dst_place);
-        let bb_old_return;
-        if has_retval {
-            bb_old_return = bb_old_next + 1;
-        } else {
-            bb_old_return = bb_old_next;
-        }
-
         let traitobj_did = self.get_traitobj_did(ty);
         let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid);
 
@@ -887,17 +872,16 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
 
         // FIXME get these dynamically
-        let retval = Local::from_u32(9);
-        let animal = Local::from_u32(1);
-        let animal_vtable = Local::from_u32(3);
-        let cat_vtable = Local::from_u32(4);
+        let traitobj = Local::from_u32(1);
+        let trait_vtable = Local::from_u32(3);
+        let variant_vtable = Local::from_u32(4);
 
-        let mut animal_vtable_ref = None;
-        let mut cat_vtable_ref = None;
+        let mut trait_vtable_ref = None;
+        let mut variant_vtable_ref = None;
         if dids.len() > 1 {
             // FIXME do these locals already exist?
-            animal_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
-            cat_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            trait_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
         }
 
         // for into_raw
@@ -908,7 +892,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut into_raw_target = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
             // goto (to bb_old_return)
-            let bb_variant_ret = self.add_goto_block(patch, bb_old_return);
+            let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
 
             if i > 0 && last_variant_speak.is_some() {
                 // speak
@@ -922,7 +906,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     bb_old_cleanup,
                     raw_traitobj1,
                     raw_traitobj2,
-                    retval,
+                    term_dst_place,
                     struct_obj,
                     *struct_did,
                     *func_did,
@@ -941,10 +925,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
-                    animal_vtable,
-                    animal_vtable_ref.unwrap(),
-                    cat_vtable,
-                    cat_vtable_ref.unwrap(),
+                    trait_vtable,
+                    trait_vtable_ref.unwrap(),
+                    variant_vtable,
+                    variant_vtable_ref.unwrap(),
                     first_eq_res,
                     traitobj_did,
                     false,
@@ -962,7 +946,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     bb_old_cleanup,
                     mut_dyn_traitobj,
                     raw_traitobj2,
-                    retval,
+                    term_dst_place,
                     struct_obj,
                     *struct_did,
                     *func_did,

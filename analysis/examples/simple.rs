@@ -1,6 +1,10 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
+//extern crate rand;
+//
+//use rand::Rng;
+
 pub trait Animal {
     fn speak(&self) -> usize;
     fn walk(&self) -> usize;
@@ -14,9 +18,14 @@ pub fn get_animal(num: usize) -> Box<dyn Animal> {
     }
 }
 
-pub fn many_args(first: usize, second: usize, third: usize, fourth: usize) -> usize {
-    first + second + third + fourth
+#[inline(always)]
+pub fn get_cat() -> Box<dyn Animal> {
+    return Box::new(Cat {});
 }
+
+//pub fn many_args(first: usize, second: usize, third: usize, fourth: usize) -> usize {
+//    first + second + third + fourth
+//}
 
 pub struct Cat;
 pub struct Dog;
@@ -29,6 +38,7 @@ impl Cat {
 
 impl Animal for Cat {
     fn speak(&self) -> usize {
+        //println!("in cat speak!");
         11111
     }
     fn walk(&self) -> usize {
@@ -38,6 +48,7 @@ impl Animal for Cat {
 
 impl Animal for Dog {
     fn speak(&self) -> usize {
+        //println!("in dog speak!");
         22222
     }
     fn walk(&self) -> usize {
@@ -53,9 +64,14 @@ fn main() {
     // note that even when we pass in a statically-known value to `get_animal`,
     // the information from that function is not propagated, so `speak` remains
     // a dynamic dispatch
-    let animal = get_animal(0);
-
-    let _s = animal.speak();
+    //let animal = get_animal(rand::rng().random_range(..2usize));
+    let animal_really_cat = get_animal(0);
+    let cat = get_cat();
+    let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
+    let _cat_vtable = core::ptr::metadata(&*cat);
+    //println!("pre");
+    let _res = animal_really_cat.speak();
+    //println!("post");
 
     //let cat = Cat {};
     //cat.meow();

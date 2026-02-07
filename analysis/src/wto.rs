@@ -3,6 +3,7 @@ use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_middle::mir::traversal;
 use rustc_middle::mir::{BasicBlock, BasicBlockData, Body, TerminatorKind};
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct BBDeps {
     //pub body: &'tcx Body<'tcx>,
     pub preds: HashMap<BasicBlock, Vec<BasicBlock>>,

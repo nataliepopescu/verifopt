@@ -7,6 +7,7 @@ use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
+use crate::core::is_box;
 use crate::core::{FuncVal, VerifoptRval};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
@@ -76,10 +77,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("cur_scope: {:?}", cur_scope);
         }
 
-        // get Weak Topological Ordering of function body
-        // TODO memoize (the starting point at list, since some bbs can get pruned out
-        // depending on statically-known values; e.g. in switchint)
-        let mut bb_deps = BBDeps::new(body, self.debug);
+        // if there exists a memoized WTO, use it; otherwise, create and save it
+        let mut bb_deps;
+        if let Some(mem_bb_deps) = cmap.wtos.get(&cur_scope) {
+            bb_deps = mem_bb_deps.clone();
+        } else {
+            bb_deps = BBDeps::new(body, self.debug);
+            cmap.wtos.insert(cur_scope, bb_deps.clone());
+        }
+
         let mut last_res = None;
         loop {
             if bb_deps.ordering.is_empty() {
@@ -353,11 +359,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         Ok(None)
     }
 
-    fn is_box(&self, def_id: DefId) -> bool {
-        // FIXME does this ever change....
-        def_id.index.as_usize() == 662 && def_id.krate.as_usize() == 3
-    }
-
     fn resolve_dyn_self_constraint(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -371,7 +372,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 self.resolve_dyn_self_constraint(cmap, cur_scope, impltors, *inner, args)
             }
             VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
-                if self.is_box(struct_defid) {
+                if is_box(struct_defid) {
                     // get first (and only, for now) genarg constraint (i.e. IdkType(Cat))
                     if let Some(genargs_outer) = genarg_vec {
                         if genargs_outer.len() != 1 {
@@ -595,18 +596,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     println!("MIR NOT AVAILABLE for {:?}", def_id);
                                 }
 
-                                match self.funcs.assocfns_to_traits.lock().unwrap().get(def_id) {
+                                let mutex = self.funcs.assocfns_to_traits.lock().unwrap();
+                                match mutex.get(def_id) {
                                     Some(trait_def_id) => {
                                         if self.debug {
                                             println!("\n### DYN DISPATCH TO {:?}\n", def_id);
                                         }
+                                        let trait_def_id_clone = trait_def_id.clone();
+                                        std::mem::drop(mutex);
 
                                         match self.handle_dyn_dispatch(
                                             cmap,
                                             cur_scope,
                                             args,
                                             funcval,
-                                            trait_def_id,
+                                            &trait_def_id_clone,
                                         ) {
                                             Ok(Some(constraints)) => {
                                                 if self.debug {
@@ -635,6 +639,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         if self.debug {
                                             println!("\n### UNDEF FN / RES {:?}\n", def_id);
                                         }
+                                        std::mem::drop(mutex);
 
                                         // if funcval has a return type, use that as the
                                         // "summary" constraint
@@ -792,7 +797,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             };
                         }
                         ConstValue::Slice { .. } => {
-                            todo!("slice");
+                            constraints.insert(VerifoptRval::Str(co.const_));
+                            //todo!("slice");
                         }
                         ConstValue::Indirect { .. } => {
                             todo!("indirect");

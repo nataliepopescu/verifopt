@@ -1,0 +1,222 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn get_animal(_1: usize) -> Box<dyn Animal> {
+    debug num => _1;
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _2: std::boxed::Box<dyn Animal>;
+    let mut _3: std::boxed::Box<dyn Animal>;
+    let mut _4: std::boxed::Box<Cat>;
+    let mut _5: std::boxed::Box<Dog>;
+
+    bb0: {
+        switchInt(copy _1) -> [0: bb1, otherwise: bb3];
+    }
+
+    bb1: {
+        _4 = Box::<Cat>::new(const Cat) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _3 = move _4 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        _2 = move _3;
+        goto -> bb5;
+    }
+
+    bb3: {
+        _5 = Box::<Dog>::new(const Dog) -> [return: bb4, unwind continue];
+    }
+
+    bb4: {
+        _2 = move _5 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb5: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn get_cat() -> Box<dyn Animal> {
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _1: std::boxed::Box<Cat>;
+
+    bb0: {
+        _1 = Box::<Cat>::new(const Cat) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _0 = move _1 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        return;
+    }
+}
+
+fn many_args(_1: usize, _2: usize, _3: usize, _4: usize) -> usize {
+    debug first => _1;
+    debug second => _2;
+    debug third => _3;
+    debug fourth => _4;
+    let mut _0: usize;
+    let mut _5: usize;
+    let mut _6: usize;
+    let mut _7: (usize, bool);
+    let mut _8: (usize, bool);
+    let mut _9: (usize, bool);
+
+    bb0: {
+        _7 = AddWithOverflow(copy _1, copy _2);
+        assert(!move (_7.1: bool), "attempt to compute `{} + {}`, which would overflow", copy _1, copy _2) -> [success: bb1, unwind continue];
+    }
+
+    bb1: {
+        _6 = move (_7.0: usize);
+        _8 = AddWithOverflow(copy _6, copy _3);
+        assert(!move (_8.1: bool), "attempt to compute `{} + {}`, which would overflow", move _6, copy _3) -> [success: bb2, unwind continue];
+    }
+
+    bb2: {
+        _5 = move (_8.0: usize);
+        _9 = AddWithOverflow(copy _5, copy _4);
+        assert(!move (_9.1: bool), "attempt to compute `{} + {}`, which would overflow", move _5, copy _4) -> [success: bb3, unwind continue];
+    }
+
+    bb3: {
+        _0 = move (_9.0: usize);
+        return;
+    }
+}
+
+fn <impl at simple.rs:33:1: 33:9>::meow(_1: &Cat) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 0_usize;
+        return;
+    }
+}
+
+fn <impl at simple.rs:39:1: 39:20>::speak(_1: &Cat) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 11111_usize;
+        return;
+    }
+}
+
+fn <impl at simple.rs:39:1: 39:20>::walk(_1: &Cat) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 33333_usize;
+        return;
+    }
+}
+
+fn <impl at simple.rs:48:1: 48:20>::speak(_1: &Dog) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 22222_usize;
+        return;
+    }
+}
+
+fn <impl at simple.rs:48:1: 48:20>::walk(_1: &Dog) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 44444_usize;
+        return;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::boxed::Box<dyn Animal>;
+    let mut _4: *const dyn Animal;
+    let _5: &dyn Animal;
+    let mut _7: *const dyn Animal;
+    let _8: &dyn Animal;
+    let mut _10: &dyn Animal;
+    let mut _11: *const dyn Animal;
+    let mut _12: *const dyn Animal;
+    let mut _13: *const dyn Animal;
+    scope 1 {
+        debug animal_really_cat => _1;
+        let _2: std::boxed::Box<dyn Animal>;
+        scope 2 {
+            debug cat => _2;
+            let _3: std::ptr::DynMetadata<dyn Animal>;
+            scope 3 {
+                debug _animal_vtable => _3;
+                let _6: std::ptr::DynMetadata<dyn Animal>;
+                scope 4 {
+                    debug _cat_vtable => _6;
+                    let _9: usize;
+                    scope 5 {
+                        debug _res => _9;
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        _1 = get_animal(const 0_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = get_cat() -> [return: bb2, unwind: bb9];
+    }
+
+    bb2: {
+        _11 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _5 = &(*_11);
+        _4 = &raw const (*_5);
+        _3 = std::ptr::metadata::<dyn Animal>(move _4) -> [return: bb3, unwind: bb8];
+    }
+
+    bb3: {
+        _12 = copy ((_2.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _8 = &(*_12);
+        _7 = &raw const (*_8);
+        _6 = std::ptr::metadata::<dyn Animal>(move _7) -> [return: bb4, unwind: bb8];
+    }
+
+    bb4: {
+        _13 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _10 = &(*_13);
+        _9 = <dyn Animal as Animal>::speak(move _10) -> [return: bb5, unwind: bb8];
+    }
+
+    bb5: {
+        drop(_2) -> [return: bb6, unwind: bb9];
+    }
+
+    bb6: {
+        drop(_1) -> [return: bb7, unwind continue];
+    }
+
+    bb7: {
+        return;
+    }
+
+    bb8 (cleanup): {
+        drop(_2) -> [return: bb9, unwind terminate(cleanup)];
+    }
+
+    bb9 (cleanup): {
+        drop(_1) -> [return: bb10, unwind terminate(cleanup)];
+    }
+
+    bb10 (cleanup): {
+        resume;
+    }
+}

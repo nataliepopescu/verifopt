@@ -52,6 +52,11 @@ impl<'tcx> FuncVal<'tcx> {
     }
 }
 
+pub fn is_box(def_id: DefId) -> bool {
+    // FIXME does this ever change....
+    def_id.index.as_usize() == 662 && def_id.krate.as_usize() == 3
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
     IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),

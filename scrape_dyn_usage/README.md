@@ -1,17 +1,18 @@
 # Checking `dyn` usage
 
+## Requirements
+
+`python3`
+
+`scrapy` (python package)
+
 ## Download top crates
 
-from in
-[bencher_scrape/get-crates](https://github.com/nataliepopescu/bencher_scrape/tree/master/get-crates),
-run: 
-
 ```sh
-scrapy crawl -a category=top -a x=N get-crates
+cd crate_crawler && scrapy crawl -a category=top -a x=N get-crates && cd ..
 ```
 
-each page contains 50 entries, so can only download multiples of 50. to download
-50 crates then set N=1, 100 then N=2, 150 then N=3, and so on...
+each page contains 50 entries, so the tool will only download multiples of 50. 
 
 ## Run regex tool 
 
@@ -23,7 +24,11 @@ recommended: create a `venv` before running
 python driver.py -d <path>
 ```
 
-where <path> is a directory containing multiple projects or crates
+where <path> is a directory containing multiple projects or crates. for example: 
+
+```sh
+python driver.py -d top_50_dl_crates
+```
 
 ### On a single crate
 
@@ -31,5 +36,9 @@ where <path> is a directory containing multiple projects or crates
 python tool.py -d <path>
 ```
 
-where <path> points to the crate to search
+where <path> points to a single crate to search in. for example:
+
+```sh
+python driver.py -d top_50_dl_crates/hashbrown-0.16.1
+```
 

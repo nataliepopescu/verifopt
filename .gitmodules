@@ -1,0 +1,3 @@
+[submodule "results-test/crate_crawler"]
+	path = scrape_dyn_usage/crate_crawler
+	url = https://github.com/nataliepopescu/crate_crawler

@@ -82,6 +82,7 @@ by design
 
 empirical
 - compilation speed
+    - `cargo run --timings` will output a build timing report
 - compile-time memory usage
 - compiler compilation speed (if tool is in-compiler)
 - runtime speedup of `dyn` uses

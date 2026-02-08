@@ -14,9 +14,9 @@ notes roughly organized into future paper sections
 
 ### Motivation Code
 
-[results-test](https://github.com/nataliepopescu/verifopt/tree/main/results-test):
+[scrape-dyn-usage](https://github.com/nataliepopescu/verifopt/tree/main/scrape-dyn-usage):
 a python crawler that categorizes `dyn` usage in the top X cargo crates;
-category explanations and results are shown
+some results and observations are shown
 [HERE](https://github.com/nataliepopescu/verifopt/blob/main/notes/motivation/DYN_TRAIT_OBS.md)
 
 ### Tool Code

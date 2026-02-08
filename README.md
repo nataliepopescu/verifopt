@@ -22,7 +22,7 @@ some results and observations are shown
 ### Tool Code
 
 [analysis](https://github.com/nataliepopescu/verifopt/tree/main/analysis):
-`Callback`-based analysis pass(es)
+analysis passes using `rustc_driver` hook
 
 [simple-interp](https://github.com/nataliepopescu/verifopt/tree/main/simple-interp): 
 simple interpreter for starting to think about what info we need to collect

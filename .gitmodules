@@ -1,3 +1,4 @@
 [submodule "scrape_dyn_usage/crate_crawler"]
 	path = scrape-dyn-usage/crate_crawler
 	url = https://github.com/nataliepopescu/crate_crawler
+	ignore = dirty

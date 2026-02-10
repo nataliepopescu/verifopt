@@ -259,7 +259,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 // this must mean that there is nothing to return. so, return nothing
                 if self.debug {
                     println!("_0 local was not assigned to");
+                    println!("cur_scope: {:?}", cur_scope);
                 }
+                // FIXME
+                // double check that nothing was supposed to be returned
+                //if let Some(funcval_vec) = self.funcs.get(&cur_scope) {
+                //}
                 Ok(None)
             }
         }
@@ -394,7 +399,44 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     todo!("struct is not a box");
                 }
             }
-            _ => todo!("handle other types"),
+            idkdid @ VerifoptRval::IdkDefId(_) => Some(idkdid),
+            _ => todo!("handle other types: {:?}", constraint),
+        }
+    }
+
+    fn get_trait_fn_impls_from_defid(
+        &self,
+        self_defid: &DefId,
+        impltors: &Vec<DefId>,
+    ) -> Vec<DefId> {
+        let mut to_dispatch = vec![];
+        if let Some(impl_blocks) = self.funcs.struct_impls.get(&self_defid) {
+            if self.debug {
+                println!("self_defid: {:?}", self_defid);
+                println!("impl_blocks: {:?}", impl_blocks);
+            }
+
+            for impl_block in impl_blocks {
+                match self.funcs.impl_blocks_to_impls.get(&impl_block) {
+                    Some(assoc) => {
+                        if self.debug {
+                            println!("assoc: {:?}", assoc);
+                        }
+                        for impltor in impltors {
+                            if assoc.contains(impltor) {
+                                to_dispatch.push(*impltor);
+                            }
+                        }
+                    }
+                    None => {}
+                }
+            }
+            //if to_dispatch.is_empty() {
+            //    panic!("nothing to dispatch");
+            //}
+            return to_dispatch;
+        } else {
+            panic!("cannot get struct impl_blocks: {:?}", self_defid);
         }
     }
 
@@ -403,33 +445,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         self_constraint: VerifoptRval<'tcx>,
         impltors: &Vec<DefId>,
     ) -> Vec<DefId> {
-        let mut to_dispatch = vec![];
         match self_constraint {
             VerifoptRval::IdkStruct(self_defid, _) => {
-                if let Some(impl_blocks) = self.funcs.struct_impls.get(&self_defid) {
-                    if self.debug {
-                        println!("impl_blocks: {:?}", impl_blocks);
-                    }
-
-                    match self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
-                        Some(assoc) => {
-                            if self.debug {
-                                println!("assoc: {:?}", assoc);
-                            }
-                            for impltor in impltors {
-                                if assoc.contains(impltor) {
-                                    to_dispatch.push(*impltor);
-                                }
-                            }
-                            return to_dispatch;
-                        }
-                        None => panic!("no"),
-                    }
-                } else {
-                    panic!("cannot get struct impl_blocks: {:?}", self_defid);
-                }
+                self.get_trait_fn_impls_from_defid(&self_defid, impltors)
             }
-            _ => todo!("handle other types"),
+            VerifoptRval::IdkDefId(did) => self.get_trait_fn_impls_from_defid(&did, impltors),
+            _ => todo!("handle other types: {:?}", self_constraint),
         }
     }
 
@@ -444,9 +465,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // assoc dyn obj w the correct trait fn impl
         let to_dispatch = self.get_trait_fn_impls(self_constraint, impltors);
 
-        if to_dispatch.len() != 1 {
-            todo!("unexpected to_dispatch len");
-        }
+        //if to_dispatch.len() != 1 {
+        //    todo!("unexpected to_dispatch len");
+        //}
 
         // call each impl
         for func_defid in to_dispatch {
@@ -483,10 +504,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             return Ok(None);
         }
 
-        if !assoc_funcval.is_method {
-            panic!("not a method");
+        if assoc_funcval.self_arg.is_none() {
+            if self.debug {
+                println!("no self type: {:?}", assoc_funcval);
+            }
+            return Ok(None);
         }
 
+        // what are the concrete implementations of this assoc_fn?
         if let Some(impltors) = self
             .funcs
             .trait_fn_impltors
@@ -503,10 +528,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             "value: {:?}",
                             cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                         );
-                        println!("impltors: {:?}", impltors);
+                        println!("impltors: {:#?}", impltors);
                         println!("structs: {:?}", self.funcs.trait_impltors.get(trait_def_id));
                     }
 
+                    // get constraints for the first argument to this function
+                    // (the would be `self` type)
                     if let Some(VarType::Values(constraints)) =
                         cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                     {
@@ -514,12 +541,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             todo!("unexpected number of constraints");
                         }
 
+                        // for each possible constraint...
                         for constraint in constraints.clone().drain() {
-                            // get dyn obj type
+                            // get the constraint type
                             if let Some(self_constraint) = self.resolve_dyn_self_constraint(
                                 cmap, cur_scope, impltors, constraint, args,
                             ) {
-                                // interp dyn dispatch as multiple possible static dispatches
+                                if self.debug {
+                                    println!("self_constraint: {:?}", self_constraint);
+                                }
+                                // interp dyn dispatch as the relevant static dispatch (using
+                                // constraint)
                                 return self.dyn_to_static_dispatch(
                                     cmap,
                                     cur_scope,
@@ -586,11 +618,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
                                 }
 
-                                if let Some(rettype) = funcval.rettype {
-                                    let mut constraints = HashSet::default();
+                                let mut constraints = HashSet::default();
+                                if let Some(ret_did) = funcval.ret_did {
+                                    constraints.insert(VerifoptRval::IdkDefId(ret_did));
+                                } else if let Some(rettype) = funcval.rettype {
                                     constraints.insert(VerifoptRval::IdkType(rettype));
-                                    res_vec.push(constraints);
                                 }
+                                res_vec.push(constraints);
                             } else if !self.tcx.is_mir_available(def_id) {
                                 if self.debug {
                                     println!("MIR NOT AVAILABLE for {:?}", def_id);
@@ -644,12 +678,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         // if funcval has a return type, use that as the
                                         // "summary" constraint
                                         let mut constraints = HashSet::default();
-                                        match funcval.rettype {
-                                            Some(ty) => {
-                                                constraints.insert(VerifoptRval::IdkType(ty))
-                                            }
-                                            None => constraints.insert(VerifoptRval::Undef()),
-                                        };
+                                        if let Some(ret_did) = funcval.ret_did {
+                                            constraints.insert(VerifoptRval::IdkDefId(ret_did));
+                                        } else if let Some(rettype) = funcval.rettype {
+                                            constraints.insert(VerifoptRval::IdkType(rettype));
+                                        } else {
+                                            constraints.insert(VerifoptRval::Undef());
+                                        }
                                         res_vec.push(constraints);
                                     }
                                 }
@@ -677,6 +712,19 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         cmap_vec.push(cmap_clone);
                                         if let Some(constraints) = maybe_constraints {
                                             res_vec.push(constraints);
+                                        } else if let Some(rettype) = funcval.rettype {
+                                            // is `None` actually a None, or was the
+                                            // analysis just unable to interpret something?
+                                            // i.e. if the called function is expected to
+                                            // return something, this is the latter case, and
+                                            // we can conservatively approx the constraints
+                                            // to be the function return type
+                                            if self.debug {
+                                                println!(
+                                                    "analysis failed, but the return type for func {:?} is: {:?}",
+                                                    funcval.def_id, rettype
+                                                );
+                                            }
                                         }
                                     }
                                     err @ Err(_) => return err,
@@ -740,6 +788,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         if self.debug {
             println!("\n-----------");
             println!("call!");
+            println!("cur scope: {:?}", cur_scope);
             println!("func: {:?}", func);
             println!("args: {:?}", args);
             println!("destination place: {:?}", destination);
@@ -864,6 +913,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 _ => {}
             }
         }
+
+        if self.debug {
+            println!("funcval: {:?}", funcval);
+        }
+
+        // TODO add rettype generic param to callee scope
 
         // add func_cmap to outer cmap
         // FIXME assuming funcname does not exist in cmap

@@ -24,11 +24,15 @@ pub struct FuncMap<'tcx> {
     pub trait_impltors: HashMap<DefId, Vec<DefId>>,
     // struct defid -> generics
     pub struct_generics: HashMap<DefId, Generics>,
-    // TODO
     // struct -> [impl blocks]
+    // FIXME this only covers explicit trait implementations;
+    // missing auto/blanket implementations
     pub struct_impls: HashMap<DefId, Vec<DefId>>,
     // impl blocks -> [impl fns/methods]
     pub impl_blocks_to_impls: HashMap<DefId, Vec<DefId>>,
+    // ty -> defid map
+    // TODO currently just adding struct defs
+    //pub ty_to_defids: HashMap<Ty<'tcx>, DefId>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
@@ -41,6 +45,7 @@ impl<'tcx> FuncMap<'tcx> {
             struct_generics: HashMap::default(),
             struct_impls: HashMap::default(),
             impl_blocks_to_impls: HashMap::default(),
+            //ty_to_defids: HashMap::default(),
         }
     }
 }
@@ -181,12 +186,15 @@ impl<'tcx> FuncCollectPass<'tcx> {
         // TODO for AssocFns, might be useful to have a field describing if it has a
         // default implementation or not
 
+        let impl_of_assoc = self.tcx.impl_of_assoc(def_id);
+        let generics_of = self.tcx.generics_of(def_id);
+
         if self.debug {
-            println!("impl of assoc: {:?}", self.tcx.impl_of_assoc(def_id));
-            println!("generics: {:#?}", self.tcx.generics_of(def_id));
+            println!("impl of assoc: {:?}", impl_of_assoc);
+            println!("generics: {:#?}", generics_of);
         }
 
-        if let Some(impl_defid) = self.tcx.impl_of_assoc(def_id) {
+        if let Some(impl_defid) = impl_of_assoc {
             match funcs.impl_blocks_to_impls.get(&impl_defid) {
                 Some(other_assoc) => {
                     if self.debug {
@@ -207,15 +215,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
         let arg_idents = self.tcx.fn_arg_idents(def_id);
         let num_args = arg_idents.len();
-        let mut is_method = false;
-        if num_args > 0 {
-            // FIXME more granular check? i.e. check actual `self` str?
-            if let Some(first) = arg_idents[0]
-                && first.is_reserved()
-            {
-                is_method = true;
-            }
+        if self.debug {
+            println!("num args: {:?}", num_args);
         }
+
         let mut arg_names = vec![];
         for i in 1..num_args + 1 {
             let arg_place = Place {
@@ -245,28 +248,67 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("arg_types: {:?}", arg_types);
                 println!("MIR Body: \n{:#?}", body);
             }
+        } else {
+            if self.debug {
+                println!("no mir :(");
+            }
+        }
+
+        let mut self_arg = None;
+        if num_args > 0 && generics_of.has_self {
+            self_arg = Some(arg_names[0]);
+            if self.debug {
+                println!("has self!");
+                println!("self type: {:?}", self_arg);
+            }
         }
 
         let mut is_intrinsic = false;
         if self.tcx.intrinsic_raw(def_id).is_some() {
             is_intrinsic = true;
+            if self.debug {
+                println!("is intrinsic");
+            }
+        } else {
+            if self.debug {
+                println!("not intrinsic");
+            }
         }
 
         let sig = self.tcx.fn_sig(def_id);
         // FIXME skip_binder() generally incorrect but in this instance the return type
         // is not generic so I think it is ok
-        // CORRECTION: binders are not for simple generics but rather https://rustc-dev-guide.rust-lang.org/ty_module/binders.html
-        let retty = sig.skip_binder().skip_binder().output();
-        // TODO ty has an is_never() method which we can use to not execute panic
-        // methods
+        // CORRECTION: binders are not for simple generics but rather lifetime generics
+        // https://rustc-dev-guide.rust-lang.org/ty_module/binders.html
+        // TODO ty has an is_never() method which we can use to not execute panic methods
+        let rettype = sig.skip_binder().skip_binder().output();
+        if self.debug {
+            println!("rettype: {:?}", rettype);
+        }
+        let mut ret_did = None;
+        match rettype.kind() {
+            TyKind::Adt(def, _) => {
+                if self.debug {
+                    println!("adt_def def_id: {:?}", def.did());
+                }
+                ret_did = Some(def.did());
+            }
+            TyKind::Param(param) => {
+                if self.debug {
+                    println!("rettype == param: {:?}", param);
+                }
+            }
+            _ => {}
+        }
 
         let funcval = FuncVal::new(
             def_id,
             is_intrinsic,
-            is_method,
+            self_arg,
             arg_names,
             arg_types,
-            Some(retty),
+            Some(rettype),
+            ret_did,
         );
         let vec_to_insert: Vec<FuncVal>;
         match funcs.funcs.get_mut(&def_id) {
@@ -284,23 +326,40 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
     pub fn collect_funcs(&self, funcs: &mut FuncMap<'tcx>) {
         // TODO try past 4
-        let num_crates = 4u32;
-        //let num_crates = self.tcx.used_crates(()).len();
+        //let num_crates = 4u32;
+        let num_crates = self.tcx.used_crates(()).len() as u32;
+        if self.debug {
+            println!("num_crates: {:?}", num_crates);
+        }
         for crate_num in 0u32..num_crates + 1 {
             if self.debug {
                 println!("\n\ncrate_num: {:?}\n", crate_num);
             }
             for def_index in 0..u32::MAX {
-                if crate_num == 0 && def_index >= 22
+                // simple: max = 22
+                //if crate_num == 0 && def_index >= 22
+
+                // one_variant: max = 21
+                if crate_num == 0 && def_index >= 21
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636
                     || crate_num == 4 && def_index >= 4970
-                //|| crate_num == 5 && def_index >= 12217
-                //|| crate_num == 6 && def_index >= 3
-                //|| crate_num == 7 && def_index >= 94
-                //|| crate_num == 8 && def_index >= 513
-                //|| crate_num == 9 && def_index >= 71
+                    || crate_num == 5 && def_index >= 12217
+                    || crate_num == 6 && def_index >= 3
+                    || crate_num == 7 && def_index >= 94
+                    || crate_num == 8 && def_index >= 513
+                    || crate_num == 9 && def_index >= 71
+                    || crate_num == 10 && def_index >= 3492
+                    || crate_num == 11 && def_index >= 3
+                    || crate_num == 12 && def_index >= 351
+                    || crate_num == 13 && def_index >= 317
+                    || crate_num == 14 && def_index >= 4
+                    || crate_num == 15 && def_index >= 636
+                    || crate_num == 16 && def_index >= 11666
+                    || crate_num == 17 && def_index >= 21753
+                    || crate_num == 18 && def_index >= 2174
+                    || crate_num == 19 && def_index >= 27
                 {
                     break;
                 }

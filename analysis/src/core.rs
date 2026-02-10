@@ -18,26 +18,28 @@ pub type Type = &'static str;
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,
     pub is_intrinsic: bool,
-    pub is_method: bool,
+    pub self_arg: Option<Place<'tcx>>,
     pub params: Vec<(Place<'tcx>, Ty<'tcx>)>,
     pub rettype: Option<Ty<'tcx>>,
+    pub ret_did: Option<DefId>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
     pub fn new(
         def_id: DefId,
         is_intrinsic: bool,
-        is_method: bool,
+        self_arg: Option<Place<'tcx>>,
         arg_names: Vec<Place<'tcx>>,
         arg_types_opt: Option<Vec<Ty<'tcx>>>,
         rettype: Option<Ty<'tcx>>,
+        ret_did: Option<DefId>,
     ) -> FuncVal<'tcx> {
         let params;
         if let Some(arg_types) = arg_types_opt {
             params = std::iter::zip(arg_names, arg_types).collect();
         } else {
             // dummy value for functions that do not have MIR available (and therefore cannot get
-            // argument types the way we generally get them0 -- this is probably fine since we
+            // argument types the way we generally get them -- this is probably fine since we
             // won't be executing this particular MIR body anyway
             params = vec![];
         }
@@ -45,9 +47,10 @@ impl<'tcx> FuncVal<'tcx> {
         Self {
             def_id,
             is_intrinsic,
-            is_method,
+            self_arg,
             params,
             rettype,
+            ret_did,
         }
     }
 }
@@ -65,6 +68,7 @@ pub enum VerifoptRval<'tcx> {
     ConstSlice(),
     Ptr(Box<VerifoptRval<'tcx>>),
     Ref(Box<VerifoptRval<'tcx>>),
+    // FIXME don't want types
     IdkType(Ty<'tcx>),
     IdkDefId(DefId),
     Idk(),
@@ -479,7 +483,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                 _ => panic!("value should not be a scope"),
             },
             None => {
-                panic!("no val!");
+                panic!("no val for place {:?} in scope {:?}", newplace, cur_scope);
             }
         }
     }

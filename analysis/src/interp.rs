@@ -400,6 +400,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
             }
             idkdid @ VerifoptRval::IdkDefId(_) => Some(idkdid),
+            idkty @ VerifoptRval::IdkType(_) => Some(idkty),
             _ => todo!("handle other types: {:?}", constraint),
         }
     }
@@ -450,6 +451,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 self.get_trait_fn_impls_from_defid(&self_defid, impltors)
             }
             VerifoptRval::IdkDefId(did) => self.get_trait_fn_impls_from_defid(&did, impltors),
+            // FIXME cannot get fn_impls from types, will ignore dispatch and
+            // use the function return type as the retval's "constraint"
+            VerifoptRval::IdkType(_) => {
+                if self.debug {
+                    println!(
+                        "cannot get fn_impl from type, return empty vec to ignore dispatch and use backup function rettype for retval"
+                    );
+                }
+                vec![]
+            }
             _ => todo!("handle other types: {:?}", self_constraint),
         }
     }
@@ -663,7 +674,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         "\n##### DONE w DYN func {:?}\n",
                                                         def_id
                                                     );
+                                                    // FIXME
+                                                    // if funcval has a return type, use that as the
+                                                    // "summary" constraint
                                                     println!("no retval");
+                                                    let mut constraints = HashSet::default();
+                                                    if let Some(ret_did) = funcval.ret_did {
+                                                        constraints.insert(VerifoptRval::IdkDefId(
+                                                            ret_did,
+                                                        ));
+                                                        res_vec.push(constraints);
+                                                    } else if let Some(rettype) = funcval.rettype {
+                                                        constraints
+                                                            .insert(VerifoptRval::IdkType(rettype));
+                                                        res_vec.push(constraints);
+                                                    }
                                                 }
                                             }
                                             e @ Err(_) => return e,
@@ -770,6 +795,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         } else {
             if self.debug {
                 println!("res_vec is empty");
+                println!("cur_scope: {:?}", cur_scope);
+                println!("destination: {:?}", destination);
             }
         }
 
@@ -915,10 +942,24 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         if self.debug {
+            println!("HERE");
             println!("funcval: {:?}", funcval);
         }
 
         // TODO add rettype generic param to callee scope
+        if let Some(rettype) = funcval.rettype {
+            match rettype.kind() {
+                TyKind::Param(param) => {
+                    if self.debug {
+                        println!("RETTYPE IS A PARAM: {:?}", param);
+                    }
+                    //func_cmap.cmap.insert(
+                    //    MapKey::Generic(param.name),
+                    //);
+                }
+                _ => {}
+            }
+        }
 
         // add func_cmap to outer cmap
         // FIXME assuming funcname does not exist in cmap

@@ -439,6 +439,14 @@ impl<'tcx> VerifoptRval<'tcx> {
 
         let mut newplace = *place;
         if place.projection.len() != 0 {
+            // not dealing w complicated projections right now, widen to backup_ty
+            if place.projection.len() > 1 {
+                if debug {
+                    println!("multiple projections, using backup_ty: {:?}", backup_ty);
+                }
+                return VerifoptRval::IdkType(*backup_ty);
+            }
+
             match place.projection[0] {
                 PlaceElem::Deref => {
                     // FIXME essentially ignoring the deref here, when would this be wrong?
@@ -462,6 +470,7 @@ impl<'tcx> VerifoptRval<'tcx> {
             }
         }
 
+        let mut ret_rval = VerifoptRval::IdkType(*backup_ty);
         match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false) {
             Some(vartype) => match vartype {
                 VarType::Values(constraints) => {
@@ -474,18 +483,21 @@ impl<'tcx> VerifoptRval<'tcx> {
                     if constraints.len() != 1 {
                         panic!("unexpected constraint length: {:?}", constraints.len());
                     }
-                    let mut ret = VerifoptRval::IdkType(*backup_ty);
                     for sole_constraint in constraints.clone().drain() {
-                        ret = sole_constraint;
+                        ret_rval = sole_constraint;
                     }
-                    ret
                 }
                 _ => panic!("value should not be a scope"),
             },
             None => {
-                panic!("no val for place {:?} in scope {:?}", newplace, cur_scope);
+                if debug {
+                    println!("no val for place {:?} in scope {:?}", newplace, cur_scope);
+                    println!("using backup_ty: {:?}", backup_ty);
+                }
             }
         }
+
+        ret_rval
     }
 }
 

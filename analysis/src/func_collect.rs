@@ -215,9 +215,6 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
         let arg_idents = self.tcx.fn_arg_idents(def_id);
         let num_args = arg_idents.len();
-        if self.debug {
-            println!("num args: {:?}", num_args);
-        }
 
         let mut arg_names = vec![];
         for i in 1..num_args + 1 {
@@ -245,8 +242,19 @@ impl<'tcx> FuncCollectPass<'tcx> {
             arg_types = Some(arg_types_inner);
 
             if self.debug {
+                println!("arg_count: {:?}", body.arg_count);
                 println!("arg_types: {:?}", arg_types);
-                println!("MIR Body: \n{:#?}", body);
+                println!("----Start MIR Body----");
+
+                let locs = &body.local_decls;
+                let bbs = &body.basic_blocks;
+
+                println!("num LocalDecls: {:?}", locs.len());
+                println!("LocalDecls: \n{:#?}", locs);
+
+                println!("num BasicBlocks: {:?}", bbs.len());
+                println!("BasicBlocks: \n{:#?}", bbs);
+                println!("----End MIR Body----");
             }
         } else {
             if self.debug {
@@ -277,13 +285,16 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
         let sig = self.tcx.fn_sig(def_id);
         // FIXME skip_binder() generally incorrect but in this instance the return type
-        // is not generic so I think it is ok
+        // is not generic so maybe fine (for now)
         // CORRECTION: binders are not for simple generics but rather lifetime generics
         // https://rustc-dev-guide.rust-lang.org/ty_module/binders.html
-        // TODO ty has an is_never() method which we can use to not execute panic methods
+        // TODO use bound_vars field in inner Binder to determine if safe
+        // (outer == EarlyBinder, no such field)
         let rettype = sig.skip_binder().skip_binder().output();
         if self.debug {
+            println!("sig: {:?}", sig);
             println!("rettype: {:?}", rettype);
+            //println!("ret impl trait?: {:?}", self.tcx.collect_return_position_impl_trait_in_trait_tys(def_id));
         }
         let mut ret_did = None;
         match rettype.kind() {
@@ -300,6 +311,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             }
             _ => {}
         }
+        // TODO ty has an is_never() method which we can use to not execute panic methods
 
         let funcval = FuncVal::new(
             def_id,

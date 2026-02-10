@@ -674,21 +674,19 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         "\n##### DONE w DYN func {:?}\n",
                                                         def_id
                                                     );
-                                                    // FIXME
-                                                    // if funcval has a return type, use that as the
-                                                    // "summary" constraint
-                                                    println!("no retval");
-                                                    let mut constraints = HashSet::default();
-                                                    if let Some(ret_did) = funcval.ret_did {
-                                                        constraints.insert(VerifoptRval::IdkDefId(
-                                                            ret_did,
-                                                        ));
-                                                        res_vec.push(constraints);
-                                                    } else if let Some(rettype) = funcval.rettype {
-                                                        constraints
-                                                            .insert(VerifoptRval::IdkType(rettype));
-                                                        res_vec.push(constraints);
-                                                    }
+                                                    println!("no retval, check for widening");
+                                                }
+                                                // if funcval has a return type, use that as the
+                                                // "summary" constraint
+                                                let mut constraints = HashSet::default();
+                                                if let Some(ret_did) = funcval.ret_did {
+                                                    constraints
+                                                        .insert(VerifoptRval::IdkDefId(ret_did));
+                                                    res_vec.push(constraints);
+                                                } else if let Some(rettype) = funcval.rettype {
+                                                    constraints
+                                                        .insert(VerifoptRval::IdkType(rettype));
+                                                    res_vec.push(constraints);
                                                 }
                                             }
                                             e @ Err(_) => return e,

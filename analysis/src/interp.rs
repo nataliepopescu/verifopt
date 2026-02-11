@@ -99,9 +99,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             last_res = self.visit_basic_block_data(
                 cmap,
                 &mut bb_deps,
-                body.local_decls.as_slice(),
                 //prev_scope,
                 cur_scope,
+                body.local_decls.as_slice(),
                 &bb,
                 data,
             )?;
@@ -114,9 +114,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         bb_deps: &mut BBDeps,
-        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         //prev_scope: Option<DefId>,
         cur_scope: DefId,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -134,7 +134,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("# visiting STATEMENT");
                 println!("# -------------------------------");
             }
-            last_res = self.visit_statement(cmap, body_locals, cur_scope, stmt)?;
+            last_res = self.visit_statement(cmap, cur_scope, body_locals, stmt)?;
         }
 
         if let Some(term) = &data.terminator {
@@ -146,7 +146,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             // FIXME return basic blocks are the only ones whose interp returns Some(_), so could
             // re-architect this loop to only save the result if it is a Some(_) (then wouldn't
             // have to worry about executing cleanup blocks afterwards)
-            last_res = self.visit_terminator(cmap, bb, bb_deps, cur_scope, &term)?;
+            last_res = self.visit_terminator(cmap, body_locals, bb, bb_deps, cur_scope, &term)?;
         }
 
         bb_deps.mark_visited(bb);
@@ -157,8 +157,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn visit_statement(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
-        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         cur_scope: DefId,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         statement: &Statement<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         match statement.kind {
@@ -206,6 +206,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn visit_terminator(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         bb: &BasicBlock,
         bb_deps: &mut BBDeps,
         //prev_scope: Option<DefId>,
@@ -218,7 +219,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 args,
                 destination,
                 ..
-            } => self.interp_func_call(cmap, cur_scope, func, args, destination),
+            } => self.interp_func_call(cmap, cur_scope, body_locals, func, args, destination),
             TerminatorKind::Return => self.interp_return(cmap, cur_scope),
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
@@ -250,6 +251,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     if self.debug {
                         println!("returning value w following constraints: {:?}", constraints);
                     }
+
+                    for constraint in constraints.clone().drain() {
+                        if let VerifoptRval::IdkType(ty) = constraint {
+                            if self.debug {
+                                println!("returning a type!: {:?}", ty);
+                            }
+                            if let TyKind::Param(param) = ty.kind() {
+                                if self.debug {
+                                    println!("GENERIC RETTY: {:?}", param);
+                                }
+                                // TODO
+                            }
+                        }
+                    }
+
                     Ok(Some(constraints))
                 }
                 _ => panic!("return scope?"),
@@ -469,9 +485,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         self_constraint: VerifoptRval<'tcx>,
         impltors: &Vec<DefId>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
+        destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // assoc dyn obj w the correct trait fn impl
         let to_dispatch = self.get_trait_fn_impls(self_constraint, impltors);
@@ -490,7 +508,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             if funcval_vec.len() != 1 {
                 panic!("unexpected number of functions");
             }
-            return self.handle_static_dispatch(cmap, cur_scope, &funcval_vec[0], args);
+            return self.handle_static_dispatch(
+                cmap,
+                cur_scope,
+                body_locals,
+                &funcval_vec[0],
+                args,
+                destination,
+            );
         }
 
         Ok(None)
@@ -500,9 +525,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
-        args: &Box<[Spanned<Operand<'tcx>>]>,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         assoc_funcval: &FuncVal<'tcx>,
         trait_def_id: &DefId,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
+        destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         if self.debug {
             println!("found in trait: {:?}", trait_def_id);
@@ -566,9 +593,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 return self.dyn_to_static_dispatch(
                                     cmap,
                                     cur_scope,
+                                    body_locals,
                                     self_constraint,
                                     impltors,
                                     args,
+                                    destination,
                                 );
                             } else {
                                 todo!("no self constraint");
@@ -591,8 +620,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         mut cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
+        destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         if self.debug {
             println!(
@@ -603,6 +634,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
 
+        if funcval.ret_generic.is_some() {
+            self.resolve_generic_retty(&mut cmap, cur_scope, body_locals, funcval, destination);
+        }
+
         // visit callee
         let callee_body = self.tcx.optimized_mir(funcval.def_id);
         self.visit_body(cmap, Some(cur_scope), funcval.def_id, callee_body)
@@ -612,6 +647,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         co: &ConstOperand<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
@@ -653,9 +689,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         match self.handle_dyn_dispatch(
                                             cmap,
                                             cur_scope,
-                                            args,
+                                            body_locals,
                                             funcval,
                                             &trait_def_id_clone,
+                                            args,
+                                            destination,
                                         ) {
                                             Ok(Some(constraints)) => {
                                                 if self.debug {
@@ -684,6 +722,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         .insert(VerifoptRval::IdkDefId(ret_did));
                                                     res_vec.push(constraints);
                                                 } else if let Some(rettype) = funcval.rettype {
+                                                    if self.debug {
+                                                        println!("rettype: {:?}", rettype);
+                                                    }
+
+                                                    // FIXME resolve generics
                                                     constraints
                                                         .insert(VerifoptRval::IdkType(rettype));
                                                     res_vec.push(constraints);
@@ -720,8 +763,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 match self.handle_static_dispatch(
                                     &mut cmap_clone,
                                     cur_scope,
+                                    body_locals,
                                     funcval,
                                     args,
+                                    destination,
                                 ) {
                                     Ok(maybe_constraints) => {
                                         if self.debug {
@@ -806,6 +851,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cmap: &mut ConstraintMap<'tcx>,
         //prev_scope: Option<DefId>,
         cur_scope: DefId,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         func: &Operand<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
@@ -821,7 +867,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         match func {
             Operand::Constant(box co) => {
-                self.interp_direct_func_call(cmap, cur_scope, co, args, destination)
+                self.interp_direct_func_call(cmap, cur_scope, body_locals, co, args, destination)
             }
             _ => todo!("handle indirect invocations"),
         }
@@ -939,26 +985,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
         }
 
-        if self.debug {
-            println!("HERE");
-            println!("funcval: {:?}", funcval);
-        }
-
-        // TODO add rettype generic param to callee scope
-        if let Some(rettype) = funcval.rettype {
-            match rettype.kind() {
-                TyKind::Param(param) => {
-                    if self.debug {
-                        println!("RETTYPE IS A PARAM: {:?}", param);
-                    }
-                    //func_cmap.cmap.insert(
-                    //    MapKey::Generic(param.name),
-                    //);
-                }
-                _ => {}
-            }
-        }
-
         // add func_cmap to outer cmap
         // FIXME assuming funcname does not exist in cmap
         cmap.cmap.insert(
@@ -979,5 +1005,54 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 )],
             )),
         );
+    }
+
+    fn resolve_generic_retty(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        _cur_scope: DefId,
+        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
+        funcval: &FuncVal<'tcx>,
+        destination: &Place<'tcx>,
+    ) {
+        if self.debug {
+            println!("HERE");
+            println!("funcval.ret_generic: {:?}", funcval.ret_generic);
+            println!("destination: {:?}", destination);
+            println!("body_locals[dest]: {:?}", body_locals[destination.local]);
+        }
+
+        // add rettype generic param to callee scope
+        if let Some(rettype) = funcval.rettype {
+            match rettype.kind() {
+                TyKind::Param(param) => {
+                    if self.debug {
+                        println!("RETTYPE IS A PARAM: {:?}", param);
+                    }
+
+                    let mut constraints = HashSet::default();
+                    constraints.insert(VerifoptRval::IdkType(body_locals[destination.local].ty));
+
+                    cmap.scoped_add(
+                        Some(funcval.def_id),
+                        MapKey::Generic(param.name),
+                        Box::new(VarType::Values(constraints)),
+                    );
+
+                    if self.debug {
+                        println!(
+                            "new val @ {:?}: {:?}",
+                            param.name,
+                            cmap.scoped_get(
+                                Some(funcval.def_id),
+                                &MapKey::Generic(param.name),
+                                false,
+                            )
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }

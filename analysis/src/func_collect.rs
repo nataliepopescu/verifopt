@@ -297,6 +297,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             //println!("ret impl trait?: {:?}", self.tcx.collect_return_position_impl_trait_in_trait_tys(def_id));
         }
         let mut ret_did = None;
+        let mut ret_generic = None;
         match rettype.kind() {
             TyKind::Adt(def, _) => {
                 if self.debug {
@@ -308,6 +309,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 if self.debug {
                     println!("rettype == param: {:?}", param);
                 }
+                ret_generic = Some(*param);
             }
             _ => {}
         }
@@ -321,6 +323,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             arg_types,
             Some(rettype),
             ret_did,
+            ret_generic,
         );
         let vec_to_insert: Vec<FuncVal>;
         match funcs.funcs.get_mut(&def_id) {

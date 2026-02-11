@@ -262,7 +262,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 todo!("struct is not a box");
                             }
                         }
-                        _ => todo!("handle more types"),
+                        _ => todo!("handle more kinds: {:?}", first_arg_constraint),
                     }
                 }
             } else {

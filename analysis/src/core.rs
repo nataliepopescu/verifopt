@@ -5,7 +5,7 @@ use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
 use rustc_index::IndexSlice;
-use rustc_middle::ty::{GenericArgKind, List, Ty, TyCtxt, TyKind};
+use rustc_middle::ty::{GenericArgKind, List, ParamTy, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::fx::{FxHashSet as HashSet};
 
 use crate::ConstraintMap;
@@ -22,6 +22,7 @@ pub struct FuncVal<'tcx> {
     pub params: Vec<(Place<'tcx>, Ty<'tcx>)>,
     pub rettype: Option<Ty<'tcx>>,
     pub ret_did: Option<DefId>,
+    pub ret_generic: Option<ParamTy>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
@@ -33,6 +34,7 @@ impl<'tcx> FuncVal<'tcx> {
         arg_types_opt: Option<Vec<Ty<'tcx>>>,
         rettype: Option<Ty<'tcx>>,
         ret_did: Option<DefId>,
+        ret_generic: Option<ParamTy>,
     ) -> FuncVal<'tcx> {
         let params;
         if let Some(arg_types) = arg_types_opt {
@@ -51,6 +53,7 @@ impl<'tcx> FuncVal<'tcx> {
             params,
             rettype,
             ret_did,
+            ret_generic,
         }
     }
 }

@@ -5,7 +5,7 @@ use rustc_hir::def::DefKind;
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{Generics, InstanceKind, List, TyCtxt, TyKind};
+use rustc_middle::ty::{GenericArg, Generics, InstanceKind, List, TyCtxt, TyKind};
 
 use crate::core::FuncVal;
 
@@ -113,6 +113,52 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
+    pub fn store_struct_impl(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, trait_defid: DefId, impl_struct: GenericArg<'tcx>) {
+        match impl_struct.as_type().unwrap().kind() {
+            TyKind::Adt(def, _) => {
+                let struct_defid = def.did();
+
+                if self.debug {
+                    println!("defid: {:?}", struct_defid);
+                }
+
+                // add struct -> impl block pairing
+                match funcs.struct_impls.get(&struct_defid) {
+                    Some(other_impls) => {
+                        let mut updated_impls = other_impls.clone();
+                        updated_impls.push(def_id);
+                        funcs.struct_impls.insert(struct_defid, updated_impls);
+                    }
+                    None => {
+                        funcs.struct_impls.insert(struct_defid, vec![def_id]);
+                    }
+                }
+
+                match funcs.trait_impltors.get(&trait_defid) {
+                    Some(vec_impltors) => {
+                        //if self.debug {
+                        //    println!("adding impltor to trait-struct map");
+                        //}
+                        let mut new_impltors = vec_impltors.clone();
+                        new_impltors.push(def.did());
+                        funcs.trait_impltors.insert(trait_defid, new_impltors);
+                    }
+                    None => {
+                        //if self.debug {
+                        //    println!("trait doesn't exist in map yet, adding now");
+                        //}
+                        funcs.trait_impltors.insert(trait_defid, vec![def.did()]);
+                    }
+                }
+            }
+            _ => {
+                if self.debug {
+                    println!("other kind")
+                }
+            }
+        }
+    }
+
     pub fn handle_trait_impl(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
         // TODO might be useful once we encounter default trait implementations, to see
         // exactly _which_ functions are being implemented/overriden
@@ -122,64 +168,24 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let trait_defid = trait_ref.def_id;
         if self.debug {
             println!("trait defid: {:?}", trait_defid);
+            println!("args: {:#?}", trait_ref.args);
         }
         let arglen = trait_ref.args.len();
-        if arglen == 1 {
+        if arglen >= 1 {
             let impl_struct = trait_ref.args.as_slice()[0];
             if self.debug {
+                println!("arg len: {:?}", arglen);
                 println!("impl_struct: {:?}", impl_struct.as_type().unwrap().kind());
             }
-
-            match impl_struct.as_type().unwrap().kind() {
-                TyKind::Adt(def, _) => {
-                    let struct_defid = def.did();
-
-                    if self.debug {
-                        println!("defid: {:?}", struct_defid);
-                    }
-
-                    // add struct -> impl block pairing
-                    match funcs.struct_impls.get(&struct_defid) {
-                        Some(other_impls) => {
-                            let mut updated_impls = other_impls.clone();
-                            updated_impls.push(def_id);
-                            funcs.struct_impls.insert(struct_defid, updated_impls);
-                        }
-                        None => {
-                            funcs.struct_impls.insert(struct_defid, vec![def_id]);
-                        }
-                    }
-
-                    match funcs.trait_impltors.get(&trait_defid) {
-                        Some(vec_impltors) => {
-                            //if self.debug {
-                            //    println!("adding impltor to trait-struct map");
-                            //}
-                            let mut new_impltors = vec_impltors.clone();
-                            new_impltors.push(def.did());
-                            funcs.trait_impltors.insert(trait_defid, new_impltors);
-                        }
-                        None => {
-                            //if self.debug {
-                            //    println!("trait doesn't exist in map yet, adding now");
-                            //}
-                            funcs.trait_impltors.insert(trait_defid, vec![def.did()]);
-                        }
-                    }
-                }
-                _ => {
-                    if self.debug {
-                        println!("other kind")
-                    }
-                }
-            }
+            self.store_struct_impl(funcs, def_id, trait_defid, impl_struct);
         } else if arglen == 0 {
             panic!("arg len 0");
-        } else {
-            if self.debug {
-                println!("arg len > 1: {:?}", arglen);
-            }
         }
+        //else {
+        //    if self.debug {
+        //        println!("arg len > 1: {:?}", arglen);
+        //    }
+        //}
     }
 
     pub fn handle_fn(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {

@@ -58,7 +58,7 @@ impl BBDeps {
         //println!("self.ordering pre: {:?}", bb_deps.ordering);
         bb_deps.ordering.push(ret_bb);
         if debug {
-            println!("self.ordering: {:?}", bb_deps.ordering);
+            println!("\nself.ordering: {:?}", bb_deps.ordering);
             println!("\n%%%%%");
         }
 

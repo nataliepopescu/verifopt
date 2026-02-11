@@ -5,6 +5,7 @@ use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
 use rustc_index::IndexSlice;
+use rustc_abi::FieldIdx;
 use rustc_middle::ty::{GenericArgKind, List, ParamTy, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::fx::{FxHashSet as HashSet};
 
@@ -178,8 +179,29 @@ impl<'tcx> VerifoptRval<'tcx> {
                     }
                     VerifoptRval::IdkType(*ty)
                 }
-                AggregateKind::Array(_) => todo!("array"),
-                AggregateKind::Tuple => todo!("tup"),
+                AggregateKind::Array(ty) => {
+                    if debug {
+                        println!("array");
+                        println!("ty: {:?}", ty);
+                        println!("fields: {:?}", fields);
+                    }
+                    todo!("array");
+                }
+                AggregateKind::Tuple => {
+                    if debug {
+                        println!("tup");
+                        println!("fields: {:?}", fields);
+                    }
+                    let fields_slice = fields.as_slice();
+                    if fields_slice.len() > 0 {
+                        let op = &fields_slice[FieldIdx::from_u32(0)];
+                        if debug {
+                            println!("field op: {:?}", op);
+                        }
+                        return VerifoptRval::rval_from_op(cmap, cur_scope, &op, &op.ty(local_decls, tcx), debug);
+                    }
+                    todo!("tup w no fields");
+                }
             },
             Rvalue::Use(op) => {
                 if debug {

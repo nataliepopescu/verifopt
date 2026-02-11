@@ -175,6 +175,17 @@ pub fn args_os() -> ArgsOs {
             - many possible implementations...
             - which one do we want?
 
+            - FIXME later resolve if needed
+
+        - from_iter source decl:
+
+```rust
+pub trait FromIterator<A>: Sized {
+    // Required method
+    fn from_iter<T: IntoIterator<Item = A>>(iter: T) -> Self;
+}
+```
+
 
 
 

@@ -10,7 +10,9 @@
 
 - working on another example where we do _not_ statically know which variant
   will be called (but that there is only one possible anyway)
-    - while working on this I ran into a lot of trouble with `collect()`
+- mainly doing this to help debug code changes between the first and third
+  examples
+- while working on this I ran into a lot of trouble with `collect()`
     - `collect()` internally calls `FromIterator::from_iter()`, but things got
       quite messy/complicated w finding the exact `from_iter()` implementation
       to use (during analysis, not transformation)

@@ -29,7 +29,8 @@
 
 still kinda shooting for oopsla
 
-asplos is two weeks later
+asplos is four* weeks later
+- two weeks after i get back
 
 systems might be difficult to get eval things for
 

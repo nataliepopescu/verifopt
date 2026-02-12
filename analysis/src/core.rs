@@ -61,7 +61,12 @@ impl<'tcx> FuncVal<'tcx> {
 
 pub fn is_box(def_id: DefId) -> bool {
     // FIXME does this ever change....
-    def_id.index.as_usize() == 662 && def_id.krate.as_usize() == 3
+    def_id.krate.as_usize() == 3 && def_id.index.as_usize() == 662
+}
+
+pub fn is_option(def_id: DefId) -> bool {
+    // FIXME does this ever change....
+    def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 49010
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -151,15 +156,33 @@ impl<'tcx> VerifoptRval<'tcx> {
                                             _ => panic!("unexpected generic mapping"),
                                         }
                                     }
-                                    _ => {}
+                                    // TODO
+                                    TyKind::Adt(def, genargs) => {
+                                        if debug {
+                                            println!("adt def: {:?}", def);
+                                            println!("adt genargs: {:?}", genargs);
+                                        }
+                                    }
+                                    _ => {
+                                        if debug {
+                                            println!("other ty kind: {:?}", ty.kind());
+                                        }
+                                    }
                                 },
                                 GenericArgKind::Const(_) => {
                                     if debug {
-                                        println!("const");
+                                        println!("const genarg");
                                     }
                                 }
-                                _ => {}
+                                GenericArgKind::Lifetime(_) => {
+                                    if debug {
+                                        println!("lifetime genarg");
+                                    }
+                                }
                             }
+                        }
+                        if debug {
+                            println!("returningval: defid = {:?}, genargs = {:?}", defid, Some(genarg_vec.clone()));
                         }
                         return VerifoptRval::IdkStruct(*defid, Some(genarg_vec));
                     }

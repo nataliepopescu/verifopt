@@ -7,7 +7,7 @@ use rustc_span::{BytePos, Span, SyntaxContext};
 use crate::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
 use crate::core::VerifoptRval;
-use crate::core::is_box;
+use crate::core::{is_box, is_option};
 use crate::patch::MirPatch;
 
 // FIXME get dynamically
@@ -101,7 +101,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 }
 
                                 if self.debug {
-                                    println!("\nFIRST ARG == TRAIT: {:?} ({:?})", func, defid);
+                                    println!("\nFIRST ARG == TRAIT");
+                                    println!("arg: {:?}", first);
+                                    println!("func: {:?}", func);
+                                    println!("func_defid: {:?}", defid);
                                 }
 
                                 let num_bbs = body.basic_blocks.len();
@@ -215,19 +218,22 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.patch_terminator(cur_bb, TerminatorKind::Goto { target: new_start });
     }
 
+    // get the structs that implement the trait being pointed to by the first argument
     fn get_struct_dids(&self, cur_scope: DefId) -> Vec<DefId> {
         let mut structs = vec![];
+        // FIXME test simple with local10 instead of local1
         let first_arg = self.cmap.scoped_get(
             Some(cur_scope),
             &MapKey::Place(Place {
-                local: Local::from_usize(1),
+                local: Local::from_usize(10),
                 projection: List::empty(),
             }),
             false,
         );
         if self.debug {
             println!("\n##### Getting Struct DefIds\n");
-            println!("first arg: {:?}", first_arg);
+            println!("cur_scope: {:?}", cur_scope);
+            println!("first arg (constraints @ Place(_1)): {:?}", first_arg);
         }
 
         if let Some(first_arg_vartype) = first_arg {
@@ -236,9 +242,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     todo!("handle diff lens: {:?}", first_arg_constraints.len());
                 }
                 for first_arg_constraint in first_arg_constraints.iter() {
-                    //if self.debug {
-                    //    println!("first_arg_constraint: {:?}", first_arg_constraint);
-                    //}
                     match first_arg_constraint {
                         VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
                             if is_box(*struct_defid) {
@@ -258,8 +261,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                         _ => todo!(),
                                     }
                                 }
+                            } else if is_option(*struct_defid) {
+                                if self.debug {
+                                    println!("is option!");
+                                    println!("genarg_vec: {:?}", genarg_vec);
+                                }
+                                todo!("option");
                             } else {
-                                todo!("struct is not a box");
+                                todo!("struct is not a box or option: {:?} (\ngenargs: {:?})", struct_defid, genarg_vec);
+
                             }
                         }
                         _ => todo!("handle more kinds: {:?}", first_arg_constraint),
@@ -307,7 +317,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     // TODO doing duplicate work as in interp, store interp's result somewhere
     // (memoize for each dyn dispatch call)
     fn get_trait_impl_dids(&self, cur_scope: DefId, dynfunc_defid: &DefId) -> Vec<(DefId, DefId)> {
+        if self.debug {
+            println!("cur_scope: {:?}", cur_scope);
+            println!("dynfunc_defid: {:?}", dynfunc_defid);
+        }
         let structs = self.get_struct_dids(cur_scope);
+        if self.debug {
+            println!("structs: {:?}", structs);
+        }
+
         if let Some(impltors) = self
             .funcs
             .trait_fn_impltors
@@ -315,7 +333,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             .unwrap()
             .get(&dynfunc_defid)
         {
+            if self.debug {
+                println!("impltors: {:?}", impltors);
+            }
+
             let impls = self.get_impl_dids(cur_scope, &structs, impltors);
+            if self.debug {
+                println!("impls: {:?}", impls);
+            }
+
             return std::iter::zip(structs, impls).collect();
         } else {
             panic!("no impltors");
@@ -921,18 +947,28 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
     ) {
+        if self.debug {
+            println!("\n### STARTING\n");
+            println!("num_bbs: {:?}", num_bbs);
+            println!("cur_bb: {:?}", bb);
+            println!("speak dest: {:?}", term_dst_place);
+        }
+
         // get old terminator's edges
         let (bb_old_next, bb_old_cleanup) = self.get_bbs(data);
-        let traitobj_did = self.get_traitobj_did(ty);
-        let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid);
-
         if self.debug {
-            println!("\n##### STARTING\n");
-            println!("num_bbs: {:?}", num_bbs);
+            println!("bb_old_next: {:?}", bb_old_next);
+            println!("bb_old_cleanup: {:?}", bb_old_cleanup);
+        }
+
+        let traitobj_did = self.get_traitobj_did(ty);
+        if self.debug {
             println!("traitobj_did: {:?}", traitobj_did);
-            println!("cur_bb: {:?}", bb);
+        }
+
+        let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid);
+        if self.debug {
             println!("dids: {:?}", dids);
-            println!("speak dest: {:?}", term_dst_place);
         }
 
         // FIXME get dynamically

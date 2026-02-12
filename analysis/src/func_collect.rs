@@ -256,10 +256,21 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 let bbs = &body.basic_blocks;
 
                 println!("num LocalDecls: {:?}", locs.len());
-                println!("LocalDecls: \n{:#?}", locs);
+                println!("{{");
+                for i in 0..locs.len() {
+                    println!("local{:?}", i);
+                    println!("{:#?}", locs[Local::from_usize(i)]);
+                }
+                println!("}}");
 
                 println!("num BasicBlocks: {:?}", bbs.len());
-                println!("BasicBlocks: \n{:#?}", bbs);
+                println!("{{");
+                for i in 0..bbs.len() {
+                    println!("bb{:?}", i);
+                    println!("{:#?}", bbs[BasicBlock::from_usize(i)]);
+                }
+                println!("}}");
+
                 println!("----End MIR Body----");
             }
         } else {

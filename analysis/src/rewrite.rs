@@ -7,7 +7,7 @@ use rustc_span::{BytePos, Span, SyntaxContext};
 use crate::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
 use crate::core::VerifoptRval;
-use crate::core::{is_box, is_option};
+use crate::core::is_box;
 use crate::patch::MirPatch;
 
 // FIXME get dynamically
@@ -218,6 +218,41 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.patch_terminator(cur_bb, TerminatorKind::Goto { target: new_start });
     }
 
+    fn resolve_first_arg_constraints(&self, first_arg_constraint: &VerifoptRval<'tcx>) -> DefId {
+        match first_arg_constraint {
+            VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
+                if is_box(*struct_defid) {
+                    if let Some(genargs_outer) = genarg_vec {
+                        if genargs_outer.len() != 1 {
+                            panic!("handle diff genarg len");
+                        }
+                        let genarg_constraint_vec = &genargs_outer[0];
+                        if genarg_constraint_vec.len() != 1 {
+                            panic!("handle different genarg constraint len");
+                        }
+                        let genarg_constraint = &genarg_constraint_vec[0];
+                        match genarg_constraint {
+                            VerifoptRval::IdkStruct(defid, _) => {
+                                if self.debug {
+                                    println!("found struct: {:?}", defid);
+                                }
+                                return *defid;
+                            }
+                            _ => todo!(),
+                        }
+                    } else {
+                        panic!("no genargs in box...");
+                    }
+                } else {
+                    todo!("struct is not a box: {:?} (\ngenargs: {:?})", struct_defid, genarg_vec);
+
+                }
+            }
+            VerifoptRval::Ref(boxed) => self.resolve_first_arg_constraints(&*boxed),
+            _ => todo!("handle more kinds: {:?}", first_arg_constraint),
+        }
+    }
+
     // get the structs that implement the trait being pointed to by the first argument
     fn get_struct_dids(&self, cur_scope: DefId) -> Vec<DefId> {
         let mut structs = vec![];
@@ -233,7 +268,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         if self.debug {
             println!("\n##### Getting Struct DefIds\n");
             println!("cur_scope: {:?}", cur_scope);
-            println!("first arg (constraints @ Place(_1)): {:?}", first_arg);
+            println!("first arg constraints: {:?}", first_arg);
         }
 
         if let Some(first_arg_vartype) = first_arg {
@@ -242,38 +277,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     todo!("handle diff lens: {:?}", first_arg_constraints.len());
                 }
                 for first_arg_constraint in first_arg_constraints.iter() {
-                    match first_arg_constraint {
-                        VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
-                            if is_box(*struct_defid) {
-                                if let Some(genargs_outer) = genarg_vec {
-                                    if genargs_outer.len() != 1 {
-                                        panic!("handle diff genarg len");
-                                    }
-                                    let genarg_constraint_vec = &genargs_outer[0];
-                                    if genarg_constraint_vec.len() != 1 {
-                                        panic!("handle different genarg constraint len");
-                                    }
-                                    let genarg_constraint = &genarg_constraint_vec[0];
-                                    match genarg_constraint {
-                                        VerifoptRval::IdkStruct(defid, _) => {
-                                            structs.push(*defid);
-                                        }
-                                        _ => todo!(),
-                                    }
-                                }
-                            } else if is_option(*struct_defid) {
-                                if self.debug {
-                                    println!("is option!");
-                                    println!("genarg_vec: {:?}", genarg_vec);
-                                }
-                                todo!("option");
-                            } else {
-                                todo!("struct is not a box or option: {:?} (\ngenargs: {:?})", struct_defid, genarg_vec);
-
-                            }
-                        }
-                        _ => todo!("handle more kinds: {:?}", first_arg_constraint),
-                    }
+                    structs.push(self.resolve_first_arg_constraints(first_arg_constraint));
                 }
             } else {
                 panic!("first arg is a scope...");

@@ -64,10 +64,10 @@ pub fn is_box(def_id: DefId) -> bool {
     def_id.krate.as_usize() == 3 && def_id.index.as_usize() == 662
 }
 
-pub fn is_option(def_id: DefId) -> bool {
-    // FIXME does this ever change....
-    def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 49010
-}
+//pub fn is_option(def_id: DefId) -> bool {
+//    // FIXME does this ever change....
+//    def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 49010
+//}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {

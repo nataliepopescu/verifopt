@@ -1,6 +1,6 @@
 # meeting
 
-## agenda
+## agenda/updates
 
 - completed a rewrite for extremely simple example (statically know there will
   only be one single dyn dispatch variant)

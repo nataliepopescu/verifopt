@@ -5,7 +5,8 @@
 - completed a rewrite for extremely simple example (statically know there will
   only be one single dyn dispatch variant)
 - benchmarked, but no significant perf difference
-- tips on how to decompile rust to double check what was compiled?
+    - actually, not properly microbenchmarking, so will still need to do this
+    - tips on how to decompile rust to double check what was compiled?
 
 - working on another example where we do _not_ statically know which variant
   will be called

@@ -27,4 +27,9 @@
 
 ## notes
 
+still kinda shooting for oopsla
+
+asplos is two weeks later
+
+systems might be difficult to get eval things for
 

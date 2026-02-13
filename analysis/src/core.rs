@@ -10,9 +10,9 @@ use rustc_middle::ty::{GenericArgKind, List, ParamTy, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::fx::{FxHashSet as HashSet};
 
 use crate::ConstraintMap;
+use crate::FuncMap;
 use crate::constraints::{MapKey, VarType};
 use crate::error::Error;
-use crate::FuncMap;
 
 pub type Type = &'static str;
 
@@ -169,7 +169,10 @@ impl<'tcx> VerifoptRval<'tcx> {
                                             Some(_) => panic!("unexpected generic mapping"),
                                             None => {
                                                 if debug {
-                                                    println!("{:?}", funcs.struct_generics.get(defid));
+                                                    println!(
+                                                        "{:?}",
+                                                        funcs.struct_generics.get(defid)
+                                                    );
                                                 }
                                                 panic!("no generic mapping");
                                             }

@@ -945,11 +945,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         )
     }
 
-    fn get_first_arg_local(
-        &self,
-        args: &Box<[Spanned<Operand<'tcx>>]>,
-    ) -> Local {
-        match &(*args)[0].node {
+    fn get_first_arg_local(&self, args: &Box<[Spanned<Operand<'tcx>>]>) -> Local {
+        let op = &(*args)[0].node;
+        match op {
             Operand::Copy(place) | Operand::Move(place) => return place.local,
             _ => panic!("first arg is not a copy or move: {:?}", op),
         }
@@ -975,7 +973,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("speak dest: {:?}", term_dst_place);
         }
 
-        let traitobj = self.get_first_arg_local(args); 
+        let traitobj = self.get_first_arg_local(args);
         if self.debug {
             println!("first arg local: {:?}", traitobj);
         }
@@ -997,17 +995,17 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("dids: {:?}", dids);
         }
 
-        let mut trait_vtable = None;
+        let mut traitobj_vtable = None;
         let mut variant_vtable = None;
-        let mut trait_vtable_ref = None;
+        let mut traitobj_vtable_ref = None;
         let mut variant_vtable_ref = None;
         if dids.len() > 1 {
             // FIXME get dynamically
-            trait_vtable = Some(Local::from_u32(3));
+            traitobj_vtable = Some(Local::from_u32(3));
             variant_vtable = Some(Local::from_u32(4));
 
             // FIXME do these locals already exist?
-            trait_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
         }
 
@@ -1050,8 +1048,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
-                    trait_vtable.unwrap(),
-                    trait_vtable_ref.unwrap(),
+                    traitobj_vtable.unwrap(),
+                    traitobj_vtable_ref.unwrap(),
                     variant_vtable.unwrap(),
                     variant_vtable_ref.unwrap(),
                     first_eq_res,

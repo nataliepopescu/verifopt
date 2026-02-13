@@ -260,9 +260,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             }
                             if let TyKind::Param(param) = ty.kind() {
                                 if self.debug {
-                                    println!("GENERIC RETTY: {:?}", param);
+                                    panic!("GENERIC RETTY: {:?}", param);
                                 }
-                                // TODO
                             }
                         }
                     }
@@ -272,16 +271,25 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 _ => panic!("return scope?"),
             },
             None => {
-                // assuming our interpreter is correct, if the local _0 was not assigned to then
-                // this must mean that there is nothing to return. so, return nothing
                 if self.debug {
                     println!("_0 local was not assigned to");
                     println!("cur_scope: {:?}", cur_scope);
                 }
-                // FIXME
+
                 // double check that nothing was supposed to be returned
-                //if let Some(funcval_vec) = self.funcs.get(&cur_scope) {
-                //}
+                if let Some(funcval_vec) = self.funcs.funcs.get(&cur_scope) {
+                    if funcval_vec.len() != 1 {
+                        panic!("unexpected len");
+                    }
+                    if let Some(retty) = funcval_vec[0].rettype
+                        && !retty.is_unit()
+                    {
+                        panic!("should have returned something of type: {:?}", retty);
+                    }
+                }
+
+                // assuming our interpreter is correct, if the local _0 was not assigned to then
+                // this must mean that there is nothing to return. so, return nothing
                 Ok(None)
             }
         }
@@ -381,6 +389,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         Ok(None)
     }
 
+    /*
+     * Get the verifopt constraints for the `self` type of this dynamic dispatch call
+     */
     fn resolve_dyn_self_constraint(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -426,24 +437,37 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
+    /*
+     * Get all the relevant trait function implementations (given self_defid)
+     * for this particular dynamic invocation
+     */
     fn get_trait_fn_impls_from_defid(
         &self,
         self_defid: &DefId,
         impltors: &Vec<DefId>,
     ) -> Vec<DefId> {
         let mut to_dispatch = vec![];
+        // what are all of this struct's impl blocks?
         if let Some(impl_blocks) = self.funcs.struct_impls.get(&self_defid) {
             if self.debug {
                 println!("self_defid: {:?}", self_defid);
                 println!("impl_blocks: {:?}", impl_blocks);
             }
 
+            // for each such impl block, get the exact list of (associated/trait)
+            // functions that it is implementing
             for impl_block in impl_blocks {
                 match self.funcs.impl_blocks_to_impls.get(&impl_block) {
                     Some(assoc) => {
                         if self.debug {
                             println!("assoc: {:?}", assoc);
                         }
+                        // if this list of assoc/trait functions
+                        // contains any of the concrete implementations of the
+                        // top-level assoc/trait functions (the thing to
+                        // dispatch dynamically), add the matching concrete
+                        // implementation to the list of things we want to
+                        // continue interpreting/analyzing
                         for impltor in impltors {
                             if assoc.contains(impltor) {
                                 to_dispatch.push(*impltor);
@@ -453,27 +477,26 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     None => {}
                 }
             }
-            //if to_dispatch.is_empty() {
-            //    panic!("nothing to dispatch");
-            //}
             return to_dispatch;
         } else {
             panic!("cannot get struct impl_blocks: {:?}", self_defid);
         }
     }
 
+    /*
+     * Get all the relevant trait function implementations (given self_constraint)
+     * for this particular dynamic invocation
+     */
     fn get_trait_fn_impls(
         &self,
         self_constraint: VerifoptRval<'tcx>,
         impltors: &Vec<DefId>,
     ) -> Vec<DefId> {
         match self_constraint {
-            VerifoptRval::IdkStruct(self_defid, _) => {
-                self.get_trait_fn_impls_from_defid(&self_defid, impltors)
-            }
+            VerifoptRval::IdkStruct(did, _) => self.get_trait_fn_impls_from_defid(&did, impltors),
             VerifoptRval::IdkDefId(did) => self.get_trait_fn_impls_from_defid(&did, impltors),
-            // FIXME cannot get fn_impls from types, will ignore dispatch and
-            // use the function return type as the retval's "constraint"
+            // FIXME cannot get fn_impls from types, so we ignore dispatch and
+            // (later) use the function return type as the retval's "constraint"
             VerifoptRval::IdkType(_) => {
                 if self.debug {
                     println!(
@@ -496,12 +519,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
-        // assoc dyn obj w the correct trait fn impl
+        // assoc dyn obj w the correct trait fn impl(s)
         let to_dispatch = self.get_trait_fn_impls(self_constraint, impltors);
-
-        //if to_dispatch.len() != 1 {
-        //    todo!("unexpected to_dispatch len");
-        //}
 
         // call each impl
         for func_defid in to_dispatch {
@@ -554,7 +573,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             return Ok(None);
         }
 
-        // what are the concrete implementations of this assoc_fn?
+        // `impltors` are the concrete implementations of this assoc_fn
         if let Some(impltors) = self
             .funcs
             .trait_fn_impltors
@@ -562,6 +581,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             .unwrap()
             .get(&assoc_funcval.def_id)
         {
+            // get the first (`self`) arg place
             match args[0].node {
                 Operand::Copy(place) | Operand::Move(place) => {
                     if self.debug {
@@ -575,8 +595,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("structs: {:?}", self.funcs.trait_impltors.get(trait_def_id));
                     }
 
-                    // get constraints for the first argument to this function
-                    // (the would be `self` type)
+                    // get the constraints for the first (`self`) arg from the current scope
                     if let Some(VarType::Values(constraints)) =
                         cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                     {
@@ -586,15 +605,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                         // for each possible constraint...
                         for constraint in constraints.clone().drain() {
-                            // get the constraint type
+                            // unwrap any refs or boxed types
                             if let Some(self_constraint) = self.resolve_dyn_self_constraint(
                                 cmap, cur_scope, impltors, constraint, args,
                             ) {
                                 if self.debug {
                                     println!("self_constraint: {:?}", self_constraint);
                                 }
-                                // interp dyn dispatch as the relevant static dispatch (using
-                                // constraint)
+                                // interp dyn dispatch as one or more static dispatches
                                 return self.dyn_to_static_dispatch(
                                     cmap,
                                     cur_scope,
@@ -924,7 +942,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         }
                         ConstValue::Slice { .. } => {
                             constraints.insert(VerifoptRval::Str(co.const_));
-                            //todo!("slice");
                         }
                         ConstValue::Indirect { .. } => {
                             todo!("indirect");
@@ -939,7 +956,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             println!("unevaluated const");
                             println!("defid: {:?}", uneval.def);
                             println!("args: {:?}", uneval.args);
-                            //println!("args typelist: {:?}", uneval.args.into_type_list(self.tcx));
                             println!("ty: {:?}", ty);
                         }
                         constraints.insert(VerifoptRval::IdkType(ty));
@@ -996,10 +1012,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
         }
 
+        let key = MapKey::ScopeId(funcval.def_id);
+        if cmap.cmap.get(&key).is_some() {
+            panic!("funcname already exists in cmap: {:?}", funcval.def_id);
+        }
+
         // add func_cmap to outer cmap
-        // FIXME assuming funcname does not exist in cmap
         cmap.cmap.insert(
-            MapKey::ScopeId(funcval.def_id),
+            key,
             Box::new(VarType::SubScope(
                 Some(cur_scope),
                 vec![(

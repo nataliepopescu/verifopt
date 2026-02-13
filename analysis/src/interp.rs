@@ -910,6 +910,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 match cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false) {
                     Some(vartype) => match vartype {
                         VarType::Values(constraints) => {
+                            if self.debug {
+                                println!("cur_scope: {:?}", cur_scope);
+                                println!("place: {:?}", place);
+                                println!("constraints: {:?}", constraints);
+                            }
                             return constraints;
                         }
                         _ => {}
@@ -1013,8 +1018,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         let key = MapKey::ScopeId(funcval.def_id);
-        if cmap.cmap.get(&key).is_some() {
-            panic!("funcname already exists in cmap: {:?}", funcval.def_id);
+        if let Some(old_cmap) = cmap.cmap.get(&key) {
+            println!("funcname already exists in cmap: {:?}", funcval.def_id);
+            println!("old_cmap: {:?}", old_cmap);
+            println!("new_cmap: {:?}", func_cmap);
+            panic!();
         }
 
         // add func_cmap to outer cmap

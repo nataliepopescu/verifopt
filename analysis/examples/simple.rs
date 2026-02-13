@@ -75,31 +75,31 @@ fn main() {
     let cat = get_cat();
     let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
     let _cat_vtable = core::ptr::metadata(&*cat);
-    //let _res = animal_really_cat.speak();
+    let _res = animal_really_cat.speak();
 
-    let warmup = 10000;
-    let runs = 100000;
+    //let warmup = 10000;
+    //let runs = 100000;
 
-    println!("warmup: {:?}", warmup);
-    println!("runs: {:?}", runs);
+    //println!("warmup: {:?}", warmup);
+    //println!("runs: {:?}", runs);
 
-    for _ in 0..warmup {
-        wrap_dyn_call(&animal_really_cat);
-    }
+    //for _ in 0..warmup {
+    //    wrap_dyn_call(&animal_really_cat);
+    //}
 
-    let mut times = Vec::new();
-    for _ in 0..runs {
-        let start = Instant::now();
-        wrap_dyn_call(&animal_really_cat);
-        let duration = start.elapsed().as_nanos();
-        times.push(duration);
-    }
+    //let mut times = Vec::new();
+    //for _ in 0..runs {
+    //    let start = Instant::now();
+    //    wrap_dyn_call(&animal_really_cat);
+    //    let duration = start.elapsed().as_nanos();
+    //    times.push(duration);
+    //}
 
-    // FIXME not handling overflow
-    let sum: u128 = Iterator::sum(times.iter());
-    println!("sum: {:?}", sum);
-    let mean = f64::from(sum as u32) / (times.len() as f64);
-    println!("mean: {:?}", mean);
+    //// FIXME not handling overflow
+    //let sum: u128 = Iterator::sum(times.iter());
+    //println!("sum: {:?}", sum);
+    //let mean = f64::from(sum as u32) / (times.len() as f64);
+    //println!("mean: {:?}", mean);
 
     //let cat = Cat {};
     //cat.meow();

@@ -186,6 +186,69 @@ pub trait FromIterator<A>: Sized {
 }
 ```
 
+### Two invocations of same function have locals w different types?
+
+specifically `DefId(2:37072 ~
+core[c945]::ptr::non_null::{impl#3}::new_unchecked::precondition_check)`
+
+first call is from defid 3:131 bb7
+- DefId(3:131 ~ alloc[7a7c]::alloc::{impl#0}::alloc_impl_runtime)
+
+second is from same defid but bb16
+
+
+WTO for 3:131
+
+bb0 -> bb1, bb2
+
+bb2 -> *bb7*, bb9
+
+*bb7* -> bb8 -> bb9 -> bb6 -> return
+
+
+bb1 -> bb3, bb4
+
+bb3 -> bb10 -> bb11 -> bb5
+
+bb5 -> bb14, bb15
+
+bb14 -> bb6 -> return
+
+bb15 -> *bb16*, bb18
+
+*bb16* -> bb17 -> bb18
+
+bb18 -> bb19, bb20
+
+bb19 -> bb20 -> bb21 -> bb6 -> return
+
+
+so indeed, both paths are valid / not cleanup, but
+1. we don't want to override anything in the cmap since that is precious
+   information!
+    - we should try to merge these things together
+2. why do the constraints for Place(1) have different _types_??
+    - local 1 has type `*mut ()*
+    - first invocation: `std::ptr::Alignment`
+        - from:
+            - ...
+            - _1 == first arg of two (std::alloc::Layout)
+            - _15 = copy (_1.1: std::ptr::Alignment),
+            - _14 = copy _15 as std::num::NonZero<usize> (Transmute)
+            - _20 = copy _14 as *mut () (Transmute)
+                - local14 has type std::num::NonZero<usize>
+            - move _20
+                - local20 has type `*mut ()`
+    - second invocation: `*mut u8`
+        - from: 
+            - ...
+            - _8 = alloc::alloc::__rust_alloc_zeroed(copy _3, move _24)...
+                - returns a *mut u8
+            - _36 = copy _8 as *mut () (PtrToPtr)
+            - move _36
+    - what is happening...
+        - might have something to do with the casts/transmutes that i don't
+          really know how to interpret yet
 
 
 ### Vec::new()

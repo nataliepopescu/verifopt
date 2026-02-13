@@ -21,7 +21,7 @@ const EQ_FN_DEFID: DefId = DefId {
     krate: CrateNum::from_u32(2),
 };
 
-const TRAITOBJ: Local = Local::from_u32(30);
+const TRAITOBJ: Local = Local::from_u32(10);
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -73,7 +73,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             match &data.terminator().kind {
                 TerminatorKind::Call {
                     func,
-                    args: _,
+                    args,
                     destination,
                     ..
                 } => {
@@ -115,6 +115,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                     &mut patch,
                                     &defid,
                                     ty,
+                                    args,
                                     *destination,
                                     bb,
                                     data,
@@ -944,6 +945,16 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         )
     }
 
+    fn get_first_arg_local(
+        &self,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
+    ) -> Local {
+        match &(*args)[0].node {
+            Operand::Copy(place) | Operand::Move(place) => return place.local,
+            _ => panic!("first arg is not a copy or move: {:?}", op),
+        }
+    }
+
     #[allow(unused_assignments)]
     fn replace_dynamic_dispatch(
         &self,
@@ -951,6 +962,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch: &mut MirPatch<'tcx>,
         dynfunc_defid: &DefId,
         ty: Ty<'tcx>,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
         term_dst_place: Place<'tcx>,
         bb: BasicBlock,
         data: &BasicBlockData<'tcx>,
@@ -961,6 +973,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("num_bbs: {:?}", num_bbs);
             println!("cur_bb: {:?}", bb);
             println!("speak dest: {:?}", term_dst_place);
+        }
+
+        let traitobj = self.get_first_arg_local(args); 
+        if self.debug {
+            println!("first arg local: {:?}", traitobj);
         }
 
         // get old terminator's edges
@@ -979,9 +996,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         if self.debug {
             println!("dids: {:?}", dids);
         }
-
-        // FIXME get dynamically
-        let traitobj = TRAITOBJ; //Local::from_u32(10);
 
         let mut trait_vtable = None;
         let mut variant_vtable = None;

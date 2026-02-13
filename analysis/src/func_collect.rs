@@ -208,17 +208,17 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
         if let Some(impl_defid) = impl_of_assoc {
             match funcs.impl_blocks_to_impls.get(&impl_defid) {
-                Some(other_assoc) => {
+                Some(existing_assoc) => {
                     if self.debug {
-                        println!("others: {:?}", other_assoc);
+                        println!("existing assoc fns in impl block: {:?}", existing_assoc);
                     }
-                    let mut updated_assoc = other_assoc.clone();
+                    let mut updated_assoc = existing_assoc.clone();
                     updated_assoc.push(def_id);
                     funcs.impl_blocks_to_impls.insert(impl_defid, updated_assoc);
                 }
                 None => {
                     if self.debug {
-                        println!("new");
+                        println!("first assoc fn in impl block");
                     }
                     funcs.impl_blocks_to_impls.insert(impl_defid, vec![def_id]);
                 }

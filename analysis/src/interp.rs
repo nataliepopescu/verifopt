@@ -392,7 +392,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             VerifoptRval::Ref(inner) => {
                 self.resolve_dyn_self_constraint(cmap, cur_scope, impltors, *inner, args)
             }
-            VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
+            ref idkstruct @ VerifoptRval::IdkStruct(struct_defid, ref genarg_vec) => {
                 if is_box(struct_defid) {
                     // get first (and only, for now) genarg constraint (i.e. IdkType(Cat))
                     if let Some(genargs_outer) = genarg_vec {
@@ -412,7 +412,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         return None;
                     }
                 } else {
-                    todo!("struct is not a box");
+                    if self.debug {
+                        println!("struct is not a box: {:?}", struct_defid);
+                        println!("genargs: {:?}", genarg_vec);
+                    }
+                    return Some(idkstruct.clone());
                 }
             }
             idkdid @ VerifoptRval::IdkDefId(_) => Some(idkdid),

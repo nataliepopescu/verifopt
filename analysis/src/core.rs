@@ -137,6 +137,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                                 GenericArgKind::Type(ty) => match ty.kind() {
                                     TyKind::Param(param) => {
                                         if debug {
+                                            println!("cur_scope: {:?}", cur_scope);
                                             println!("param.name: {:?}", param.name);
                                         }
                                         match cmap.scoped_get(

@@ -21,6 +21,8 @@ const EQ_FN_DEFID: DefId = DefId {
     krate: CrateNum::from_u32(2),
 };
 
+const TRAITOBJ: Local = Local::from_u32(30);
+
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
@@ -260,7 +262,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let first_arg = self.cmap.scoped_get(
             Some(cur_scope),
             &MapKey::Place(Place {
-                local: Local::from_usize(10),
+                local: TRAITOBJ, //Local::from_usize(30),
                 projection: List::empty(),
             }),
             false,
@@ -976,7 +978,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
 
         // FIXME get dynamically
-        let traitobj = Local::from_u32(1);
+        let traitobj = TRAITOBJ; //Local::from_u32(10);
 
         let mut trait_vtable = None;
         let mut variant_vtable = None;

@@ -24,6 +24,5 @@ _30 = &(*_35),
 _29 = <dyn Animal as Animal>::speak(move _30) -> [return: bb22, unwind: bb26],
 ```
 
-TODO not finished
-
+finished
 

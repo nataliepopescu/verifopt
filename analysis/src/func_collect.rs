@@ -258,7 +258,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("num LocalDecls: {:?}", locs.len());
                 println!("{{");
                 for i in 0..locs.len() {
-                    println!("local{:?}", i);
+                    println!("-local{:?}", i);
                     println!("{:#?}", locs[Local::from_usize(i)]);
                 }
                 println!("}}");
@@ -266,7 +266,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("num BasicBlocks: {:?}", bbs.len());
                 println!("{{");
                 for i in 0..bbs.len() {
-                    println!("bb{:?}", i);
+                    println!("-bb{:?}", i);
                     println!("{:#?}", bbs[BasicBlock::from_usize(i)]);
                 }
                 println!("}}");
@@ -368,11 +368,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("\n\ncrate_num: {:?}\n", crate_num);
             }
             for def_index in 0..u32::MAX {
-                // simple: max = 22
-                //if crate_num == 0 && def_index >= 22
-
-                // one_variant: max = 21
-                if crate_num == 0 && def_index >= 21
+                // simple (no benchmarking): limit = 22
+                // simple (benchmarking): limit = 31
+                // one_variant: limit = 21
+                if crate_num == 0 && def_index >= 31
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

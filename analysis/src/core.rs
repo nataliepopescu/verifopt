@@ -4,7 +4,7 @@ use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
-use rustc_index::IndexSlice;
+use rustc_index::{IndexSlice, IndexVec};
 use rustc_abi::FieldIdx;
 use rustc_middle::ty::{GenericArgKind, List, ParamTy, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::fx::{FxHashSet as HashSet};
@@ -85,6 +85,16 @@ pub enum VerifoptRval<'tcx> {
 }
 
 impl<'tcx> VerifoptRval<'tcx> {
+    pub fn get_first_field(fields: &IndexVec<FieldIdx, Operand<'tcx>>) -> Option<Operand<'tcx>> {
+        let fields_slice = fields.as_slice();
+        if fields_slice.len() == 1 {
+            let op = &fields_slice[FieldIdx::from_u32(0)];
+            return Some(op.clone());
+        } else {
+            return None;
+        }
+    }
+
     pub fn from_rvalue(
         tcx: TyCtxt<'tcx>,
         cmap: &ConstraintMap<'tcx>,
@@ -209,22 +219,30 @@ impl<'tcx> VerifoptRval<'tcx> {
                         println!("ty: {:?}", ty);
                         println!("fields: {:?}", fields);
                     }
-                    todo!("array");
+                    match Self::get_first_field(fields) {
+                        Some(op) => {
+                            if debug {
+                                println!("first field op: {:?}", op);
+                            }
+                            return VerifoptRval::rval_from_op(cmap, cur_scope, &op, &op.ty(local_decls, tcx), debug);
+                        }
+                        None => todo!("array w no fields"),
+                    }
                 }
                 AggregateKind::Tuple => {
                     if debug {
                         println!("tup");
                         println!("fields: {:?}", fields);
                     }
-                    let fields_slice = fields.as_slice();
-                    if fields_slice.len() > 0 {
-                        let op = &fields_slice[FieldIdx::from_u32(0)];
-                        if debug {
-                            println!("field op: {:?}", op);
+                    match Self::get_first_field(fields) {
+                        Some(op) => {
+                            if debug {
+                                println!("first field op: {:?}", op);
+                            }
+                            return VerifoptRval::rval_from_op(cmap, cur_scope, &op, &op.ty(local_decls, tcx), debug);
                         }
-                        return VerifoptRval::rval_from_op(cmap, cur_scope, &op, &op.ty(local_decls, tcx), debug);
+                        None => todo!("tup w no fields"),
                     }
-                    todo!("tup w no fields");
                 }
             },
             Rvalue::Use(op) => {

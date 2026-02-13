@@ -246,8 +246,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         panic!("no genargs in box...");
                     }
                 } else {
-                    todo!("struct is not a box: {:?} (\ngenargs: {:?})", struct_defid, genarg_vec);
-
+                    todo!(
+                        "struct is not a box: {:?} (\ngenargs: {:?})",
+                        struct_defid,
+                        genarg_vec
+                    );
                 }
             }
             VerifoptRval::Ref(boxed) => self.resolve_first_arg_constraints(&*boxed),

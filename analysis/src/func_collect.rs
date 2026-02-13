@@ -113,7 +113,13 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
-    pub fn store_struct_impl(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId, trait_defid: DefId, impl_struct: GenericArg<'tcx>) {
+    pub fn store_struct_impl(
+        &self,
+        funcs: &mut FuncMap<'tcx>,
+        def_id: DefId,
+        trait_defid: DefId,
+        impl_struct: GenericArg<'tcx>,
+    ) {
         match impl_struct.as_type().unwrap().kind() {
             TyKind::Adt(def, _) => {
                 let struct_defid = def.did();

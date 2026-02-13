@@ -4,8 +4,8 @@ use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
-use rustc_index::{IndexSlice, IndexVec};
 use rustc_abi::FieldIdx;
+use rustc_index::{IndexSlice, IndexVec};
 use rustc_middle::ty::{GenericArgKind, List, ParamTy, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::fx::{FxHashSet as HashSet};
 
@@ -193,7 +193,11 @@ impl<'tcx> VerifoptRval<'tcx> {
                             }
                         }
                         if debug {
-                            println!("returningval: defid = {:?}, genargs = {:?}", defid, Some(genarg_vec.clone()));
+                            println!(
+                                "returningval: defid = {:?}, genargs = {:?}",
+                                defid,
+                                Some(genarg_vec.clone())
+                            );
                         }
                         return VerifoptRval::IdkStruct(*defid, Some(genarg_vec));
                     }
@@ -224,7 +228,13 @@ impl<'tcx> VerifoptRval<'tcx> {
                             if debug {
                                 println!("first field op: {:?}", op);
                             }
-                            return VerifoptRval::rval_from_op(cmap, cur_scope, &op, &op.ty(local_decls, tcx), debug);
+                            return VerifoptRval::rval_from_op(
+                                cmap,
+                                cur_scope,
+                                &op,
+                                &op.ty(local_decls, tcx),
+                                debug,
+                            );
                         }
                         None => todo!("array w no fields"),
                     }
@@ -239,7 +249,13 @@ impl<'tcx> VerifoptRval<'tcx> {
                             if debug {
                                 println!("first field op: {:?}", op);
                             }
-                            return VerifoptRval::rval_from_op(cmap, cur_scope, &op, &op.ty(local_decls, tcx), debug);
+                            return VerifoptRval::rval_from_op(
+                                cmap,
+                                cur_scope,
+                                &op,
+                                &op.ty(local_decls, tcx),
+                                debug,
+                            );
                         }
                         None => todo!("tup w no fields"),
                     }

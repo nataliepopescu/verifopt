@@ -23,6 +23,11 @@ pub fn get_cat() -> Box<dyn Animal> {
     return Box::new(Cat {});
 }
 
+#[inline(always)]
+pub fn get_dog() -> Box<dyn Animal> {
+    return Box::new(Dog {});
+}
+
 //pub fn many_args(first: usize, second: usize, third: usize, fourth: usize) -> usize {
 //    first + second + third + fourth
 //}
@@ -61,20 +66,47 @@ fn main() {
     // <Cat as Animal>::speak(), so interprocedural may indeed be the "spot"
     //let animal = Box::new(Cat {});
 
-    let args: Vec<String> = std::env::args().collect();
+    let mut first_arg_opt: Option<String> = None;
+    let mut start = false;
+    for arg in std::env::args() {
+        if start {
+            first_arg_opt = Some(arg);
+            break;
+        } else {
+            start = true;
+        }
+    }
 
-    match args.len() {
-        1 => println!("Pass in a number and see what happens!"),
-        _ => {
-            let animal = get_animal(args[1].parse().unwrap());
+    match first_arg_opt {
+        None => println!("Pass in a number and see what happens!"),
+        Some(first_arg) => {
+            //println!("{:?}", first_arg);
+            let animal = get_animal(first_arg.parse().unwrap());
             let cat = get_cat();
+            let dog = get_dog();
             let _animal_vtable = core::ptr::metadata(&*animal);
             let _cat_vtable = core::ptr::metadata(&*cat);
+            let _dog_vtable = core::ptr::metadata(&*dog);
             //println!("pre");
             let _res = animal.speak();
             //println!("post");
         }
     }
+
+    //let args: Vec<String> = std::env::args().collect();
+
+    //match args.len() {
+    //    1 => println!("Pass in a number and see what happens!"),
+    //    _ => {
+    //        let animal = get_animal(args[1].parse().unwrap());
+    //        let cat = get_cat();
+    //        let _animal_vtable = core::ptr::metadata(&*animal);
+    //        let _cat_vtable = core::ptr::metadata(&*cat);
+    //        //println!("pre");
+    //        let _res = animal.speak();
+    //        //println!("post");
+    //    }
+    //}
 
     // note that even when we pass in a statically-known value to `get_animal`,
     // the information from that function is not propagated, so `speak` remains

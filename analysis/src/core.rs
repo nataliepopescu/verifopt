@@ -12,6 +12,7 @@ use rustc_middle::ty::{GenericArgKind, List, ParamTy, Ty, TyCtxt, TyKind};
 use crate::ConstraintMap;
 use crate::constraints::{MapKey, VarType};
 use crate::error::Error;
+use crate::FuncMap;
 
 pub type Type = &'static str;
 
@@ -97,6 +98,7 @@ impl<'tcx> VerifoptRval<'tcx> {
 
     pub fn from_rvalue(
         tcx: TyCtxt<'tcx>,
+        funcs: &FuncMap<'tcx>,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
@@ -164,7 +166,13 @@ impl<'tcx> VerifoptRval<'tcx> {
                                                 }
                                                 genarg_vec.push(constraint_vec);
                                             }
-                                            _ => panic!("unexpected generic mapping"),
+                                            Some(_) => panic!("unexpected generic mapping"),
+                                            None => {
+                                                if debug {
+                                                    println!("{:?}", funcs.struct_generics.get(defid));
+                                                }
+                                                panic!("no generic mapping");
+                                            }
                                         }
                                     }
                                     // TODO

@@ -188,6 +188,26 @@ pub trait FromIterator<A>: Sized {
 
 
 
+### Vec::new()
+
+in vec::new() (defid 3:8506) (aka cur_scope)
+
+bb0
+
+```
+_1 = alloc::raw_vec::RawVec::<T> { inner: move _2, _marker: const ZeroSized: std::marker::PhantomData<T> },
+```
+
+trying to get VerifoptRval from the above rval
+
+aggregate kind: adt
+- defid: 3:40
+- fields: [move _2, _marker]
+- genargs [T, std::alloc::Global]
+
+
+
+
 
 
 

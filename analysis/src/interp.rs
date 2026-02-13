@@ -173,6 +173,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 let mut set = HashSet::default();
                 set.insert(VerifoptRval::from_rvalue(
                     self.tcx,
+                    self.funcs,
                     cmap,
                     cur_scope,
                     body_locals,
@@ -634,6 +635,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 "\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n",
                 funcval.def_id
             );
+            println!("args: {:?}\n", args);
         }
 
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
@@ -979,6 +981,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
             match param_type.kind() {
                 TyKind::Param(param) => {
+                    if self.debug {
+                        println!("SETTING GENERIC");
+                        println!("param: {:?}", param);
+                        println!("constraints: {:?}", constraints);
+                    }
                     // e.g. map T -> Cat
                     func_cmap.cmap.insert(
                         MapKey::Generic(param.name),

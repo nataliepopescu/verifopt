@@ -77,7 +77,7 @@ fn main() {
     let _cat_vtable = core::ptr::metadata(&*cat);
     //let _res = animal_really_cat.speak();
 
-    let warmup = 1000;
+    let warmup = 10000;
     let runs = 100000;
 
     println!("warmup: {:?}", warmup);

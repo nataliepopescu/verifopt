@@ -213,7 +213,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                 // FIXME ty == type of pointee, not pointer
                 AggregateKind::RawPtr(ty, _) => {
                     if debug {
-                        println!("--agg-rawpotr");
+                        println!("--agg-rawptr");
                     }
                     VerifoptRval::IdkType(*ty)
                 }

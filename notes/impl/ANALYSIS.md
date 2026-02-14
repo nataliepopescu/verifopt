@@ -80,7 +80,15 @@ not really sure how to represent
 - or how to interpret the alloc_id / meta fields
 - like, is alloc_id a memory address? or some random identifier? 
 
+maybe just "IdkString"
+
 ### Casts
+
+if our constraints are "idk", can naively just change the VerifoptRval
+
+but gets tricky when we actually have constraints
+- may need to implement some special conversions, but we shall see if/when this
+  happens!
 
 ### Place Projections
 

@@ -72,12 +72,12 @@ pub fn is_box(def_id: DefId) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
-    IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
     Scalar(Scalar),
-    Str(Const<'tcx>),
     ConstSlice(),
     Ptr(Box<VerifoptRval<'tcx>>),
     Ref(Box<VerifoptRval<'tcx>>),
+    IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
+    IdkStr(), //Const<'tcx>),
     // FIXME don't want types
     IdkType(Ty<'tcx>),
     IdkDefId(DefId),
@@ -86,7 +86,7 @@ pub enum VerifoptRval<'tcx> {
 }
 
 impl<'tcx> VerifoptRval<'tcx> {
-    pub fn get_first_field(fields: &IndexVec<FieldIdx, Operand<'tcx>>) -> Option<Operand<'tcx>> {
+    pub fn get_first_field_op(fields: &IndexVec<FieldIdx, Operand<'tcx>>) -> Option<Operand<'tcx>> {
         let fields_slice = fields.as_slice();
         if fields_slice.len() == 1 {
             let op = &fields_slice[FieldIdx::from_u32(0)];
@@ -108,6 +108,7 @@ impl<'tcx> VerifoptRval<'tcx> {
         if debug {
             println!("\n### IN FROM_RVALUE, item is: {:?}", item);
         }
+
         match item {
             Rvalue::Cast(kind, op, ty) => {
                 if debug {
@@ -118,160 +119,23 @@ impl<'tcx> VerifoptRval<'tcx> {
                 }
                 VerifoptRval::rval_from_cast(cmap, cur_scope, kind, op, ty, debug)
             }
-            Rvalue::Aggregate(aggkind, fields) => match &**aggkind {
-                AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
-                    if debug {
-                        println!("--agg-adt");
-                        println!("aggkind: {:?}", aggkind);
-                        println!("fields: {:?}", fields);
-                        println!("defid: {:?}", defid);
-                        println!("vidx: {:?}", vidx);
-                        println!("genargsref: {:?}", genargsref);
-                        println!("maybe_usertyannot: {:?}", maybe_usertyannot);
-                        println!("maybe_fidx: {:?}", maybe_fidx);
-
-                        println!("-cur_scope: {:?}", cur_scope);
-                        println!(
-                            "cur_scope cmap: {:?}",
-                            cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-                        );
-                    }
-
-                    if genargsref.is_empty() {
-                        return VerifoptRval::IdkStruct(*defid, None);
-                    } else {
-                        let mut genarg_vec = vec![];
-                        for i in 0..genargsref.len() {
-                            if debug {
-                                println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
-                            }
-                            match genargsref[i].kind() {
-                                GenericArgKind::Type(ty) => match ty.kind() {
-                                    TyKind::Param(param) => {
-                                        if debug {
-                                            println!("cur_scope: {:?}", cur_scope);
-                                            println!("param.name: {:?}", param.name);
-                                        }
-                                        match cmap.scoped_get(
-                                            Some(cur_scope),
-                                            &MapKey::Generic(param.name),
-                                            false,
-                                        ) {
-                                            Some(VarType::Values(constraints)) => {
-                                                // turn HashSet constraints into Vec so can store
-                                                // in HashMap (derive `Hash` trait)
-                                                let mut constraint_vec = vec![];
-                                                for constraint in constraints.iter() {
-                                                    constraint_vec.push(constraint.clone());
-                                                }
-                                                genarg_vec.push(constraint_vec);
-                                            }
-                                            Some(_) => panic!("unexpected generic mapping"),
-                                            None => {
-                                                if debug {
-                                                    println!(
-                                                        "{:?}",
-                                                        funcs.struct_generics.get(defid)
-                                                    );
-                                                }
-                                                panic!("no generic mapping");
-                                            }
-                                        }
-                                    }
-                                    // TODO
-                                    TyKind::Adt(def, genargs) => {
-                                        if debug {
-                                            println!("adt def: {:?}", def);
-                                            println!("adt genargs: {:?}", genargs);
-                                        }
-                                    }
-                                    _ => {
-                                        if debug {
-                                            println!("other ty kind: {:?}", ty.kind());
-                                        }
-                                    }
-                                },
-                                GenericArgKind::Const(_) => {
-                                    if debug {
-                                        println!("const genarg");
-                                    }
-                                }
-                                GenericArgKind::Lifetime(_) => {
-                                    if debug {
-                                        println!("lifetime genarg");
-                                    }
-                                }
-                            }
-                        }
-                        if debug {
-                            println!(
-                                "returningval: defid = {:?}, genargs = {:?}",
-                                defid,
-                                Some(genarg_vec.clone())
-                            );
-                        }
-                        return VerifoptRval::IdkStruct(*defid, Some(genarg_vec));
-                    }
+            Rvalue::Aggregate(aggkind, fields) => {
+                if debug {
+                    println!("--agg");
+                    println!("aggkind: {:?}", aggkind);
+                    println!("fields: {:?}", fields);
                 }
-                AggregateKind::Closure(defid, _)
-                | AggregateKind::Coroutine(defid, _)
-                | AggregateKind::CoroutineClosure(defid, _) => {
-                    if debug {
-                        println!("--agg-closure/coroutine");
-                    }
-                    VerifoptRval::IdkDefId(*defid)
-                }
-                // FIXME ty == type of pointee, not pointer
-                AggregateKind::RawPtr(ty, _) => {
-                    if debug {
-                        println!("--agg-rawptr");
-                    }
-                    VerifoptRval::IdkType(*ty)
-                }
-                AggregateKind::Array(ty) => {
-                    if debug {
-                        println!("array");
-                        println!("ty: {:?}", ty);
-                        println!("fields: {:?}", fields);
-                    }
-                    match Self::get_first_field(fields) {
-                        Some(op) => {
-                            if debug {
-                                println!("first field op: {:?}", op);
-                            }
-                            return VerifoptRval::rval_from_op(
-                                cmap,
-                                cur_scope,
-                                &op,
-                                &op.ty(local_decls, tcx),
-                                debug,
-                            );
-                        }
-                        None => todo!("array w no fields"),
-                    }
-                }
-                AggregateKind::Tuple => {
-                    if debug {
-                        println!("tup");
-                        println!("fields: {:?}", fields);
-                    }
-                    match Self::get_first_field(fields) {
-                        Some(op) => {
-                            if debug {
-                                println!("first field op: {:?}", op);
-                            }
-                            return VerifoptRval::rval_from_op(
-                                cmap,
-                                cur_scope,
-                                &op,
-                                &op.ty(local_decls, tcx),
-                                debug,
-                            );
-                        }
-                        None => todo!("tup w no fields"),
-                    }
-                }
-            },
+                VerifoptRval::rval_from_agg(
+                    tcx,
+                    funcs,
+                    cmap,
+                    cur_scope,
+                    local_decls,
+                    aggkind,
+                    fields,
+                    debug,
+                )
+            }
             Rvalue::Use(op) => {
                 if debug {
                     println!("--use");
@@ -306,6 +170,8 @@ impl<'tcx> VerifoptRval<'tcx> {
                     debug,
                 )))
             }
+            /////////////////////////////////////
+            // the below rvals all widen to Type
             /////////////////////////////////////
             Rvalue::BinaryOp(binop, boxed_op_tup) => {
                 if debug {
@@ -352,14 +218,34 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
+    fn resolve_cast(kind: &CastKind, dst_ty: &Ty<'tcx>, constraint: &VerifoptRval<'tcx>) {
+        match constraint {
+            VerifoptRval::IdkStruct(_, _)
+            | VerifoptRval::IdkStr()
+            | VerifoptRval::IdkType(_)
+            | VerifoptRval::IdkDefId(_)
+            | VerifoptRval::Idk() => {
+                todo!("just change the type: {:?}", constraint);
+            }
+            VerifoptRval::Ptr(inner) => Self::resolve_cast(kind, dst_ty, &*inner),
+            _ => todo!("cannot yet cast: {:?}", constraint),
+        }
+    }
+
     fn rval_from_cast(
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
-        _kind: &CastKind,
+        kind: &CastKind,
         op: &Operand<'tcx>,
         ty: &Ty<'tcx>,
         debug: bool,
     ) -> VerifoptRval<'tcx> {
+        if debug {
+            println!("in rval_from_cast");
+        }
+
+        // TODO perhaps use CastKind to help
+
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
                 if debug {
@@ -433,7 +319,12 @@ impl<'tcx> VerifoptRval<'tcx> {
                             if constraints.len() != 1 {
                                 todo!("handle other lengths: {:?}", constraints.len());
                             }
+                            // FIXME change the type!
                             for constraint in constraints.iter() {
+                                if debug {
+                                    println!("GOT CONSTRAINT: {:?}", constraint);
+                                }
+                                Self::resolve_cast(kind, ty, constraint);
                                 return constraint.clone();
                             }
                             // FIXME
@@ -450,6 +341,169 @@ impl<'tcx> VerifoptRval<'tcx> {
             // FIXME
             Operand::Constant(_) => VerifoptRval::IdkType(*ty),
             _ => todo!("runtime checks (cast)"),
+        }
+    }
+
+    fn rval_from_agg(
+        tcx: TyCtxt<'tcx>,
+        funcs: &FuncMap<'tcx>,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
+        aggkind: &Box<AggregateKind<'tcx>>,
+        fields: &IndexVec<FieldIdx, Operand<'tcx>>,
+        debug: bool,
+    ) -> VerifoptRval<'tcx> {
+        match &**aggkind {
+            AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
+                if debug {
+                    println!("--agg-adt");
+                    println!("aggkind: {:?}", aggkind);
+                    println!("fields: {:?}", fields);
+                    println!("defid: {:?}", defid);
+                    println!("vidx: {:?}", vidx);
+                    println!("genargsref: {:?}", genargsref);
+                    println!("maybe_usertyannot: {:?}", maybe_usertyannot);
+                    println!("maybe_fidx: {:?}", maybe_fidx);
+
+                    println!("-cur_scope: {:?}", cur_scope);
+                    println!(
+                        "cur_scope cmap: {:?}",
+                        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                    );
+                }
+
+                if genargsref.is_empty() {
+                    return VerifoptRval::IdkStruct(*defid, None);
+                } else {
+                    let mut genarg_vec = vec![];
+                    for i in 0..genargsref.len() {
+                        if debug {
+                            println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
+                        }
+                        match genargsref[i].kind() {
+                            GenericArgKind::Type(ty) => match ty.kind() {
+                                TyKind::Param(param) => {
+                                    if debug {
+                                        println!("cur_scope: {:?}", cur_scope);
+                                        println!("param.name: {:?}", param.name);
+                                    }
+                                    match cmap.scoped_get(
+                                        Some(cur_scope),
+                                        &MapKey::Generic(param.name),
+                                        false,
+                                    ) {
+                                        Some(VarType::Values(constraints)) => {
+                                            // turn HashSet constraints into Vec so can store
+                                            // in HashMap (derive `Hash` trait)
+                                            let mut constraint_vec = vec![];
+                                            for constraint in constraints.iter() {
+                                                constraint_vec.push(constraint.clone());
+                                            }
+                                            genarg_vec.push(constraint_vec);
+                                        }
+                                        Some(_) => panic!("unexpected generic mapping"),
+                                        None => {
+                                            if debug {
+                                                println!("{:?}", funcs.struct_generics.get(defid));
+                                            }
+                                            panic!("no generic mapping");
+                                        }
+                                    }
+                                }
+                                // TODO
+                                TyKind::Adt(def, genargs) => {
+                                    if debug {
+                                        println!("adt def: {:?}", def);
+                                        println!("adt genargs: {:?}", genargs);
+                                    }
+                                }
+                                _ => {
+                                    if debug {
+                                        println!("other ty kind: {:?}", ty.kind());
+                                    }
+                                }
+                            },
+                            GenericArgKind::Const(_) => {
+                                if debug {
+                                    println!("const genarg");
+                                }
+                            }
+                            GenericArgKind::Lifetime(_) => {
+                                if debug {
+                                    println!("lifetime genarg");
+                                }
+                            }
+                        }
+                    }
+                    if debug {
+                        println!(
+                            "returningval: defid = {:?}, genargs = {:?}",
+                            defid,
+                            Some(genarg_vec.clone())
+                        );
+                    }
+                    return VerifoptRval::IdkStruct(*defid, Some(genarg_vec));
+                }
+            }
+            AggregateKind::Closure(defid, _)
+            | AggregateKind::Coroutine(defid, _)
+            | AggregateKind::CoroutineClosure(defid, _) => {
+                if debug {
+                    println!("--agg-closure/coroutine");
+                }
+                return VerifoptRval::IdkDefId(*defid);
+            }
+            // FIXME ty == type of pointee, not pointer
+            AggregateKind::RawPtr(ty, _) => {
+                if debug {
+                    println!("--agg-rawptr");
+                }
+                return VerifoptRval::IdkType(*ty);
+            }
+            AggregateKind::Array(ty) => {
+                if debug {
+                    println!("array");
+                    println!("ty: {:?}", ty);
+                    println!("fields: {:?}", fields);
+                }
+                match Self::get_first_field_op(fields) {
+                    Some(op) => {
+                        if debug {
+                            println!("first field op: {:?}", op);
+                        }
+                        return VerifoptRval::rval_from_op(
+                            cmap,
+                            cur_scope,
+                            &op,
+                            &op.ty(local_decls, tcx),
+                            debug,
+                        );
+                    }
+                    None => todo!("array w no fields"),
+                }
+            }
+            AggregateKind::Tuple => {
+                if debug {
+                    println!("tup");
+                    println!("fields: {:?}", fields);
+                }
+                match Self::get_first_field_op(fields) {
+                    Some(op) => {
+                        if debug {
+                            println!("first field op: {:?}", op);
+                        }
+                        return VerifoptRval::rval_from_op(
+                            cmap,
+                            cur_scope,
+                            &op,
+                            &op.ty(local_decls, tcx),
+                            debug,
+                        );
+                    }
+                    None => todo!("tup w no fields"),
+                }
+            }
         }
     }
 
@@ -486,7 +540,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                             if debug {
                                 println!("got str!");
                             }
-                            return VerifoptRval::Str(co.const_);
+                            return VerifoptRval::IdkStr();
                         } else {
                             if debug {
                                 println!("not str");

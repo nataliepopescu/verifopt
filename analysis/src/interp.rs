@@ -946,7 +946,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             };
                         }
                         ConstValue::Slice { .. } => {
-                            constraints.insert(VerifoptRval::Str(co.const_));
+                            constraints.insert(VerifoptRval::IdkStr());
                         }
                         ConstValue::Indirect { .. } => {
                             todo!("indirect");

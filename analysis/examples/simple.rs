@@ -1,7 +1,7 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
-use std::time::Instant;
+//use std::time::Instant;
 
 //extern crate rand;
 //

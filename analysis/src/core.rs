@@ -234,9 +234,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                 }
             }
             VerifoptRval::IdkDefId(_) => todo!("casting from defid"),
-            VerifoptRval::IdkStr()
-            | VerifoptRval::IdkType(_)
-            | VerifoptRval::Idk() => {
+            VerifoptRval::IdkStr() | VerifoptRval::IdkType(_) | VerifoptRval::Idk() => {
                 let ret = VerifoptRval::IdkType(*dst_ty);
                 if debug {
                     println!("constraint: {:?}", constraint);

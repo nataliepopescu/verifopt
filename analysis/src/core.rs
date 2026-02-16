@@ -218,16 +218,25 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
-    fn resolve_cast(kind: &CastKind, dst_ty: &Ty<'tcx>, constraint: &VerifoptRval<'tcx>) {
+    fn resolve_cast(kind: &CastKind, dst_ty: &Ty<'tcx>, constraint: &VerifoptRval<'tcx>, debug: bool) -> VerifoptRval<'tcx> {
         match constraint {
             VerifoptRval::IdkStruct(_, _)
             | VerifoptRval::IdkStr()
             | VerifoptRval::IdkType(_)
             | VerifoptRval::IdkDefId(_)
             | VerifoptRval::Idk() => {
-                todo!("just change the type: {:?}", constraint);
+                // FIXME if we always use the dst_ty then we'll always be loosing
+                // information
+                let ret = VerifoptRval::IdkType(*dst_ty);
+                if debug {
+                    println!("dst_ty: {:?}", dst_ty);
+                    println!("*dst_ty: {:?}", *dst_ty);
+                    println!("ret: {:?}", ret);
+                }
+                return ret;
+                //todo!("just change the type: {:?}", constraint);
             }
-            VerifoptRval::Ptr(inner) => Self::resolve_cast(kind, dst_ty, &*inner),
+            VerifoptRval::Ptr(inner) => VerifoptRval::Ptr(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug))),
             _ => todo!("cannot yet cast: {:?}", constraint),
         }
     }
@@ -324,8 +333,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                                 if debug {
                                     println!("GOT CONSTRAINT: {:?}", constraint);
                                 }
-                                Self::resolve_cast(kind, ty, constraint);
-                                return constraint.clone();
+                                return Self::resolve_cast(kind, ty, constraint, debug);
                             }
                             // FIXME
                             if debug {

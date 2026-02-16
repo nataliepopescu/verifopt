@@ -8,7 +8,7 @@ use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
 use crate::core::is_box;
-use crate::core::{FuncVal, VerifoptRval};
+use crate::core::{FuncVal, Merge, VerifoptRval};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
 use crate::wto::BBDeps;
@@ -171,7 +171,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
 
                 let mut set = HashSet::default();
-                set.insert(VerifoptRval::from_rvalue(
+                let v_rval = VerifoptRval::from_rvalue(
                     self.tcx,
                     self.funcs,
                     cmap,
@@ -179,7 +179,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     body_locals,
                     rvalue,
                     self.debug,
-                ));
+                );
+                set.insert(v_rval.clone());
 
                 cmap.scoped_add(
                     Some(cur_scope),
@@ -187,16 +188,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Box::new(VarType::Values(set)),
                 );
 
-                //if self.debug {
-                //    println!("end assignment!");
-                //    println!("cur_scope: {:?}", cur_scope);
-                //    println!("place: {:?}", place);
-                //    println!("rval: {:?}", rvalue);
-                //    println!(
-                //        "cur_scope cmap: {:?}",
-                //        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-                //    );
-                //}
+                if self.debug {
+                    println!("end assignment!");
+                    println!("cur_scope: {:?}", cur_scope);
+                    println!("place: {:?}", place);
+                    println!("rval: {:?}", v_rval);
+                    println!(
+                        "cur_scope cmap: {:?}",
+                        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                    );
+                }
             }
             _ => {}
         }
@@ -1018,11 +1019,26 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         let key = MapKey::ScopeId(funcval.def_id);
-        if let Some(old_cmap) = cmap.cmap.get(&key) {
-            println!("funcname already exists in cmap: {:?}", funcval.def_id);
-            println!("old_cmap: {:?}", old_cmap);
-            println!("new_cmap: {:?}", func_cmap);
-            panic!();
+        let mut new_cmap = func_cmap.clone();
+        match cmap.cmap.get(&key) {
+            Some(boxed_vartype) => {
+                match *boxed_vartype.clone() {
+                    VarType::SubScope(_, cmap_vec) => {
+                        let old_cmap = &cmap_vec[0].1;
+                        let new_cmaps = vec![old_cmap.clone(), func_cmap.clone()];
+                        if self.debug {
+                            println!("funcname already exists in cmap: {:?}", funcval.def_id);
+                            println!("old_cmap: {:?}", old_cmap);
+                            println!("new_cmap: {:?}", func_cmap);
+                        }
+                        if let Ok(Some(merged_cmap)) = new_cmaps.merge() {
+                            new_cmap = merged_cmap;
+                        }
+                    }
+                    _ => panic!("got Vartype::Values"),
+                }
+            },
+            _ => {},
         }
 
         // add func_cmap to outer cmap
@@ -1040,7 +1056,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     // TODO however, maybe, analogously to our cmap, this functype may
                     // communicate more fine-grained information about the function... TBD
                     Box::new("functype (tbd)"),
-                    func_cmap,
+                    new_cmap,
                 )],
             )),
         );

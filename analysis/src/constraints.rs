@@ -215,3 +215,54 @@ impl<'tcx> Merge<Constraints<'tcx>> for Vec<Constraints<'tcx>> {
     }
 }
 */
+
+impl<'tcx> Merge<ConstraintMap<'tcx>> for Vec<ConstraintMap<'tcx>> {
+    fn merge(&self) -> Result<Option<ConstraintMap<'tcx>>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut merged = self[0].clone();
+        let mut first = true;
+        for cmap in self.iter() {
+            if first {
+                first = false;
+                continue;
+            }
+            for (key, val) in cmap.clone().cmap.iter() {
+                match merged.cmap.get_mut(key) {
+                    // mismatched types should be caught by typechecker
+                    Some(mval) => match (*mval.clone(), *val.clone()) {
+                        (VarType::SubScope(_, _), VarType::SubScope(_, _)) => {
+                            todo!("merging two scopes");
+                        }
+                        (VarType::Values(constraints_a), VarType::Values(constraints_b)) => {
+                            println!("constraints_a: {:?}", constraints_a);
+                            println!("constraints_b: {:?}", constraints_b);
+                            let mut constraints = constraints_a.clone();
+                            if constraints_a != constraints_b {
+                                let union: HashSet<_> = constraints_a.union(&constraints_b).cloned().collect();
+                                println!("union constraints: {:?}", union);
+                                constraints = union;
+                            }
+                            merged.cmap.insert(
+                                key.clone(),
+                                Box::new(VarType::Values(constraints))
+                            );
+                        }
+                        _ => panic!("incomparable VarTypes"),
+                    }
+                    None => {
+                        merged.cmap.insert(key.clone(), val.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(Some(merged))
+    }
+}

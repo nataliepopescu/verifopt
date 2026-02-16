@@ -225,21 +225,25 @@ impl<'tcx> VerifoptRval<'tcx> {
         debug: bool,
     ) -> VerifoptRval<'tcx> {
         match constraint {
-            VerifoptRval::IdkStruct(_, _)
-            | VerifoptRval::IdkStr()
+            VerifoptRval::IdkStruct(struct_defid, _) => {
+                if is_box(*struct_defid) {
+                    // do not cast (will lose constraint info)
+                    return constraint.clone();
+                } else {
+                    todo!("casting from non-box struct");
+                }
+            }
+            VerifoptRval::IdkDefId(_) => todo!("casting from defid"),
+            VerifoptRval::IdkStr()
             | VerifoptRval::IdkType(_)
-            | VerifoptRval::IdkDefId(_)
             | VerifoptRval::Idk() => {
-                // FIXME if we always use the dst_ty then we'll always be loosing
-                // information
                 let ret = VerifoptRval::IdkType(*dst_ty);
                 if debug {
+                    println!("constraint: {:?}", constraint);
                     println!("dst_ty: {:?}", dst_ty);
-                    println!("*dst_ty: {:?}", *dst_ty);
                     println!("ret: {:?}", ret);
                 }
                 return ret;
-                //todo!("just change the type: {:?}", constraint);
             }
             VerifoptRval::Ptr(inner) => {
                 VerifoptRval::Ptr(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug)))

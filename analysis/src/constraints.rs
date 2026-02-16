@@ -241,13 +241,13 @@ impl<'tcx> Merge<ConstraintMap<'tcx>> for Vec<ConstraintMap<'tcx>> {
                             todo!("merging two scopes");
                         }
                         (VarType::Values(constraints_a), VarType::Values(constraints_b)) => {
-                            println!("constraints_a: {:?}", constraints_a);
-                            println!("constraints_b: {:?}", constraints_b);
+                            //println!("constraints_a: {:?}", constraints_a);
+                            //println!("constraints_b: {:?}", constraints_b);
                             let mut constraints = constraints_a.clone();
                             if constraints_a != constraints_b {
                                 let union: HashSet<_> =
                                     constraints_a.union(&constraints_b).cloned().collect();
-                                println!("union constraints: {:?}", union);
+                                //println!("union constraints: {:?}", union);
                                 constraints = union;
                             }
                             merged

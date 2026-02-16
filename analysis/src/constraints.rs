@@ -245,17 +245,17 @@ impl<'tcx> Merge<ConstraintMap<'tcx>> for Vec<ConstraintMap<'tcx>> {
                             println!("constraints_b: {:?}", constraints_b);
                             let mut constraints = constraints_a.clone();
                             if constraints_a != constraints_b {
-                                let union: HashSet<_> = constraints_a.union(&constraints_b).cloned().collect();
+                                let union: HashSet<_> =
+                                    constraints_a.union(&constraints_b).cloned().collect();
                                 println!("union constraints: {:?}", union);
                                 constraints = union;
                             }
-                            merged.cmap.insert(
-                                key.clone(),
-                                Box::new(VarType::Values(constraints))
-                            );
+                            merged
+                                .cmap
+                                .insert(key.clone(), Box::new(VarType::Values(constraints)));
                         }
                         _ => panic!("incomparable VarTypes"),
-                    }
+                    },
                     None => {
                         merged.cmap.insert(key.clone(), val.clone());
                     }

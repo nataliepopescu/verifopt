@@ -218,7 +218,12 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
-    fn resolve_cast(kind: &CastKind, dst_ty: &Ty<'tcx>, constraint: &VerifoptRval<'tcx>, debug: bool) -> VerifoptRval<'tcx> {
+    fn resolve_cast(
+        kind: &CastKind,
+        dst_ty: &Ty<'tcx>,
+        constraint: &VerifoptRval<'tcx>,
+        debug: bool,
+    ) -> VerifoptRval<'tcx> {
         match constraint {
             VerifoptRval::IdkStruct(_, _)
             | VerifoptRval::IdkStr()
@@ -236,7 +241,9 @@ impl<'tcx> VerifoptRval<'tcx> {
                 return ret;
                 //todo!("just change the type: {:?}", constraint);
             }
-            VerifoptRval::Ptr(inner) => VerifoptRval::Ptr(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug))),
+            VerifoptRval::Ptr(inner) => {
+                VerifoptRval::Ptr(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug)))
+            }
             _ => todo!("cannot yet cast: {:?}", constraint),
         }
     }

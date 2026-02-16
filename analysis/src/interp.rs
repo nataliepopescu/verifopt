@@ -1021,24 +1021,22 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         let key = MapKey::ScopeId(funcval.def_id);
         let mut new_cmap = func_cmap.clone();
         match cmap.cmap.get(&key) {
-            Some(boxed_vartype) => {
-                match *boxed_vartype.clone() {
-                    VarType::SubScope(_, cmap_vec) => {
-                        let old_cmap = &cmap_vec[0].1;
-                        let new_cmaps = vec![old_cmap.clone(), func_cmap.clone()];
-                        if self.debug {
-                            println!("funcname already exists in cmap: {:?}", funcval.def_id);
-                            println!("old_cmap: {:?}", old_cmap);
-                            println!("new_cmap: {:?}", func_cmap);
-                        }
-                        if let Ok(Some(merged_cmap)) = new_cmaps.merge() {
-                            new_cmap = merged_cmap;
-                        }
+            Some(boxed_vartype) => match *boxed_vartype.clone() {
+                VarType::SubScope(_, cmap_vec) => {
+                    let old_cmap = &cmap_vec[0].1;
+                    let new_cmaps = vec![old_cmap.clone(), func_cmap.clone()];
+                    if self.debug {
+                        println!("funcname already exists in cmap: {:?}", funcval.def_id);
+                        println!("old_cmap: {:?}", old_cmap);
+                        println!("new_cmap: {:?}", func_cmap);
                     }
-                    _ => panic!("got Vartype::Values"),
+                    if let Ok(Some(merged_cmap)) = new_cmaps.merge() {
+                        new_cmap = merged_cmap;
+                    }
                 }
+                _ => panic!("got Vartype::Values"),
             },
-            _ => {},
+            _ => {}
         }
 
         // add func_cmap to outer cmap

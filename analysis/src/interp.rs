@@ -374,8 +374,26 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     }
                 }
             }
-            Operand::Constant(_boxed_co) => {
-                todo!("constant operand");
+            // currently not pruning anything
+            Operand::Constant(box co) => {
+                if self.debug {
+                    println!("const: {:?}", co);
+                }
+                match co.const_ {
+                    Const::Val(val, _) => {
+                        if self.debug {
+                            println!("const val @ switchint: {:?}", val);
+                        }
+                        match val {
+                            ConstValue::Scalar(Scalar::Int(s_int)) => {
+                                todo!("constant operand");
+                            }
+                            _ => {},
+                        }
+                    }
+                    Const::Ty(_, _) => {},
+                    Const::Unevaluated(_, _) => {},
+                }
             }
             _ => {
                 if self.debug {

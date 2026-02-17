@@ -385,14 +385,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             println!("const val @ switchint: {:?}", val);
                         }
                         match val {
-                            ConstValue::Scalar(Scalar::Int(s_int)) => {
+                            ConstValue::Scalar(Scalar::Int(_s_int)) => {
                                 todo!("constant operand");
                             }
-                            _ => {},
+                            _ => {}
                         }
                     }
-                    Const::Ty(_, _) => {},
-                    Const::Unevaluated(_, _) => {},
+                    Const::Ty(_, _) => {}
+                    Const::Unevaluated(_, _) => {}
                 }
             }
             _ => {

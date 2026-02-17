@@ -5,7 +5,9 @@ use rustc_hir::def::DefKind;
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{GenericArg, GenericArgKind, Generics, InstanceKind, List, TyCtxt, TyKind};
+use rustc_middle::ty::{
+    GenericArg, GenericArgKind, Generics, InstanceKind, List, ParamTy, Ty, TyCtxt, TyKind,
+};
 
 use crate::core::FuncVal;
 
@@ -194,6 +196,35 @@ impl<'tcx> FuncCollectPass<'tcx> {
         //}
     }
 
+    fn get_param(&self, ty: &Ty<'tcx>) -> Option<ParamTy> {
+        match ty.kind() {
+            TyKind::Param(param) => {
+                if self.debug {
+                    println!("arg has ty param: {:?}", param);
+                }
+                return Some(*param);
+            }
+            TyKind::Slice(ty) => {
+                if self.debug {
+                    println!("slice arg ty: {:?}", ty);
+                }
+                return self.get_param(ty);
+            }
+            TyKind::Ref(_, ty, _) => {
+                if self.debug {
+                    println!("ref arg ty: {:?}", ty);
+                }
+                return self.get_param(ty);
+            }
+            _ => {
+                if self.debug {
+                    println!("different ty: {:?}", ty.kind());
+                }
+                return None;
+            }
+        }
+    }
+
     pub fn handle_fn(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
         // TODO for AssocFns, might be useful to have a field describing if it has a
         // default implementation or not
@@ -239,23 +270,38 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
         let mir_avail = self.tcx.is_mir_available(def_id);
         let mut arg_types = None;
+        let mut arg_generics = None;
         if mir_avail {
             let mut arg_types_inner = vec![];
+            let mut arg_generics_inner = vec![];
             let body = self.tcx.instance_mir(InstanceKind::Item(def_id));
 
             for (i, loc) in body.local_decls.clone().into_iter_enumerated() {
                 let idx = i.as_usize();
-                if idx == 0 || idx > num_args + 1 {
+                if idx == 0 || idx > num_args {
                     continue;
                 }
                 arg_types_inner.push(loc.ty);
+                if self.debug {
+                    println!("idx: {:?}", idx);
+                    println!("local (arg) type: {:?}", loc.ty);
+                }
+
+                match self.get_param(&loc.ty) {
+                    Some(param) => arg_generics_inner.push(param),
+                    _ => {}
+                }
             }
 
             arg_types = Some(arg_types_inner);
+            if arg_generics_inner.len() > 0 {
+                arg_generics = Some(arg_generics_inner);
+            }
 
             if self.debug {
                 println!("arg_count: {:?}", body.arg_count);
                 println!("arg_types: {:?}", arg_types);
+                println!("arg_generics: {:?}", arg_generics);
                 println!("----Start MIR Body----");
 
                 let locs = &body.local_decls;
@@ -377,6 +423,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             self_arg,
             arg_names,
             arg_types,
+            arg_generics,
             Some(rettype),
             ret_did,
             ret_generic,

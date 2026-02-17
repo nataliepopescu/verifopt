@@ -22,6 +22,7 @@ pub struct FuncVal<'tcx> {
     pub is_intrinsic: bool,
     pub self_arg: Option<Place<'tcx>>,
     pub params: Vec<(Place<'tcx>, Ty<'tcx>)>,
+    pub param_generics: Option<Vec<ParamTy>>,
     pub rettype: Option<Ty<'tcx>>,
     pub ret_did: Option<DefId>,
     pub ret_generic: Option<ParamTy>,
@@ -34,6 +35,7 @@ impl<'tcx> FuncVal<'tcx> {
         self_arg: Option<Place<'tcx>>,
         arg_names: Vec<Place<'tcx>>,
         arg_types_opt: Option<Vec<Ty<'tcx>>>,
+        param_generics: Option<Vec<ParamTy>>,
         rettype: Option<Ty<'tcx>>,
         ret_did: Option<DefId>,
         ret_generic: Option<ParamTy>,
@@ -53,6 +55,7 @@ impl<'tcx> FuncVal<'tcx> {
             is_intrinsic,
             self_arg,
             params,
+            param_generics,
             rettype,
             ret_did,
             ret_generic,
@@ -77,6 +80,7 @@ pub enum VerifoptRval<'tcx> {
     Ptr(Box<VerifoptRval<'tcx>>),
     Ref(Box<VerifoptRval<'tcx>>),
     IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
+    //IdkGeneric(Symbol),
     IdkStr(), //Const<'tcx>),
     // FIXME don't want types
     IdkType(Ty<'tcx>),
@@ -367,6 +371,42 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
+    fn handle_gen_param(
+        funcs: &FuncMap<'tcx>,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        defid: &DefId,
+        param: &ParamTy,
+        debug: bool,
+    ) -> Vec<VerifoptRval<'tcx>> {
+        if debug {
+            println!("cur_scope: {:?}", cur_scope);
+            println!("param.name: {:?}", param.name);
+        }
+        match cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param.name), false) {
+            Some(VarType::Values(constraints)) => {
+                // turn HashSet constraints into Vec so can store
+                // in HashMap (derive `Hash` trait)
+                let mut constraint_vec = vec![];
+                for constraint in constraints.iter() {
+                    constraint_vec.push(constraint.clone());
+                }
+                return constraint_vec;
+            }
+            Some(_) => panic!("unexpected generic mapping (subscope)"),
+            None => {
+                if let Some(struct_generics) = funcs.struct_generics.get(defid) {
+                    if debug {
+                        println!("struct generics for {:?}: {:?}", defid, struct_generics);
+                    }
+                    todo!("need to add this generic to func scope/during arg res");
+                } else {
+                    panic!("no generic mapping");
+                }
+            }
+        }
+    }
+
     fn rval_from_agg(
         tcx: TyCtxt<'tcx>,
         funcs: &FuncMap<'tcx>,
@@ -407,54 +447,42 @@ impl<'tcx> VerifoptRval<'tcx> {
                         match genargsref[i].kind() {
                             GenericArgKind::Type(ty) => match ty.kind() {
                                 TyKind::Param(param) => {
+                                    genarg_vec.push(Self::handle_gen_param(
+                                        funcs, cmap, cur_scope, defid, param, debug,
+                                    ));
                                     if debug {
-                                        println!("cur_scope: {:?}", cur_scope);
-                                        println!("param.name: {:?}", param.name);
-                                    }
-                                    match cmap.scoped_get(
-                                        Some(cur_scope),
-                                        &MapKey::Generic(param.name),
-                                        false,
-                                    ) {
-                                        Some(VarType::Values(constraints)) => {
-                                            // turn HashSet constraints into Vec so can store
-                                            // in HashMap (derive `Hash` trait)
-                                            let mut constraint_vec = vec![];
-                                            for constraint in constraints.iter() {
-                                                constraint_vec.push(constraint.clone());
-                                            }
-                                            genarg_vec.push(constraint_vec);
-                                            if debug {
-                                                println!("updated genarg_vec: {:?}", genarg_vec);
-                                            }
-                                        }
-                                        Some(_) => panic!("unexpected generic mapping (subscope)"),
-                                        None => {
-                                            if let Some(struct_generics) =
-                                                funcs.struct_generics.get(defid)
-                                            {
-                                                if debug {
-                                                    println!(
-                                                        "struct generics for {:?}: {:?}",
-                                                        defid, struct_generics
-                                                    );
-                                                }
-                                                todo!(
-                                                    "need to add this generic to func scope/during arg res"
-                                                );
-                                            } else {
-                                                panic!("no generic mapping");
-                                            }
-                                        }
+                                        println!("updated genarg_vec: {:?}", genarg_vec);
                                     }
                                 }
-                                // TODO
-                                //TyKind::Adt(def, genargs) => {
-                                //    if debug {
-                                //        println!("adt def: {:?}", def);
-                                //        println!("adt genargs: {:?}", genargs);
-                                //    }
-                                //}
+                                TyKind::Adt(def, genargs) => {
+                                    if debug {
+                                        println!("adt def: {:?}", def);
+                                        println!("adt genargs: {:?}", genargs);
+                                        println!("TODO FINISH ADT");
+                                    }
+                                    //todo!("finish adt");
+                                }
+                                TyKind::Slice(s) => match s.kind() {
+                                    TyKind::Int(_) | TyKind::Uint(_) => {}
+                                    TyKind::Param(param) => {
+                                        genarg_vec.push(Self::handle_gen_param(
+                                            funcs, cmap, cur_scope, defid, param, debug,
+                                        ));
+                                    }
+                                    _ => todo!("other slice ty: {:?}", s.kind()),
+                                },
+                                TyKind::Int(_) | TyKind::Uint(_) => {}
+                                TyKind::Tuple(tylist) => {
+                                    if debug {
+                                        println!("tuple types: {:?}", tylist);
+                                    }
+                                    if tylist.len() > 0 {
+                                        //for ty in tylist.as_slice().iter() {
+                                        //    match ty
+                                        //}
+                                        todo!("tuple");
+                                    }
+                                }
                                 _ => todo!("other ty kind: {:?}", ty.kind()),
                             },
                             GenericArgKind::Const(_) => {

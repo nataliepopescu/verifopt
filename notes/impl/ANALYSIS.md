@@ -305,6 +305,45 @@ done!
 - haven't we successfully visited this function before...?
 - apparently not
 
+implementing generics resolution for _arguments_ now
+
+b/c this function _does_ have a generic arg, and that generic is used in the 
+call/struct creation statement we're currently panicking at
+
+the calling/caller scope also has T generic
+
+what about the scope before that? (main)
+- would need to keep transmitting the T resolution
+
+- _53 == arg to enclosing func
+    - type == [u128]
+    - appears in func genargs
+
+
+main -> slice::iter -> slice::iter::new()
+
+main -> slice::iter
+- T is resolved to u128
+
+slice::iter -> slice::iter::new()
+- calling scope (slice::iter) has T correctly set to u128
+    - specifically, it has: T -> u128, _1 -> T
+
+- step into arg resolution (assuming no generics)
+    - _1 -> T
+
+- then step into generic arg resolution
+    - the func_genargs variable, which usually has the resolved type, is now
+      generic
+    - this makes sense when you're calling one generic-parameterized function
+      from another generic-parameterized function
+
+    - but this is problematic b/c now we've set T -> T, which is useless
+
+
+- maybe somehow we can detect when we're in the above case, and, if so,
+  propagate the generic info we've collected even though it isn't explicit
+
 
 
 

@@ -131,7 +131,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         for (_, stmt) in data.statements.iter().enumerate() {
             if self.debug {
                 println!("\n# -------------------------------");
-                println!("# visiting STATEMENT");
+                println!("# visiting STATEMENT in {:?} of defid {:?}", bb, cur_scope);
                 println!("# -------------------------------");
             }
             last_res = self.visit_statement(cmap, cur_scope, body_locals, stmt)?;
@@ -140,7 +140,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         if let Some(term) = &data.terminator {
             if self.debug {
                 println!("\n# -------------------------------");
-                println!("# visiting TERM");
+                println!("# visiting TERM in {:?} of defid {:?}", bb, cur_scope);
                 println!("# -------------------------------");
             }
             // FIXME return basic blocks are the only ones whose interp returns Some(_), so could
@@ -659,11 +659,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("args: {:?}\n", args);
         }
 
+        // TODO
+        // calling scope has T correctly set to u128
+
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
+
+        if funcval.param_generics.is_some() {
+            if self.debug {
+                println!("\n## RESOLVING GENERICS IN ARGTYS...\n");
+            }
+            self.resolve_generic_argtys(&mut cmap, cur_scope, body_locals, funcval, func_genargs);
+        }
 
         if funcval.ret_generic.is_some() {
             if self.debug {
-                println!("\n## RESOLVING GENERIC IN RETTY...\n");
+                println!("\n## RESOLVING GENERICS IN RETTY...\n");
             }
             self.resolve_generic_retty(
                 &mut cmap,
@@ -912,6 +922,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("func: {:?}", func);
             println!("args: {:?}", args);
             println!("destination place: {:?}", destination);
+            println!(
+                "cmap @ scope: {:?}",
+                cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+            );
         }
 
         match func {
@@ -1085,6 +1099,111 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 )],
             )),
         );
+    }
+
+    fn resolve_generic_argtys(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        _body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
+        funcval: &FuncVal<'tcx>,
+        func_genargs: &[GenericArg<'tcx>],
+    ) {
+        if self.debug {
+            println!("funcval.params: {:?}", funcval.params);
+            println!("funcval.param_generics: {:?}", funcval.param_generics);
+            println!("func genargs: {:?}", func_genargs);
+        }
+
+        // filter lifetimes out of genargs
+        let genargs = func_genargs.iter().filter(|genarg| match genarg.kind() {
+            GenericArgKind::Lifetime(_) => false,
+            _ => true,
+        });
+
+        //for genarg in genargs.clone() {
+        //    match genarg.kind() {
+        //        GenericArgKind::Lifetime(_) => println!("lifetime"),
+        //        GenericArgKind::Type(ty) => match ty.kind() {
+        //            TyKind::Param(param) => println!("ty param: {:?}", param),
+        //            _ => println!("other ty: {:?}", ty.kind()),
+        //        }
+        //        GenericArgKind::Const(c) => println!("const: {:?}", c),
+        //    }
+        //}
+
+        if self.debug {
+            println!("filtered genargs: {:?}", genargs);
+        }
+
+        // add argtype generic param to callee scope
+        for (param_generic, gen_arg) in
+            std::iter::zip(funcval.param_generics.clone().unwrap(), genargs)
+        {
+            if self.debug {
+                println!("arg resolution: ({:?}, {:?})", param_generic, gen_arg);
+            }
+
+            let mut constraints = HashSet::default();
+            let vartype = match gen_arg.kind() {
+                GenericArgKind::Type(ty) => match ty.kind() {
+                    TyKind::Param(param) => {
+                        if self.debug {
+                            println!("ty param!! use outer scope ty val: {:?}", param);
+                        }
+                        cmap.scoped_get(
+                            Some(cur_scope),
+                            &MapKey::Generic(param_generic.name),
+                            false,
+                        )
+                        .unwrap()
+                    }
+                    _ => {
+                        constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
+                        VarType::Values(constraints)
+                    }
+                },
+                _ => {
+                    constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
+                    VarType::Values(constraints)
+                }
+            };
+
+            if self.debug {
+                println!(
+                    "outer-scope val @ {:?}: {:?}",
+                    param_generic.name,
+                    cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param_generic.name), false)
+                );
+                println!(
+                    "old val @ {:?}: {:?}",
+                    param_generic.name,
+                    cmap.scoped_get(
+                        Some(funcval.def_id),
+                        &MapKey::Generic(param_generic.name),
+                        false
+                    )
+                );
+            }
+
+            cmap.scoped_add(
+                Some(funcval.def_id),
+                MapKey::Generic(param_generic.name),
+                Box::new(vartype), //VarType::Values(constraints)),
+            );
+
+            if self.debug {
+                println!(
+                    "new val @ {:?}: {:?}",
+                    param_generic.name,
+                    cmap.scoped_get(
+                        Some(funcval.def_id),
+                        &MapKey::Generic(param_generic.name),
+                        false
+                    )
+                );
+            }
+        }
     }
 
     fn resolve_generic_retty(

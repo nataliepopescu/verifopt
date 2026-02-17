@@ -276,8 +276,34 @@ aggregate kind: adt
 - fields: [move _2, _marker]
 - genargs [T, std::alloc::Global]
 
+T seems to be posing a problem
+- need to add generic param to func scope during arg resolution
+- how to determine what `T` is?
+    - when the function is called (in main)
+    - the dest place/local = _35 (type == Vec<u128>)
+    - also resolved in the func operand
+
+vec::new() return type == Vec<T>
+
+and Vec<T> (defid 3:8499) _does_ have a generic argument
+
+vec::new() genargs = u128
+
+the vec::new() rettype (local 35) == Vec<u128>
+- this is the `times` vector (makes sense)
+
+ah, i see, so RawVec need param "T" to be resolved, but it isn't b/c we didn't
+include it from func_genargs
+
+but vec::new doesn't have any generic params (i.e. no "T" just [u128])
+
+done!
 
 
+### Iter::new()
+
+- haven't we successfully visited this function before...?
+- apparently not
 
 
 

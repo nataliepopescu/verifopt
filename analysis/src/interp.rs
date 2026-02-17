@@ -3,7 +3,7 @@ use rustc_hir::def_id::DefId;
 use rustc_index::IndexSlice;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{List, TyCtxt, TyKind};
+use rustc_middle::ty::{GenericArg, GenericArgKind, List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
@@ -167,7 +167,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     println!("start assignment!");
                     println!("cur_scope: {:?}", cur_scope);
                     println!("place: {:?}", place);
-                    println!("rval: {:?}", rvalue);
+                    println!("rval to resolve: {:?}", rvalue);
                 }
 
                 let mut set = HashSet::default();
@@ -189,7 +189,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 );
 
                 if self.debug {
-                    println!("end assignment!");
+                    println!("\nend assignment!");
                     println!("cur_scope: {:?}", cur_scope);
                     println!("place: {:?}", place);
                     println!("rval: {:?}", v_rval);
@@ -327,17 +327,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                             for constraint in constraints.iter() {
                                 match constraint {
-                                    VerifoptRval::Scalar(scalar) => match scalar {
-                                        Scalar::Int(s_int) => {
-                                            let num = s_int.to_bits_unchecked();
-                                            for (i, val) in vals.iter().enumerate() {
-                                                if num == val.get() {
-                                                    discr_vals_slice[i] += 1;
-                                                }
+                                    VerifoptRval::Scalar(scalar) => {
+                                        let num = scalar.to_bits_unchecked();
+                                        for (i, val) in vals.iter().enumerate() {
+                                            if num == val.get() {
+                                                discr_vals_slice[i] += 1;
                                             }
                                         }
-                                        _ => todo!("scalar ptr"),
-                                    },
+                                    }
                                     VerifoptRval::IdkType(_)
                                     | VerifoptRval::IdkDefId(_)
                                     | VerifoptRval::Idk() => {}
@@ -517,6 +514,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         self_constraint: VerifoptRval<'tcx>,
         impltors: &Vec<DefId>,
+        func_genargs: &[GenericArg<'tcx>],
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -538,6 +536,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 cur_scope,
                 body_locals,
                 &funcval_vec[0],
+                func_genargs,
                 args,
                 destination,
             );
@@ -552,6 +551,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         assoc_funcval: &FuncVal<'tcx>,
+        func_genargs: &[GenericArg<'tcx>],
         trait_def_id: &DefId,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
@@ -620,6 +620,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     body_locals,
                                     self_constraint,
                                     impltors,
+                                    func_genargs,
                                     args,
                                     destination,
                                 );
@@ -646,6 +647,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         funcval: &FuncVal<'tcx>,
+        func_genargs: &[GenericArg<'tcx>],
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -660,7 +662,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
 
         if funcval.ret_generic.is_some() {
-            self.resolve_generic_retty(&mut cmap, cur_scope, body_locals, funcval, destination);
+            if self.debug {
+                println!("\n## RESOLVING GENERIC IN RETTY...\n");
+            }
+            self.resolve_generic_retty(
+                &mut cmap,
+                cur_scope,
+                body_locals,
+                funcval,
+                func_genargs,
+                destination,
+            );
         }
 
         // visit callee
@@ -682,9 +694,19 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         match co.const_ {
             Const::Val(_, ty) => match ty.kind() {
-                TyKind::FnDef(def_id, _) => match self.funcs.funcs.get(def_id) {
+                TyKind::FnDef(def_id, func_genargs) => match self.funcs.funcs.get(def_id) {
                     Some(funcval_vec) => {
+                        if funcval_vec.len() != 1 {
+                            todo!("unexpected number of functions: {:?}", funcval_vec.len());
+                        }
+
                         for funcval in funcval_vec.iter() {
+                            if self.debug {
+                                println!("defid: {:?}", def_id);
+                                println!("funcval: {:?}", funcval);
+                                println!("func genargs: {:?}", func_genargs);
+                            }
+
                             if funcval.is_intrinsic {
                                 if self.debug {
                                     println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
@@ -716,6 +738,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             cur_scope,
                                             body_locals,
                                             funcval,
+                                            func_genargs.as_slice(),
                                             &trait_def_id_clone,
                                             args,
                                             destination,
@@ -790,6 +813,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     cur_scope,
                                     body_locals,
                                     funcval,
+                                    func_genargs.as_slice(),
                                     args,
                                     destination,
                                 ) {
@@ -928,11 +952,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             Operand::Constant(box co) => {
                 match co.const_ {
                     Const::Val(val, ty) => match val {
-                        ConstValue::Scalar(scalar) => {
+                        ConstValue::Scalar(Scalar::Int(scalar)) => {
                             if self.debug {
                                 println!("scalar: {:?}", scalar);
                             }
                             constraints.insert(VerifoptRval::Scalar(scalar));
+                        }
+                        ConstValue::Scalar(Scalar::Ptr(ptr, _)) => {
+                            todo!("ptr: {:?}", ptr);
                         }
                         ConstValue::ZeroSized => {
                             if self.debug {
@@ -1066,45 +1093,69 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         _cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         funcval: &FuncVal<'tcx>,
+        func_genargs: &[GenericArg<'tcx>],
         destination: &Place<'tcx>,
     ) {
         if self.debug {
-            println!("HERE");
             println!("funcval.ret_generic: {:?}", funcval.ret_generic);
+            println!("func genargs: {:?}", func_genargs);
             println!("destination: {:?}", destination);
             println!("body_locals[dest]: {:?}", body_locals[destination.local]);
         }
 
         // add rettype generic param to callee scope
+        let mut name_opt = None;
+        let mut constraints = HashSet::default();
         if let Some(rettype) = funcval.rettype {
             match rettype.kind() {
+                TyKind::Adt(adt_def, adt_genargs) => {
+                    if self.debug {
+                        println!("RETTYPE IS AN ADT: {:?}", adt_def.did());
+                        println!("adt_genargs: {:?}", adt_genargs);
+                    }
+
+                    if adt_genargs.len() > 0 {
+                        match adt_genargs[0].kind() {
+                            GenericArgKind::Type(ty) => match ty.kind() {
+                                TyKind::Param(param) => {
+                                    if func_genargs.len() > 0 {
+                                        if let Some(genarg_ty) = func_genargs[0].as_type() {
+                                            name_opt = Some(param.name);
+                                            constraints.insert(VerifoptRval::IdkType(genarg_ty));
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            },
+                            _ => todo!("first genarg is not a ty: {:?}", adt_genargs[0].kind()),
+                        }
+                    }
+                }
                 TyKind::Param(param) => {
                     if self.debug {
                         println!("RETTYPE IS A PARAM: {:?}", param);
                     }
 
-                    let mut constraints = HashSet::default();
+                    name_opt = Some(param.name);
                     constraints.insert(VerifoptRval::IdkType(body_locals[destination.local].ty));
-
-                    cmap.scoped_add(
-                        Some(funcval.def_id),
-                        MapKey::Generic(param.name),
-                        Box::new(VarType::Values(constraints)),
-                    );
-
-                    if self.debug {
-                        println!(
-                            "new val @ {:?}: {:?}",
-                            param.name,
-                            cmap.scoped_get(
-                                Some(funcval.def_id),
-                                &MapKey::Generic(param.name),
-                                false,
-                            )
-                        );
-                    }
                 }
-                _ => {}
+                _ => todo!("handle rettype kind: {:?}", rettype.kind()),
+            }
+        }
+
+        if let Some(name) = name_opt {
+            cmap.scoped_add(
+                Some(funcval.def_id),
+                MapKey::Generic(name),
+                Box::new(VarType::Values(constraints)),
+            );
+
+            if self.debug {
+                println!(
+                    "new val @ {:?}: {:?}",
+                    name,
+                    cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(name), false,)
+                );
             }
         }
     }

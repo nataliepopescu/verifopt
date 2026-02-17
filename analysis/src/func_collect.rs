@@ -5,7 +5,7 @@ use rustc_hir::def::DefKind;
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{GenericArg, Generics, InstanceKind, List, TyCtxt, TyKind};
+use rustc_middle::ty::{GenericArg, GenericArgKind, Generics, InstanceKind, List, TyCtxt, TyKind};
 
 use crate::core::FuncVal;
 
@@ -322,11 +322,44 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let mut ret_did = None;
         let mut ret_generic = None;
         match rettype.kind() {
-            TyKind::Adt(def, _) => {
+            TyKind::Adt(def, adt_genargs) => {
                 if self.debug {
                     println!("adt_def def_id: {:?}", def.did());
+                    println!("adt genargs: {:?}", adt_genargs);
                 }
                 ret_did = Some(def.did());
+                if adt_genargs.len() > 0 {
+                    match adt_genargs[0].kind() {
+                        //GenericArgKind::Const(c) => match c.kind() {
+                        //    ConstKind::Param(param_const) => {
+                        //        if self.debug {
+                        //            println!("rettype has const param: {:?}", param_const);
+                        //        }
+                        //        ret_generic =
+                        //            Some(ParamTy::new(param_const.index, param_const.name));
+                        //    }
+                        //    _ => {
+                        //        if self.debug {
+                        //            println!("not a param: {:?}", c.kind());
+                        //        }
+                        //    }
+                        //},
+                        GenericArgKind::Type(ty) => match ty.kind() {
+                            TyKind::Param(param) => {
+                                if self.debug {
+                                    println!("rettype has ty param: {:?}", param);
+                                }
+                                ret_generic = Some(*param);
+                            }
+                            _ => {}
+                        },
+                        _ => {
+                            if self.debug {
+                                println!("genarg is not a ty: {:?}", adt_genargs[0].kind());
+                            }
+                        }
+                    }
+                }
             }
             TyKind::Param(param) => {
                 if self.debug {
@@ -377,7 +410,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 // simple (no benchmarking): limit = 22
                 // simple (benchmarking): limit = 31
                 // one_variant: limit = 21
-                if crate_num == 0 && def_index >= 30
+                if crate_num == 0 && def_index >= 31
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

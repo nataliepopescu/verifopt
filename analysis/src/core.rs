@@ -6,7 +6,7 @@ use rustc_middle::mir::*;
 //use rustc_span::Ident;
 use rustc_abi::FieldIdx;
 use rustc_index::{IndexSlice, IndexVec};
-use rustc_middle::ty::{GenericArgKind, List, ParamTy, Ty, TyCtxt, TyKind};
+use rustc_middle::ty::{GenericArgKind, List, ParamTy, ScalarInt, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::fx::{FxHashSet as HashSet};
 
 use crate::ConstraintMap;
@@ -72,7 +72,7 @@ pub fn is_box(def_id: DefId) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
-    Scalar(Scalar),
+    Scalar(ScalarInt),
     ConstSlice(),
     Ptr(Box<VerifoptRval<'tcx>>),
     Ref(Box<VerifoptRval<'tcx>>),
@@ -230,7 +230,10 @@ impl<'tcx> VerifoptRval<'tcx> {
                     // do not cast (will lose constraint info)
                     return constraint.clone();
                 } else {
-                    todo!("casting from non-box struct");
+                    if debug {
+                        println!("casting from non-box struct: {:?}", struct_defid);
+                    }
+                    return constraint.clone();
                 }
             }
             VerifoptRval::IdkDefId(_) => todo!("casting from defid"),
@@ -245,6 +248,9 @@ impl<'tcx> VerifoptRval<'tcx> {
             }
             VerifoptRval::Ptr(inner) => {
                 VerifoptRval::Ptr(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug)))
+            }
+            VerifoptRval::Ref(inner) => {
+                VerifoptRval::Ref(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug)))
             }
             _ => todo!("cannot yet cast: {:?}", constraint),
         }
@@ -418,28 +424,38 @@ impl<'tcx> VerifoptRval<'tcx> {
                                                 constraint_vec.push(constraint.clone());
                                             }
                                             genarg_vec.push(constraint_vec);
-                                        }
-                                        Some(_) => panic!("unexpected generic mapping"),
-                                        None => {
                                             if debug {
-                                                println!("{:?}", funcs.struct_generics.get(defid));
+                                                println!("updated genarg_vec: {:?}", genarg_vec);
                                             }
-                                            panic!("no generic mapping");
+                                        }
+                                        Some(_) => panic!("unexpected generic mapping (subscope)"),
+                                        None => {
+                                            if let Some(struct_generics) =
+                                                funcs.struct_generics.get(defid)
+                                            {
+                                                if debug {
+                                                    println!(
+                                                        "struct generics for {:?}: {:?}",
+                                                        defid, struct_generics
+                                                    );
+                                                }
+                                                todo!(
+                                                    "need to add this generic to func scope/during arg res"
+                                                );
+                                            } else {
+                                                panic!("no generic mapping");
+                                            }
                                         }
                                     }
                                 }
                                 // TODO
-                                TyKind::Adt(def, genargs) => {
-                                    if debug {
-                                        println!("adt def: {:?}", def);
-                                        println!("adt genargs: {:?}", genargs);
-                                    }
-                                }
-                                _ => {
-                                    if debug {
-                                        println!("other ty kind: {:?}", ty.kind());
-                                    }
-                                }
+                                //TyKind::Adt(def, genargs) => {
+                                //    if debug {
+                                //        println!("adt def: {:?}", def);
+                                //        println!("adt genargs: {:?}", genargs);
+                                //    }
+                                //}
+                                _ => todo!("other ty kind: {:?}", ty.kind()),
                             },
                             GenericArgKind::Const(_) => {
                                 if debug {
@@ -534,11 +550,14 @@ impl<'tcx> VerifoptRval<'tcx> {
         match op {
             Operand::Constant(box co) => match co.const_ {
                 Const::Val(constval, ty) => match constval {
-                    ConstValue::Scalar(scalar) => {
+                    ConstValue::Scalar(Scalar::Int(scalar)) => {
                         if debug {
-                            println!("scalar");
+                            println!("scalar: {:?}", scalar);
                         }
                         VerifoptRval::Scalar(scalar)
+                    }
+                    ConstValue::Scalar(Scalar::Ptr(_ptr, _size)) => {
+                        VerifoptRval::Ptr(Box::new(VerifoptRval::Idk()))
                     }
                     ConstValue::ZeroSized => {
                         if debug {

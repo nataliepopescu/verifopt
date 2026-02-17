@@ -1,0 +1,28 @@
+[package]
+name = "storage-markers-expl"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bson = "3.1.0"
+criterion = "0.8.2"
+rand = "0.9.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+
+
+[[bin]]
+name = "recurse_large_array"
+path = "src/recurse_large_array.rs"
+
+[[bin]]
+name = "heap_dep_stack"
+path = "src/heap_dep_stack.rs"
+
+[[bin]]
+name = "cereal"
+path = "src/cereal.rs"
+
+[[bin]]
+name = "cereal_200"
+path = "src/cereal_200.rs"

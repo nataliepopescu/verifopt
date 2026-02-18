@@ -254,6 +254,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("returning value w following constraints: {:?}", constraints);
                     }
 
+                    if constraints.len() != 1 {
+                        panic!("unexpected constraint len: {:?}", constraints.len());
+                    }
+
                     for constraint in constraints.clone().drain() {
                         if let VerifoptRval::IdkType(ty) = constraint {
                             if self.debug {
@@ -261,7 +265,28 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             }
                             if let TyKind::Param(param) = ty.kind() {
                                 if self.debug {
-                                    panic!("GENERIC RETTY: {:?}", param);
+                                    println!("GENERIC RETTY: {:?}", param);
+                                    println!(
+                                        "resolve generic param: {:?}",
+                                        cmap.scoped_get(
+                                            Some(cur_scope),
+                                            &MapKey::Generic(param.name),
+                                            false
+                                        )
+                                    );
+                                }
+                                match cmap.scoped_get(
+                                    Some(cur_scope),
+                                    &MapKey::Generic(param.name),
+                                    false,
+                                ) {
+                                    Some(VarType::Values(constraints)) => {
+                                        if self.debug {
+                                            println!("constraints: {:?}", constraints);
+                                        }
+                                        return Ok(Some(constraints));
+                                    }
+                                    _ => panic!("unexpected"),
                                 }
                             }
                         }

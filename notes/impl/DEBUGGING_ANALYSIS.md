@@ -345,8 +345,58 @@ slice::iter -> slice::iter::new()
   propagate the generic info we've collected even though it isn't explicit
 
 
+### Func has return (local0) constraints of two different types
+
+defid 3:131
+- type 1: IdkType(Result<NonNull<[u8]>, AllocError>)
+- type 2: IdkStruct(Result defid, Some([]))
+
+- in this instance, our IdkType seems to be holding more info than our
+  IdkStruct, which defeats the point of IdkStruct
+    - perhaps Result is another "special" type (like Box) that we need to think
+      about how to handle more
+
+where are these values being set?
+- bb9
+    - _0 = std::result::Result::<std::ptr::NonNull<[u8]>, std::alloc::AllocError>::Ok(move _5),
+    - Ok variant
+    - uses local5
+- bb14
+    - _0 = const std::result::Result::<std::ptr::NonNull<[u8]>, std::alloc::AllocError>::Err(std::alloc::AllocError),
+    - Err variant (const)
 
 
+WTO for 3:131
+
+bb0 -> bb1, bb2
+
+bb2 -> bb7, *bb9*
+
+bb7 -> bb8 -> *bb9* -> bb6 -> return
+
+- Ok path
+
+
+bb1 -> bb3, bb4
+
+bb3 -> bb10 -> bb11 -> bb5
+
+bb5 -> *bb14*, bb15
+
+*bb14* -> bb6 -> return
+
+bb15 -> bb16, bb18
+
+bb16 -> bb17 -> bb18
+
+bb18 -> bb19, bb20
+
+bb19 -> bb20 -> bb21 -> bb6 -> return
+
+- Err path
+
+
+ah looks like a TODO i forgot to finish implementing :) 
 
 
 

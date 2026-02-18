@@ -383,10 +383,15 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
             println!("cur_scope: {:?}", cur_scope);
             println!("param.name: {:?}", param.name);
         }
+
         match cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param.name), false) {
             Some(VarType::Values(constraints)) => {
                 if self.debug {
                     println!("constraints len: {:?}", constraints.len());
+                }
+
+                if constraints.len() != 1 {
+                    panic!("unexpected: {:?}", constraints.len());
                 }
 
                 // turn HashSet constraints into Vec so can store
@@ -426,10 +431,13 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("adt def: {:?}", def);
                     println!("adt genargs: {:?}", genargs);
-                    println!("TODO FINISH ADT");
                 }
-                //for inner_genarg in genargs.as_slice().iter() {}
-                //todo!("finish adt");
+                for inner_genarg in genargs.as_slice().iter() {
+                    if self.debug {
+                        println!("resolving: {:?}", inner_genarg);
+                    }
+                    return self.resolve_genargkind(cmap, cur_scope, defid, *inner_genarg);
+                }
             }
             TyKind::Slice(s) => match s.kind() {
                 TyKind::Int(_) | TyKind::Uint(_) => {}
@@ -517,22 +525,30 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         }
                         match self.resolve_genargkind(cmap, cur_scope, defid, genargsref[i]) {
                             Some(resolved) => {
-                                genarg_vec.push(resolved);
                                 if self.debug {
-                                    println!("updated genarg_vec: {:?}", genarg_vec);
+                                    println!("updating genarg_vec with: {:?}", resolved);
+                                }
+                                genarg_vec.push(resolved);
+                            }
+                            _ => {
+                                if self.debug {
+                                    println!("no generic args to ADT");
                                 }
                             }
-                            _ => {}
                         }
                     }
+
+                    let resolved_genarg_vec = match genarg_vec.len() {
+                        0 => None,
+                        _ => Some(genarg_vec),
+                    };
                     if self.debug {
                         println!(
                             "returningval: defid = {:?}, genargs = {:?}",
-                            defid,
-                            Some(genarg_vec.clone())
+                            defid, resolved_genarg_vec,
                         );
                     }
-                    return VerifoptRval::IdkStruct(*defid, Some(genarg_vec));
+                    return VerifoptRval::IdkStruct(*defid, resolved_genarg_vec);
                 }
             }
             AggregateKind::Closure(defid, _)

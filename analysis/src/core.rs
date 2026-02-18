@@ -76,9 +76,10 @@ pub fn is_box(def_id: DefId) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval<'tcx> {
     Scalar(ScalarInt),
-    ConstSlice(),
     Ptr(Box<VerifoptRval<'tcx>>),
     Ref(Box<VerifoptRval<'tcx>>),
+    ConstSlice(),
+    IndirectConst(),
     IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
     //IdkGeneric(Symbol),
     IdkStr(), //Const<'tcx>),
@@ -656,9 +657,9 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     }
                     ConstValue::Indirect { .. } => {
                         if self.debug {
-                            println!("indirect");
+                            println!("indirect const");
                         }
-                        VerifoptRval::IdkType(ty)
+                        VerifoptRval::IndirectConst()
                     }
                 },
                 _ => todo!("non-val const"),

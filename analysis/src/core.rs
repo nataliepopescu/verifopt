@@ -89,130 +89,117 @@ pub enum VerifoptRval<'tcx> {
     Undef(),
 }
 
-impl<'tcx> VerifoptRval<'tcx> {
-    pub fn get_first_field_op(fields: &IndexVec<FieldIdx, Operand<'tcx>>) -> Option<Operand<'tcx>> {
-        let fields_slice = fields.as_slice();
-        if fields_slice.len() == 1 {
-            let op = &fields_slice[FieldIdx::from_u32(0)];
-            return Some(op.clone());
-        } else {
-            return None;
-        }
+pub struct VerifoptConverter<'a, 'tcx> {
+    pub tcx: TyCtxt<'tcx>,
+    pub funcs: &'a FuncMap<'tcx>,
+    pub debug: bool,
+}
+
+impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
+    pub fn new(tcx: TyCtxt<'tcx>, funcs: &'a FuncMap<'tcx>, debug: bool) -> Self {
+        Self { tcx, funcs, debug }
     }
 
     pub fn from_rvalue(
-        tcx: TyCtxt<'tcx>,
-        funcs: &FuncMap<'tcx>,
+        &self,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
         item: &Rvalue<'tcx>,
-        debug: bool,
-    ) -> Self {
-        if debug {
+    ) -> VerifoptRval<'tcx> {
+        if self.debug {
             println!("\n### IN FROM_RVALUE, item is: {:?}", item);
         }
 
         match item {
             Rvalue::Cast(kind, op, ty) => {
-                if debug {
+                if self.debug {
                     println!("--cast");
                     println!("kind: {:?}", kind);
                     println!("op: {:?}", op);
                     println!("ty: {:?}", ty);
                 }
-                VerifoptRval::rval_from_cast(cmap, cur_scope, kind, op, ty, debug)
+                self.rval_from_cast(cmap, cur_scope, kind, op, ty)
             }
             Rvalue::Aggregate(aggkind, fields) => {
-                if debug {
+                if self.debug {
                     println!("--agg");
                     println!("aggkind: {:?}", aggkind);
                     println!("fields: {:?}", fields);
                 }
-                VerifoptRval::rval_from_agg(
-                    tcx,
-                    funcs,
-                    cmap,
-                    cur_scope,
-                    local_decls,
-                    aggkind,
-                    fields,
-                    debug,
-                )
+                self.rval_from_agg(cmap, cur_scope, local_decls, aggkind, fields)
             }
             Rvalue::Use(op) => {
-                if debug {
+                if self.debug {
                     println!("--use");
                     println!("op: {:?}", op);
                 }
-                VerifoptRval::rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, tcx), debug)
+                self.rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, self.tcx))
             }
             Rvalue::RawPtr(kind, place) => {
-                if debug {
+                if self.debug {
                     println!("--rawptr");
                     println!("kind: {:?}", kind);
                     println!("place: {:?}", place);
                 }
-                let inner = VerifoptRval::rval_from_place(
+                let inner = self.rval_from_place(
                     cmap,
                     cur_scope,
                     place,
-                    &place.ty(local_decls, tcx).ty,
-                    debug,
+                    &place.ty(local_decls, self.tcx).ty,
                 );
                 VerifoptRval::Ptr(Box::new(inner))
             }
             Rvalue::Ref(_, _, place) => {
-                if debug {
+                if self.debug {
                     println!("--ref");
                 }
-                VerifoptRval::Ref(Box::new(VerifoptRval::rval_from_place(
+                VerifoptRval::Ref(Box::new(self.rval_from_place(
                     cmap,
                     cur_scope,
                     place,
-                    &place.ty(local_decls, tcx).ty,
-                    debug,
+                    &place.ty(local_decls, self.tcx).ty,
                 )))
             }
             /////////////////////////////////////
             // the below rvals all widen to Type
             /////////////////////////////////////
             Rvalue::BinaryOp(binop, boxed_op_tup) => {
-                if debug {
+                if self.debug {
                     println!("--binop");
                 }
                 VerifoptRval::IdkType(binop.ty(
-                    tcx,
-                    boxed_op_tup.0.ty(local_decls, tcx),
-                    boxed_op_tup.1.ty(local_decls, tcx),
+                    self.tcx,
+                    boxed_op_tup.0.ty(local_decls, self.tcx),
+                    boxed_op_tup.1.ty(local_decls, self.tcx),
                 ))
             }
             Rvalue::UnaryOp(unop, op) => {
-                if debug {
+                if self.debug {
                     println!("--unop");
                 }
-                VerifoptRval::IdkType(unop.ty(tcx, op.ty(local_decls, tcx)))
+                VerifoptRval::IdkType(unop.ty(self.tcx, op.ty(local_decls, self.tcx)))
             }
             Rvalue::Discriminant(place) => {
-                if debug {
+                if self.debug {
                     println!("--discr");
                 }
-                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
+                VerifoptRval::IdkType(place.ty(local_decls, self.tcx).ty)
             }
             Rvalue::ShallowInitBox(_, ty) => {
-                if debug {
+                if self.debug {
                     println!("--shallowinitbox");
                 }
                 VerifoptRval::IdkType(*ty)
             }
             Rvalue::CopyForDeref(place) => {
-                if debug {
+                if self.debug {
                     println!("--copyforderef");
                 }
-                VerifoptRval::IdkType(place.ty(local_decls, tcx).ty)
+                VerifoptRval::IdkType(place.ty(local_decls, self.tcx).ty)
             }
             Rvalue::WrapUnsafeBinder(_, ty) => {
-                if debug {
+                if self.debug {
                     println!("--wrapunsafebinder");
                 }
                 VerifoptRval::IdkType(*ty)
@@ -222,11 +209,24 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
+    fn get_first_field_op(
+        &self,
+        fields: &IndexVec<FieldIdx, Operand<'tcx>>,
+    ) -> Option<Operand<'tcx>> {
+        let fields_slice = fields.as_slice();
+        if fields_slice.len() == 1 {
+            let op = &fields_slice[FieldIdx::from_u32(0)];
+            return Some(op.clone());
+        } else {
+            return None;
+        }
+    }
+
     fn resolve_cast(
+        &self,
         kind: &CastKind,
         dst_ty: &Ty<'tcx>,
         constraint: &VerifoptRval<'tcx>,
-        debug: bool,
     ) -> VerifoptRval<'tcx> {
         match constraint {
             VerifoptRval::IdkStruct(struct_defid, _) => {
@@ -234,7 +234,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                     // do not cast (will lose constraint info)
                     return constraint.clone();
                 } else {
-                    if debug {
+                    if self.debug {
                         println!("casting from non-box struct: {:?}", struct_defid);
                     }
                     return constraint.clone();
@@ -243,7 +243,7 @@ impl<'tcx> VerifoptRval<'tcx> {
             VerifoptRval::IdkDefId(_) => todo!("casting from defid"),
             VerifoptRval::IdkStr() | VerifoptRval::IdkType(_) | VerifoptRval::Idk() => {
                 let ret = VerifoptRval::IdkType(*dst_ty);
-                if debug {
+                if self.debug {
                     println!("constraint: {:?}", constraint);
                     println!("dst_ty: {:?}", dst_ty);
                     println!("ret: {:?}", ret);
@@ -251,24 +251,24 @@ impl<'tcx> VerifoptRval<'tcx> {
                 return ret;
             }
             VerifoptRval::Ptr(inner) => {
-                VerifoptRval::Ptr(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug)))
+                VerifoptRval::Ptr(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
             }
             VerifoptRval::Ref(inner) => {
-                VerifoptRval::Ref(Box::new(Self::resolve_cast(kind, dst_ty, &*inner, debug)))
+                VerifoptRval::Ref(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
             }
             _ => todo!("cannot yet cast: {:?}", constraint),
         }
     }
 
     fn rval_from_cast(
+        &self,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         kind: &CastKind,
         op: &Operand<'tcx>,
         ty: &Ty<'tcx>,
-        debug: bool,
     ) -> VerifoptRval<'tcx> {
-        if debug {
+        if self.debug {
             println!("in rval_from_cast");
         }
 
@@ -276,7 +276,7 @@ impl<'tcx> VerifoptRval<'tcx> {
 
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                if debug {
+                if self.debug {
                     println!("place.local: {:?}", place.local);
                     println!("place.projection: {:?}", place.projection);
                     println!("cur_scope: {:?}", cur_scope);
@@ -301,7 +301,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                         //    println!("newplace: {:?}", newplace);
                         //}
                         PlaceElem::Field(field_idx, ty) => {
-                            if debug {
+                            if self.debug {
                                 println!("field_idx: {:?}", field_idx);
                                 println!("ty: {:?}", ty);
                             }
@@ -313,7 +313,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                             match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false)
                             {
                                 Some(VarType::Values(constraints)) => {
-                                    if debug {
+                                    if self.debug {
                                         println!("constraints: {:?}", constraints);
                                     }
                                     if constraints.len() != 1 {
@@ -326,7 +326,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                                         return constraint.clone();
                                     }
                                     // FIXME
-                                    if debug {
+                                    if self.debug {
                                         println!("should not print......");
                                     }
                                     return VerifoptRval::IdkType(ty);
@@ -341,7 +341,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                 match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
                     Some(vartype) => match vartype {
                         VarType::Values(constraints) => {
-                            if debug {
+                            if self.debug {
                                 println!("constraints: {:?}", constraints);
                             }
                             if constraints.len() != 1 {
@@ -349,13 +349,13 @@ impl<'tcx> VerifoptRval<'tcx> {
                             }
                             // FIXME change the type!
                             for constraint in constraints.iter() {
-                                if debug {
+                                if self.debug {
                                     println!("GOT CONSTRAINT: {:?}", constraint);
                                 }
-                                return Self::resolve_cast(kind, ty, constraint, debug);
+                                return self.resolve_cast(kind, ty, constraint);
                             }
                             // FIXME
-                            if debug {
+                            if self.debug {
                                 println!("should not print......");
                             }
                             VerifoptRval::IdkType(*ty)
@@ -373,20 +373,19 @@ impl<'tcx> VerifoptRval<'tcx> {
 
     // resolve generic params when constructing VerifoptRval
     fn handle_gen_param(
-        funcs: &FuncMap<'tcx>,
+        &self,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         defid: &DefId,
         param: &ParamTy,
-        debug: bool,
     ) -> Vec<VerifoptRval<'tcx>> {
-        if debug {
+        if self.debug {
             println!("cur_scope: {:?}", cur_scope);
             println!("param.name: {:?}", param.name);
         }
         match cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param.name), false) {
             Some(VarType::Values(constraints)) => {
-                if debug {
+                if self.debug {
                     println!("constraints len: {:?}", constraints.len());
                 }
 
@@ -400,8 +399,8 @@ impl<'tcx> VerifoptRval<'tcx> {
             }
             Some(_) => panic!("unexpected generic mapping (subscope)"),
             None => {
-                if let Some(struct_generics) = funcs.struct_generics.get(defid) {
-                    if debug {
+                if let Some(struct_generics) = self.funcs.struct_generics.get(defid) {
+                    if self.debug {
                         println!("struct generics for {:?}: {:?}", defid, struct_generics);
                     }
                     todo!("need to add this generic to func scope/during arg res");
@@ -412,33 +411,36 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
-    fn resolve_genargtype(genarg_ty: Ty<'tcx>, debug: bool) -> Option<Vec<VerifoptRval<'tcx>>> {
+    fn resolve_genargtype(
+        &self,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        defid: &DefId,
+        genarg_ty: Ty<'tcx>,
+    ) -> Option<Vec<VerifoptRval<'tcx>>> {
         match genarg_ty.kind() {
             TyKind::Param(param) => {
-                return Some(Self::handle_gen_param(funcs, cmap, cur_scope, defid, param, debug));
-                if debug {
-                    println!("updated genarg_vec: {:?}", genarg_vec);
-                }
+                return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
             }
             TyKind::Adt(def, genargs) => {
-                if debug {
+                if self.debug {
                     println!("adt def: {:?}", def);
                     println!("adt genargs: {:?}", genargs);
                     println!("TODO FINISH ADT");
                 }
-                for inner_genarg in genargs.as_slice().iter() {}
+                //for inner_genarg in genargs.as_slice().iter() {}
                 //todo!("finish adt");
             }
             TyKind::Slice(s) => match s.kind() {
                 TyKind::Int(_) | TyKind::Uint(_) => {}
                 TyKind::Param(param) => {
-                    return Some(Self::handle_gen_param(funcs, cmap, cur_scope, defid, param, debug));
+                    return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
                 }
                 _ => todo!("other slice ty: {:?}", s.kind()),
             },
             TyKind::Int(_) | TyKind::Uint(_) => {}
             TyKind::Tuple(tylist) => {
-                if debug {
+                if self.debug {
                     println!("tuple types: {:?}", tylist);
                 }
                 if tylist.len() > 0 {
@@ -448,23 +450,29 @@ impl<'tcx> VerifoptRval<'tcx> {
                     todo!("tuple");
                 }
             }
-            _ => todo!("other ty kind: {:?}", ty.kind()),
+            _ => todo!("other ty kind: {:?}", genarg_ty.kind()),
         }
 
         return None;
     }
 
-    fn resolve_genargkind(genargsref: GenericArg<'tcx>, debug: bool) -> Option<Vec<VerifoptRval<'tcx>>> {
+    fn resolve_genargkind(
+        &self,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        defid: &DefId,
+        genargsref: GenericArg<'tcx>,
+    ) -> Option<Vec<VerifoptRval<'tcx>>> {
         match genargsref.kind() {
-            GenericArgKind::Type(ty) => return Self::resolve_genargtype(ty, debug),
+            GenericArgKind::Type(ty) => return self.resolve_genargtype(cmap, cur_scope, defid, ty),
             GenericArgKind::Const(_) => {
-                if debug {
+                if self.debug {
                     println!("const genarg");
                 }
                 return None;
             }
             GenericArgKind::Lifetime(_) => {
-                if debug {
+                if self.debug {
                     println!("lifetime genarg");
                 }
                 return None;
@@ -473,18 +481,16 @@ impl<'tcx> VerifoptRval<'tcx> {
     }
 
     fn rval_from_agg(
-        tcx: TyCtxt<'tcx>,
-        funcs: &FuncMap<'tcx>,
+        &self,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
         aggkind: &Box<AggregateKind<'tcx>>,
         fields: &IndexVec<FieldIdx, Operand<'tcx>>,
-        debug: bool,
     ) -> VerifoptRval<'tcx> {
         match &**aggkind {
             AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
-                if debug {
+                if self.debug {
                     println!("--agg-adt");
                     println!("aggkind: {:?}", aggkind);
                     println!("fields: {:?}", fields);
@@ -506,15 +512,20 @@ impl<'tcx> VerifoptRval<'tcx> {
                 } else {
                     let mut genarg_vec = vec![];
                     for i in 0..genargsref.len() {
-                        if debug {
+                        if self.debug {
                             println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
                         }
-                        match Self::resolve_genargkind(genargsref[i], debug) {
-                            Some(resolved) => genarg_vec.push(resolved),
+                        match self.resolve_genargkind(cmap, cur_scope, defid, genargsref[i]) {
+                            Some(resolved) => {
+                                genarg_vec.push(resolved);
+                                if self.debug {
+                                    println!("updated genarg_vec: {:?}", genarg_vec);
+                                }
+                            }
                             _ => {}
                         }
                     }
-                    if debug {
+                    if self.debug {
                         println!(
                             "returningval: defid = {:?}, genargs = {:?}",
                             defid,
@@ -527,56 +538,54 @@ impl<'tcx> VerifoptRval<'tcx> {
             AggregateKind::Closure(defid, _)
             | AggregateKind::Coroutine(defid, _)
             | AggregateKind::CoroutineClosure(defid, _) => {
-                if debug {
+                if self.debug {
                     println!("--agg-closure/coroutine");
                 }
                 return VerifoptRval::IdkDefId(*defid);
             }
             // FIXME ty == type of pointee, not pointer
             AggregateKind::RawPtr(ty, _) => {
-                if debug {
+                if self.debug {
                     println!("--agg-rawptr");
                 }
                 return VerifoptRval::IdkType(*ty);
             }
             AggregateKind::Array(ty) => {
-                if debug {
+                if self.debug {
                     println!("array");
                     println!("ty: {:?}", ty);
                     println!("fields: {:?}", fields);
                 }
-                match Self::get_first_field_op(fields) {
+                match self.get_first_field_op(fields) {
                     Some(op) => {
-                        if debug {
+                        if self.debug {
                             println!("first field op: {:?}", op);
                         }
-                        return VerifoptRval::rval_from_op(
+                        return self.rval_from_op(
                             cmap,
                             cur_scope,
                             &op,
-                            &op.ty(local_decls, tcx),
-                            debug,
+                            &op.ty(local_decls, self.tcx),
                         );
                     }
                     None => todo!("array w no fields"),
                 }
             }
             AggregateKind::Tuple => {
-                if debug {
+                if self.debug {
                     println!("tup");
                     println!("fields: {:?}", fields);
                 }
-                match Self::get_first_field_op(fields) {
+                match self.get_first_field_op(fields) {
                     Some(op) => {
-                        if debug {
+                        if self.debug {
                             println!("first field op: {:?}", op);
                         }
-                        return VerifoptRval::rval_from_op(
+                        return self.rval_from_op(
                             cmap,
                             cur_scope,
                             &op,
-                            &op.ty(local_decls, tcx),
-                            debug,
+                            &op.ty(local_decls, self.tcx),
                         );
                     }
                     None => todo!("tup w no fields"),
@@ -586,17 +595,17 @@ impl<'tcx> VerifoptRval<'tcx> {
     }
 
     fn rval_from_op(
+        &self,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         op: &Operand<'tcx>,
         backup_ty: &Ty<'tcx>,
-        debug: bool,
     ) -> VerifoptRval<'tcx> {
         match op {
             Operand::Constant(box co) => match co.const_ {
                 Const::Val(constval, ty) => match constval {
                     ConstValue::Scalar(Scalar::Int(scalar)) => {
-                        if debug {
+                        if self.debug {
                             println!("scalar: {:?}", scalar);
                         }
                         VerifoptRval::Scalar(scalar)
@@ -605,32 +614,32 @@ impl<'tcx> VerifoptRval<'tcx> {
                         VerifoptRval::Ptr(Box::new(VerifoptRval::Idk()))
                     }
                     ConstValue::ZeroSized => {
-                        if debug {
+                        if self.debug {
                             println!("zerosized");
                         }
                         VerifoptRval::IdkType(ty)
                     }
                     ConstValue::Slice { alloc_id, meta } => {
-                        if debug {
+                        if self.debug {
                             println!("slice");
                             println!("alloc: {:?}", alloc_id);
                             println!("meta: {:?}", meta);
                             println!("ty: {:?}", ty);
                         }
                         if ty.is_str() || ty.is_imm_ref_str() {
-                            if debug {
+                            if self.debug {
                                 println!("got str!");
                             }
                             return VerifoptRval::IdkStr();
                         } else {
-                            if debug {
+                            if self.debug {
                                 println!("not str");
                             }
                             return VerifoptRval::ConstSlice();
                         }
                     }
                     ConstValue::Indirect { .. } => {
-                        if debug {
+                        if self.debug {
                             println!("indirect");
                         }
                         VerifoptRval::IdkType(ty)
@@ -639,20 +648,20 @@ impl<'tcx> VerifoptRval<'tcx> {
                 _ => todo!("non-val const"),
             },
             Operand::Copy(place) | Operand::Move(place) => {
-                VerifoptRval::rval_from_place(cmap, cur_scope, place, backup_ty, debug)
+                self.rval_from_place(cmap, cur_scope, place, backup_ty)
             }
             _ => todo!("runtime checks"),
         }
     }
 
     fn rval_from_place(
+        &self,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         place: &Place<'tcx>,
         backup_ty: &Ty<'tcx>,
-        debug: bool,
     ) -> VerifoptRval<'tcx> {
-        if debug {
+        if self.debug {
             println!("place.local: {:?}", place.local);
             println!("place.projection: {:?}", place.projection);
             println!("cur_scope: {:?}", cur_scope);
@@ -670,7 +679,7 @@ impl<'tcx> VerifoptRval<'tcx> {
         if place.projection.len() != 0 {
             // not dealing w complicated projections right now, widen to backup_ty
             if place.projection.len() > 1 {
-                if debug {
+                if self.debug {
                     println!("multiple projections, using backup_ty: {:?}", backup_ty);
                 }
                 return VerifoptRval::IdkType(*backup_ty);
@@ -683,12 +692,12 @@ impl<'tcx> VerifoptRval<'tcx> {
                         local: Local::from_u32(place.local.as_u32()),
                         projection: List::empty(),
                     };
-                    if debug {
+                    if self.debug {
                         println!("newplace: {:?}", newplace);
                     }
                 }
                 PlaceElem::Field(field_idx, ty) => {
-                    if debug {
+                    if self.debug {
                         println!("field_idx: {:?}", field_idx);
                         println!("ty: {:?}", ty);
                     }
@@ -703,7 +712,7 @@ impl<'tcx> VerifoptRval<'tcx> {
         match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false) {
             Some(vartype) => match vartype {
                 VarType::Values(constraints) => {
-                    if debug {
+                    if self.debug {
                         println!("constraints: {:?}", constraints);
                         println!("backup_ty: {:?}", backup_ty);
                     }
@@ -719,7 +728,7 @@ impl<'tcx> VerifoptRval<'tcx> {
                 _ => panic!("value should not be a scope"),
             },
             None => {
-                if debug {
+                if self.debug {
                     println!("no val for place {:?} in scope {:?}", newplace, cur_scope);
                     println!("using backup_ty: {:?}", backup_ty);
                 }

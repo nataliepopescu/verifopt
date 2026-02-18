@@ -8,7 +8,7 @@ use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
 use crate::core::is_box;
-use crate::core::{FuncVal, Merge, VerifoptRval};
+use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
 use crate::wto::BBDeps;
@@ -16,12 +16,18 @@ use crate::wto::BBDeps;
 pub struct InterpPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
+    pub converter: VerifoptConverter<'a, 'tcx>,
     pub debug: bool,
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     pub fn new(tcx: TyCtxt<'tcx>, funcs: &'a FuncMap<'tcx>, debug: bool) -> InterpPass<'a, 'tcx> {
-        Self { tcx, funcs, debug }
+        Self {
+            tcx,
+            funcs,
+            converter: VerifoptConverter::new(tcx, funcs, debug),
+            debug,
+        }
     }
 
     pub fn run(
@@ -171,15 +177,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
 
                 let mut set = HashSet::default();
-                let v_rval = VerifoptRval::from_rvalue(
-                    self.tcx,
-                    self.funcs,
-                    cmap,
-                    cur_scope,
-                    body_locals,
-                    rvalue,
-                    self.debug,
-                );
+                let v_rval = self
+                    .converter
+                    .from_rvalue(cmap, cur_scope, body_locals, rvalue);
                 set.insert(v_rval.clone());
 
                 cmap.scoped_add(

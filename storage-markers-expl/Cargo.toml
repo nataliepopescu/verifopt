@@ -26,3 +26,7 @@ path = "src/cereal.rs"
 [[bin]]
 name = "cereal_200"
 path = "src/cereal_200.rs"
+
+[[bench]]
+name = "bench_storage_markers"
+harness = false

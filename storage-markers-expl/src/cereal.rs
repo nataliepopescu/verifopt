@@ -23,7 +23,7 @@ struct Config {
     pin_server_processes: Vec<i32>,
 }
 
-fn main()-> Result<(), Box<dyn std::error::Error>> {
+pub fn c()-> Result<(), Box<dyn std::error::Error>> {
 
     for _i in 0..100 {
         let file_path = "/home/akalaba/verifopt/storage-markers-expl/src/config.json";
@@ -40,4 +40,8 @@ fn main()-> Result<(), Box<dyn std::error::Error>> {
         fs::write(file_path, serialized)?;
     }
     Ok(())
+}
+
+fn main() {
+    c();
 }

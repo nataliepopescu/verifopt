@@ -1,6 +1,7 @@
 use rand::Rng;
+use std::hint::black_box;
 
-fn main() {
+pub fn hds() {
     let mut slots: [Option<Box<[u64]>>; 500] = std::array::from_fn(|_| None);
 
     let mut rng = rand::rng();
@@ -31,5 +32,10 @@ fn main() {
     }
 
     let live = slots.iter().filter(|e| e.is_some()).count();
-    println!("Done. Live allocations remaining: {live}");
+    black_box(live);
+    // println!("Done. Live allocations remaining: {live}");
+}
+
+fn main() {
+    hds();
 }

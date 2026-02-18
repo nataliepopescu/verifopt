@@ -1,15 +1,13 @@
 use std::hint::black_box;
 
-fn main() {
+pub fn rla() {
     // Large array on the stack (~10 MB)
     let large_array: [u8; 2_000_000] = [0; 2_000_000];
 
     // Prevent compiler from optimizing away
     black_box(&large_array);
-    println!("First level");
     // Recursive function with moderately large stack frames
     fn recursive(depth: usize, max: usize) -> usize {
-        println!("Depth = {}", depth);
         // Each call has its own 1 MB array
         let _frame: [u8; 1_000_000] = [0; 1_000_000];
         black_box(&_frame); // prevent optimization
@@ -25,3 +23,6 @@ fn main() {
     black_box(result); // prevent optimization
 }
 
+fn main() {
+    rla();
+}

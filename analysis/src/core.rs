@@ -79,7 +79,7 @@ pub enum VerifoptRval<'tcx> {
     Ptr(Box<VerifoptRval<'tcx>>),
     Ref(Box<VerifoptRval<'tcx>>),
     ConstSlice(),
-    IndirectConst(),
+    IndirectConst(Ty<'tcx>),
     IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
     //IdkGeneric(Symbol),
     IdkStr(), //Const<'tcx>),
@@ -659,7 +659,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         if self.debug {
                             println!("indirect const");
                         }
-                        VerifoptRval::IndirectConst()
+                        VerifoptRval::IndirectConst(ty)
                     }
                 },
                 _ => todo!("non-val const"),

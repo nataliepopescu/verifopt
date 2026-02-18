@@ -6,7 +6,7 @@ use rustc_middle::mir::*;
 //use rustc_span::Ident;
 use rustc_abi::FieldIdx;
 use rustc_index::{IndexSlice, IndexVec};
-use rustc_middle::ty::{GenericArgKind, List, ParamTy, ScalarInt, Ty, TyCtxt, TyKind};
+use rustc_middle::ty::{GenericArg, GenericArgKind, List, ParamTy, ScalarInt, Ty, TyCtxt, TyKind};
 //use rustc_data_structures::fx::{FxHashSet as HashSet};
 
 use crate::ConstraintMap;
@@ -371,6 +371,7 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
     }
 
+    // resolve generic params when constructing VerifoptRval
     fn handle_gen_param(
         funcs: &FuncMap<'tcx>,
         cmap: &ConstraintMap<'tcx>,
@@ -385,6 +386,10 @@ impl<'tcx> VerifoptRval<'tcx> {
         }
         match cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param.name), false) {
             Some(VarType::Values(constraints)) => {
+                if debug {
+                    println!("constraints len: {:?}", constraints.len());
+                }
+
                 // turn HashSet constraints into Vec so can store
                 // in HashMap (derive `Hash` trait)
                 let mut constraint_vec = vec![];
@@ -403,6 +408,66 @@ impl<'tcx> VerifoptRval<'tcx> {
                 } else {
                     panic!("no generic mapping");
                 }
+            }
+        }
+    }
+
+    fn resolve_genargtype(genarg_ty: Ty<'tcx>, debug: bool) -> Option<Vec<VerifoptRval<'tcx>>> {
+        match genarg_ty.kind() {
+            TyKind::Param(param) => {
+                return Some(Self::handle_gen_param(funcs, cmap, cur_scope, defid, param, debug));
+                if debug {
+                    println!("updated genarg_vec: {:?}", genarg_vec);
+                }
+            }
+            TyKind::Adt(def, genargs) => {
+                if debug {
+                    println!("adt def: {:?}", def);
+                    println!("adt genargs: {:?}", genargs);
+                    println!("TODO FINISH ADT");
+                }
+                for inner_genarg in genargs.as_slice().iter() {}
+                //todo!("finish adt");
+            }
+            TyKind::Slice(s) => match s.kind() {
+                TyKind::Int(_) | TyKind::Uint(_) => {}
+                TyKind::Param(param) => {
+                    return Some(Self::handle_gen_param(funcs, cmap, cur_scope, defid, param, debug));
+                }
+                _ => todo!("other slice ty: {:?}", s.kind()),
+            },
+            TyKind::Int(_) | TyKind::Uint(_) => {}
+            TyKind::Tuple(tylist) => {
+                if debug {
+                    println!("tuple types: {:?}", tylist);
+                }
+                if tylist.len() > 0 {
+                    //for ty in tylist.as_slice().iter() {
+                    //    match ty
+                    //}
+                    todo!("tuple");
+                }
+            }
+            _ => todo!("other ty kind: {:?}", ty.kind()),
+        }
+
+        return None;
+    }
+
+    fn resolve_genargkind(genargsref: GenericArg<'tcx>, debug: bool) -> Option<Vec<VerifoptRval<'tcx>>> {
+        match genargsref.kind() {
+            GenericArgKind::Type(ty) => return Self::resolve_genargtype(ty, debug),
+            GenericArgKind::Const(_) => {
+                if debug {
+                    println!("const genarg");
+                }
+                return None;
+            }
+            GenericArgKind::Lifetime(_) => {
+                if debug {
+                    println!("lifetime genarg");
+                }
+                return None;
             }
         }
     }
@@ -444,57 +509,9 @@ impl<'tcx> VerifoptRval<'tcx> {
                         if debug {
                             println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
                         }
-                        match genargsref[i].kind() {
-                            GenericArgKind::Type(ty) => match ty.kind() {
-                                TyKind::Param(param) => {
-                                    genarg_vec.push(Self::handle_gen_param(
-                                        funcs, cmap, cur_scope, defid, param, debug,
-                                    ));
-                                    if debug {
-                                        println!("updated genarg_vec: {:?}", genarg_vec);
-                                    }
-                                }
-                                TyKind::Adt(def, genargs) => {
-                                    if debug {
-                                        println!("adt def: {:?}", def);
-                                        println!("adt genargs: {:?}", genargs);
-                                        println!("TODO FINISH ADT");
-                                    }
-                                    //todo!("finish adt");
-                                }
-                                TyKind::Slice(s) => match s.kind() {
-                                    TyKind::Int(_) | TyKind::Uint(_) => {}
-                                    TyKind::Param(param) => {
-                                        genarg_vec.push(Self::handle_gen_param(
-                                            funcs, cmap, cur_scope, defid, param, debug,
-                                        ));
-                                    }
-                                    _ => todo!("other slice ty: {:?}", s.kind()),
-                                },
-                                TyKind::Int(_) | TyKind::Uint(_) => {}
-                                TyKind::Tuple(tylist) => {
-                                    if debug {
-                                        println!("tuple types: {:?}", tylist);
-                                    }
-                                    if tylist.len() > 0 {
-                                        //for ty in tylist.as_slice().iter() {
-                                        //    match ty
-                                        //}
-                                        todo!("tuple");
-                                    }
-                                }
-                                _ => todo!("other ty kind: {:?}", ty.kind()),
-                            },
-                            GenericArgKind::Const(_) => {
-                                if debug {
-                                    println!("const genarg");
-                                }
-                            }
-                            GenericArgKind::Lifetime(_) => {
-                                if debug {
-                                    println!("lifetime genarg");
-                                }
-                            }
+                        match Self::resolve_genargkind(genargsref[i], debug) {
+                            Some(resolved) => genarg_vec.push(resolved),
+                            _ => {}
                         }
                     }
                     if debug {

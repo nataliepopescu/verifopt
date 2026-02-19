@@ -103,5 +103,7 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
+    // FIXME double check opt level / compiling a release version
+    //println!("{:?}", rustc_args);
     run_compiler(&rustc_args, &mut VerifoptCallbacks)
 }

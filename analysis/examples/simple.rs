@@ -2,40 +2,40 @@
 #![allow(dead_code)]
 
 pub trait Animal {
-    fn speak(&mut self) -> usize;
+    fn speak(&self) -> usize;
     fn walk(&self) -> usize;
 }
 
 pub fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        Box::new(Cat { speak_ctr: 0 })
+        Box::new(Cat {})
     } else {
-        Box::new(Dog { speak_ctr: 0 })
+        Box::new(Dog {})
     }
 }
 
 #[inline(always)]
 pub fn get_cat() -> Box<dyn Animal> {
-    return Box::new(Cat { speak_ctr: 0 });
+    return Box::new(Cat {})
 }
 
 pub struct Cat {
-    speak_ctr: u64,
+    //speak_ctr: u64,
 }
 
 pub struct Dog {
-    speak_ctr: u64,
+    //speak_ctr: u64,
 }
 
-impl Cat {
-    fn meow(&self) -> usize {
-        0
-    }
-}
+//impl Cat {
+//    fn meow(&self) -> usize {
+//        0
+//    }
+//}
 
 impl Animal for Cat {
-    fn speak(&mut self) -> usize {
-        self.speak_ctr += 1;
+    fn speak(&self) -> usize {
+        //self.speak_ctr += 1;
         11111
     }
     fn walk(&self) -> usize {
@@ -44,8 +44,8 @@ impl Animal for Cat {
 }
 
 impl Animal for Dog {
-    fn speak(&mut self) -> usize {
-        self.speak_ctr += 1;
+    fn speak(&self) -> usize {
+        //self.speak_ctr += 1;
         22222
     }
     fn walk(&self) -> usize {
@@ -62,12 +62,10 @@ fn main() {
     // the information from that function is not propagated, so `speak` remains
     // a dynamic dispatch
     //let animal = get_animal(rand::rng().random_range(..2usize));
-    let mut animal_really_cat = get_animal(0);
+    let animal_really_cat = get_animal(0);
     let cat = get_cat();
     let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
     let _cat_vtable = core::ptr::metadata(&*cat);
     let _res = animal_really_cat.speak();
-
-    //let cat = Cat {};
-    //cat.meow();
 }
+

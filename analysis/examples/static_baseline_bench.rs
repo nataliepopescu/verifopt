@@ -4,27 +4,29 @@
 use std::time::Instant;
 
 pub trait Animal {
-    fn speak(&self) -> usize;
+    fn speak(&mut self) -> usize;
     fn walk(&self) -> usize;
 }
 
 pub fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        Box::new(Cat {})
+        Box::new(Cat { speak_ctr: 0 })
     } else {
-        Box::new(Dog {})
+        Box::new(Dog { speak_ctr: 0 })
     }
 }
 
 #[inline(always)]
 pub fn get_cat() -> Box<dyn Animal> {
-    return Box::new(Cat {});
+    return Box::new(Cat { speak_ctr: 0 });
 }
 
 pub struct Cat {
+    speak_ctr: u64,
 }
 
 pub struct Dog {
+    speak_ctr: u64,
 }
 
 impl Cat {
@@ -34,7 +36,8 @@ impl Cat {
 }
 
 impl Animal for Cat {
-    fn speak(&self) -> usize {
+    fn speak(&mut self) -> usize {
+        self.speak_ctr += 1;
         11111
     }
     fn walk(&self) -> usize {
@@ -43,7 +46,8 @@ impl Animal for Cat {
 }
 
 impl Animal for Dog {
-    fn speak(&self) -> usize {
+    fn speak(&mut self) -> usize {
+        self.speak_ctr += 1;
         22222
     }
     fn walk(&self) -> usize {
@@ -53,35 +57,23 @@ impl Animal for Dog {
 
 // TODO inc struct field (side effect) + print at end to confirm used
 #[inline(never)]
-fn wrap_dyn_call(animal: &Box<dyn Animal>) {
-    let _res = animal.speak();
+fn wrap_call(cat: &mut Cat) {
+    let _ = <Cat as Animal>::speak(cat);
 }
 
 fn main() {
-    // when the below line is uncommented, the speak call is resolved to
-    // <Cat as Animal>::speak(), so interprocedural may indeed be the "spot"
-    //let animal = Box::new(Cat {});
-
-    // note that even when we pass in a statically-known value to `get_animal`,
-    // the information from that function is not propagated, so `speak` remains
-    // a dynamic dispatch
-    //let animal = get_animal(rand::rng().random_range(..2usize));
-    let animal_really_cat = get_animal(0);
-    let cat = get_cat();
-    let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
-    let _cat_vtable = core::ptr::metadata(&*cat);
-
+    let mut cat = Cat { speak_ctr: 0 };
     let warmup = 100000;
     let runs = 1000000;
 
     for _ in 0..warmup {
-        wrap_dyn_call(&animal_really_cat);
+        wrap_call(&mut cat);
     }
 
     let mut times = Vec::new();
     for _ in 0..runs {
         let start = Instant::now();
-        wrap_dyn_call(&animal_really_cat);
+        wrap_call(&mut cat);
         let duration = start.elapsed().as_nanos();
         times.push(duration);
     }

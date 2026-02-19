@@ -176,23 +176,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     println!("rval to resolve: {:?}", rvalue);
                 }
 
-                let mut set = HashSet::default();
-                let v_rval = self
-                    .converter
-                    .from_rvalue(cmap, cur_scope, body_locals, rvalue);
-                set.insert(v_rval.clone());
+                let rval_constraints =
+                    self.converter
+                        .from_rvalue(cmap, cur_scope, body_locals, rvalue);
 
                 cmap.scoped_add(
                     Some(cur_scope),
                     MapKey::Place(place),
-                    Box::new(VarType::Values(set)),
+                    Box::new(VarType::Values(rval_constraints.clone())),
                 );
 
                 if self.debug {
                     println!("\nend assignment!");
                     println!("cur_scope: {:?}", cur_scope);
                     println!("place: {:?}", place);
-                    println!("rval: {:?}", v_rval);
+                    println!("rval: {:?}", rval_constraints);
                     println!(
                         "cur_scope cmap: {:?}",
                         cmap.cmap.get(&MapKey::ScopeId(cur_scope))

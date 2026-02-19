@@ -5,13 +5,13 @@ use rustc_middle::mir::*;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
 use rustc_abi::FieldIdx;
+use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_index::{IndexSlice, IndexVec};
 use rustc_middle::ty::{GenericArg, GenericArgKind, List, ParamTy, ScalarInt, Ty, TyCtxt, TyKind};
-//use rustc_data_structures::fx::{FxHashSet as HashSet};
 
 use crate::ConstraintMap;
 use crate::FuncMap;
-use crate::constraints::{MapKey, VarType};
+use crate::constraints::{Constraints, MapKey, VarType};
 use crate::error::Error;
 
 pub type Type = &'static str;
@@ -101,17 +101,36 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         Self { tcx, funcs, debug }
     }
 
+    fn wrap_inner_constraints_ref(&self, inner: Constraints<'tcx>) -> Constraints<'tcx> {
+        let mut outer = HashSet::default();
+        // for each constraint, wrap in a pointer value
+        for constraint in inner.clone().drain() {
+            outer.insert(VerifoptRval::Ref(Box::new(constraint)));
+        }
+        outer
+    }
+
+    fn wrap_inner_constraints_ptr(&self, inner: Constraints<'tcx>) -> Constraints<'tcx> {
+        let mut outer = HashSet::default();
+        // for each constraint, wrap in a pointer value
+        for constraint in inner.clone().drain() {
+            outer.insert(VerifoptRval::Ptr(Box::new(constraint)));
+        }
+        outer
+    }
+
     pub fn from_rvalue(
         &self,
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
         item: &Rvalue<'tcx>,
-    ) -> VerifoptRval<'tcx> {
+    ) -> Constraints<'tcx> {
         if self.debug {
             println!("\n### IN FROM_RVALUE, item is: {:?}", item);
         }
 
+        let mut ret_constraints = HashSet::default();
         match item {
             Rvalue::Cast(kind, op, ty) => {
                 if self.debug {
@@ -120,7 +139,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("op: {:?}", op);
                     println!("ty: {:?}", ty);
                 }
-                self.rval_from_cast(cmap, cur_scope, kind, op, ty)
+                ret_constraints = self.rval_from_cast(cmap, cur_scope, kind, op, ty);
             }
             Rvalue::Aggregate(aggkind, fields) => {
                 if self.debug {
@@ -128,14 +147,15 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("aggkind: {:?}", aggkind);
                     println!("fields: {:?}", fields);
                 }
-                self.rval_from_agg(cmap, cur_scope, local_decls, aggkind, fields)
+                ret_constraints = self.rval_from_agg(cmap, cur_scope, local_decls, aggkind, fields);
             }
             Rvalue::Use(op) => {
                 if self.debug {
                     println!("--use");
                     println!("op: {:?}", op);
                 }
-                self.rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, self.tcx))
+                ret_constraints =
+                    self.rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, self.tcx));
             }
             Rvalue::RawPtr(kind, place) => {
                 if self.debug {
@@ -149,18 +169,19 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     place,
                     &place.ty(local_decls, self.tcx).ty,
                 );
-                VerifoptRval::Ptr(Box::new(inner))
+                ret_constraints = self.wrap_inner_constraints_ptr(inner);
             }
             Rvalue::Ref(_, _, place) => {
                 if self.debug {
                     println!("--ref");
                 }
-                VerifoptRval::Ref(Box::new(self.rval_from_place(
+                let inner = self.rval_from_place(
                     cmap,
                     cur_scope,
                     place,
                     &place.ty(local_decls, self.tcx).ty,
-                )))
+                );
+                ret_constraints = self.wrap_inner_constraints_ref(inner);
             }
             /////////////////////////////////////
             // the below rvals all widen to Type
@@ -169,45 +190,49 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("--binop");
                 }
-                VerifoptRval::IdkType(binop.ty(
+                ret_constraints.insert(VerifoptRval::IdkType(binop.ty(
                     self.tcx,
                     boxed_op_tup.0.ty(local_decls, self.tcx),
                     boxed_op_tup.1.ty(local_decls, self.tcx),
-                ))
+                )));
             }
             Rvalue::UnaryOp(unop, op) => {
                 if self.debug {
                     println!("--unop");
                 }
-                VerifoptRval::IdkType(unop.ty(self.tcx, op.ty(local_decls, self.tcx)))
+                ret_constraints.insert(VerifoptRval::IdkType(
+                    unop.ty(self.tcx, op.ty(local_decls, self.tcx)),
+                ));
             }
             Rvalue::Discriminant(place) => {
                 if self.debug {
                     println!("--discr");
                 }
-                VerifoptRval::IdkType(place.ty(local_decls, self.tcx).ty)
+                ret_constraints.insert(VerifoptRval::IdkType(place.ty(local_decls, self.tcx).ty));
             }
             Rvalue::ShallowInitBox(_, ty) => {
                 if self.debug {
                     println!("--shallowinitbox");
                 }
-                VerifoptRval::IdkType(*ty)
+                ret_constraints.insert(VerifoptRval::IdkType(*ty));
             }
             Rvalue::CopyForDeref(place) => {
                 if self.debug {
                     println!("--copyforderef");
                 }
-                VerifoptRval::IdkType(place.ty(local_decls, self.tcx).ty)
+                ret_constraints.insert(VerifoptRval::IdkType(place.ty(local_decls, self.tcx).ty));
             }
             Rvalue::WrapUnsafeBinder(_, ty) => {
                 if self.debug {
                     println!("--wrapunsafebinder");
                 }
-                VerifoptRval::IdkType(*ty)
+                ret_constraints.insert(VerifoptRval::IdkType(*ty));
             }
             Rvalue::Repeat(_, _) => todo!("repeat"),
             Rvalue::ThreadLocalRef(_) => todo!("thread local ref"),
         }
+
+        ret_constraints
     }
 
     fn get_first_field_op(
@@ -268,13 +293,14 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         kind: &CastKind,
         op: &Operand<'tcx>,
         ty: &Ty<'tcx>,
-    ) -> VerifoptRval<'tcx> {
+    ) -> Constraints<'tcx> {
         if self.debug {
             println!("in rval_from_cast");
         }
 
         // TODO perhaps use CastKind to help
 
+        let mut ret_constraints = HashSet::default();
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
                 if self.debug {
@@ -317,25 +343,15 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                                     if self.debug {
                                         println!("constraints: {:?}", constraints);
                                     }
-                                    if constraints.len() != 1 {
-                                        panic!(
-                                            "handle other constraint lens: {:?}",
-                                            constraints.len()
-                                        );
-                                    }
-                                    for constraint in constraints.iter() {
-                                        return constraint.clone();
-                                    }
-                                    // FIXME
-                                    if self.debug {
-                                        println!("should not print......");
-                                    }
-                                    return VerifoptRval::IdkType(ty);
+                                    return constraints;
                                 }
                                 _ => panic!("unexpected res from scoped_get"),
                             }
                         }
-                        _ => return VerifoptRval::Idk(),
+                        _ => {
+                            ret_constraints.insert(VerifoptRval::Idk());
+                            return ret_constraints;
+                        }
                     }
                 }
 
@@ -345,21 +361,12 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                             if self.debug {
                                 println!("constraints: {:?}", constraints);
                             }
-                            if constraints.len() != 1 {
-                                todo!("handle other lengths: {:?}", constraints.len());
-                            }
-                            // FIXME change the type!
                             for constraint in constraints.iter() {
                                 if self.debug {
                                     println!("GOT CONSTRAINT: {:?}", constraint);
                                 }
-                                return self.resolve_cast(kind, ty, constraint);
+                                ret_constraints.insert(self.resolve_cast(kind, ty, constraint));
                             }
-                            // FIXME
-                            if self.debug {
-                                println!("should not print......");
-                            }
-                            VerifoptRval::IdkType(*ty)
                         }
                         _ => panic!("should not get scope (cast)"),
                     },
@@ -367,9 +374,13 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 }
             }
             // FIXME
-            Operand::Constant(_) => VerifoptRval::IdkType(*ty),
+            Operand::Constant(_) => {
+                ret_constraints.insert(VerifoptRval::IdkType(*ty));
+            }
             _ => todo!("runtime checks (cast)"),
         }
+
+        ret_constraints
     }
 
     // resolve generic params when constructing VerifoptRval
@@ -496,7 +507,8 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         local_decls: &IndexSlice<Local, LocalDecl<'tcx>>,
         aggkind: &Box<AggregateKind<'tcx>>,
         fields: &IndexVec<FieldIdx, Operand<'tcx>>,
-    ) -> VerifoptRval<'tcx> {
+    ) -> Constraints<'tcx> {
+        let mut ret_constraints = HashSet::default();
         match &**aggkind {
             AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
                 if self.debug {
@@ -517,7 +529,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 }
 
                 if genargsref.is_empty() {
-                    return VerifoptRval::IdkStruct(*defid, None);
+                    ret_constraints.insert(VerifoptRval::IdkStruct(*defid, None));
                 } else {
                     let mut genarg_vec = vec![];
                     for i in 0..genargsref.len() {
@@ -549,7 +561,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                             defid, resolved_genarg_vec,
                         );
                     }
-                    return VerifoptRval::IdkStruct(*defid, resolved_genarg_vec);
+                    ret_constraints.insert(VerifoptRval::IdkStruct(*defid, resolved_genarg_vec));
                 }
             }
             AggregateKind::Closure(defid, _)
@@ -558,14 +570,14 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("--agg-closure/coroutine");
                 }
-                return VerifoptRval::IdkDefId(*defid);
+                ret_constraints.insert(VerifoptRval::IdkDefId(*defid));
             }
             // FIXME ty == type of pointee, not pointer
             AggregateKind::RawPtr(ty, _) => {
                 if self.debug {
                     println!("--agg-rawptr");
                 }
-                return VerifoptRval::IdkType(*ty);
+                ret_constraints.insert(VerifoptRval::IdkType(*ty));
             }
             AggregateKind::Array(ty) => {
                 if self.debug {
@@ -609,6 +621,8 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 }
             }
         }
+
+        ret_constraints
     }
 
     fn rval_from_op(
@@ -617,7 +631,8 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         cur_scope: DefId,
         op: &Operand<'tcx>,
         backup_ty: &Ty<'tcx>,
-    ) -> VerifoptRval<'tcx> {
+    ) -> Constraints<'tcx> {
+        let mut constraints = HashSet::default();
         match op {
             Operand::Constant(box co) => match co.const_ {
                 Const::Val(constval, ty) => match constval {
@@ -625,16 +640,16 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         if self.debug {
                             println!("scalar: {:?}", scalar);
                         }
-                        VerifoptRval::Scalar(scalar)
+                        constraints.insert(VerifoptRval::Scalar(scalar));
                     }
                     ConstValue::Scalar(Scalar::Ptr(_ptr, _size)) => {
-                        VerifoptRval::Ptr(Box::new(VerifoptRval::Idk()))
+                        constraints.insert(VerifoptRval::Ptr(Box::new(VerifoptRval::Idk())));
                     }
                     ConstValue::ZeroSized => {
                         if self.debug {
                             println!("zerosized");
                         }
-                        VerifoptRval::IdkType(ty)
+                        constraints.insert(VerifoptRval::IdkType(ty));
                     }
                     ConstValue::Slice { alloc_id, meta } => {
                         if self.debug {
@@ -647,28 +662,30 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                             if self.debug {
                                 println!("got str!");
                             }
-                            return VerifoptRval::IdkStr();
+                            constraints.insert(VerifoptRval::IdkStr());
                         } else {
                             if self.debug {
                                 println!("not str");
                             }
-                            return VerifoptRval::ConstSlice();
+                            constraints.insert(VerifoptRval::ConstSlice());
                         }
                     }
                     ConstValue::Indirect { .. } => {
                         if self.debug {
                             println!("indirect const");
                         }
-                        VerifoptRval::IndirectConst(ty)
+                        constraints.insert(VerifoptRval::IndirectConst(ty));
                     }
                 },
                 _ => todo!("non-val const"),
             },
             Operand::Copy(place) | Operand::Move(place) => {
-                self.rval_from_place(cmap, cur_scope, place, backup_ty)
+                constraints = self.rval_from_place(cmap, cur_scope, place, backup_ty);
             }
             _ => todo!("runtime checks"),
         }
+
+        constraints
     }
 
     fn rval_from_place(
@@ -677,7 +694,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         cur_scope: DefId,
         place: &Place<'tcx>,
         backup_ty: &Ty<'tcx>,
-    ) -> VerifoptRval<'tcx> {
+    ) -> Constraints<'tcx> {
         if self.debug {
             println!("place.local: {:?}", place.local);
             println!("place.projection: {:?}", place.projection);
@@ -692,6 +709,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
             );
         }
 
+        let mut ret_constraints = HashSet::default();
         let mut newplace = *place;
         if place.projection.len() != 0 {
             // not dealing w complicated projections right now, widen to backup_ty
@@ -699,7 +717,8 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("multiple projections, using backup_ty: {:?}", backup_ty);
                 }
-                return VerifoptRval::IdkType(*backup_ty);
+                ret_constraints.insert(VerifoptRval::IdkType(*backup_ty));
+                return ret_constraints;
             }
 
             match place.projection[0] {
@@ -719,13 +738,16 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         println!("ty: {:?}", ty);
                     }
                     // FIXME
-                    return VerifoptRval::IdkType(ty);
+                    ret_constraints.insert(VerifoptRval::IdkType(ty));
+                    return ret_constraints;
                 }
-                _ => return VerifoptRval::Idk(),
+                _ => {
+                    ret_constraints.insert(VerifoptRval::Idk());
+                    return ret_constraints;
+                }
             }
         }
 
-        let mut ret_rval = VerifoptRval::IdkType(*backup_ty);
         match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false) {
             Some(vartype) => match vartype {
                 VarType::Values(constraints) => {
@@ -733,14 +755,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         println!("constraints: {:?}", constraints);
                         println!("backup_ty: {:?}", backup_ty);
                     }
-                    // FIXME think about how to return multiple possible VerifoptRvals
-                    // (for a constraint set of len > 1)
-                    if constraints.len() != 1 {
-                        panic!("unexpected constraint length: {:?}", constraints.len());
-                    }
-                    for sole_constraint in constraints.clone().drain() {
-                        ret_rval = sole_constraint;
-                    }
+                    ret_constraints = constraints;
                 }
                 _ => panic!("value should not be a scope"),
             },
@@ -749,10 +764,11 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("no val for place {:?} in scope {:?}", newplace, cur_scope);
                     println!("using backup_ty: {:?}", backup_ty);
                 }
+                ret_constraints.insert(VerifoptRval::IdkType(*backup_ty));
             }
         }
 
-        ret_rval
+        ret_constraints
     }
 }
 

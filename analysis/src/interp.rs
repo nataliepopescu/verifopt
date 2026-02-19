@@ -254,10 +254,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("returning value w following constraints: {:?}", constraints);
                     }
 
-                    //if constraints.len() != 1 {
-                    //    panic!("unexpected constraint len: {:?}", constraints.len());
-                    //}
-
                     let mut ret_constraints = HashSet::default();
                     for constraint in constraints.clone().drain() {
                         if let VerifoptRval::IdkType(ty) = constraint {
@@ -1198,7 +1194,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             std::iter::zip(funcval.param_generics.clone().unwrap(), genargs)
         {
             if self.debug {
-                println!("arg resolution: ({:?}, {:?})", param_generic, gen_arg);
+                println!(
+                    "IN LOOP; arg resolution: ({:?}, {:?})",
+                    param_generic, gen_arg
+                );
             }
 
             if cmap
@@ -1210,7 +1209,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 .is_none()
             {
                 if self.debug {
-                    println!("\tadding to cmap");
+                    println!("\tproceeding with adding to cmap");
                 }
                 let mut constraints = HashSet::default();
                 let vartype = match gen_arg.kind() {
@@ -1219,12 +1218,28 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             if self.debug {
                                 println!("ty param!! use outer scope ty val: {:?}", param);
                             }
-                            cmap.scoped_get(
+                            match cmap.scoped_get(
                                 Some(cur_scope),
                                 &MapKey::Generic(param_generic.name),
                                 false,
-                            )
-                            .unwrap()
+                            ) {
+                                // propagate outer_scope value
+                                Some(val) => val,
+                                None => {
+                                    // if no outer_scope value, try to resolve gen_arg itself
+                                    match cmap.scoped_get(
+                                        Some(cur_scope),
+                                        &MapKey::Generic(param.name),
+                                        false,
+                                    ) {
+                                        Some(val) => val,
+                                        None => panic!(
+                                            "cannot resolve {:?} in defid {:?}",
+                                            param_generic.name, cur_scope
+                                        ),
+                                    }
+                                }
+                            }
                         }
                         _ => {
                             constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));

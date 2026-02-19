@@ -401,6 +401,196 @@ ah looks like a TODO i forgot to finish implementing :)
 
 - Ok path is what results in the IdkStruct() retval
 
+### again, two different types as constraints
+
+in defid 2:12363
+
+bb0
+
+_6 = &raw const (*_1),
+
+called from main
+- the sum println! statement
+- same thing happens in the mean println! statement
+
+arg (_1) comes in w u128 constraint
+
+where does the i32 constraint get added?
+- the generic T is i32...
+
+might have something to do with values accumulated by previous println
+statements (which print things of different types)
+
+indeed, if there is only one println statement, or if all printlns operate on
+the same type, this issue doesn't happen
+
+TODO will need to resolve
+
+### no generic param mapping
+
+in cmp::Ord::max (defid 2:3350) when attempting to call cmp::PartialOrd::lt
+(defid 2:3357)
+- called by raw_vec::grow_amortized
+- called by raw_vec::grow_one
+- called by vec::push_mut
+- called by vec::push
+- called by main @ line 92... when adding things to the time vector
+    - why are we going backwards?!
+    - in the "TERM in bb20 of defid DefId(0:22"...
+
+    - perhaps this is a different "branch"
+    - how far did we get in main() before?
+        - bb28
+
+main WTO (with two printlns):
+
+[bb0, bb1, bb2, bb3, bb4, bb5, bb6, bb7, bb10, bb11, bb12, bb13, bb14, bb16, bb21, bb22, bb23, bb24, bb25, bb26, bb27, *bb28*, bb29, bb30, bb31, bb32, bb33, bb15, bb17, bb18, bb19, bb20, bb40, bb9, bb39, bb34]
+
+main WTO (with only one println):
+
+[bb0, bb1, bb2, bb3, bb4, bb5, bb6, bb7, bb10, bb11, bb12, bb13, bb14, bb16, bb21, bb22, bb23, bb24, bb25, bb26, bb27, bb28, bb29, bb30, bb15, bb17, bb18, bb19, *bb20*, bb37, bb9, bb36, bb31]
+
+bb0 -> bb1
+
+bb1 -> bb2, bb34
+
+bb2 -> bb3, bb33
+
+bb3 -> bb4, bb33
+
+bb4 -> bb5, bb33
+- line 86 (warmup loop)
+
+bb5 -> bb6
+- line 86 (warmup loop)
+
+bb6 -> bb7, bb33
+- line 86 (warmup loop)
+
+bb7 -> bb9, bb10, bb8
+- line 86 (warmup loop)
+
+
+bb10 -> bb11, bb33
+- line 90 (vec::new())
+
+bb11 -> bb12, bb32
+- line 91
+
+bb12 -> bb13
+- line 91
+
+bb13 -> bb14, bb32
+- line 91
+
+bb14 -> bb15, bb16, bb8
+- line 91
+
+
+bb16 -> bb21, bb32
+- line 99 (Iterator::sum)
+
+bb21 -> 
+- line 99 (iter)
+
+bb22 -> 
+- line 99 (iter)
+
+bb23 -> 
+- line 101 (f64 from u32)
+
+bb24 -> 
+- line 101 (vec::len())
+
+bb25 -> 
+- line 102 (fmt::Argument::new_debug<f64>)
+
+bb26 -> 
+- in println! macro (more fmting)
+
+bb27 -> 
+- in println! macro (print)
+
+*bb28* -> 
+- line 106 (done)
+- so at this point we haven't actually interpreted anything in the loop
+- this isn't actually the same bb28 as the one we panic during when there are
+  multiple println!s, but i think it is safe to assume that bb would be around
+  here
+
+bb29 -> 
+- line 106 (done)
+
+bb30 -> 
+- line 106 (done)
+
+
+bb15 -> 
+- line 92 (Instant::now())
+
+bb17 -> 
+- line 93 (wrap_dyn_call)
+
+bb18 -> 
+- line 94 (Instant::elapsed())
+
+bb19 -> 
+- line 94 (Duration::as_nanos())
+
+*bb20* -> 
+- line 95 (vec::push())
+
+bb37 -> 
+- line 95
+
+
+bb9 -> bb36, bb33
+- line 87 (wrap_dyn_call in warmup loop)
+
+bb36 -> bb6
+- line 87 (wrap_dyn_call in warmup loop)
+
+
+bb31 -> return
+
+
+
+
+anyways....
+
+
+the func call to PartialOrd::lt happens at 2:3350 bb0
+- _4 = &_2,
+- _5 = &_1,
+- _3 = <Self as std::cmp::PartialOrd>::lt(move _4, move _5)
+
+- Ord::max has 2 args
+    - both of generic param type `Self`
+
+- PartialOrd::lt also has 2 args
+    - first of generic param type `Self`
+    - second of generic param type `Rhs`
+
+    - so unlike Ord, i guess these params _can_ be of different types (?) but in
+      this case they happen not to be. fine. 
+
+    - the funcval is aware of these two generic arg params
+
+
+- setting up the function call
+    - each arg (4 and 5) is resolved to usize
+        - or, more specifically, {Ref(IdkType(usize))}
+
+- resolving generics in args
+    - funcval param generics: [Self, Rhs]
+    - func genargs (the actually arg types this function is being called with)
+        - = [Self, Self]
+        - but we just resolved these to usize, where did that result go?
+
+    - the Self -> Self resolution seems to succeed
+    - but not Rhs -> Self
+
+
 
 
 

@@ -80,8 +80,8 @@ fn main() {
     let warmup = 10000;
     let runs = 100000;
 
-    println!("warmup: {:?}", warmup);
-    println!("runs: {:?}", runs);
+    //println!("warmup: {:?}", warmup);
+    //println!("runs: {:?}", runs);
 
     for _ in 0..warmup {
         wrap_dyn_call(&animal_really_cat);
@@ -97,7 +97,7 @@ fn main() {
 
     // FIXME not handling overflow
     let sum: u128 = Iterator::sum(times.iter());
-    println!("sum: {:?}", sum);
+    //println!("sum: {:?}", sum);
     let mean = f64::from(sum as u32) / (times.len() as f64);
     println!("mean: {:?}", mean);
 

@@ -591,6 +591,39 @@ the func call to PartialOrd::lt happens at 2:3350 bb0
     - but not Rhs -> Self
 
 
+### more trouble resolving generic
+
+in bb16 of defid 3:8941 (raw_vec::finish_grow)
+
+- _9 = <A as std::alloc::Allocator>::grow(move _21, move _12, move _13, copy _8) -> [return: bb4, unwind continue],
+
+
+"A" does not seem to be resolved at the time of this call
+- it is nested
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -240,7 +240,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         fields: &IndexVec<FieldIdx, Operand<'tcx>>,
     ) -> Option<Operand<'tcx>> {
         let fields_slice = fields.as_slice();
-        if fields_slice.len() == 1 {
+        if fields_slice.len() > 0 {
             let op = &fields_slice[FieldIdx::from_u32(0)];
             return Some(op.clone());
         } else {
@@ -464,10 +464,14 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("tuple types: {:?}", tylist);
                 }
                 if tylist.len() > 0 {
-                    //for ty in tylist.as_slice().iter() {
-                    //    match ty
-                    //}
-                    todo!("tuple");
+                    for ty in tylist.as_slice().iter() {
+                        match ty.kind() {
+                            TyKind::Param(_param) => {
+                                todo!("generic in tup");
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
             _ => todo!("other ty kind: {:?}", genarg_ty.kind()),

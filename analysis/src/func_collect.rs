@@ -189,32 +189,52 @@ impl<'tcx> FuncCollectPass<'tcx> {
         } else if arglen == 0 {
             panic!("arg len 0");
         }
-        //else {
-        //    if self.debug {
-        //        println!("arg len > 1: {:?}", arglen);
-        //    }
-        //}
     }
 
-    fn get_param(&self, ty: &Ty<'tcx>) -> Option<ParamTy> {
+    fn get_params(&self, ty: &Ty<'tcx>) -> Option<Vec<ParamTy>> {
         match ty.kind() {
             TyKind::Param(param) => {
                 if self.debug {
                     println!("arg has ty param: {:?}", param);
                 }
-                return Some(*param);
+                return Some(vec![*param]);
             }
             TyKind::Slice(ty) => {
                 if self.debug {
                     println!("slice arg ty: {:?}", ty);
                 }
-                return self.get_param(ty);
+                return self.get_params(ty);
             }
             TyKind::Ref(_, ty, _) => {
                 if self.debug {
                     println!("ref arg ty: {:?}", ty);
                 }
-                return self.get_param(ty);
+                return self.get_params(ty);
+            }
+            TyKind::Adt(_, genargs) => {
+                if self.debug {
+                    println!("adt genargs: {:?}", genargs);
+                }
+                let mut params = vec![];
+                for genarg in genargs.as_slice().iter() {
+                    match genarg.kind() {
+                        GenericArgKind::Lifetime(_) => return None,
+                        GenericArgKind::Type(ty) => {
+                            if let Some(inner_params) = self.get_params(&ty) {
+                                for param in inner_params.iter() {
+                                    params.push(*param);
+                                }
+                            }
+                        }
+                        // FIXME handle later
+                        GenericArgKind::Const(_) => return None,
+                    }
+                }
+                if params.len() == 0 {
+                    None
+                } else {
+                    Some(params)
+                }
             }
             _ => {
                 if self.debug {
@@ -287,8 +307,12 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     println!("local (arg) type: {:?}", loc.ty);
                 }
 
-                match self.get_param(&loc.ty) {
-                    Some(param) => arg_generics_inner.push(param),
+                match self.get_params(&loc.ty) {
+                    Some(param_vec) => {
+                        for param in param_vec {
+                            arg_generics_inner.push(param);
+                        }
+                    }
                     _ => {}
                 }
             }

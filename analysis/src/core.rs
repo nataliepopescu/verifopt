@@ -388,7 +388,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         match cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param.name), false) {
             Some(VarType::Values(constraints)) => {
                 if self.debug {
-                    println!("constraints len: {:?}", constraints.len());
+                    println!("constraints: {:?}", constraints);
                 }
 
                 if constraints.len() != 1 {

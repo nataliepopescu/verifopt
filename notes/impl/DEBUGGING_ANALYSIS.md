@@ -399,6 +399,9 @@ bb19 -> bb20 -> bb21 -> bb6 -> return
 ah looks like a TODO i forgot to finish implementing :) 
 
 
+- Ok path is what results in the IdkStruct() retval
+
+
 
 
 

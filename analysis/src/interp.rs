@@ -254,16 +254,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("returning value w following constraints: {:?}", constraints);
                     }
 
-                    if constraints.len() != 1 {
-                        panic!("unexpected constraint len: {:?}", constraints.len());
-                    }
+                    //if constraints.len() != 1 {
+                    //    panic!("unexpected constraint len: {:?}", constraints.len());
+                    //}
 
+                    let mut ret_constraints = HashSet::default();
                     for constraint in constraints.clone().drain() {
                         if let VerifoptRval::IdkType(ty) = constraint {
                             if self.debug {
                                 println!("returning a type!: {:?}", ty);
                             }
                             if let TyKind::Param(param) = ty.kind() {
+                                // resolve generic
                                 if self.debug {
                                     println!("GENERIC RETTY: {:?}", param);
                                     println!(
@@ -284,15 +286,38 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         if self.debug {
                                             println!("constraints: {:?}", constraints);
                                         }
-                                        return Ok(Some(constraints));
+                                        ret_constraints = ret_constraints
+                                            .union(&constraints)
+                                            .map(|x| x.clone())
+                                            .collect();
                                     }
                                     _ => panic!("unexpected"),
                                 }
+                            } else {
+                                // not generic add return constraints
+                                if self.debug {
+                                    println!("NONGENERIC RETTY: {:?}", ty);
+                                }
+                                ret_constraints.insert(constraint);
                             }
+                        } else {
+                            // not generic, add return constraints
+                            if self.debug {
+                                println!("NONGENERIC RETVAL: {:?}", constraint);
+                            }
+                            ret_constraints.insert(constraint);
                         }
                     }
 
-                    Ok(Some(constraints))
+                    if ret_constraints.len() == 0 {
+                        panic!("something went wrong, should return at least one constraint");
+                    }
+
+                    if self.debug {
+                        println!("\n# RESOLVED RETURN CONSTRAINTS: {:?}", ret_constraints);
+                    }
+
+                    Ok(Some(ret_constraints))
                 }
                 _ => panic!("return scope?"),
             },
@@ -1164,17 +1189,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             _ => true,
         });
 
-        //for genarg in genargs.clone() {
-        //    match genarg.kind() {
-        //        GenericArgKind::Lifetime(_) => println!("lifetime"),
-        //        GenericArgKind::Type(ty) => match ty.kind() {
-        //            TyKind::Param(param) => println!("ty param: {:?}", param),
-        //            _ => println!("other ty: {:?}", ty.kind()),
-        //        }
-        //        GenericArgKind::Const(c) => println!("const: {:?}", c),
-        //    }
-        //}
-
         if self.debug {
             println!("filtered genargs: {:?}", genargs);
         }
@@ -1187,57 +1201,77 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("arg resolution: ({:?}, {:?})", param_generic, gen_arg);
             }
 
-            let mut constraints = HashSet::default();
-            let vartype = match gen_arg.kind() {
-                GenericArgKind::Type(ty) => match ty.kind() {
-                    TyKind::Param(param) => {
-                        if self.debug {
-                            println!("ty param!! use outer scope ty val: {:?}", param);
+            if cmap
+                .scoped_get(
+                    Some(funcval.def_id),
+                    &MapKey::Generic(param_generic.name),
+                    false,
+                )
+                .is_none()
+            {
+                if self.debug {
+                    println!("\tadding to cmap");
+                }
+                let mut constraints = HashSet::default();
+                let vartype = match gen_arg.kind() {
+                    GenericArgKind::Type(ty) => match ty.kind() {
+                        TyKind::Param(param) => {
+                            if self.debug {
+                                println!("ty param!! use outer scope ty val: {:?}", param);
+                            }
+                            cmap.scoped_get(
+                                Some(cur_scope),
+                                &MapKey::Generic(param_generic.name),
+                                false,
+                            )
+                            .unwrap()
                         }
-                        cmap.scoped_get(
-                            Some(cur_scope),
-                            &MapKey::Generic(param_generic.name),
-                            false,
-                        )
-                        .unwrap()
-                    }
+                        _ => {
+                            constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
+                            VarType::Values(constraints)
+                        }
+                    },
                     _ => {
                         constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
                         VarType::Values(constraints)
                     }
-                },
-                _ => {
-                    constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
-                    VarType::Values(constraints)
-                }
-            };
+                };
 
-            if self.debug {
-                println!(
-                    "outer-scope val @ {:?}: {:?}",
-                    param_generic.name,
-                    cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param_generic.name), false)
+                if self.debug {
+                    println!(
+                        "outer-scope val @ {:?}: {:?}",
+                        param_generic.name,
+                        cmap.scoped_get(
+                            Some(cur_scope),
+                            &MapKey::Generic(param_generic.name),
+                            false
+                        )
+                    );
+                    println!(
+                        "old val @ {:?}: {:?}",
+                        param_generic.name,
+                        cmap.scoped_get(
+                            Some(funcval.def_id),
+                            &MapKey::Generic(param_generic.name),
+                            false
+                        )
+                    );
+                }
+
+                cmap.scoped_add(
+                    Some(funcval.def_id),
+                    MapKey::Generic(param_generic.name),
+                    Box::new(vartype), //VarType::Values(constraints)),
                 );
-                println!(
-                    "old val @ {:?}: {:?}",
-                    param_generic.name,
-                    cmap.scoped_get(
-                        Some(funcval.def_id),
-                        &MapKey::Generic(param_generic.name),
-                        false
-                    )
-                );
+            } else {
+                if self.debug {
+                    println!("\tmapping already exists; skipping");
+                }
             }
 
-            cmap.scoped_add(
-                Some(funcval.def_id),
-                MapKey::Generic(param_generic.name),
-                Box::new(vartype), //VarType::Values(constraints)),
-            );
-
             if self.debug {
                 println!(
-                    "new val @ {:?}: {:?}",
+                    "val @ {:?}: {:?}",
                     param_generic.name,
                     cmap.scoped_get(
                         Some(funcval.def_id),
@@ -1306,15 +1340,27 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         if let Some(name) = name_opt {
-            cmap.scoped_add(
-                Some(funcval.def_id),
-                MapKey::Generic(name),
-                Box::new(VarType::Values(constraints)),
-            );
+            match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(name), false) {
+                Some(_) => {
+                    if self.debug {
+                        println!("\tmapping already exists");
+                    }
+                }
+                None => {
+                    if self.debug {
+                        println!("\tadding to cmap");
+                    }
+                    cmap.scoped_add(
+                        Some(funcval.def_id),
+                        MapKey::Generic(name),
+                        Box::new(VarType::Values(constraints)),
+                    );
+                }
+            }
 
             if self.debug {
                 println!(
-                    "new val @ {:?}: {:?}",
+                    "val @ {:?}: {:?}",
                     name,
                     cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(name), false,)
                 );

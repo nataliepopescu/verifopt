@@ -21,8 +21,6 @@ const EQ_FN_DEFID: DefId = DefId {
     krate: CrateNum::from_u32(2),
 };
 
-const TRAITOBJ: Local = Local::from_u32(10);
-
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
@@ -57,19 +55,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
         let mut patch = MirPatch::new(body);
         for (bb, data) in body.basic_blocks.iter_enumerated() {
-            // TODO add some notion of WTO
+            // TODO add some notion of WTO?
             if data.is_cleanup {
                 continue;
             }
-            //for stmt in &data.statements {
-            //    match &stmt.kind {
-            //        StatementKind::Assign(_boxed) => {
-            //            //println!("PLACE BEFORE: {:?}", boxed.0);
-            //            //println!("rval: {:?}", boxed.1);
-            //        }
-            //        _ => {}
-            //    }
-            //}
+
             match &data.terminator().kind {
                 TerminatorKind::Call {
                     func,
@@ -85,6 +75,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
                         if self.debug {
                             println!("\n# -------------------------------");
+                            println!("# in {:?} of {:?}", bb, cur_scope);
                             println!("# CALL term: {:?}", defid);
                             println!("# -------------------------------");
                             println!("genargs: {:?}", genargs);
@@ -97,7 +88,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             if ty.is_trait() {
                                 if !self.tcx.def_path_debug_str(defid).contains("Animal::speak") {
                                     if self.debug {
-                                        println!("SKIPPING: {:?}", defid);
+                                        println!("SKIPPING OTHER DYN CALL: {:?}", defid);
                                     }
                                     continue;
                                 }
@@ -135,7 +126,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
         }
 
+        if self.debug {
+            println!("\n# PATCH: \n\n{:#?}", patch);
+        }
+
         patch.apply(body);
+
+        if self.debug {
+            println!("\n# NEW BODY: \n\n{:#?}", body);
+        }
     }
 
     fn dummy_span(&self) -> Span {
@@ -260,20 +259,23 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
 
     // get the structs that implement the trait being pointed to by the first argument
-    fn get_struct_dids(&self, cur_scope: DefId) -> Vec<DefId> {
+    fn get_struct_dids(&self, cur_scope: DefId, traitobj: Local) -> Vec<DefId> {
+        if self.debug {
+            println!("\n##### Getting Struct DefIds\n");
+            println!("cur_scope: {:?}", cur_scope);
+            println!("traitobj should be at {:?}", traitobj);
+        }
+
         let mut structs = vec![];
-        // FIXME test simple with local10 instead of local1
         let first_arg = self.cmap.scoped_get(
             Some(cur_scope),
             &MapKey::Place(Place {
-                local: TRAITOBJ, //Local::from_usize(30),
+                local: traitobj,
                 projection: List::empty(),
             }),
             false,
         );
         if self.debug {
-            println!("\n##### Getting Struct DefIds\n");
-            println!("cur_scope: {:?}", cur_scope);
             println!("first arg constraints: {:?}", first_arg);
         }
 
@@ -326,12 +328,17 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
     // TODO doing duplicate work as in interp, store interp's result somewhere
     // (memoize for each dyn dispatch call)
-    fn get_trait_impl_dids(&self, cur_scope: DefId, dynfunc_defid: &DefId) -> Vec<(DefId, DefId)> {
+    fn get_trait_impl_dids(
+        &self,
+        cur_scope: DefId,
+        dynfunc_defid: &DefId,
+        traitobj: Local,
+    ) -> Vec<(DefId, DefId)> {
         if self.debug {
             println!("cur_scope: {:?}", cur_scope);
             println!("dynfunc_defid: {:?}", dynfunc_defid);
         }
-        let structs = self.get_struct_dids(cur_scope);
+        let structs = self.get_struct_dids(cur_scope, traitobj);
         if self.debug {
             println!("structs: {:?}", structs);
         }
@@ -990,7 +997,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("traitobj_did: {:?}", traitobj_did);
         }
 
-        let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid);
+        let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid, traitobj);
         if self.debug {
             println!("dids: {:?}", dids);
         }
@@ -1000,13 +1007,20 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut traitobj_vtable_ref = None;
         let mut variant_vtable_ref = None;
         if dids.len() > 1 {
+            if self.debug {
+                println!("- multiple variants case");
+            }
+
             // FIXME get dynamically
             traitobj_vtable = Some(Local::from_u32(3));
             variant_vtable = Some(Local::from_u32(4));
 
-            // FIXME do these locals already exist?
             traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+        } else {
+            if self.debug {
+                println!("- single variant case");
+            }
         }
 
         // for into_raw -> speak

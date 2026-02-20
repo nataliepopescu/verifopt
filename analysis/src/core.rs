@@ -282,6 +282,13 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
             VerifoptRval::Ref(inner) => {
                 VerifoptRval::Ref(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
             }
+            VerifoptRval::Scalar(_) => match kind {
+                CastKind::IntToInt
+                | CastKind::FloatToInt
+                | CastKind::FloatToFloat
+                | CastKind::IntToFloat => return constraint.clone(),
+                _ => todo!("cannot yet cast: {:?}", constraint),
+            },
             _ => todo!("cannot yet cast: {:?}", constraint),
         }
     }
@@ -420,7 +427,10 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     if self.debug {
                         println!("struct generics for {:?}: {:?}", defid, struct_generics);
                     }
-                    todo!("need to add this generic to func scope/during arg res");
+                    todo!(
+                        "need to add this generic to func scope/during arg res: {:?}",
+                        param.name
+                    );
                 } else {
                     panic!("no generic mapping");
                 }
@@ -456,7 +466,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 TyKind::Param(param) => {
                     return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
                 }
-                _ => todo!("other slice ty: {:?}", s.kind()),
+                _ => todo!("other slice tykind: {:?}", s.kind()),
             },
             TyKind::Int(_) | TyKind::Uint(_) => {}
             TyKind::Tuple(tylist) => {
@@ -474,7 +484,13 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     }
                 }
             }
-            _ => todo!("other ty kind: {:?}", genarg_ty.kind()),
+            TyKind::Ref(_, ty, _) => match ty.kind() {
+                TyKind::Param(param) => {
+                    return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
+                }
+                _ => todo!("other ref tykind: {:?}", ty.kind()),
+            },
+            _ => todo!("other tykind: {:?}", genarg_ty.kind()),
         }
 
         return None;

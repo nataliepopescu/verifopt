@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 pub trait Animal {
+    //fn speak(&self, ctr: &mut Ctr) -> usize;
     fn speak(&self) -> usize;
     fn walk(&self) -> usize;
 }
@@ -16,26 +17,20 @@ pub fn get_animal(num: usize) -> Box<dyn Animal> {
 
 #[inline(always)]
 pub fn get_cat() -> Box<dyn Animal> {
-    return Box::new(Cat {})
+    return Box::new(Cat {});
 }
 
-pub struct Cat {
-    //speak_ctr: u64,
-}
+pub struct Cat;
+pub struct Dog;
 
-pub struct Dog {
-    //speak_ctr: u64,
-}
-
-//impl Cat {
-//    fn meow(&self) -> usize {
-//        0
-//    }
+//pub struct Ctr {
+//    ctr: usize,
 //}
 
 impl Animal for Cat {
+    //fn speak(&self, ctr: &mut Ctr) -> usize {
     fn speak(&self) -> usize {
-        //self.speak_ctr += 1;
+        //ctr.ctr += 1;
         11111
     }
     fn walk(&self) -> usize {
@@ -44,8 +39,9 @@ impl Animal for Cat {
 }
 
 impl Animal for Dog {
+    //fn speak(&self, ctr: &mut Ctr) -> usize {
     fn speak(&self) -> usize {
-        //self.speak_ctr += 1;
+        //ctr.ctr += 1;
         22222
     }
     fn walk(&self) -> usize {
@@ -66,6 +62,8 @@ fn main() {
     let cat = get_cat();
     let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
     let _cat_vtable = core::ptr::metadata(&*cat);
-    let _res = animal_really_cat.speak();
-}
 
+    //let mut ctr: Ctr = Ctr { ctr: 0 };
+    let _res = animal_really_cat.speak(); //&mut ctr);
+    //println!("ctr: {:?}", ctr.ctr);
+}

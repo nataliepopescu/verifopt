@@ -83,4 +83,3 @@ fn main() {
     let mean = f64::from(sum as u32) / (times.len() as f64);
     println!("mean: {:?}", mean);
 }
-

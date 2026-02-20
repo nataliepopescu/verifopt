@@ -217,17 +217,32 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 }
                 let mut params = vec![];
                 for genarg in genargs.as_slice().iter() {
+                    if self.debug {
+                        println!("LOOP genarg: {:?}", genarg);
+                    }
                     match genarg.kind() {
-                        GenericArgKind::Lifetime(_) => return None,
+                        GenericArgKind::Lifetime(_) => {
+                            if self.debug {
+                                println!("skipping lifetime arg...");
+                            }
+                            continue;
+                        }
                         GenericArgKind::Type(ty) => {
                             if let Some(inner_params) = self.get_params(&ty) {
+                                if self.debug {
+                                    println!("ty arg contains: {:?}", inner_params);
+                                }
                                 for param in inner_params.iter() {
                                     params.push(*param);
                                 }
                             }
                         }
-                        // FIXME handle later
-                        GenericArgKind::Const(_) => return None,
+                        GenericArgKind::Const(_) => {
+                            if self.debug {
+                                println!("skipping const arg...");
+                            }
+                            continue;
+                        }
                     }
                 }
                 if params.len() == 0 {
@@ -478,10 +493,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("\n\ncrate_num: {:?}\n", crate_num);
             }
             for def_index in 0..u32::MAX {
-                // simple (no benchmarking): limit = 23
+                // simple (no benchmarking): limit = 25
                 // simple (benchmarking): limit = 29
-                // one_variant: limit = 21
-                if crate_num == 0 && def_index >= 29
+                // one_variant: limit = 21?
+                if crate_num == 0 && def_index >= 25
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

@@ -26,3 +26,21 @@ _29 = <dyn Animal as Animal>::speak(move _30) -> [return: bb22, unwind: bb26],
 
 finished
 
+## crash with `range start index 2 out of range for slice of length 1` from
+inside compiler
+
+everything in rewrite (up to and past applying the patch) succeeds without
+crashing
+
+manually going through the patch to see if anything looks weird
+- next_block is correct
+- but next_local is 32, while it _should_ be 27
+- new code uses locals 27 -> 31
+
+- maybe somehow the locals are modifying the actual MIR instead of being added
+  to the patch?
+
+- ah, no, the new_temp() call increments this value
+
+- weird that new_block() doesn't have the same behavior but ok
+

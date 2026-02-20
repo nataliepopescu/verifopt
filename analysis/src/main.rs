@@ -66,17 +66,15 @@ impl Callbacks for VerifoptCallbacks {
         let mut funcs = FuncMap::new();
         let func_collect = FuncCollectPass::new(tcx, false);
         func_collect.run(&mut funcs);
-        //println!("funcs: {:#?}", funcs);
 
         //// init + run Function Signature Collection Pass
         //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         //// init + run Interpreter Pass
         let mut cmap = ConstraintMap::new();
-        let interp = InterpPass::new(tcx, &funcs, true);
+        let interp = InterpPass::new(tcx, &funcs, false);
         let _res = interp.run(&mut cmap, None, entry_func, mir_body);
         //println!("\nmain res: {:?}", res);
-        //println!("{:#?}", cmap);
 
         // init + run Rewriter Pass
         let rewriter = RewritePass::new(tcx, &funcs, &cmap, false);
@@ -84,9 +82,7 @@ impl Callbacks for VerifoptCallbacks {
         let const_body_ptr: *const Body = &*mir_body;
         let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
         unsafe {
-            //println!("{:#?}", *mut_body_ptr);
             rewriter.run(entry_func, &mut *mut_body_ptr);
-            //println!("{:#?}", *mut_body_ptr);
         }
 
         Compilation::Continue
@@ -104,6 +100,6 @@ fn main() {
         .collect::<Vec<_>>();
 
     // FIXME double check opt level / compiling a release version
-    //println!("{:?}", rustc_args);
+    println!("{:?}", rustc_args);
     run_compiler(&rustc_args, &mut VerifoptCallbacks)
 }

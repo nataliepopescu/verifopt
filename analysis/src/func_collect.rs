@@ -493,10 +493,11 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("\n\ncrate_num: {:?}\n", crate_num);
             }
             for def_index in 0..u32::MAX {
-                // simple (no benchmarking): limit = 25
-                // simple (benchmarking): limit = 29
-                // one_variant: limit = 21
-                if crate_num == 0 && def_index >= 21
+                // simple (no bmark): limit = 25
+                // simple (bmark): limit = 29
+                // one_variant (no bmark): limit = 21
+                // one_variant (bmark): limit = 26
+                if crate_num == 0 && def_index >= 26
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

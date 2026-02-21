@@ -72,7 +72,7 @@ impl Callbacks for VerifoptCallbacks {
 
         //// init + run Interpreter Pass
         let mut cmap = ConstraintMap::new();
-        let interp = InterpPass::new(tcx, &funcs, true);
+        let interp = InterpPass::new(tcx, &funcs, false);
         let _res = interp.run(&mut cmap, None, entry_func, mir_body);
 
         // init + run Rewriter Pass

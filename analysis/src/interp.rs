@@ -514,7 +514,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         impltors: &Vec<DefId>,
         constraint: VerifoptRval<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
-    ) -> Option<VerifoptRval<'tcx>> {
+    ) -> Option<Vec<VerifoptRval<'tcx>>> {
         match constraint {
             VerifoptRval::Ref(inner) => {
                 self.resolve_dyn_self_constraint(cmap, cur_scope, impltors, *inner, args)
@@ -527,15 +527,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             panic!("handle diff genarg len");
                         }
                         let genarg_constraint_vec = &genargs_outer[0];
-                        if genarg_constraint_vec.len() != 1 {
-                            println!("genarg_constraint_vec: {:?}", genarg_constraint_vec);
-                            panic!("handle different genarg constraint len");
-                        }
-                        let genarg_constraint = &genarg_constraint_vec[0];
 
                         // FIXME does this need to be in a separate function?
-                        // otherwise could save a clone()
-                        return Some(genarg_constraint.clone());
+                        // otherwise could save a clone()...
+                        return Some(genarg_constraint_vec.to_vec());
                     } else {
                         return None;
                     }
@@ -544,11 +539,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("struct is not a box: {:?}", struct_defid);
                         println!("genargs: {:?}", genarg_vec);
                     }
-                    return Some(idkstruct.clone());
+                    return Some(vec![idkstruct.clone()]);
                 }
             }
-            idkdid @ VerifoptRval::IdkDefId(_) => Some(idkdid),
-            idkty @ VerifoptRval::IdkType(_) => Some(idkty),
+            idkdid @ VerifoptRval::IdkDefId(_) => Some(vec![idkdid]),
+            idkty @ VerifoptRval::IdkType(_) => Some(vec![idkty]),
             _ => todo!("handle other types: {:?}", constraint),
         }
     }
@@ -605,10 +600,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
      */
     fn get_trait_fn_impls(
         &self,
-        self_constraint: VerifoptRval<'tcx>,
+        self_constraint: &VerifoptRval<'tcx>,
         impltors: &Vec<DefId>,
     ) -> Vec<DefId> {
-        match self_constraint {
+        match *self_constraint {
             VerifoptRval::IdkStruct(did, _) => self.get_trait_fn_impls_from_defid(&did, impltors),
             VerifoptRval::IdkDefId(did) => self.get_trait_fn_impls_from_defid(&did, impltors),
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
@@ -631,14 +626,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-        self_constraint: VerifoptRval<'tcx>,
+        self_constraint_vec: Vec<VerifoptRval<'tcx>>,
         impltors: &Vec<DefId>,
         func_genargs: &[GenericArg<'tcx>],
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // assoc dyn obj w the correct trait fn impl(s)
-        let to_dispatch = self.get_trait_fn_impls(self_constraint, impltors);
+        let mut to_dispatch = Vec::new();
+        for self_constraint in self_constraint_vec.iter() {
+            to_dispatch.append(&mut self.get_trait_fn_impls(self_constraint, impltors));
+        }
+        to_dispatch.dedup();
 
         // call each impl
         for func_defid in to_dispatch {
@@ -725,12 +724,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         let mut res_vec = vec![];
                         for constraint in constraints.clone().drain() {
                             // unwrap any refs or boxed types
-                            if let Some(self_constraint) = self.resolve_dyn_self_constraint(
+                            if let Some(self_constraint_vec) = self.resolve_dyn_self_constraint(
                                 cmap, cur_scope, impltors, constraint, args,
                             ) {
                                 if self.debug {
                                     println!("BEFORE DYN_TO_STATIC");
-                                    println!("self_constraint: {:?}", self_constraint);
+                                    println!("self_constraint_vec: {:?}", self_constraint_vec);
                                 }
                                 // interp dyn dispatch as one or more static dispatches
                                 res_vec.push(self.dyn_to_static_dispatch(
@@ -738,7 +737,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     call_stack,
                                     cur_scope,
                                     body_locals,
-                                    self_constraint,
+                                    self_constraint_vec,
                                     impltors,
                                     func_genargs,
                                     args,
@@ -1003,6 +1002,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         if cmap_vec.len() > 1 || res_vec.len() > 1 {
+            if self.debug {
+                println!("cmap_vec len: {:?}", cmap_vec.len());
+                println!("res_vec len: {:?}", res_vec.len());
+            }
             todo!("impl cmap_vec/res_vec merge");
         }
 

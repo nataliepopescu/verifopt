@@ -528,6 +528,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         }
                         let genarg_constraint_vec = &genargs_outer[0];
                         if genarg_constraint_vec.len() != 1 {
+                            println!("genarg_constraint_vec: {:?}", genarg_constraint_vec);
                             panic!("handle different genarg constraint len");
                         }
                         let genarg_constraint = &genarg_constraint_vec[0];
@@ -675,7 +676,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         trait_def_id: &DefId,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
-    ) -> Result<Option<Constraints<'tcx>>, Error> {
+    ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
         if self.debug {
             println!("found in trait: {:?}", trait_def_id);
         }
@@ -684,14 +685,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             if self.debug {
                 println!("argments list empty: cannot determine self type");
             }
-            return Ok(None);
+            return vec![Ok(None)];
         }
 
         if assoc_funcval.self_arg.is_none() {
             if self.debug {
                 println!("no self type: {:?}", assoc_funcval);
             }
-            return Ok(None);
+            return vec![Ok(None)];
         }
 
         // `impltors` are the concrete implementations of this assoc_fn
@@ -720,21 +721,19 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     if let Some(VarType::Values(constraints)) =
                         cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                     {
-                        if constraints.len() != 1 {
-                            todo!("unexpected number of constraints");
-                        }
-
                         // for each possible constraint...
+                        let mut res_vec = vec![];
                         for constraint in constraints.clone().drain() {
                             // unwrap any refs or boxed types
                             if let Some(self_constraint) = self.resolve_dyn_self_constraint(
                                 cmap, cur_scope, impltors, constraint, args,
                             ) {
                                 if self.debug {
+                                    println!("BEFORE DYN_TO_STATIC");
                                     println!("self_constraint: {:?}", self_constraint);
                                 }
                                 // interp dyn dispatch as one or more static dispatches
-                                return self.dyn_to_static_dispatch(
+                                res_vec.push(self.dyn_to_static_dispatch(
                                     cmap,
                                     call_stack,
                                     cur_scope,
@@ -744,11 +743,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     func_genargs,
                                     args,
                                     destination,
-                                );
+                                ));
                             } else {
                                 todo!("no self constraint");
                             }
                         }
+                        return res_vec;
                     } else {
                         panic!("first argument place does not exist: {:?}", place);
                     }
@@ -759,7 +759,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             panic!("missing implementors");
         }
 
-        Ok(None)
+        vec![Ok(None)]
     }
 
     fn handle_static_dispatch(
@@ -870,7 +870,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         let trait_def_id_clone = trait_def_id.clone();
                                         std::mem::drop(mutex);
 
-                                        match self.handle_dyn_dispatch(
+                                        let dyn_results = self.handle_dyn_dispatch(
                                             cmap,
                                             call_stack,
                                             cur_scope,
@@ -880,45 +880,50 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             &trait_def_id_clone,
                                             args,
                                             destination,
-                                        ) {
-                                            Ok(Some(constraints)) => {
-                                                if self.debug {
-                                                    println!(
-                                                        "\n##### DONE w DYN func {:?}\n",
-                                                        def_id
-                                                    );
-                                                    println!("constraints: {:?}", constraints);
-                                                }
+                                        );
 
-                                                res_vec.push(constraints);
-                                            }
-                                            Ok(None) => {
-                                                if self.debug {
-                                                    println!(
-                                                        "\n##### DONE w DYN func {:?}\n",
-                                                        def_id
-                                                    );
-                                                    println!("no retval, check for widening");
-                                                }
-                                                // if funcval has a return type, use that as the
-                                                // "summary" constraint
-                                                let mut constraints = HashSet::default();
-                                                if let Some(ret_did) = funcval.ret_did {
-                                                    constraints
-                                                        .insert(VerifoptRval::IdkDefId(ret_did));
-                                                    res_vec.push(constraints);
-                                                } else if let Some(rettype) = funcval.rettype {
+                                        for dyn_res in dyn_results.iter() {
+                                            match dyn_res {
+                                                Ok(Some(constraints)) => {
                                                     if self.debug {
-                                                        println!("rettype: {:?}", rettype);
+                                                        println!(
+                                                            "\n##### DONE w DYN func {:?}\n",
+                                                            def_id
+                                                        );
+                                                        println!("constraints: {:?}", constraints);
                                                     }
 
-                                                    // FIXME resolve generics
-                                                    constraints
-                                                        .insert(VerifoptRval::IdkType(rettype));
-                                                    res_vec.push(constraints);
+                                                    res_vec.push(constraints.clone());
                                                 }
+                                                Ok(None) => {
+                                                    if self.debug {
+                                                        println!(
+                                                            "\n##### DONE w DYN func {:?}\n",
+                                                            def_id
+                                                        );
+                                                        println!("no retval, check for widening");
+                                                    }
+                                                    // if funcval has a return type, use that as the
+                                                    // "summary" constraint
+                                                    let mut constraints = HashSet::default();
+                                                    if let Some(ret_did) = funcval.ret_did {
+                                                        constraints.insert(VerifoptRval::IdkDefId(
+                                                            ret_did,
+                                                        ));
+                                                        res_vec.push(constraints);
+                                                    } else if let Some(rettype) = funcval.rettype {
+                                                        if self.debug {
+                                                            println!("rettype: {:?}", rettype);
+                                                        }
+
+                                                        // FIXME resolve generics
+                                                        constraints
+                                                            .insert(VerifoptRval::IdkType(rettype));
+                                                        res_vec.push(constraints);
+                                                    }
+                                                }
+                                                e @ Err(_) => return e.clone(),
                                             }
-                                            e @ Err(_) => return e,
                                         }
                                     }
                                     None => {

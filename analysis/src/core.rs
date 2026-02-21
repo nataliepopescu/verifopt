@@ -409,10 +409,6 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("constraints: {:?}", constraints);
                 }
 
-                if constraints.len() != 1 {
-                    panic!("unexpected: {:?}", constraints.len());
-                }
-
                 // turn HashSet constraints into Vec so can store
                 // in HashMap (derive `Hash` trait)
                 let mut constraint_vec = vec![];

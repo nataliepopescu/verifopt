@@ -72,9 +72,8 @@ impl Callbacks for VerifoptCallbacks {
 
         //// init + run Interpreter Pass
         let mut cmap = ConstraintMap::new();
-        let interp = InterpPass::new(tcx, &funcs, false);
+        let interp = InterpPass::new(tcx, &funcs, true);
         let _res = interp.run(&mut cmap, None, entry_func, mir_body);
-        //println!("\nmain res: {:?}", res);
 
         // init + run Rewriter Pass
         let rewriter = RewritePass::new(tcx, &funcs, &cmap, false);
@@ -99,7 +98,5 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    // FIXME double check opt level / compiling a release version
-    println!("{:?}", rustc_args);
     run_compiler(&rustc_args, &mut VerifoptCallbacks)
 }

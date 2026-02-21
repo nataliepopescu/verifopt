@@ -64,13 +64,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // TODO perhaps also setup a general `global` scope (which would replace the
         // current semantics of the `None` scope) once we change the meaning of backptr)
 
+        // track call stack for debugging
+        let mut call_stack = vec![cur_scope];
+
         // start interpretation
-        self.visit_body(cmap, prev_scope, cur_scope, body)
+        self.visit_body(cmap, &mut call_stack, prev_scope, cur_scope, body)
     }
 
     fn visit_body(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         prev_scope: Option<DefId>,
         cur_scope: DefId,
         body: &'tcx Body<'tcx>,
@@ -79,8 +83,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         if self.debug {
             println!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
-            println!("prev_scope: {:?}", prev_scope);
             println!("cur_scope: {:?}", cur_scope);
+            println!("prev_scope: {:?}", prev_scope);
+            println!("call_stack: {:?}", call_stack);
         }
 
         // if there exists a memoized WTO, use it; otherwise, create and save it
@@ -104,8 +109,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             let data = body.basic_blocks.get(bb).unwrap();
             last_res = self.visit_basic_block_data(
                 cmap,
+                call_stack,
                 &mut bb_deps,
-                //prev_scope,
                 cur_scope,
                 body.local_decls.as_slice(),
                 &bb,
@@ -119,8 +124,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn visit_basic_block_data(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         bb_deps: &mut BBDeps,
-        //prev_scope: Option<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         bb: &BasicBlock,
@@ -152,7 +157,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             // FIXME return basic blocks are the only ones whose interp returns Some(_), so could
             // re-architect this loop to only save the result if it is a Some(_) (then wouldn't
             // have to worry about executing cleanup blocks afterwards)
-            last_res = self.visit_terminator(cmap, body_locals, bb, bb_deps, cur_scope, &term)?;
+            last_res = self.visit_terminator(
+                cmap,
+                call_stack,
+                body_locals,
+                bb,
+                bb_deps,
+                cur_scope,
+                &term,
+            )?;
         }
 
         bb_deps.mark_visited(bb);
@@ -206,10 +219,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn visit_terminator(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         bb: &BasicBlock,
         bb_deps: &mut BBDeps,
-        //prev_scope: Option<DefId>,
         cur_scope: DefId,
         terminator: &Terminator<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -219,8 +232,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 args,
                 destination,
                 ..
-            } => self.interp_func_call(cmap, cur_scope, body_locals, func, args, destination),
-            TerminatorKind::Return => self.interp_return(cmap, cur_scope),
+            } => self.interp_func_call(
+                cmap,
+                call_stack,
+                cur_scope,
+                body_locals,
+                func,
+                args,
+                destination,
+            ),
+            TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope),
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
             }
@@ -232,12 +253,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn interp_return(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
         // return constraints at place _0
         if self.debug {
             println!("RETURNING...");
         }
+
+        call_stack.pop();
+
         match cmap.scoped_get(
             Some(cur_scope),
             &MapKey::Place(Place {
@@ -572,6 +597,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn dyn_to_static_dispatch(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         self_constraint: VerifoptRval<'tcx>,
@@ -595,6 +621,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
             return self.handle_static_dispatch(
                 cmap,
+                call_stack,
                 cur_scope,
                 body_locals,
                 &funcval_vec[0],
@@ -610,6 +637,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn handle_dyn_dispatch(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         assoc_funcval: &FuncVal<'tcx>,
@@ -678,6 +706,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 // interp dyn dispatch as one or more static dispatches
                                 return self.dyn_to_static_dispatch(
                                     cmap,
+                                    call_stack,
                                     cur_scope,
                                     body_locals,
                                     self_constraint,
@@ -706,6 +735,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn handle_static_dispatch(
         &self,
         mut cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         funcval: &FuncVal<'tcx>,
@@ -720,9 +750,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             );
             println!("args: {:?}\n", args);
         }
-
-        // TODO
-        // calling scope has T correctly set to u128
 
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
 
@@ -749,12 +776,20 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         // visit callee
         let callee_body = self.tcx.optimized_mir(funcval.def_id);
-        self.visit_body(cmap, Some(cur_scope), funcval.def_id, callee_body)
+        call_stack.push(funcval.def_id);
+        self.visit_body(
+            cmap,
+            call_stack,
+            Some(cur_scope),
+            funcval.def_id,
+            callee_body,
+        )
     }
 
     fn interp_direct_func_call(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
+        call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         co: &ConstOperand<'tcx>,
@@ -807,6 +842,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                         match self.handle_dyn_dispatch(
                                             cmap,
+                                            call_stack,
                                             cur_scope,
                                             body_locals,
                                             funcval,
@@ -882,6 +918,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 let mut cmap_clone = cmap.clone();
                                 match self.handle_static_dispatch(
                                     &mut cmap_clone,
+                                    call_stack,
                                     cur_scope,
                                     body_locals,
                                     funcval,
@@ -970,7 +1007,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     fn interp_func_call(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
-        //prev_scope: Option<DefId>,
+        call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         func: &Operand<'tcx>,
@@ -991,9 +1028,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         match func {
-            Operand::Constant(box co) => {
-                self.interp_direct_func_call(cmap, cur_scope, body_locals, co, args, destination)
-            }
+            Operand::Constant(box co) => self.interp_direct_func_call(
+                cmap,
+                call_stack,
+                cur_scope,
+                body_locals,
+                co,
+                args,
+                destination,
+            ),
             _ => todo!("handle indirect invocations"),
         }
     }

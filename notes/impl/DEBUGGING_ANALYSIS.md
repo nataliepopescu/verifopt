@@ -603,6 +603,46 @@ in bb16 of defid 3:8941 (raw_vec::finish_grow)
 
 
 
+### WTO issue for def id 2:36476 (core::num::from_ascii_radix)
+
+the usize impl
+- https://doc.rust-lang.org/src/core/num/mod.rs.html#1573
+
+compiles to 41 basic blocks
+
+
+bb0 -> bb1, bb2
+- should ascii panic?
+
+bb1 -> bb2, bb3
+- should ascii panic?
+
+bb2 -> unwind continue...
+- ascii panic
+
+bb3 -> bb4, bb5
+- is src.empty()?
+
+bb4 -> bb28
+- empty -> error
+
+bb5 -> bb6, bb7
+- is invalid digit?
+
+bb6 -> bb8, bb9
+- is positive
+
+bb7 -> bb6, bb12
+- set (is_positive, mut digits) w result of match?
+
+bb8 -> bb13
+- default case
+
+bb9 -> bb8, bb10, bb11
+- set (is_positive, mut digits) w result of match?
+
+
+idk why we're panicking in WTO, should be fine to just continue
 
 
 

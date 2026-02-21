@@ -15,15 +15,24 @@ pub struct BBDeps {
 impl BBDeps {
     pub fn new<'tcx>(body: &'tcx Body<'tcx>, debug: bool) -> Self {
         let mut bb_deps = BBDeps {
-            //body,
             preds: HashMap::default(),
             ordering: Vec::new(),
             visited: Vec::new(),
             debug,
         };
 
+        if debug {
+            println!("\n%%%%%\n");
+            println!("total bbs: {:?}", body.basic_blocks.len());
+        }
         for (bb, bb_data) in body.basic_blocks.iter_enumerated() {
+            if debug {
+                println!("getting deps for {:?}", bb);
+            }
             bb_deps.get_deps(&bb, bb_data);
+            if debug {
+                println!("- bb_deps.preds: {:?}", bb_deps.preds);
+            }
         }
 
         if debug {
@@ -55,7 +64,6 @@ impl BBDeps {
         if !ret_found {
             panic!("no return block?");
         }
-        //println!("self.ordering pre: {:?}", bb_deps.ordering);
         bb_deps.ordering.push(ret_bb);
         if debug {
             println!("\nself.ordering: {:?}", bb_deps.ordering);
@@ -79,11 +87,9 @@ impl BBDeps {
 
         // update predecessors
         while !worklist.is_empty() {
-            //println!("~~~worklist: {:?}", worklist);
             let bb_to_prune = worklist.pop().unwrap();
 
             for (key, val) in self.preds.iter_mut() {
-                //println!("__PRE val: {:?}", val);
                 if val.contains(&bb_to_prune) {
                     val.retain(|&x| x != bb_to_prune);
                     if val.is_empty() {
@@ -91,7 +97,6 @@ impl BBDeps {
                         worklist.push(*key);
                     }
                 }
-                //println!("_POST val: {:?}", val);
             }
         }
 
@@ -111,15 +116,23 @@ impl BBDeps {
         self.visited.push(*bb);
     }
 
+    // populate self.preds with the immediate successors of bb
+    // to eventually construct a CFG that respects said dependencies
     pub fn get_deps(&mut self, bb: &BasicBlock, bb_data: &BasicBlockData) {
         match &bb_data.terminator {
             Some(term) => {
+                // what bbs is this bb a predecessor for?
                 let successors: Vec<BasicBlock> = term.successors().collect();
                 for successor in successors.iter() {
+                    if self.debug {
+                        println!("successor: {:?}", successor);
+                    }
                     match self.preds.get_mut(successor) {
                         Some(preds_vec) => {
                             if preds_vec.contains(bb) {
-                                panic!("predecessors vector already contain this bb (key)");
+                                if self.debug {
+                                    println!("skip adding (preds_vec already contains bb)");
+                                }
                             } else {
                                 preds_vec.push(*bb);
                             }

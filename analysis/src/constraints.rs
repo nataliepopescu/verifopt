@@ -36,6 +36,8 @@ pub(crate) enum VarType<'tcx> {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum MapKey<'tcx> {
     //Arg(Option<Ident>), //Place<'tcx>),
+    // FIXME maybe make this Local(Local<'tcx>) instead of place, so we're not indexing the map
+    // with random projections
     Place(Place<'tcx>),
     Generic(Symbol),
     // FIXME Option str? if so, remove from VarType::Scope

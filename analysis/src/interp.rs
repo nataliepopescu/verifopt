@@ -1,4 +1,5 @@
 use rustc_data_structures::fx::FxHashSet as HashSet;
+use rustc_data_structures::packed::Pu128;
 use rustc_hir::def_id::DefId;
 use rustc_index::IndexSlice;
 use rustc_middle::mir::interpret::Scalar;
@@ -365,6 +366,29 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
+    fn resolve_switchint_constraints(
+        &self,
+        constraint: &VerifoptRval<'tcx>,
+        vals: &[Pu128],
+        discr_vals_slice: &mut [i32],
+    ) {
+        match constraint {
+            VerifoptRval::Scalar(scalar) => {
+                let num = scalar.to_bits_unchecked();
+                for (i, val) in vals.iter().enumerate() {
+                    if num == val.get() {
+                        discr_vals_slice[i] += 1;
+                    }
+                }
+            }
+            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_) | VerifoptRval::Idk() => {}
+            VerifoptRval::Ref(reffed) => {
+                self.resolve_switchint_constraints(&*reffed, vals, discr_vals_slice)
+            }
+            _ => panic!("unexpected switchint discr: {:?}", constraint),
+        }
+    }
+
     fn interp_switchint(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -380,7 +404,28 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
-                match cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false) {
+                if self.debug {
+                    println!("place.local: {:?}", place.local);
+                    println!("place.projection: {:?}", place.projection);
+                    println!(
+                        "cmap @ scope: {:?}",
+                        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                    );
+                }
+
+                let mut newplace = *place;
+                if place.projection.len() > 0 {
+                    // ignore projections for now, kind of wrong but let's see how much it impacts things
+                    newplace = Place {
+                        local: Local::from_u32(place.local.as_u32()),
+                        projection: List::empty(),
+                    };
+                    if self.debug {
+                        println!("updating newplace: {:?}", newplace);
+                    }
+                }
+
+                match cmap.scoped_get(Some(cur_scope), &MapKey::Place(newplace), false) {
                     Some(vartype) => match vartype {
                         VarType::Values(constraints) => {
                             let vals = targets.all_values();
@@ -395,20 +440,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             let discr_vals_slice: &mut [i32] = &mut discr_vals[0..len + 1];
 
                             for constraint in constraints.iter() {
-                                match constraint {
-                                    VerifoptRval::Scalar(scalar) => {
-                                        let num = scalar.to_bits_unchecked();
-                                        for (i, val) in vals.iter().enumerate() {
-                                            if num == val.get() {
-                                                discr_vals_slice[i] += 1;
-                                            }
-                                        }
-                                    }
-                                    VerifoptRval::IdkType(_)
-                                    | VerifoptRval::IdkDefId(_)
-                                    | VerifoptRval::Idk() => {}
-                                    _ => panic!("unexpected switchint discr: {:?}", constraint),
-                                }
+                                self.resolve_switchint_constraints(
+                                    constraint,
+                                    vals,
+                                    discr_vals_slice,
+                                );
                             }
 
                             // FIXME improve
@@ -434,13 +470,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         }
                         _ => todo!("scope not impl"),
                     },
-                    None => {
-                        if self.debug {
-                            println!("scope to search in: {:?}", cur_scope);
-                            println!("place to get: {:?}", place);
-                        }
-                        panic!("place does not exist: {:?}", place);
-                    }
+                    None => panic!("place does not exist: {:?}", place),
                 }
             }
             // currently not pruning anything

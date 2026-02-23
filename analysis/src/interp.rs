@@ -631,7 +631,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         func_genargs: &[GenericArg<'tcx>],
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
-    ) -> Result<Option<Constraints<'tcx>>, Error> {
+    ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
         // assoc dyn obj w the correct trait fn impl(s)
         let mut to_dispatch = Vec::new();
         for self_constraint in self_constraint_vec.iter() {
@@ -639,7 +639,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
         to_dispatch.dedup();
 
+        if self.debug {
+            println!("to_dispatch: {:?}", to_dispatch);
+        }
+
         // call each impl
+        let mut res_vec = Vec::new();
         for func_defid in to_dispatch {
             let funcvals = self.funcs.funcs.get(&func_defid);
             if funcvals.is_none() {
@@ -649,7 +654,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             if funcval_vec.len() != 1 {
                 panic!("unexpected number of functions");
             }
-            return self.handle_static_dispatch(
+            if self.debug {
+                println!("funcval_vec: {:?}", funcval_vec);
+            }
+
+            res_vec.push(self.handle_static_dispatch(
                 cmap,
                 call_stack,
                 cur_scope,
@@ -658,10 +667,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 func_genargs,
                 args,
                 destination,
-            );
+            ));
         }
 
-        Ok(None)
+        res_vec
     }
 
     fn handle_dyn_dispatch(
@@ -722,17 +731,27 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     {
                         // for each possible constraint...
                         let mut res_vec = vec![];
+                        if self.debug {
+                            println!("\n# IN HANDLE_DYN_DISPATCH");
+                            println!("all constraints: {:?}", constraints);
+                        }
+
                         for constraint in constraints.clone().drain() {
+                            if self.debug {
+                                println!("LOOPING in HDD");
+                                println!("constraint: {:?}", constraint);
+                            }
+
                             // unwrap any refs or boxed types
                             if let Some(self_constraint_vec) = self.resolve_dyn_self_constraint(
                                 cmap, cur_scope, impltors, constraint, args,
                             ) {
                                 if self.debug {
-                                    println!("BEFORE DYN_TO_STATIC");
+                                    println!("\n## BEFORE DYN_TO_STATIC");
                                     println!("self_constraint_vec: {:?}", self_constraint_vec);
                                 }
                                 // interp dyn dispatch as one or more static dispatches
-                                res_vec.push(self.dyn_to_static_dispatch(
+                                res_vec.append(&mut self.dyn_to_static_dispatch(
                                     cmap,
                                     call_stack,
                                     cur_scope,
@@ -881,6 +900,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             destination,
                                         );
 
+                                        if self.debug {
+                                            println!("dyn_results: {:?}", dyn_results);
+                                        }
+
                                         for dyn_res in dyn_results.iter() {
                                             match dyn_res {
                                                 Ok(Some(constraints)) => {
@@ -1001,12 +1024,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             _ => todo!("not a Val Const"),
         }
 
-        if cmap_vec.len() > 1 || res_vec.len() > 1 {
+        if cmap_vec.len() > 1 {
             if self.debug {
                 println!("cmap_vec len: {:?}", cmap_vec.len());
-                println!("res_vec len: {:?}", res_vec.len());
             }
-            todo!("impl cmap_vec/res_vec merge");
+            todo!("impl cmap_vec merge");
         }
 
         if cmap_vec.len() > 0 {
@@ -1020,23 +1042,35 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
         }
 
-        if res_vec.len() > 0 {
-            let val = res_vec.pop().unwrap();
-            if self.debug {
-                println!("setting return val: {:?}", val);
-                println!("destination: {:?}", destination);
+        res_vec.dedup();
+        if self.debug {
+            println!("res_vec len: {:?}", res_vec.len());
+            println!("res_vec: {:?}", res_vec);
+        }
+
+        match res_vec.merge() {
+            Ok(Some(merged)) => {
+                cmap.scoped_add(
+                    Some(cur_scope),
+                    MapKey::Place(*destination),
+                    Box::new(VarType::Values(merged)),
+                );
+
+                if self.debug {
+                    println!("setting result in cmap");
+                    println!(
+                        "cmap @ dest ({:?}): {:?}",
+                        destination,
+                        cmap.scoped_get(Some(cur_scope), &MapKey::Place(*destination), false)
+                    );
+                }
             }
-            cmap.scoped_add(
-                Some(cur_scope),
-                MapKey::Place(*destination),
-                Box::new(VarType::Values(val)),
-            );
-        } else {
-            if self.debug {
-                println!("res_vec is empty");
-                println!("cur_scope: {:?}", cur_scope);
-                println!("destination: {:?}", destination);
+            Ok(None) => {
+                if self.debug {
+                    println!("res_vec empty");
+                }
             }
+            _ => panic!("unexpected result"),
         }
 
         Ok(None)

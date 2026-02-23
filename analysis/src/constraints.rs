@@ -194,7 +194,6 @@ impl<'tcx> Merge<VarType<'tcx>> for Vec<VarType<'tcx>> {
     }
 }
 
-/*
 impl<'tcx> Merge<Constraints<'tcx>> for Vec<Constraints<'tcx>> {
     fn merge(&self) -> Result<Option<Constraints<'tcx>>, Error> {
         if self.is_empty() {
@@ -208,7 +207,10 @@ impl<'tcx> Merge<Constraints<'tcx>> for Vec<Constraints<'tcx>> {
         let mut merged_constraints = self[0].clone();
         for new_constraint_set in self.iter() {
             if merged_constraints != *new_constraint_set {
-                let union: HashSet<_> = merged_constraints.union(new_constraint_set).cloned().collect();
+                let union: HashSet<_> = merged_constraints
+                    .union(new_constraint_set)
+                    .cloned()
+                    .collect();
                 merged_constraints = union;
             }
         }
@@ -216,7 +218,6 @@ impl<'tcx> Merge<Constraints<'tcx>> for Vec<Constraints<'tcx>> {
         Ok(Some(merged_constraints))
     }
 }
-*/
 
 impl<'tcx> Merge<ConstraintMap<'tcx>> for Vec<ConstraintMap<'tcx>> {
     fn merge(&self) -> Result<Option<ConstraintMap<'tcx>>, Error> {

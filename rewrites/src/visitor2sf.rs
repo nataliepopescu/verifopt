@@ -77,10 +77,10 @@ pub struct SpeakBetterDogs {
     pub tmp2: usize,
 }
 
-pub struct SpeakBetterCats {
-    pub tmp1: usize,
-    pub tmp2: usize,
-}
+//pub struct SpeakBetterCats {
+//    pub tmp1: usize,
+//    pub tmp2: usize,
+//}
 
 impl AnimalVisitor for SpeakBetterDogs {
     fn receive_dog(&self, _a: &dyn Animal) -> usize {
@@ -91,14 +91,14 @@ impl AnimalVisitor for SpeakBetterDogs {
     }
 }
 
-impl AnimalVisitor for SpeakBetterCats {
-    fn receive_dog(&self, a: &dyn Animal) -> usize {
-        a.speak()
-    }
-    fn receive_cat(&self, _a: &dyn Animal) -> usize {
-        99999
-    }
-}
+//impl AnimalVisitor for SpeakBetterCats {
+//    fn receive_dog(&self, a: &dyn Animal) -> usize {
+//        a.speak()
+//    }
+//    fn receive_cat(&self, _a: &dyn Animal) -> usize {
+//        99999
+//    }
+//}
 
 pub fn run_best(animal: &dyn Animal, dv: &SpeakBetterDogs) -> usize {
     <SpeakBetterDogs as AnimalVisitor>::receive_dog(dv, animal)

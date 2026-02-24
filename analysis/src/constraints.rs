@@ -48,13 +48,15 @@ pub(crate) enum MapKey<'tcx> {
 pub(crate) struct ConstraintMap<'tcx> {
     pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
     pub wtos: HashMap<DefId, BBDeps>,
+    pub debug: bool,
 }
 
 impl<'tcx> ConstraintMap<'tcx> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(debug: bool) -> Self {
         Self {
             cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
             wtos: HashMap::<DefId, BBDeps>::default(),
+            debug,
         }
     }
 
@@ -130,10 +132,16 @@ impl<'tcx> ConstraintMap<'tcx> {
                     let old_vartype_opt = subscope_cmap.get(&var);
                     match old_vartype_opt {
                         Some(old_vartype) => {
+                            if self.debug {
+                                println!("old_vartype: {:?}", old_vartype);
+                                println!("value: {:?}", value);
+                            }
                             let mut cvec = vec![];
                             cvec.push(*value);
                             cvec.push(*old_vartype.clone());
-                            //println!("cvec: {:?}", cvec);
+                            if self.debug {
+                                println!("cvec: {:?}", cvec);
+                            }
                             match cvec.merge() {
                                 Ok(Some(new_vartype)) => {
                                     subscope_cmap.insert(var, Box::new(new_vartype));
@@ -168,6 +176,8 @@ impl<'tcx> ConstraintMap<'tcx> {
 
 impl<'tcx> Merge<VarType<'tcx>> for Vec<VarType<'tcx>> {
     fn merge(&self) -> Result<Option<VarType<'tcx>>, Error> {
+        use crate::core::VerifoptRval::IdkStruct;
+
         if self.is_empty() {
             return Ok(None);
         }
@@ -181,9 +191,61 @@ impl<'tcx> Merge<VarType<'tcx>> for Vec<VarType<'tcx>> {
             match (merged_vartype.clone(), new_vartype.clone()) {
                 (VarType::Values(constraints_a), VarType::Values(constraints_b)) => {
                     if constraints_a != constraints_b {
-                        let union: HashSet<_> =
+                        let mut union_vec: Vec<_> =
                             constraints_a.union(&constraints_b).cloned().collect();
-                        merged_vartype = VarType::Values(union);
+
+                        // FIXME assuming the struct we want to compress is the first one to be
+                        // popped (last in the vec)... this assumption may be violated,
+                        // and we'll need to handle that
+                        let mut struct_to_merge = None;
+                        let mut genargs_to_merge = None;
+                        let mut started = false;
+                        while !union_vec.is_empty() {
+                            if !started {
+                                match union_vec.pop().unwrap() {
+                                    IdkStruct(struct_, genargs) => {
+                                        struct_to_merge = Some(struct_);
+                                        if genargs.is_none() {
+                                            break;
+                                        }
+                                        genargs_to_merge = genargs;
+                                        started = true;
+                                        continue;
+                                    }
+                                    _ => break,
+                                }
+                            }
+
+                            let next = union_vec.pop().unwrap();
+                            // if constraints are of the same struct type, merge their genargs
+                            match next {
+                                IdkStruct(struct_b, genargs_b) => {
+                                    if struct_to_merge.unwrap() != struct_b {
+                                        // structs are different - not the case we're targeting
+                                        break;
+                                    }
+
+                                    // genargs_b should hold a superset of the genargs in
+                                    // genargs_to_merge, since they are accumulated as the
+                                    // interpreter runs
+                                    genargs_to_merge = genargs_b;
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        let res: HashSet<_>;
+                        if genargs_to_merge.is_none() {
+                            res = constraints_a.union(&constraints_b).cloned().collect();
+                        } else if struct_to_merge.is_some() {
+                            let mut set = HashSet::default();
+                            set.insert(IdkStruct(struct_to_merge.unwrap(), genargs_to_merge));
+                            res = set;
+                        } else {
+                            panic!("to_merge data structures not properly set");
+                        }
+
+                        merged_vartype = VarType::Values(res);
                     }
                 }
                 _ => todo!("merge scopes"),

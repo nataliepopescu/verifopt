@@ -314,10 +314,10 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("place.local: {:?}", place.local);
                     println!("place.projection: {:?}", place.projection);
                     println!("cur_scope: {:?}", cur_scope);
-                    println!(
-                        "cur_scope cmap: {:?}",
-                        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-                    );
+                    //println!(
+                    //    "cur_scope cmap: {:?}",
+                    //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                    //);
                     println!(
                         "scoped_get: {:?}",
                         cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)
@@ -715,10 +715,10 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
             println!("place.local: {:?}", place.local);
             println!("place.projection: {:?}", place.projection);
             println!("cur_scope: {:?}", cur_scope);
-            println!(
-                "cur_scope cmap: {:?}",
-                cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-            );
+            //println!(
+            //    "cur_scope cmap: {:?}",
+            //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+            //);
             println!(
                 "scoped_get: {:?}",
                 cmap.scoped_get(Some(cur_scope), &MapKey::Place(*place), false)

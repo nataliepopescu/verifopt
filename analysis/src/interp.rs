@@ -44,7 +44,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //let ty = locals[Local::from_usize(0)].ty;
         //let mut set = HashSet::default();
         //set.insert(VerifoptRval::IdkType(ty));
-        let main_cmap = ConstraintMap::new();
+        let main_cmap = ConstraintMap::new(self.debug);
 
         //main_cmap.cmap.insert(
         //    MapKey::Place(Place {
@@ -198,7 +198,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Some(cur_scope),
                     MapKey::Place(place),
                     Box::new(VarType::Values(rval_constraints.clone())),
-                    //true,
                 );
 
                 if self.debug {
@@ -206,7 +205,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     println!("cur_scope: {:?}", cur_scope);
                     println!("place: {:?}", place);
                     println!("rval: {:?}", rval_constraints);
-                    println!("cmap @ cur_scope @ place: {:?}", cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false));
+                    println!(
+                        "cmap @ cur_scope @ place: {:?}",
+                        cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
+                    );
                     //println!(
                     //    "cur_scope cmap: {:?}",
                     //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
@@ -925,7 +927,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         res_vec.push(constraints.clone());
                                                     } else {
                                                         if self.debug {
-                                                            println!("dup constraint: {:?}", constraints);
+                                                            println!(
+                                                                "dup constraint: {:?}",
+                                                                constraints
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -948,7 +953,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                             res_vec.push(constraints);
                                                         } else {
                                                             if self.debug {
-                                                                println!("dup constraint: {:?}", constraints);
+                                                                println!(
+                                                                    "dup constraint: {:?}",
+                                                                    constraints
+                                                                );
                                                             }
                                                         }
                                                     } else if let Some(rettype) = funcval.rettype {
@@ -963,7 +971,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                             res_vec.push(constraints);
                                                         } else {
                                                             if self.debug {
-                                                                println!("dup constraint: {:?}", constraints);
+                                                                println!(
+                                                                    "dup constraint: {:?}",
+                                                                    constraints
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -1021,7 +1032,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             if !res_vec.contains(&constraints) {
                                                 if self.debug {
                                                     println!("res_vec {:?}", res_vec);
-                                                    println!("adding constraint: {:?}", constraints);
+                                                    println!(
+                                                        "adding constraint: {:?}",
+                                                        constraints
+                                                    );
                                                 }
                                                 res_vec.push(constraints);
                                             } else {
@@ -1232,7 +1246,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
-        let mut func_cmap = ConstraintMap::new();
+        let mut func_cmap = ConstraintMap::new(self.debug);
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap

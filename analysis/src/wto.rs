@@ -1,8 +1,8 @@
 //use rustc_hir::def_id::DefId;
 use rustc_data_structures::fx::FxHashMap as HashMap;
+use rustc_hir::def_id::DefId;
 use rustc_middle::mir::traversal;
 use rustc_middle::mir::{BasicBlock, BasicBlockData, Body, TerminatorKind};
-use rustc_hir::def_id::DefId;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BBDeps {

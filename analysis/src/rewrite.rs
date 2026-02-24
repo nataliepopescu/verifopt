@@ -220,7 +220,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.patch_terminator(cur_bb, TerminatorKind::Goto { target: new_start });
     }
 
-    fn resolve_first_arg_constraints(&self, first_arg_constraint: &VerifoptRval<'tcx>) -> Vec<DefId> {
+    fn resolve_first_arg_constraints(
+        &self,
+        first_arg_constraint: &VerifoptRval<'tcx>,
+    ) -> Vec<DefId> {
         if self.debug {
             println!("\nresolving first arg constraint!!\n");
         }

@@ -126,15 +126,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
         }
 
-        if self.debug {
-            println!("\n# PATCH: \n\n{:#?}", patch);
-        }
+        //if self.debug {
+        //    println!("\n# PATCH: \n\n{:#?}", patch);
+        //}
 
         patch.apply(body);
 
-        if self.debug {
-            println!("\n# NEW BODY: \n\n{:#?}", body);
-        }
+        //if self.debug {
+        //    println!("\n# NEW BODY: \n\n{:#?}", body);
+        //}
     }
 
     fn dummy_span(&self) -> Span {
@@ -220,7 +220,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.patch_terminator(cur_bb, TerminatorKind::Goto { target: new_start });
     }
 
-    fn resolve_first_arg_constraints(&self, first_arg_constraint: &VerifoptRval<'tcx>) -> DefId {
+    fn resolve_first_arg_constraints(&self, first_arg_constraint: &VerifoptRval<'tcx>) -> Vec<DefId> {
+        if self.debug {
+            println!("\nresolving first arg constraint!!\n");
+        }
+
         match first_arg_constraint {
             VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
                 if is_box(*struct_defid) {
@@ -229,19 +233,35 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             panic!("handle diff genarg len");
                         }
                         let genarg_constraint_vec = &genargs_outer[0];
-                        if genarg_constraint_vec.len() != 1 {
-                            panic!("handle different genarg constraint len");
-                        }
-                        let genarg_constraint = &genarg_constraint_vec[0];
-                        match genarg_constraint {
-                            VerifoptRval::IdkStruct(defid, _) => {
-                                if self.debug {
-                                    println!("found struct: {:?}", defid);
+                        //if genarg_constraint_vec.len() != 1 {
+                        //    println!("genarg_constraint_vec: {:?}", genarg_constraint_vec);
+                        //    panic!("handle different genarg constraint len");
+                        //}
+                        //let genarg_constraint = &genarg_constraint_vec[0];
+
+                        let mut defids = Vec::new();
+                        for genarg_constraint in genarg_constraint_vec.iter() {
+                            match genarg_constraint {
+                                VerifoptRval::IdkStruct(defid, _) => {
+                                    if self.debug {
+                                        println!("- found struct: {:?}", defid);
+                                    }
+                                    if !defids.contains(defid) {
+                                        if self.debug {
+                                            println!("defids vec: {:?}", defids);
+                                            println!("adding new defid: {:?}", defid);
+                                        }
+                                        defids.push(*defid);
+                                    } else {
+                                        if self.debug {
+                                            println!("(duplicate)");
+                                        }
+                                    }
                                 }
-                                return *defid;
+                                _ => todo!(),
                             }
-                            _ => todo!(),
                         }
+                        return defids;
                     } else {
                         panic!("no genargs in box...");
                     }
@@ -281,11 +301,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         if let Some(first_arg_vartype) = first_arg {
             if let VarType::Values(first_arg_constraints) = first_arg_vartype {
-                if first_arg_constraints.len() != 1 {
-                    todo!("handle diff lens: {:?}", first_arg_constraints.len());
-                }
+                //if first_arg_constraints.len() != 1 {
+                //    println!("first_arg_constraints: {:?}", first_arg_constraints);
+                //    todo!("handle diff lens: {:?}", first_arg_constraints.len());
+                //}
                 for first_arg_constraint in first_arg_constraints.iter() {
-                    structs.push(self.resolve_first_arg_constraints(first_arg_constraint));
+                    structs.append(&mut self.resolve_first_arg_constraints(first_arg_constraint));
                 }
             } else {
                 panic!("first arg is a scope...");

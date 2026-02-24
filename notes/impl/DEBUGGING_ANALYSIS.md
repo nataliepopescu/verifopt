@@ -644,11 +644,77 @@ bb9 -> bb8, bb10, bb11
 
 idk why we're panicking in WTO, should be fine to just continue
 
+### Getting weird constraints for `self` type for Animal::speak()
+
+essentially: 
+{Box<Cat>, Box<Cat or Dog>}
+
+in get_animal (defid 0:6)
+
+bb1
+- _2 = std::boxed::Box::<Cat>::new(const Cat)
+bb2
+- _0 = move _2 as std::boxed::Box<dyn Animal>
+    - Cat version
+
+bb3
+- _3 = std::boxed::Box::<Dog>::new(const Dog)
+bb4
+- _0 = move _3 as std::boxed::Box<dyn Animal>
+    - Dog version
 
 
+maybe look into Box::new (defid 3:672)
+- "T" seems to get mapped correctly
+    - first call, T == Cat
+    - second/third calls: T == Cat or Dog
 
+- first return: Box::Cat
+- second/third returns: Box::(Cat or Dog)
 
+first, lets look at what happens during the _first_ call to 3:672:
 
+arg res
+- T = Cat
+
+bb1
+- _3 = copy _2 as *const T (PtrToPtr),
+    - _2 is IdkType(*mut u8)
+    - dst type == IdkType(*const T)
+
+- _4 = std::ptr::NonNull::<T> { pointer: copy _3 },
+    - _4 is IdkStruct(NonNull, Some([IdkStruct(Cat)]))
+
+- _5 = std::ptr::Unique::<T> { pointer: copy _4, _marker: const ZeroSized: std::marker::PhantomData<T> },
+    - _5 is IdkStruct(Unique, Some([IdkStruct(Cat)]))
+
+- _0 = std::boxed::Box::<T>(move _5, const std::alloc::Global),
+    - _0 is IdkStruct(Box, Some([IdkStruct(Cat)]))
+
+- return
+
+then, lets look at what happens during the _second_ call to 3:672:
+
+arg res
+- T = Cat or Dog
+
+bb1
+- _3 = copy _2 as *const T (PtrToPtr),
+    - _2 is IdkType(*mut u8)
+    - dst type == IdkType(*const T)
+
+- _4 = std::ptr::NonNull::<T> { pointer: copy _3 },
+    - b/c T -> Cat or Dog
+    - _4 = IdkStruct(NonNull, Some([IdkStruct(Cat), IdkStruct(Dog)]))
+
+- _5 = std::ptr::Unique::<T> { pointer: copy _4, _marker: const ZeroSized: std::marker::PhantomData<T> },
+    - _5 is IdkStruct(Unique, Some([IdkStruct(Cat), IdkStruct(Dog)]))
+
+- _0 = std::boxed::Box::<T>(move _5, const std::alloc::Global),
+    - _0 is {IdkStruct(Box, Some([IdkStruct(Cat)])), IdkStruct(Box, Some([IdkStruct(Cat), IdkStruct(Dog)]))}
+    - this cmap set/add can be simplified
+
+- return
 
 
 

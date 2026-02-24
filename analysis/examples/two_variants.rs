@@ -46,35 +46,6 @@ impl Animal for Dog {
 }
 
 fn main() {
-    /*
-    let mut first_arg_opt: Option<String> = None;
-    let mut start = false;
-    for arg in std::env::args() {
-        if start {
-            first_arg_opt = Some(arg);
-            break;
-        } else {
-            start = true;
-        }
-    }
-
-    match first_arg_opt {
-        None => println!("Pass in a number and see what happens!"),
-        Some(first_arg) => {
-            //println!("{:?}", first_arg);
-            let animal = get_animal(first_arg.parse().unwrap());
-            let cat = get_cat();
-            let dog = get_dog();
-            let _animal_vtable = core::ptr::metadata(&*animal);
-            let _cat_vtable = core::ptr::metadata(&*cat);
-            let _dog_vtable = core::ptr::metadata(&*dog);
-            //println!("pre");
-            let _res = animal.speak();
-            //println!("post");
-        }
-    }
-    */
-
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
         1 => println!("Pass in a number and see what happens!"),

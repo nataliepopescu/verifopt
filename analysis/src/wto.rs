@@ -2,6 +2,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_middle::mir::traversal;
 use rustc_middle::mir::{BasicBlock, BasicBlockData, Body, TerminatorKind};
+use rustc_hir::def_id::DefId;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BBDeps {
@@ -109,9 +110,9 @@ impl BBDeps {
         }
     }
 
-    pub fn mark_visited(&mut self, bb: &BasicBlock) {
+    pub fn mark_visited(&mut self, bb: &BasicBlock, cur_scope: DefId) {
         if self.debug {
-            println!("DONE VISITING {:?}", bb);
+            println!("\nDONE VISITING {:?} of {:?}", bb, cur_scope);
         }
         self.visited.push(*bb);
     }

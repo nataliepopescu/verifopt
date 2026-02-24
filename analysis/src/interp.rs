@@ -169,7 +169,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             )?;
         }
 
-        bb_deps.mark_visited(bb);
+        bb_deps.mark_visited(bb, cur_scope);
 
         Ok(last_res)
     }
@@ -198,6 +198,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Some(cur_scope),
                     MapKey::Place(place),
                     Box::new(VarType::Values(rval_constraints.clone())),
+                    //true,
                 );
 
                 if self.debug {
@@ -205,10 +206,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     println!("cur_scope: {:?}", cur_scope);
                     println!("place: {:?}", place);
                     println!("rval: {:?}", rval_constraints);
-                    println!(
-                        "cur_scope cmap: {:?}",
-                        cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-                    );
+                    println!("cmap @ cur_scope @ place: {:?}", cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false));
+                    //println!(
+                    //    "cur_scope cmap: {:?}",
+                    //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                    //);
                 }
             }
             _ => {}
@@ -637,7 +639,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         for self_constraint in self_constraint_vec.iter() {
             to_dispatch.append(&mut self.get_trait_fn_impls(self_constraint, impltors));
         }
-        to_dispatch.dedup();
 
         if self.debug {
             println!("to_dispatch: {:?}", to_dispatch);
@@ -646,16 +647,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // call each impl
         let mut res_vec = Vec::new();
         for func_defid in to_dispatch {
+            if self.debug {
+                println!("LOOPING static dispatches");
+                println!("func_defid: {:?}", func_defid);
+            }
+
             let funcvals = self.funcs.funcs.get(&func_defid);
             if funcvals.is_none() {
                 panic!("func not found: {:?}", func_defid);
             }
             let funcval_vec = funcvals.unwrap();
-            if funcval_vec.len() != 1 {
-                panic!("unexpected number of functions");
-            }
             if self.debug {
                 println!("funcval_vec: {:?}", funcval_vec);
+            }
+            if funcval_vec.len() != 1 {
+                panic!("unexpected number of functions");
             }
 
             res_vec.push(self.handle_static_dispatch(
@@ -915,7 +921,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         println!("constraints: {:?}", constraints);
                                                     }
 
-                                                    res_vec.push(constraints.clone());
+                                                    if !res_vec.contains(&constraints) {
+                                                        res_vec.push(constraints.clone());
+                                                    } else {
+                                                        if self.debug {
+                                                            println!("dup constraint: {:?}", constraints);
+                                                        }
+                                                    }
                                                 }
                                                 Ok(None) => {
                                                     if self.debug {
@@ -932,7 +944,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         constraints.insert(VerifoptRval::IdkDefId(
                                                             ret_did,
                                                         ));
-                                                        res_vec.push(constraints);
+                                                        if !res_vec.contains(&constraints) {
+                                                            res_vec.push(constraints);
+                                                        } else {
+                                                            if self.debug {
+                                                                println!("dup constraint: {:?}", constraints);
+                                                            }
+                                                        }
                                                     } else if let Some(rettype) = funcval.rettype {
                                                         if self.debug {
                                                             println!("rettype: {:?}", rettype);
@@ -941,7 +959,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         // FIXME resolve generics
                                                         constraints
                                                             .insert(VerifoptRval::IdkType(rettype));
-                                                        res_vec.push(constraints);
+                                                        if !res_vec.contains(&constraints) {
+                                                            res_vec.push(constraints);
+                                                        } else {
+                                                            if self.debug {
+                                                                println!("dup constraint: {:?}", constraints);
+                                                            }
+                                                        }
                                                     }
                                                 }
                                                 e @ Err(_) => return e.clone(),
@@ -994,7 +1018,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                         cmap_vec.push(cmap_clone);
                                         if let Some(constraints) = maybe_constraints {
-                                            res_vec.push(constraints);
+                                            if !res_vec.contains(&constraints) {
+                                                if self.debug {
+                                                    println!("res_vec {:?}", res_vec);
+                                                    println!("adding constraint: {:?}", constraints);
+                                                }
+                                                res_vec.push(constraints);
+                                            } else {
+                                                if self.debug {
+                                                    println!("dup constraint: {:?}", constraints);
+                                                }
+                                            }
                                         } else if let Some(rettype) = funcval.rettype {
                                             // is `None` actually a None, or was the
                                             // analysis just unable to interpret something?
@@ -1042,7 +1076,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
         }
 
-        res_vec.dedup();
         if self.debug {
             println!("res_vec len: {:?}", res_vec.len());
             println!("res_vec: {:?}", res_vec);
@@ -1389,7 +1422,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 cmap.scoped_add(
                     Some(funcval.def_id),
                     MapKey::Generic(param_generic.name),
-                    Box::new(vartype), //VarType::Values(constraints)),
+                    Box::new(vartype),
                 );
             } else {
                 if self.debug {

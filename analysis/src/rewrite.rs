@@ -11,21 +11,23 @@ use crate::core::is_box;
 use crate::patch::MirPatch;
 
 // FIXME get dynamically
+// alloc[7a7c]::boxed::{impl#8}::into_raw
 const INTO_RAW_FN_DEFID: DefId = DefId {
     //index: DefIndex::from_u32(731),
     index: DefIndex::from_u32(749),
     krate: CrateNum::from_u32(3),
 };
-const EQ_FN_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(3216),
-    krate: CrateNum::from_u32(2),
-};
+//const EQ_FN_DEFID: DefId = DefId {
+//    index: DefIndex::from_u32(3216),
+//    krate: CrateNum::from_u32(2),
+//};
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
     pub cmap: &'a ConstraintMap<'tcx>,
     pub debug: bool,
+    // TODO put into_raw and eq_fn defids here
 }
 
 impl<'a, 'tcx> RewritePass<'a, 'tcx> {
@@ -126,15 +128,16 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
         }
 
-        //if self.debug {
-        //    println!("\n# PATCH: \n\n{:#?}", patch);
-        //}
+        if self.debug {
+            println!("\n# PATCH: \n\n{:#?}", patch);
+        }
 
         patch.apply(body);
 
-        //if self.debug {
-        //    println!("\n# NEW BODY: \n\n{:#?}", body);
-        //}
+        if self.debug {
+            //println!("\n# NEW BODY: \n\n{:#?}", body);
+            println!("HERE");
+        }
     }
 
     fn dummy_span(&self) -> Span {
@@ -225,7 +228,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         first_arg_constraint: &VerifoptRval<'tcx>,
     ) -> Vec<DefId> {
         if self.debug {
-            println!("\nresolving first arg constraint!!\n");
+            println!("resolving first arg constraint!!");
         }
 
         match first_arg_constraint {
@@ -717,6 +720,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         )
     }
 
+    /*
     fn add_switch_block(
         &self,
         patch: &mut MirPatch<'tcx>,
@@ -743,6 +747,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let bb_data = BasicBlockData::new(Some(term), false);
         patch.new_block(bb_data)
     }
+    */
 
     fn make_dynmetadata_adt(&self, traitobj_did: DefId) -> Ty<'tcx> {
         // DynMetadata AdtDef
@@ -799,19 +804,21 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.new_block(bb_data)
     }
 
-    fn add_compare_vtable_block(
+    fn add_compare_and_switch_block(
         &self,
         patch: &mut MirPatch<'tcx>,
-        bb_first_switch: BasicBlock,
-        bb_cleanup: BasicBlock,
+        //bb_first_switch: BasicBlock,
+        //bb_cleanup: BasicBlock,
         raw_traitobj1_loc: Local,
         mut_dyn_traitobj_loc: Local,
         dynmetadata_traitobj_loc: Local,
         dynmetadata_traitobj_ref_loc: Local,
         dynmetadata_concretety_loc: Local,
         dynmetadata_concretety_ref_loc: Local,
+        bb_eq: BasicBlock,
+        bb_neq: BasicBlock,
         eq_res_loc: Local,
-        traitobj_did: DefId,
+        //traitobj_did: DefId,
         done_copy: bool,
         to_free_opt: Option<Vec<Local>>,
     ) -> BasicBlock {
@@ -909,51 +916,91 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             ))),
         ));
 
-        // add terminator
-        let dm_adt = self.make_dynmetadata_adt(traitobj_did);
-        let gen_args_ref = self
-            .tcx
-            .mk_args(&[GenericArg::from(dm_adt), GenericArg::from(dm_adt)]);
-
-        let args: Box<[Spanned<Operand<'tcx>>]> = Box::new([
-            Spanned {
-                node: Operand::Move(Place {
-                    local: dynmetadata_traitobj_ref_loc,
-                    projection: empty_proj,
-                }),
-                span: self.dummy_span(),
-            },
-            Spanned {
-                node: Operand::Move(Place {
-                    local: dynmetadata_concretety_ref_loc,
-                    projection: empty_proj,
-                }),
-                span: self.dummy_span(),
-            },
-        ]);
-
-        let term = Terminator {
-            source_info: self.dummy_source_info(),
-            kind: TerminatorKind::Call {
-                func: Operand::Constant(Box::new(ConstOperand {
-                    span: self.dummy_span(),
-                    user_ty: None,
-                    const_: rustc_middle::mir::Const::Val(
-                        ConstValue::ZeroSized,
-                        Ty::new_fn_def(self.tcx, EQ_FN_DEFID, gen_args_ref),
-                    ),
-                })),
-                args,
-                destination: Place {
+        stmts.push(Statement::new(
+            self.dummy_source_info(),
+            StatementKind::Assign(Box::new((
+                Place {
                     local: eq_res_loc,
                     projection: empty_proj,
                 },
-                target: Some(bb_first_switch),
-                unwind: UnwindAction::Cleanup(bb_cleanup),
-                call_source: CallSource::Normal,
-                fn_span: self.dummy_span(),
+                Rvalue::BinaryOp(
+                    BinOp::Eq,
+                    Box::new((
+                        Operand::Move(Place {
+                            local: dynmetadata_traitobj_ref_loc,
+                            projection: empty_proj,
+                        }),
+                        Operand::Move(Place {
+                            local: dynmetadata_concretety_ref_loc,
+                            projection: empty_proj,
+                        }),
+                    ))
+                ),
+            ))),
+        ));
+
+        // add terminator
+        //let dm_adt = self.make_dynmetadata_adt(traitobj_did);
+        //let gen_args_ref = self
+        //    .tcx
+        //    .mk_args(&[GenericArg::from(dm_adt), GenericArg::from(dm_adt)]);
+
+        //let args: Box<[Spanned<Operand<'tcx>>]> = Box::new([
+        //    Spanned {
+        //        node: Operand::Move(Place {
+        //            local: dynmetadata_traitobj_ref_loc,
+        //            projection: empty_proj,
+        //        }),
+        //        span: self.dummy_span(),
+        //    },
+        //    Spanned {
+        //        node: Operand::Move(Place {
+        //            local: dynmetadata_concretety_ref_loc,
+        //            projection: empty_proj,
+        //        }),
+        //        span: self.dummy_span(),
+        //    },
+        //]);
+
+        //let term = Terminator {
+        //    source_info: self.dummy_source_info(),
+        //    kind: TerminatorKind::Call {
+        //        func: Operand::Constant(Box::new(ConstOperand {
+        //            span: self.dummy_span(),
+        //            user_ty: None,
+        //            const_: rustc_middle::mir::Const::Val(
+        //                ConstValue::ZeroSized,
+        //                Ty::new_fn_def(self.tcx, EQ_FN_DEFID, gen_args_ref),
+        //            ),
+        //        })),
+        //        args,
+        //        destination: Place {
+        //            local: eq_res_loc,
+        //            projection: empty_proj,
+        //        },
+        //        target: Some(bb_first_switch),
+        //        unwind: UnwindAction::Cleanup(bb_cleanup),
+        //        call_source: CallSource::Normal,
+        //        fn_span: self.dummy_span(),
+        //    },
+        //};
+
+        let targets = vec![(0u128, bb_neq)].into_iter();
+
+        let term = Terminator {
+            source_info: self.dummy_source_info(),
+            kind: TerminatorKind::SwitchInt {
+                discr: Operand::Move(Place {
+                    local: eq_res_loc,
+                    projection: empty_proj,
+                }),
+                targets: SwitchTargets::new(targets, bb_eq),
             },
         };
+
+        if self.debug {
+            println!("term: {:?}", term);
+        }
 
         let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
         patch.new_block(bb_data)
@@ -1077,26 +1124,29 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 // comparison & switch (if > 1 variant)
                 let first_eq_res = self.add_mut_bool_temp(patch);
                 // TODO bb order may need to switch?
-                let bb_switch =
-                    self.add_switch_block(patch, bb_variant_speak, bb_variant_speak, first_eq_res);
+                //let bb_switch =
+                //    self.add_switch_block(patch, bb_variant_speak, bb_variant_speak, first_eq_res);
 
-                let bb_compare = self.add_compare_vtable_block(
+                let bb_compare = self.add_compare_and_switch_block(
                     patch,
-                    bb_switch,
-                    bb_old_cleanup,
+                    //bb_variant_speak,
+                    //bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),
                     traitobj_vtable_ref.unwrap(),
                     variant_vtable.unwrap(),
                     variant_vtable_ref.unwrap(),
+                    bb_variant_speak,
+                    // FIXME
+                    bb_variant_speak,
                     first_eq_res,
-                    traitobj_did,
+                    //traitobj_did,
                     false,
                     Some(vec![boxed_dyn_traitobj1]),
                 );
                 into_raw_target = Some(bb_compare);
-            } else {
+            } else if dids.len() == 1 {
                 // shim compare block, which does a necessary type cast
                 let bb_shim =
                     self.add_compare_shim(patch, bb_variant_speak, raw_traitobj1, mut_dyn_traitobj);

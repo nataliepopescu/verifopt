@@ -54,7 +54,8 @@ fn main() {
             let cat = get_cat();
             let _animal_vtable = core::ptr::metadata(&*animal);
             let _cat_vtable = core::ptr::metadata(&*cat);
-            let _res = animal.speak();
+            let res = animal.speak();
+            println!("res: {:?}", res);
         }
     }
 }

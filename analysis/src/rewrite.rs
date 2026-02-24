@@ -936,7 +936,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             local: dynmetadata_concretety_ref_loc,
                             projection: empty_proj,
                         }),
-                    ))
+                    )),
                 ),
             ))),
         ));
@@ -1141,8 +1141,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 into_raw_target = Some(bb_compare);
             } else if dids.len() == 1 {
                 // shim compare block, which does a necessary type cast
-                let bb_shim =
-                    self.add_compare_shim(patch, bb_cur_variant_speak, raw_traitobj1, mut_dyn_traitobj);
+                let bb_shim = self.add_compare_shim(
+                    patch,
+                    bb_cur_variant_speak,
+                    raw_traitobj1,
+                    mut_dyn_traitobj,
+                );
                 into_raw_target = Some(bb_shim);
             }
 

@@ -530,6 +530,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.new_block(bb_data)
     }
 
+    /*
     fn add_goto_block(&self, patch: &mut MirPatch<'tcx>, bb_ret: BasicBlock) -> BasicBlock {
         let term = Terminator {
             source_info: self.dummy_source_info(),
@@ -539,6 +540,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let bb_data = BasicBlockData::new(Some(term), false);
         patch.new_block(bb_data)
     }
+    */
 
     fn make_empty_tup(&self) -> Ty<'tcx> {
         let tup_inner: &[Ty<'tcx>] = &[];
@@ -1102,15 +1104,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut into_raw_target = None;
         let mut bb_last_variant_speak = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
-            // goto (to bb_old_return)
-            let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
-
-            // speak
+            // speak (returns to old_next)
             let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
             let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
             let bb_cur_variant_speak = self.add_speak_block(
                 patch,
-                bb_variant_ret,
+                bb_old_next,
                 bb_old_cleanup,
                 raw_traitobj1,
                 raw_traitobj2,

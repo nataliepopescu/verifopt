@@ -1100,6 +1100,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let boxed_dyn_traitobj1 = self.add_boxed_dyn_traitobj_temp(patch, traitobj_did);
 
         let mut into_raw_target = None;
+        let mut bb_last_variant_speak = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
             // goto (to bb_old_return)
             let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
@@ -1107,7 +1108,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             // speak
             let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
             let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
-            let bb_variant_speak = self.add_speak_block(
+            let bb_cur_variant_speak = self.add_speak_block(
                 patch,
                 bb_variant_ret,
                 bb_old_cleanup,
@@ -1123,25 +1124,18 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             if i > 0 {
                 // comparison & switch (if > 1 variant)
                 let first_eq_res = self.add_mut_bool_temp(patch);
-                // TODO bb order may need to switch?
-                //let bb_switch =
-                //    self.add_switch_block(patch, bb_variant_speak, bb_variant_speak, first_eq_res);
 
                 let bb_compare = self.add_compare_and_switch_block(
                     patch,
-                    //bb_variant_speak,
-                    //bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),
                     traitobj_vtable_ref.unwrap(),
                     variant_vtable.unwrap(),
                     variant_vtable_ref.unwrap(),
-                    bb_variant_speak,
-                    // FIXME
-                    bb_variant_speak,
+                    bb_last_variant_speak.unwrap(),
+                    bb_cur_variant_speak,
                     first_eq_res,
-                    //traitobj_did,
                     false,
                     Some(vec![boxed_dyn_traitobj1]),
                 );
@@ -1149,9 +1143,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             } else if dids.len() == 1 {
                 // shim compare block, which does a necessary type cast
                 let bb_shim =
-                    self.add_compare_shim(patch, bb_variant_speak, raw_traitobj1, mut_dyn_traitobj);
+                    self.add_compare_shim(patch, bb_cur_variant_speak, raw_traitobj1, mut_dyn_traitobj);
                 into_raw_target = Some(bb_shim);
             }
+
+            bb_last_variant_speak = Some(bb_cur_variant_speak);
         }
 
         if into_raw_target.is_none() {

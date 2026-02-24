@@ -286,7 +286,8 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 CastKind::IntToInt
                 | CastKind::FloatToInt
                 | CastKind::FloatToFloat
-                | CastKind::IntToFloat => return constraint.clone(),
+                | CastKind::IntToFloat 
+                | CastKind::PtrToPtr => return constraint.clone(),
                 _ => todo!("cannot yet cast: {:?}", constraint),
             },
             _ => todo!("cannot yet cast: {:?}", constraint),

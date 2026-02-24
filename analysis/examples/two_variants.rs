@@ -50,7 +50,8 @@ fn main() {
     match args.len() {
         1 => println!("Pass in a number and see what happens!"),
         _ => {
-            let animal = get_animal(args[1].parse().unwrap());
+            let x = args[1].parse().unwrap();
+            let animal = get_animal(x);
             let cat = get_cat();
             let _animal_vtable = core::ptr::metadata(&*animal);
             let _cat_vtable = core::ptr::metadata(&*cat);

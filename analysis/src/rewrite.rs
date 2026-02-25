@@ -22,6 +22,12 @@ const INTO_RAW_FN_DEFID: DefId = DefId {
 //    index: DefIndex::from_u32(2610),
 //    krate: CrateNum::from_u32(2),
 //};
+// DefId(2:2583 ~ core[c945]::ptr::metadata::{extern#0}::VTable)
+// - defkind == ForeignTy
+const VTABLE_TY_DEFID: DefId = DefId {
+    index: DefIndex::from_u32(2583),
+    krate: CrateNum::from_u32(2),
+};
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -770,6 +776,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
     */
 
+    /*
+     * let mut _: *const std::ptr::metadata::VTable;
+     */
+    fn make_const_ptr_vtable_adt(&self) -> Ty<'tcx> {
+        Ty::new_imm_ptr(self.tcx, Ty::new_foreign(self.tcx, VTABLE_TY_DEFID))
+    }
+
+    /*
     fn make_dynmetadata_adt(&self, traitobj_did: DefId) -> Ty<'tcx> {
         // DynMetadata AdtDef
         let dynmetadata_adt_def = self
@@ -783,6 +797,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         Ty::new_adt(self.tcx, dynmetadata_adt_def, gen_args_ref)
     }
+    */
 
     fn add_compare_shim(
         &self,
@@ -825,7 +840,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.new_block(bb_data)
     }
 
-    fn add_compare_vtable_block(
+    fn add_compare_vtable_and_switch_block(
         &self,
         patch: &mut MirPatch<'tcx>,
         //bb_next: BasicBlock,
@@ -833,9 +848,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         raw_traitobj1_loc: Local,
         mut_dyn_traitobj_loc: Local,
         dynmetadata_traitobj_loc: Local,
-        dynmetadata_traitobj_ref_loc: Local,
+        dynmetadata_traitobj_vtable_loc: Local,
         dynmetadata_concretety_loc: Local,
-        dynmetadata_concretety_ref_loc: Local,
+        dynmetadata_concretety_vtable_loc: Local,
         bb_eq: BasicBlock,
         bb_neq: BasicBlock,
         eq_res_loc: Local,
@@ -890,11 +905,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
         stmts.push(Statement::new(
             self.dummy_source_info(),
-            StatementKind::StorageLive(dynmetadata_traitobj_ref_loc),
+            StatementKind::StorageLive(dynmetadata_traitobj_vtable_loc),
         ));
         stmts.push(Statement::new(
             self.dummy_source_info(),
-            StatementKind::StorageLive(dynmetadata_concretety_ref_loc),
+            StatementKind::StorageLive(dynmetadata_concretety_vtable_loc),
         ));
         stmts.push(Statement::new(
             self.dummy_source_info(),
@@ -943,6 +958,46 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             self.dummy_source_info(),
             StatementKind::Assign(Box::new((
                 Place {
+                    local: dynmetadata_traitobj_vtable_loc,
+                    projection: empty_proj,
+                },
+                Rvalue::Cast(
+                    CastKind::Transmute,
+                    Operand::Copy(
+                        Place {
+                            local: dynmetadata_traitobj_loc,
+                            projection: empty_proj,
+                        }
+                    ),
+                    self.make_const_ptr_vtable_adt(),
+                ),
+            ))),
+        ));
+
+        stmts.push(Statement::new(
+            self.dummy_source_info(),
+            StatementKind::Assign(Box::new((
+                Place {
+                    local: dynmetadata_concretety_vtable_loc,
+                    projection: empty_proj,
+                },
+                Rvalue::Cast(
+                    CastKind::Transmute,
+                    Operand::Copy(
+                        Place {
+                            local: dynmetadata_concretety_loc,
+                            projection: empty_proj,
+                        }
+                    ),
+                    self.make_const_ptr_vtable_adt(),
+                ),
+            ))),
+        ));
+
+        stmts.push(Statement::new(
+            self.dummy_source_info(),
+            StatementKind::Assign(Box::new((
+                Place {
                     local: eq_res_loc,
                     projection: empty_proj,
                 },
@@ -950,11 +1005,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     BinOp::Eq,
                     Box::new((
                         Operand::Copy(Place {
-                            local: dynmetadata_traitobj_loc,
+                            local: dynmetadata_traitobj_vtable_loc,
                             projection: empty_proj,
                         }),
                         Operand::Copy(Place {
-                            local: dynmetadata_concretety_loc,
+                            local: dynmetadata_concretety_vtable_loc,
                             projection: empty_proj,
                         }),
                     )),
@@ -1027,8 +1082,19 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
 
     /*
+     * let mut _: *const std::ptr::metadata::VTable;
+     */
+    fn add_const_ptr_vtable_temp(&self, patch: &mut MirPatch<'tcx>) -> Local {
+        patch.new_temp(
+            Ty::new_imm_ptr(self.tcx, Ty::new_foreign(self.tcx, VTABLE_TY_DEFID)),
+            self.dummy_span(),
+        )
+    }
+
+    /*
      * let mut _: &std:ptr::DynMetadata<dyn Animal>;
      */
+    /*
     fn add_dynmetadata_ref_temp(&self, patch: &mut MirPatch<'tcx>, traitobj_did: DefId) -> Local {
         // add &DynMetadata local to patch
         let dm_adt = self.make_dynmetadata_adt(traitobj_did);
@@ -1042,6 +1108,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             self.dummy_span(),
         )
     }
+    */
 
     fn get_first_arg_local(&self, args: &Box<[Spanned<Operand<'tcx>>]>) -> Local {
         let op = &(*args)[0].node;
@@ -1095,8 +1162,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         let mut traitobj_vtable = None;
         let mut variant_vtable = None;
-        let mut traitobj_vtable_ref = None;
-        let mut variant_vtable_ref = None;
+        let mut traitobj_vtable_ptr = None;
+        let mut variant_vtable_ptr = None;
+        //let mut traitobj_vtable_ref = None;
+        //let mut variant_vtable_ref = None;
         if dids.len() > 1 {
             if self.debug {
                 println!("- multiple variants case");
@@ -1106,8 +1175,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             traitobj_vtable = Some(Local::from_u32(12));
             variant_vtable = Some(Local::from_u32(13));
 
-            traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
-            variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            //variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+            variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
         } else {
             if self.debug {
                 println!("- single variant case");
@@ -1148,16 +1219,16 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 //    first_eq_res,
                 //);
 
-                let bb_compare = self.add_compare_vtable_block(
+                let bb_compare = self.add_compare_vtable_and_switch_block(
                     patch,
                     //bb_switch,
                     //bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),
-                    traitobj_vtable_ref.unwrap(),
+                    traitobj_vtable_ptr.unwrap(),
                     variant_vtable.unwrap(),
-                    variant_vtable_ref.unwrap(),
+                    variant_vtable_ptr.unwrap(),
                     bb_cur_variant_speak,
                     bb_last_variant_speak.unwrap(),
                     first_eq_res,

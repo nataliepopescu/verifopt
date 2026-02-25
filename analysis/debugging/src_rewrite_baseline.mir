@@ -1,0 +1,745 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn get_animal(_1: usize) -> std::boxed::Box<dyn Animal> {
+    debug num => _1;
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _2: std::boxed::Box<Cat>;
+    let mut _3: std::boxed::Box<Dog>;
+
+    bb0: {
+        switchInt(move _1) -> [0: bb1, otherwise: bb3];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = std::boxed::Box::<Cat>::new(const Cat) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        _0 = move _2 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_2);
+        goto -> bb5;
+    }
+
+    bb3: {
+        StorageLive(_3);
+        _3 = std::boxed::Box::<Dog>::new(const Dog) -> [return: bb4, unwind continue];
+    }
+
+    bb4: {
+        _0 = move _3 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_3);
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn get_cat() -> std::boxed::Box<dyn Animal> {
+    let mut _0: std::boxed::Box<dyn Animal>;
+    let mut _1: std::boxed::Box<Cat>;
+
+    bb0: {
+        StorageLive(_1);
+        _1 = std::boxed::Box::<Cat>::new(const Cat) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _0 = move _1 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_1);
+        return;
+    }
+}
+
+fn <impl at examples/src_rewrite_baseline.rs:27:1: 27:20>::kaeps(_1: &Cat) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 11111_usize;
+        return;
+    }
+}
+
+fn <impl at examples/src_rewrite_baseline.rs:27:1: 27:20>::walk(_1: &Cat) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 33333_usize;
+        return;
+    }
+}
+
+fn <impl at examples/src_rewrite_baseline.rs:36:1: 36:20>::kaeps(_1: &Dog) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 22222_usize;
+        return;
+    }
+}
+
+fn <impl at examples/src_rewrite_baseline.rs:36:1: 36:20>::walk(_1: &Dog) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = const 44444_usize;
+        return;
+    }
+}
+
+fn run_src_rw_into_raw(_1: std::boxed::Box<dyn Animal>, _2: std::ptr::DynMetadata<dyn Animal>, _3: std::ptr::DynMetadata<dyn Animal>) -> usize {
+    debug animal => _1;
+    debug animal_vtable => _2;
+    debug cat_vtable => _3;
+    let mut _0: usize;
+    let _4: *const ();
+    let mut _5: *mut dyn Animal;
+    let mut _6: bool;
+    let _7: &Cat;
+    let _8: &Dog;
+    let mut _12: std::ptr::NonNull<dyn Animal>;
+    scope 1 {
+        debug raw_animal => _4;
+        scope 2 {
+            debug cat => _7;
+            scope 14 (inlined <Cat as Animal>::kaeps) {
+            }
+        }
+        scope 3 {
+            debug dog => _8;
+            scope 15 (inlined <Dog as Animal>::kaeps) {
+            }
+        }
+        scope 10 (inlined <std::ptr::DynMetadata<dyn Animal> as std::cmp::PartialEq>::eq) {
+            let mut _10: *const std::ptr::metadata::VTable;
+            let mut _11: *const std::ptr::metadata::VTable;
+            scope 11 (inlined std::ptr::DynMetadata::<dyn Animal>::vtable_ptr) {
+            }
+            scope 12 (inlined std::ptr::DynMetadata::<dyn Animal>::vtable_ptr) {
+            }
+            scope 13 (inlined std::ptr::eq::<std::ptr::metadata::VTable>) {
+            }
+        }
+    }
+    scope 4 (inlined std::boxed::Box::<dyn Animal>::into_raw) {
+        let mut _9: *const dyn Animal;
+        scope 5 {
+            scope 8 (inlined <std::mem::ManuallyDrop<std::boxed::Box<dyn Animal>> as std::ops::DerefMut>::deref_mut) {
+                scope 9 (inlined std::mem::MaybeDangling::<std::boxed::Box<dyn Animal>>::as_mut) {
+                }
+            }
+        }
+        scope 6 (inlined std::mem::ManuallyDrop::<std::boxed::Box<dyn Animal>>::new) {
+            scope 7 (inlined std::mem::MaybeDangling::<std::boxed::Box<dyn Animal>>::new) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_5);
+        _12 = move ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>);
+        StorageLive(_9);
+        _9 = copy _12 as *const dyn Animal (Transmute);
+        _5 = &raw mut (*_9);
+        StorageDead(_9);
+        _4 = copy _5 as *const () (PtrToPtr);
+        StorageDead(_5);
+        StorageLive(_6);
+        StorageLive(_10);
+        _10 = copy _2 as *const std::ptr::metadata::VTable (Transmute);
+        StorageLive(_11);
+        _11 = copy _3 as *const std::ptr::metadata::VTable (Transmute);
+        _6 = Eq(copy _10, copy _11);
+        StorageDead(_11);
+        StorageDead(_10);
+        switchInt(move _6) -> [0: bb2, otherwise: bb1];
+    }
+
+    bb1: {
+        StorageLive(_7);
+        _7 = copy _4 as &Cat (Transmute);
+        StorageDead(_7);
+        _0 = const 11111_usize;
+        goto -> bb3;
+    }
+
+    bb2: {
+        StorageLive(_8);
+        _8 = copy _4 as &Dog (Transmute);
+        StorageDead(_8);
+        _0 = const 22222_usize;
+        goto -> bb3;
+    }
+
+    bb3: {
+        StorageDead(_6);
+        return;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::vec::Vec<std::string::String>;
+    let mut _2: std::env::Args;
+    let mut _3: usize;
+    let _4: ();
+    let mut _5: std::fmt::Arguments<'_>;
+    let mut _7: std::result::Result<usize, std::num::ParseIntError>;
+    let _8: &str;
+    let _9: &std::string::String;
+    let _15: ();
+    let mut _16: std::fmt::Arguments<'_>;
+    let mut _17: &bool;
+    let _18: bool;
+    let mut _20: core::fmt::rt::Argument<'_>;
+    let _21: &[core::fmt::rt::Argument<'_>; 1];
+    let _22: ();
+    let mut _23: std::fmt::Arguments<'_>;
+    let mut _24: &usize;
+    let mut _26: core::fmt::rt::Argument<'_>;
+    let _27: &[core::fmt::rt::Argument<'_>; 1];
+    let mut _28: bool;
+    let mut _29: *const dyn Animal;
+    let mut _30: *const dyn Animal;
+    let mut _37: &str;
+    scope 1 {
+        debug args => _1;
+        let _6: usize;
+        scope 2 {
+            debug x => _6;
+            let _10: std::boxed::Box<dyn Animal>;
+            scope 3 {
+                debug animal => _10;
+                let _11: std::boxed::Box<dyn Animal>;
+                scope 4 {
+                    debug cat => _11;
+                    let _12: std::ptr::DynMetadata<dyn Animal>;
+                    scope 5 {
+                        debug animal_vtable => _12;
+                        let _13: std::ptr::DynMetadata<dyn Animal>;
+                        scope 6 {
+                            debug cat_vtable => _13;
+                            let _14: usize;
+                            scope 7 {
+                                debug res => _14;
+                                scope 8 {
+                                    debug ((args: (&bool,)).0: &bool) => _17;
+                                    let _19: [core::fmt::rt::Argument<'_>; 1];
+                                    scope 9 {
+                                        debug args => _19;
+                                        scope 93 (inlined std::fmt::Arguments::<'_>::new::<17, 1>) {
+                                            let mut _62: std::ptr::NonNull<u8>;
+                                            let mut _63: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+                                        }
+                                    }
+                                    scope 88 (inlined core::fmt::rt::Argument::<'_>::new_debug::<bool>) {
+                                        let mut _56: core::fmt::rt::ArgumentType<'_>;
+                                        let mut _57: std::ptr::NonNull<()>;
+                                        let mut _58: for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error>;
+                                        let _59: for<'a, 'b, 'c> fn(&'a bool, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error>;
+                                        scope 89 {
+                                        }
+                                        scope 90 (inlined std::ptr::NonNull::<bool>::from_ref) {
+                                            let mut _60: *const bool;
+                                        }
+                                        scope 91 (inlined std::ptr::NonNull::<bool>::cast::<()>) {
+                                            let mut _61: *const ();
+                                            scope 92 (inlined std::ptr::NonNull::<bool>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                }
+                                scope 10 {
+                                    debug ((args: (&usize,)).0: &usize) => _24;
+                                    let _25: [core::fmt::rt::Argument<'_>; 1];
+                                    scope 11 {
+                                        debug args => _25;
+                                        scope 99 (inlined std::fmt::Arguments::<'_>::new::<10, 1>) {
+                                            let mut _70: std::ptr::NonNull<u8>;
+                                            let mut _71: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+                                        }
+                                    }
+                                    scope 94 (inlined core::fmt::rt::Argument::<'_>::new_debug::<usize>) {
+                                        let mut _64: core::fmt::rt::ArgumentType<'_>;
+                                        let mut _65: std::ptr::NonNull<()>;
+                                        let mut _66: for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error>;
+                                        let _67: for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error>;
+                                        scope 95 {
+                                        }
+                                        scope 96 (inlined std::ptr::NonNull::<usize>::from_ref) {
+                                            let mut _68: *const usize;
+                                        }
+                                        scope 97 (inlined std::ptr::NonNull::<usize>::cast::<()>) {
+                                            let mut _69: *const ();
+                                            scope 98 (inlined std::ptr::NonNull::<usize>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                }
+                                scope 84 (inlined <std::ptr::DynMetadata<dyn Animal> as std::cmp::PartialEq>::eq) {
+                                    scope 85 (inlined std::ptr::DynMetadata::<dyn Animal>::vtable_ptr) {
+                                    }
+                                    scope 86 (inlined std::ptr::DynMetadata::<dyn Animal>::vtable_ptr) {
+                                    }
+                                    scope 87 (inlined std::ptr::eq::<std::ptr::metadata::VTable>) {
+                                    }
+                                }
+                            }
+                            scope 68 (inlined run_src_rw_into_raw) {
+                                let mut _53: bool;
+                                scope 69 {
+                                    scope 70 {
+                                        scope 82 (inlined <Cat as Animal>::kaeps) {
+                                        }
+                                    }
+                                    scope 71 {
+                                        scope 83 (inlined <Dog as Animal>::kaeps) {
+                                        }
+                                    }
+                                    scope 78 (inlined <std::ptr::DynMetadata<dyn Animal> as std::cmp::PartialEq>::eq) {
+                                        let mut _54: *const std::ptr::metadata::VTable;
+                                        let mut _55: *const std::ptr::metadata::VTable;
+                                        scope 79 (inlined std::ptr::DynMetadata::<dyn Animal>::vtable_ptr) {
+                                        }
+                                        scope 80 (inlined std::ptr::DynMetadata::<dyn Animal>::vtable_ptr) {
+                                        }
+                                        scope 81 (inlined std::ptr::eq::<std::ptr::metadata::VTable>) {
+                                        }
+                                    }
+                                }
+                                scope 72 (inlined std::boxed::Box::<dyn Animal>::into_raw) {
+                                    scope 73 {
+                                        scope 76 (inlined <std::mem::ManuallyDrop<std::boxed::Box<dyn Animal>> as std::ops::DerefMut>::deref_mut) {
+                                            scope 77 (inlined std::mem::MaybeDangling::<std::boxed::Box<dyn Animal>>::as_mut) {
+                                            }
+                                        }
+                                    }
+                                    scope 74 (inlined std::mem::ManuallyDrop::<std::boxed::Box<dyn Animal>>::new) {
+                                        scope 75 (inlined std::mem::MaybeDangling::<std::boxed::Box<dyn Animal>>::new) {
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        scope 67 (inlined std::ptr::metadata::<dyn Animal>) {
+                        }
+                    }
+                    scope 66 (inlined std::ptr::metadata::<dyn Animal>) {
+                    }
+                }
+                scope 65 (inlined get_cat) {
+                    let mut _52: std::boxed::Box<Cat>;
+                }
+            }
+        }
+        scope 28 (inlined std::vec::Vec::<std::string::String>::len) {
+            let mut _31: bool;
+            scope 29 {
+            }
+        }
+        scope 30 (inlined #[track_caller] <std::vec::Vec<std::string::String> as std::ops::Index<usize>>::index) {
+            scope 31 (inlined <std::vec::Vec<std::string::String> as std::ops::Deref>::deref) {
+                scope 32 (inlined std::vec::Vec::<std::string::String>::as_slice) {
+                    let _32: *const [std::string::String];
+                    let mut _33: *const std::string::String;
+                    let mut _34: usize;
+                    scope 33 (inlined std::vec::Vec::<std::string::String>::as_ptr) {
+                        scope 34 (inlined alloc::raw_vec::RawVec::<std::string::String>::ptr) {
+                            scope 35 (inlined alloc::raw_vec::RawVecInner::ptr::<std::string::String>) {
+                                scope 36 (inlined alloc::raw_vec::RawVecInner::non_null::<std::string::String>) {
+                                    let mut _35: std::ptr::NonNull<u8>;
+                                    scope 37 (inlined std::ptr::Unique::<u8>::cast::<std::string::String>) {
+                                        scope 38 (inlined std::ptr::NonNull::<u8>::cast::<std::string::String>) {
+                                            scope 39 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 40 (inlined std::ptr::Unique::<std::string::String>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 41 (inlined std::ptr::NonNull::<std::string::String>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            scope 42 (inlined #[track_caller] core::slice::index::<impl std::ops::Index<usize> for [std::string::String]>::index) {
+                scope 43 (inlined #[track_caller] <usize as std::slice::SliceIndex<[std::string::String]>>::index) {
+                    let mut _36: bool;
+                }
+            }
+        }
+        scope 44 (inlined std::fmt::Arguments::<'_>::from_str) {
+            let mut _38: std::ptr::NonNull<u8>;
+            let mut _39: *const u8;
+            let mut _40: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+            let mut _41: usize;
+            let mut _42: usize;
+            let mut _43: usize;
+            scope 45 (inlined core::str::<impl str>::as_ptr) {
+                let mut _44: *const str;
+            }
+            scope 46 (inlined core::str::<impl str>::len) {
+                let _45: &[u8];
+                scope 47 (inlined core::str::<impl str>::as_bytes) {
+                }
+            }
+        }
+        scope 48 (inlined <std::string::String as std::ops::Deref>::deref) {
+            scope 49 (inlined std::string::String::as_str) {
+                let _46: &[u8];
+                scope 50 (inlined std::vec::Vec::<u8>::as_slice) {
+                    let _47: *const [u8];
+                    let mut _48: *const u8;
+                    let mut _49: usize;
+                    scope 51 (inlined std::vec::Vec::<u8>::as_ptr) {
+                        scope 52 (inlined alloc::raw_vec::RawVec::<u8>::ptr) {
+                            scope 53 (inlined alloc::raw_vec::RawVecInner::ptr::<u8>) {
+                                scope 54 (inlined alloc::raw_vec::RawVecInner::non_null::<u8>) {
+                                    let mut _50: std::ptr::NonNull<u8>;
+                                    scope 55 (inlined std::ptr::Unique::<u8>::cast::<u8>) {
+                                        scope 56 (inlined std::ptr::NonNull::<u8>::cast::<u8>) {
+                                            scope 57 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 58 (inlined std::ptr::Unique::<u8>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 59 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                }
+                scope 60 (inlined std::str::from_utf8_unchecked) {
+                }
+            }
+        }
+        scope 61 (inlined core::str::<impl str>::parse::<usize>) {
+            scope 62 (inlined core::num::<impl std::str::FromStr for usize>::from_str) {
+                scope 63 (inlined core::num::<impl usize>::from_str_radix) {
+                    let _51: &[u8];
+                    scope 64 (inlined core::str::<impl str>::as_bytes) {
+                    }
+                }
+            }
+        }
+    }
+    scope 12 (inlined <std::env::Args as std::iter::Iterator>::collect::<std::vec::Vec<std::string::String>>) {
+        scope 13 {
+            scope 14 {
+                scope 15 {
+                    scope 24 (inlined std::fmt::Arguments::<'_>::new::<23, 1>) {
+                    }
+                }
+                scope 19 (inlined core::fmt::rt::Argument::<'_>::new_debug::<(usize, std::option::Option<usize>)>) {
+                    scope 20 {
+                    }
+                    scope 21 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::from_ref) {
+                    }
+                    scope 22 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::cast::<()>) {
+                        scope 23 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::as_ptr) {
+                        }
+                    }
+                }
+            }
+            scope 16 (inlined std::option::Option::<usize>::is_none_or::<{closure@<std::env::Args as std::iter::Iterator>::collect<std::vec::Vec<std::string::String>>::{closure#0}}>) {
+                scope 17 {
+                    scope 18 (inlined <std::env::Args as std::iter::Iterator>::collect::<std::vec::Vec<std::string::String>>::{closure#0}) {
+                    }
+                }
+            }
+        }
+        scope 25 (inlined <std::vec::Vec<std::string::String> as std::iter::FromIterator<std::string::String>>::from_iter::<std::env::Args>) {
+            scope 26 (inlined <std::env::Args as std::iter::IntoIterator>::into_iter) {
+            }
+            scope 27 (inlined <std::vec::Vec<std::string::String> as std::vec::spec_from_iter::SpecFromIter<std::string::String, std::env::Args>>::from_iter) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        _2 = std::env::args() -> [return: bb16, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_7);
+        StorageLive(_33);
+        StorageLive(_35);
+        _35 = copy ((((_1.0: alloc::raw_vec::RawVec<std::string::String>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _33 = copy _35 as *const std::string::String (Transmute);
+        StorageDead(_35);
+        _34 = copy (_1.1: usize);
+        _32 = *const [std::string::String] from (copy _33, copy _34);
+        StorageDead(_33);
+        StorageLive(_36);
+        _36 = Lt(const 1_usize, copy _34);
+        assert(move _36, "index out of bounds: the length is {} but the index is {}", copy _34, const 1_usize) -> [success: bb18, unwind: bb12];
+    }
+
+    bb2: {
+        StorageLive(_5);
+        StorageLive(_37);
+        _37 = const "Pass in a number and see what happens!\n";
+        StorageLive(_38);
+        StorageLive(_39);
+        StorageLive(_44);
+        _44 = &raw const (*_37);
+        _39 = copy _44 as *const u8 (PtrToPtr);
+        StorageDead(_44);
+        _38 = copy _39 as std::ptr::NonNull<u8> (Transmute);
+        StorageDead(_39);
+        StorageLive(_40);
+        StorageLive(_41);
+        StorageLive(_42);
+        StorageLive(_43);
+        StorageLive(_45);
+        _45 = const "Pass in a number and see what happens!\n" as &[u8] (Transmute);
+        _43 = PtrMetadata(copy _45);
+        StorageDead(_45);
+        _42 = Shl(move _43, const 1_i32);
+        StorageDead(_43);
+        _41 = BitOr(move _42, const 1_usize);
+        StorageDead(_42);
+        _40 = move _41 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        StorageDead(_41);
+        _5 = std::fmt::Arguments::<'_> { template: move _38, args: move _40 };
+        StorageDead(_40);
+        StorageDead(_38);
+        StorageDead(_37);
+        _4 = std::io::_print(move _5) -> [return: bb3, unwind: bb12];
+    }
+
+    bb3: {
+        StorageDead(_5);
+        goto -> bb9;
+    }
+
+    bb4: {
+        StorageDead(_7);
+        StorageLive(_10);
+        _10 = get_animal(move _6) -> [return: bb5, unwind: bb12];
+    }
+
+    bb5: {
+        _28 = const true;
+        StorageLive(_11);
+        StorageLive(_52);
+        _52 = std::boxed::Box::<Cat>::new(const Cat) -> [return: bb20, unwind: bb15];
+    }
+
+    bb6: {
+        StorageDead(_16);
+        StorageDead(_19);
+        StorageDead(_18);
+        StorageLive(_23);
+        _24 = &_14;
+        StorageLive(_25);
+        StorageLive(_26);
+        StorageLive(_67);
+        StorageLive(_68);
+        StorageLive(_64);
+        StorageLive(_65);
+        _68 = &raw const (*_24);
+        StorageLive(_69);
+        _69 = copy _68 as *const () (PtrToPtr);
+        _65 = std::ptr::NonNull::<()> { pointer: copy _69 };
+        StorageDead(_69);
+        StorageLive(_66);
+        _67 = <usize as std::fmt::Debug>::fmt as for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Safe), Implicit));
+        _66 = copy _67 as for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error> (Transmute);
+        _64 = core::fmt::rt::ArgumentType::<'_>::Placeholder { value: move _65, formatter: copy _66, _lifetime: const std::marker::PhantomData::<&()> };
+        StorageDead(_66);
+        StorageDead(_65);
+        _26 = core::fmt::rt::Argument::<'_> { ty: move _64 };
+        StorageDead(_64);
+        StorageDead(_68);
+        StorageDead(_67);
+        _25 = [move _26];
+        StorageDead(_26);
+        _27 = &_25;
+        StorageLive(_70);
+        _70 = const b"\x05res: \xc0\x01\n\x00" as std::ptr::NonNull<u8> (Transmute);
+        StorageLive(_71);
+        _71 = copy _27 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        _23 = std::fmt::Arguments::<'_> { template: move _70, args: move _71 };
+        StorageDead(_71);
+        StorageDead(_70);
+        _22 = std::io::_print(move _23) -> [return: bb7, unwind: bb11];
+    }
+
+    bb7: {
+        StorageDead(_23);
+        StorageDead(_25);
+        StorageDead(_14);
+        drop(_11) -> [return: bb8, unwind: bb15];
+    }
+
+    bb8: {
+        StorageDead(_11);
+        StorageDead(_10);
+        goto -> bb9;
+    }
+
+    bb9: {
+        drop(_1) -> [return: bb10, unwind continue];
+    }
+
+    bb10: {
+        StorageDead(_1);
+        StorageDead(_3);
+        return;
+    }
+
+    bb11 (cleanup): {
+        drop(_11) -> [return: bb15, unwind terminate(cleanup)];
+    }
+
+    bb12 (cleanup): {
+        drop(_1) -> [return: bb13, unwind terminate(cleanup)];
+    }
+
+    bb13 (cleanup): {
+        resume;
+    }
+
+    bb14 (cleanup): {
+        drop(_10) -> [return: bb12, unwind terminate(cleanup)];
+    }
+
+    bb15 (cleanup): {
+        switchInt(copy _28) -> [0: bb12, otherwise: bb14];
+    }
+
+    bb16: {
+        _1 = <std::vec::Vec<std::string::String> as std::vec::spec_from_iter_nested::SpecFromIterNested<std::string::String, std::env::Args>>::from_iter(move _2) -> [return: bb17, unwind continue];
+    }
+
+    bb17: {
+        StorageLive(_3);
+        _3 = copy (_1.1: usize);
+        StorageLive(_31);
+        _31 = Le(copy _3, const <std::string::String as std::mem::SizedTypeProperties>::MAX_SLICE_LEN);
+        assume(move _31);
+        StorageDead(_31);
+        switchInt(copy _3) -> [1: bb2, otherwise: bb1];
+    }
+
+    bb18: {
+        _9 = &(*_32)[1 of 2];
+        StorageDead(_36);
+        StorageLive(_46);
+        StorageLive(_47);
+        StorageLive(_48);
+        StorageLive(_50);
+        _50 = copy ((((((*_9).0: std::vec::Vec<u8>).0: alloc::raw_vec::RawVec<u8>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _48 = copy _50 as *const u8 (Transmute);
+        StorageDead(_50);
+        StorageLive(_49);
+        _49 = copy (((*_9).0: std::vec::Vec<u8>).1: usize);
+        _47 = *const [u8] from (copy _48, move _49);
+        StorageDead(_49);
+        StorageDead(_48);
+        _46 = &(*_47);
+        StorageDead(_47);
+        _8 = copy _46 as &str (Transmute);
+        StorageDead(_46);
+        StorageLive(_51);
+        _51 = copy _8 as &[u8] (Transmute);
+        _7 = core::num::<impl usize>::from_ascii_radix(move _51, const 10_u32) -> [return: bb19, unwind: bb12];
+    }
+
+    bb19: {
+        StorageDead(_51);
+        _6 = std::result::Result::<usize, std::num::ParseIntError>::unwrap(move _7) -> [return: bb4, unwind: bb12];
+    }
+
+    bb20: {
+        _11 = move _52 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_52);
+        _29 = copy ((_10.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _12 = PtrMetadata(copy _29);
+        _30 = copy ((_11.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _13 = PtrMetadata(copy _30);
+        StorageLive(_14);
+        _28 = const false;
+        _54 = copy _12 as *const std::ptr::metadata::VTable (Transmute);
+        _55 = copy _13 as *const std::ptr::metadata::VTable (Transmute);
+        _53 = Eq(copy _54, copy _55);
+        switchInt(copy _53) -> [0: bb22, otherwise: bb21];
+    }
+
+    bb21: {
+        _14 = const 11111_usize;
+        goto -> bb23;
+    }
+
+    bb22: {
+        _14 = const 22222_usize;
+        goto -> bb23;
+    }
+
+    bb23: {
+        StorageLive(_16);
+        StorageLive(_18);
+        _18 = copy _53;
+        _17 = &_18;
+        StorageLive(_19);
+        StorageLive(_20);
+        StorageLive(_59);
+        StorageLive(_60);
+        StorageLive(_56);
+        StorageLive(_57);
+        _60 = &raw const (*_17);
+        StorageLive(_61);
+        _61 = copy _60 as *const () (PtrToPtr);
+        _57 = std::ptr::NonNull::<()> { pointer: copy _61 };
+        StorageDead(_61);
+        StorageLive(_58);
+        _59 = <bool as std::fmt::Debug>::fmt as for<'a, 'b, 'c> fn(&'a bool, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Safe), Implicit));
+        _58 = copy _59 as for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error> (Transmute);
+        _56 = core::fmt::rt::ArgumentType::<'_>::Placeholder { value: move _57, formatter: copy _58, _lifetime: const std::marker::PhantomData::<&()> };
+        StorageDead(_58);
+        StorageDead(_57);
+        _20 = core::fmt::rt::Argument::<'_> { ty: move _56 };
+        StorageDead(_56);
+        StorageDead(_60);
+        StorageDead(_59);
+        _19 = [move _20];
+        StorageDead(_20);
+        _21 = &_19;
+        StorageLive(_62);
+        _62 = const b"\x0cvtables eq? \xc0\x01\n\x00" as std::ptr::NonNull<u8> (Transmute);
+        StorageLive(_63);
+        _63 = copy _21 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        _16 = std::fmt::Arguments::<'_> { template: move _62, args: move _63 };
+        StorageDead(_63);
+        StorageDead(_62);
+        _15 = std::io::_print(move _16) -> [return: bb6, unwind: bb11];
+    }
+}
+
+alloc3 (size: 10, align: 1) {
+    05 72 65 73 3a 20 c0 01 0a 00                   │ .res: ....
+}
+
+alloc2 (size: 17, align: 1) {
+    0x00 │ 0c 76 74 61 62 6c 65 73 20 65 71 3f 20 c0 01 0a │ .vtables eq? ...
+    0x10 │ 00                                              │ .
+}
+
+alloc1 (size: 39, align: 1) {
+    0x00 │ 50 61 73 73 20 69 6e 20 61 20 6e 75 6d 62 65 72 │ Pass in a number
+    0x10 │ 20 61 6e 64 20 73 65 65 20 77 68 61 74 20 68 61 │  and see what ha
+    0x20 │ 70 70 65 6e 73 21 0a                            │ ppens!.
+}

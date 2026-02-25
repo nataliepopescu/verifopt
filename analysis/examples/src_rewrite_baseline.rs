@@ -73,6 +73,7 @@ fn main() {
             let animal_vtable = core::ptr::metadata(&*animal);
             let cat_vtable = core::ptr::metadata(&*cat);
             let res = run_src_rw_into_raw(animal, animal_vtable, cat_vtable);
+            println!("vtables eq? {:?}", animal_vtable == cat_vtable);
             println!("res: {:?}", res);
         }
     }

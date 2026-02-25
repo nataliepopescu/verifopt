@@ -966,14 +966,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         let args: Box<[Spanned<Operand<'tcx>>]> = Box::new([
             Spanned {
-                node: Operand::Move(Place {
+                node: Operand::Copy(Place {
                     local: dynmetadata_traitobj_ref_loc,
                     projection: empty_proj,
                 }),
                 span: self.dummy_span(),
             },
             Spanned {
-                node: Operand::Move(Place {
+                node: Operand::Copy(Place {
                     local: dynmetadata_concretety_ref_loc,
                     projection: empty_proj,
                 }),

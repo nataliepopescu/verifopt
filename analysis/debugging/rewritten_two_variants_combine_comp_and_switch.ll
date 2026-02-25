@@ -847,7 +847,7 @@ bb4:                                              ; preds = %bb22.i, %bb20.i
 
 bb24.thread:                                      ; preds = %bb4, %bb4.thread
   call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %res)
-  br label %bb22
+  br label %bb23
 
 bb14:                                             ; preds = %cleanup4
 ; invoke core::ptr::drop_in_place::<alloc::boxed::Box<dyn two_variants::Animal>>
@@ -864,15 +864,15 @@ cleanup4:                                         ; preds = %bb7, %bb6
 bb24:                                             ; preds = %bb4
   call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %res)
   %_78 = icmp eq ptr @vtable.2, @vtable.1
-  br i1 %_78, label %bb22, label %bb6
+  br i1 %_78, label %bb23, label %bb6
 
-bb22:                                             ; preds = %bb24.thread, %bb24
+bb23:                                             ; preds = %bb24.thread, %bb24
   br label %bb6
 
-bb6:                                              ; preds = %bb24, %bb22
-  %83 = phi ptr [ @vtable.1, %bb22 ], [ @vtable.2, %bb24 ]
+bb6:                                              ; preds = %bb24, %bb23
+  %83 = phi ptr [ @vtable.1, %bb23 ], [ @vtable.2, %bb24 ]
   call void @llvm.lifetime.start.p0(i64 8, ptr nonnull %res)
-  store i64 11111, ptr %res, align 8
+  store i64 22222, ptr %res, align 8
   call void @llvm.lifetime.start.p0(i64 16, ptr nonnull %args1)
   store ptr %x, ptr %args1, align 8
   %_20.sroa.4.0..sroa_idx = getelementptr inbounds nuw i8, ptr %args1, i64 8

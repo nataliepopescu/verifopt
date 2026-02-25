@@ -641,7 +641,7 @@ fn main() -> () {
         StorageLive(_70);
         StorageLive(_78);
         _78 = Eq(copy _12, copy _13);
-        switchInt(move _78) -> [0: bb23, otherwise: bb22];
+        switchInt(move _78) -> [0: bb22, otherwise: bb23];
     }
 
     bb25: {

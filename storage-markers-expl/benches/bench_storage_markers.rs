@@ -5,7 +5,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_ma
 use std::time::Duration;
 
 use rand::Rng;
-use storage_markers_expl::{heap_dep_stack, recurse_large_array, cereal, cereal_200};
+use storage_markers_expl::{heap_dep_stack, recurse_large_array, cereal, cereal_200, blowup_stack, stack_overflow};
 
 fn bench_recurse_large_array(c: &mut Criterion) {
     let mut group = c.benchmark_group("rla");
@@ -50,9 +50,23 @@ fn bench_cereal_200(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_blowup_stack(c: &mut Criterion) {
+    let mut group = c.benchmark_group("blowup_bench");
+
+    group.bench_function("bb", |b| b.iter(|| std::hint::black_box(blowup_stack::main())));
+    group.finish();
+}
+
+fn bench_stack_overflow(c: &mut Criterion) {
+    let mut group = c.benchmark_group("stack_overflow");
+
+    group.bench_function("so", |b| b.iter(|| std::hint::black_box(stack_overflow::main())));
+    group.finish();
+}
+
 const SAMPLE_SIZE: usize = 200;
-const WARMUP_TIME: u64 = 5;
-const MEASUREMENT_TIME: u64 = 10;
+const WARMUP_TIME: u64 = 10;
+const MEASUREMENT_TIME: u64 = 30;
 
 criterion_group! {
     name = recurse_large_array_benches;
@@ -90,6 +104,16 @@ criterion_group! {
     targets = bench_cereal_200
 }
 
+
+criterion_group! {
+    name = blowup_stack_benches;
+    config = Criterion::default()
+        .sample_size(SAMPLE_SIZE)
+        .warm_up_time(Duration::new(WARMUP_TIME, 0))
+        .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
+    targets = bench_blowup_stack
+}
+
 criterion_group! {
     name = all_benches;
     config = Criterion::default()
@@ -97,12 +121,14 @@ criterion_group! {
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
     targets =
-        bench_recurse_large_array,
-        bench_heap_dep_stack,
-        bench_cereal,
-        bench_cereal_200,
+        // bench_recurse_large_array,
+        // bench_heap_dep_stack,
+        // bench_cereal,
+        // bench_cereal_200,
+        bench_blowup_stack,
+        // bench_stack_overflow,
 }
 
 
-criterion_main!(cereal_benches);
+criterion_main!(all_benches);
 

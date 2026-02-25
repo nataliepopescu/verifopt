@@ -1,0 +1,941 @@
+// WARNING: This output format is intended for human consumers only
+// and is subject to change without notice. Knock yourself out.
+// HINT: See also -Z dump-mir for MIR at specific points during compilation.
+fn meal() -> Big {
+    let mut _0: Big;
+    let mut _1: bool;
+    let mut _2: !;
+    let mut _3: [std::option::Option<std::boxed::Box<u8>>; 48];
+    scope 1 (inlined std::hint::black_box::<bool>) {
+    }
+
+    bb0: {
+        _1 = std::intrinsics::black_box::<bool>(const false) -> [return: bb3, unwind unreachable];
+    }
+
+    bb1: {
+        _2 = core::panicking::panic(const "explicit panic") -> unwind continue;
+    }
+
+    bb2: {
+        _3 = [const Option::<Box<u8>>::None; 48];
+        _0 = Big { drop_me: move _3 };
+        StorageDead(_3);
+        return;
+    }
+
+    bb3: {
+        switchInt(move _1) -> [0: bb2, otherwise: bb1];
+    }
+}
+
+alloc1 (size: 14, align: 1) {
+    65 78 70 6c 69 63 69 74 20 70 61 6e 69 63       │ explicit panic
+}
+
+const Big::drop_me::{constant#0}: usize = const 48_usize;
+
+fn push(_1: &mut Vec<Big>) -> () {
+    debug out => _1;
+    let mut _0: ();
+    let mut _2: Big;
+    scope 1 (inlined Vec::<Big>::push) {
+        let mut _3: &mut Big;
+        scope 2 {
+        }
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = meal() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _3 = Vec::<Big>::push_mut(move _1, move _2) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+}
+
+fn supersize_me(_1: &mut Vec<Big>) -> () {
+    debug out => _1;
+    let mut _0: ();
+    let _2: ();
+    let mut _3: *mut std::vec::Vec<Big>;
+    scope 1 (inlined push) {
+        let mut _4: Big;
+        scope 2 (inlined Vec::<Big>::push) {
+            let mut _5: &mut Big;
+            scope 3 {
+            }
+        }
+    }
+    scope 4 (inlined push) {
+        let mut _6: Big;
+        scope 5 (inlined Vec::<Big>::push) {
+            let mut _7: &mut Big;
+            scope 6 {
+            }
+        }
+    }
+    scope 7 (inlined push) {
+        let mut _8: Big;
+        scope 8 (inlined Vec::<Big>::push) {
+            let mut _9: &mut Big;
+            scope 9 {
+            }
+        }
+    }
+    scope 10 (inlined push) {
+        let mut _10: Big;
+        scope 11 (inlined Vec::<Big>::push) {
+            let mut _11: &mut Big;
+            scope 12 {
+            }
+        }
+    }
+    scope 13 (inlined push) {
+        let mut _12: Big;
+        scope 14 (inlined Vec::<Big>::push) {
+            let mut _13: &mut Big;
+            scope 15 {
+            }
+        }
+    }
+    scope 16 (inlined push) {
+        let mut _14: Big;
+        scope 17 (inlined Vec::<Big>::push) {
+            let mut _15: &mut Big;
+            scope 18 {
+            }
+        }
+    }
+    scope 19 (inlined push) {
+        let mut _16: Big;
+        scope 20 (inlined Vec::<Big>::push) {
+            let mut _17: &mut Big;
+            scope 21 {
+            }
+        }
+    }
+    scope 22 (inlined push) {
+        let mut _18: Big;
+        scope 23 (inlined Vec::<Big>::push) {
+            let mut _19: &mut Big;
+            scope 24 {
+            }
+        }
+    }
+    scope 25 (inlined push) {
+        let mut _20: Big;
+        scope 26 (inlined Vec::<Big>::push) {
+            let mut _21: &mut Big;
+            scope 27 {
+            }
+        }
+    }
+    scope 28 (inlined push) {
+        let mut _22: Big;
+        scope 29 (inlined Vec::<Big>::push) {
+            let mut _23: &mut Big;
+            scope 30 {
+            }
+        }
+    }
+    scope 31 (inlined push) {
+        let mut _24: Big;
+        scope 32 (inlined Vec::<Big>::push) {
+            let mut _25: &mut Big;
+            scope 33 {
+            }
+        }
+    }
+    scope 34 (inlined push) {
+        let mut _26: Big;
+        scope 35 (inlined Vec::<Big>::push) {
+            let mut _27: &mut Big;
+            scope 36 {
+            }
+        }
+    }
+    scope 37 (inlined push) {
+        let mut _28: Big;
+        scope 38 (inlined Vec::<Big>::push) {
+            let mut _29: &mut Big;
+            scope 39 {
+            }
+        }
+    }
+    scope 40 (inlined push) {
+        let mut _30: Big;
+        scope 41 (inlined Vec::<Big>::push) {
+            let mut _31: &mut Big;
+            scope 42 {
+            }
+        }
+    }
+    scope 43 (inlined push) {
+        let mut _32: Big;
+        scope 44 (inlined Vec::<Big>::push) {
+            let mut _33: &mut Big;
+            scope 45 {
+            }
+        }
+    }
+    scope 46 (inlined push) {
+        let mut _34: Big;
+        scope 47 (inlined Vec::<Big>::push) {
+            let mut _35: &mut Big;
+            scope 48 {
+            }
+        }
+    }
+    scope 49 (inlined push) {
+        let mut _36: Big;
+        scope 50 (inlined Vec::<Big>::push) {
+            let mut _37: &mut Big;
+            scope 51 {
+            }
+        }
+    }
+    scope 52 (inlined push) {
+        let mut _38: Big;
+        scope 53 (inlined Vec::<Big>::push) {
+            let mut _39: &mut Big;
+            scope 54 {
+            }
+        }
+    }
+    scope 55 (inlined push) {
+        let mut _40: Big;
+        scope 56 (inlined Vec::<Big>::push) {
+            let mut _41: &mut Big;
+            scope 57 {
+            }
+        }
+    }
+    scope 58 (inlined push) {
+        let mut _42: Big;
+        scope 59 (inlined Vec::<Big>::push) {
+            let mut _43: &mut Big;
+            scope 60 {
+            }
+        }
+    }
+    scope 61 (inlined push) {
+        let mut _44: Big;
+        scope 62 (inlined Vec::<Big>::push) {
+            let mut _45: &mut Big;
+            scope 63 {
+            }
+        }
+    }
+    scope 64 (inlined push) {
+        let mut _46: Big;
+        scope 65 (inlined Vec::<Big>::push) {
+            let mut _47: &mut Big;
+            scope 66 {
+            }
+        }
+    }
+    scope 67 (inlined push) {
+        let mut _48: Big;
+        scope 68 (inlined Vec::<Big>::push) {
+            let mut _49: &mut Big;
+            scope 69 {
+            }
+        }
+    }
+    scope 70 (inlined push) {
+        let mut _50: Big;
+        scope 71 (inlined Vec::<Big>::push) {
+            let mut _51: &mut Big;
+            scope 72 {
+            }
+        }
+    }
+    scope 73 (inlined push) {
+        let mut _52: Big;
+        scope 74 (inlined Vec::<Big>::push) {
+            let mut _53: &mut Big;
+            scope 75 {
+            }
+        }
+    }
+    scope 76 (inlined push) {
+        let mut _54: Big;
+        scope 77 (inlined Vec::<Big>::push) {
+            let mut _55: &mut Big;
+            scope 78 {
+            }
+        }
+    }
+    scope 79 (inlined push) {
+        let mut _56: Big;
+        scope 80 (inlined Vec::<Big>::push) {
+            let mut _57: &mut Big;
+            scope 81 {
+            }
+        }
+    }
+    scope 82 (inlined push) {
+        let mut _58: Big;
+        scope 83 (inlined Vec::<Big>::push) {
+            let mut _59: &mut Big;
+            scope 84 {
+            }
+        }
+    }
+    scope 85 (inlined push) {
+        let mut _60: Big;
+        scope 86 (inlined Vec::<Big>::push) {
+            let mut _61: &mut Big;
+            scope 87 {
+            }
+        }
+    }
+    scope 88 (inlined push) {
+        let mut _62: Big;
+        scope 89 (inlined Vec::<Big>::push) {
+            let mut _63: &mut Big;
+            scope 90 {
+            }
+        }
+    }
+    scope 91 (inlined push) {
+        let mut _64: Big;
+        scope 92 (inlined Vec::<Big>::push) {
+            let mut _65: &mut Big;
+            scope 93 {
+            }
+        }
+    }
+    scope 94 (inlined push) {
+        let mut _66: Big;
+        scope 95 (inlined Vec::<Big>::push) {
+            let mut _67: &mut Big;
+            scope 96 {
+            }
+        }
+    }
+
+    bb0: {
+        _4 = meal() -> [return: bb2, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_3);
+        _36 = meal() -> [return: bb34, unwind continue];
+    }
+
+    bb2: {
+        _5 = Vec::<Big>::push_mut(copy _1, move _4) -> [return: bb3, unwind continue];
+    }
+
+    bb3: {
+        StorageDead(_5);
+        StorageLive(_6);
+        _6 = meal() -> [return: bb4, unwind continue];
+    }
+
+    bb4: {
+        _7 = Vec::<Big>::push_mut(copy _1, move _6) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        StorageLive(_8);
+        _8 = meal() -> [return: bb6, unwind continue];
+    }
+
+    bb6: {
+        _9 = Vec::<Big>::push_mut(copy _1, move _8) -> [return: bb7, unwind continue];
+    }
+
+    bb7: {
+        StorageDead(_9);
+        StorageLive(_10);
+        _10 = meal() -> [return: bb8, unwind continue];
+    }
+
+    bb8: {
+        _11 = Vec::<Big>::push_mut(copy _1, move _10) -> [return: bb9, unwind continue];
+    }
+
+    bb9: {
+        StorageDead(_10);
+        _12 = meal() -> [return: bb10, unwind continue];
+    }
+
+    bb10: {
+        _13 = Vec::<Big>::push_mut(copy _1, move _12) -> [return: bb11, unwind continue];
+    }
+
+    bb11: {
+        StorageDead(_12);
+        _14 = meal() -> [return: bb12, unwind continue];
+    }
+
+    bb12: {
+        _15 = Vec::<Big>::push_mut(copy _1, move _14) -> [return: bb13, unwind continue];
+    }
+
+    bb13: {
+        StorageDead(_15);
+        StorageDead(_14);
+        _16 = meal() -> [return: bb14, unwind continue];
+    }
+
+    bb14: {
+        _17 = Vec::<Big>::push_mut(copy _1, move _16) -> [return: bb15, unwind continue];
+    }
+
+    bb15: {
+        _18 = meal() -> [return: bb16, unwind continue];
+    }
+
+    bb16: {
+        _19 = Vec::<Big>::push_mut(copy _1, move _18) -> [return: bb17, unwind continue];
+    }
+
+    bb17: {
+        _20 = meal() -> [return: bb18, unwind continue];
+    }
+
+    bb18: {
+        _21 = Vec::<Big>::push_mut(copy _1, move _20) -> [return: bb19, unwind continue];
+    }
+
+    bb19: {
+        StorageDead(_20);
+        _22 = meal() -> [return: bb20, unwind continue];
+    }
+
+    bb20: {
+        _23 = Vec::<Big>::push_mut(copy _1, move _22) -> [return: bb21, unwind continue];
+    }
+
+    bb21: {
+        StorageLive(_24);
+        _24 = meal() -> [return: bb22, unwind continue];
+    }
+
+    bb22: {
+        _25 = Vec::<Big>::push_mut(copy _1, move _24) -> [return: bb23, unwind continue];
+    }
+
+    bb23: {
+        StorageDead(_25);
+        _26 = meal() -> [return: bb24, unwind continue];
+    }
+
+    bb24: {
+        _27 = Vec::<Big>::push_mut(copy _1, move _26) -> [return: bb25, unwind continue];
+    }
+
+    bb25: {
+        _28 = meal() -> [return: bb26, unwind continue];
+    }
+
+    bb26: {
+        _29 = Vec::<Big>::push_mut(copy _1, move _28) -> [return: bb27, unwind continue];
+    }
+
+    bb27: {
+        StorageDead(_29);
+        StorageDead(_28);
+        _30 = meal() -> [return: bb28, unwind continue];
+    }
+
+    bb28: {
+        _31 = Vec::<Big>::push_mut(copy _1, move _30) -> [return: bb29, unwind continue];
+    }
+
+    bb29: {
+        _32 = meal() -> [return: bb30, unwind continue];
+    }
+
+    bb30: {
+        _33 = Vec::<Big>::push_mut(copy _1, move _32) -> [return: bb31, unwind continue];
+    }
+
+    bb31: {
+        StorageDead(_33);
+        StorageDead(_32);
+        StorageLive(_34);
+        _34 = meal() -> [return: bb32, unwind continue];
+    }
+
+    bb32: {
+        _35 = Vec::<Big>::push_mut(copy _1, move _34) -> [return: bb33, unwind continue];
+    }
+
+    bb33: {
+        StorageDead(_35);
+        StorageDead(_34);
+        StorageLive(_3);
+        _3 = &raw mut (*_1);
+        _2 = verify_stack_usage(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb34: {
+        _37 = Vec::<Big>::push_mut(copy _1, move _36) -> [return: bb35, unwind continue];
+    }
+
+    bb35: {
+        StorageDead(_37);
+        StorageDead(_36);
+        _38 = meal() -> [return: bb36, unwind continue];
+    }
+
+    bb36: {
+        _39 = Vec::<Big>::push_mut(copy _1, move _38) -> [return: bb37, unwind continue];
+    }
+
+    bb37: {
+        StorageDead(_38);
+        StorageLive(_40);
+        _40 = meal() -> [return: bb38, unwind continue];
+    }
+
+    bb38: {
+        _41 = Vec::<Big>::push_mut(copy _1, move _40) -> [return: bb39, unwind continue];
+    }
+
+    bb39: {
+        StorageLive(_42);
+        _42 = meal() -> [return: bb40, unwind continue];
+    }
+
+    bb40: {
+        _43 = Vec::<Big>::push_mut(copy _1, move _42) -> [return: bb41, unwind continue];
+    }
+
+    bb41: {
+        StorageDead(_42);
+        _44 = meal() -> [return: bb42, unwind continue];
+    }
+
+    bb42: {
+        _45 = Vec::<Big>::push_mut(copy _1, move _44) -> [return: bb43, unwind continue];
+    }
+
+    bb43: {
+        StorageDead(_45);
+        StorageDead(_44);
+        StorageLive(_46);
+        _46 = meal() -> [return: bb44, unwind continue];
+    }
+
+    bb44: {
+        _47 = Vec::<Big>::push_mut(copy _1, move _46) -> [return: bb45, unwind continue];
+    }
+
+    bb45: {
+        _48 = meal() -> [return: bb46, unwind continue];
+    }
+
+    bb46: {
+        _49 = Vec::<Big>::push_mut(copy _1, move _48) -> [return: bb47, unwind continue];
+    }
+
+    bb47: {
+        StorageDead(_49);
+        _50 = meal() -> [return: bb48, unwind continue];
+    }
+
+    bb48: {
+        _51 = Vec::<Big>::push_mut(copy _1, move _50) -> [return: bb49, unwind continue];
+    }
+
+    bb49: {
+        _52 = meal() -> [return: bb50, unwind continue];
+    }
+
+    bb50: {
+        _53 = Vec::<Big>::push_mut(copy _1, move _52) -> [return: bb51, unwind continue];
+    }
+
+    bb51: {
+        _54 = meal() -> [return: bb52, unwind continue];
+    }
+
+    bb52: {
+        _55 = Vec::<Big>::push_mut(copy _1, move _54) -> [return: bb53, unwind continue];
+    }
+
+    bb53: {
+        StorageDead(_54);
+        _56 = meal() -> [return: bb54, unwind continue];
+    }
+
+    bb54: {
+        _57 = Vec::<Big>::push_mut(copy _1, move _56) -> [return: bb55, unwind continue];
+    }
+
+    bb55: {
+        StorageDead(_57);
+        StorageDead(_56);
+        StorageLive(_58);
+        _58 = meal() -> [return: bb56, unwind continue];
+    }
+
+    bb56: {
+        _59 = Vec::<Big>::push_mut(copy _1, move _58) -> [return: bb57, unwind continue];
+    }
+
+    bb57: {
+        StorageDead(_59);
+        _60 = meal() -> [return: bb58, unwind continue];
+    }
+
+    bb58: {
+        _61 = Vec::<Big>::push_mut(copy _1, move _60) -> [return: bb59, unwind continue];
+    }
+
+    bb59: {
+        StorageDead(_61);
+        StorageLive(_62);
+        _62 = meal() -> [return: bb60, unwind continue];
+    }
+
+    bb60: {
+        _63 = Vec::<Big>::push_mut(copy _1, move _62) -> [return: bb61, unwind continue];
+    }
+
+    bb61: {
+        StorageDead(_63);
+        _64 = meal() -> [return: bb62, unwind continue];
+    }
+
+    bb62: {
+        _65 = Vec::<Big>::push_mut(copy _1, move _64) -> [return: bb63, unwind continue];
+    }
+
+    bb63: {
+        StorageDead(_65);
+        StorageDead(_64);
+        StorageLive(_66);
+        _66 = meal() -> [return: bb64, unwind continue];
+    }
+
+    bb64: {
+        _67 = Vec::<Big>::push_mut(move _1, move _66) -> [return: bb65, unwind continue];
+    }
+
+    bb65: {
+        StorageDead(_67);
+        StorageDead(_66);
+        return;
+    }
+}
+
+fn verify_stack_usage(_1: *mut Vec<Big>) -> () {
+    debug before_ptr => _1;
+    let mut _0: ();
+    let mut _2: std::vec::Vec<Big>;
+    let _3: &mut std::vec::Vec<Big>;
+    let mut _4: &mut std::vec::Vec<Big>;
+    let mut _6: isize;
+    let mut _7: isize;
+    let mut _8: isize;
+    let mut _9: *mut std::vec::Vec<Big>;
+    let mut _10: isize;
+    let _11: ();
+    let mut _12: std::fmt::Arguments<'_>;
+    let mut _13: &usize;
+    let mut _15: core::fmt::rt::Argument<'_>;
+    let mut _16: core::fmt::rt::Argument<'_>;
+    let _17: &[core::fmt::rt::Argument<'_>; 2];
+    scope 1 {
+        debug stack_var => _2;
+        let _5: usize;
+        scope 2 {
+            debug stack_usage => _5;
+            let mut _18: &usize;
+            scope 3 {
+                debug ((args: (&usize, &usize)).0: &usize) => _13;
+                debug ((args: (&usize, &usize)).1: &usize) => _18;
+                let _14: [core::fmt::rt::Argument<'_>; 2];
+                scope 4 {
+                    debug args => _14;
+                    scope 31 (inlined Arguments::<'_>::new::<47, 2>) {
+                        let mut _33: std::ptr::NonNull<u8>;
+                        let mut _34: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+                    }
+                }
+                scope 21 (inlined core::fmt::rt::Argument::<'_>::new_display::<usize>) {
+                    let mut _21: core::fmt::rt::ArgumentType<'_>;
+                    let mut _22: std::ptr::NonNull<()>;
+                    let mut _23: for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error>;
+                    let _24: for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error>;
+                    scope 22 {
+                    }
+                    scope 23 (inlined NonNull::<usize>::from_ref) {
+                        let mut _25: *const usize;
+                    }
+                    scope 24 (inlined NonNull::<usize>::cast::<()>) {
+                        let mut _26: *const ();
+                        scope 25 (inlined NonNull::<usize>::as_ptr) {
+                        }
+                    }
+                }
+                scope 26 (inlined core::fmt::rt::Argument::<'_>::new_display::<usize>) {
+                    let mut _27: core::fmt::rt::ArgumentType<'_>;
+                    let mut _28: std::ptr::NonNull<()>;
+                    let mut _29: for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error>;
+                    let _30: for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error>;
+                    scope 27 {
+                    }
+                    scope 28 (inlined NonNull::<usize>::from_ref) {
+                        let mut _31: *const usize;
+                    }
+                    scope 29 (inlined NonNull::<usize>::cast::<()>) {
+                        let mut _32: *const ();
+                        scope 30 (inlined NonNull::<usize>::as_ptr) {
+                        }
+                    }
+                }
+            }
+        }
+        scope 18 (inlined std::hint::black_box::<&mut Vec<Big>>) {
+        }
+        scope 19 (inlined core::num::<impl isize>::abs) {
+            let mut _19: bool;
+            let mut _20: bool;
+            scope 20 (inlined core::num::<impl isize>::is_negative) {
+            }
+        }
+    }
+    scope 5 (inlined Vec::<Big>::new) {
+        scope 6 (inlined alloc::raw_vec::RawVec::<Big>::new) {
+            scope 7 (inlined alloc::raw_vec::RawVec::<Big>::new_in) {
+                scope 8 (inlined std::ptr::Alignment::of::<Big>) {
+                }
+                scope 9 (inlined alloc::raw_vec::RawVecInner::new_in) {
+                    scope 10 {
+                    }
+                    scope 11 (inlined std::ptr::Alignment::as_nonzero) {
+                    }
+                    scope 12 (inlined NonNull::<u8>::without_provenance) {
+                        scope 13 {
+                        }
+                        scope 14 (inlined NonZero::<usize>::get) {
+                        }
+                        scope 15 (inlined std::ptr::without_provenance::<u8>) {
+                            scope 16 (inlined without_provenance_mut::<u8>) {
+                            }
+                        }
+                    }
+                    scope 17 (inlined std::ptr::Unique::<u8>::from_non_null) {
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = Vec::<Big> { buf: const alloc::raw_vec::RawVec::<Big> {{ inner: alloc::raw_vec::RawVecInner {{ ptr: std::ptr::Unique::<u8> {{ pointer: NonNull::<u8> {{ pointer: {0x8 as *const u8} }}, _marker: PhantomData::<u8> }}, cap: core::num::niche_types::UsizeNoHighBit(0_usize is 0..=9223372036854775807), alloc: std::alloc::Global }}, _marker: PhantomData::<Big> }}, len: const 0_usize };
+        StorageLive(_4);
+        _4 = &mut _2;
+        _3 = std::intrinsics::black_box::<&mut Vec<Big>>(move _4) -> [return: bb5, unwind unreachable];
+    }
+
+    bb1: {
+        StorageDead(_14);
+        drop(_2) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        StorageDead(_2);
+        return;
+    }
+
+    bb3 (cleanup): {
+        drop(_2) -> [return: bb4, unwind terminate(cleanup)];
+    }
+
+    bb4 (cleanup): {
+        resume;
+    }
+
+    bb5: {
+        StorageDead(_4);
+        StorageLive(_6);
+        _9 = &raw mut _2;
+        _8 = copy _9 as isize (PointerExposeProvenance);
+        _10 = copy _1 as isize (PointerExposeProvenance);
+        _7 = Sub(move _8, move _10);
+        StorageDead(_10);
+        StorageDead(_8);
+        _19 = Lt(copy _7, const 0_isize);
+        switchInt(move _19) -> [0: bb9, otherwise: bb7];
+    }
+
+    bb6: {
+        StorageDead(_20);
+        StorageDead(_7);
+        _5 = move _6 as usize (IntToInt);
+        StorageDead(_6);
+        _13 = &_5;
+        _18 = const verify_stack_usage::promoted[0];
+        StorageLive(_15);
+        StorageLive(_24);
+        StorageLive(_25);
+        StorageLive(_26);
+        _25 = &raw const (*_13);
+        _26 = copy _25 as *const () (PtrToPtr);
+        _22 = NonNull::<()> { pointer: copy _26 };
+        _24 = <usize as std::fmt::Display>::fmt as for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Safe), Implicit));
+        _23 = copy _24 as for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error> (Transmute);
+        _21 = core::fmt::rt::ArgumentType::<'_>::Placeholder { value: move _22, formatter: copy _23, _lifetime: const PhantomData::<&()> };
+        StorageDead(_22);
+        _15 = core::fmt::rt::Argument::<'_> { ty: move _21 };
+        StorageDead(_21);
+        StorageDead(_25);
+        StorageLive(_16);
+        StorageLive(_29);
+        StorageLive(_30);
+        StorageLive(_31);
+        _31 = &raw const (*_18);
+        _32 = copy _31 as *const () (PtrToPtr);
+        _28 = NonNull::<()> { pointer: copy _32 };
+        _30 = <usize as std::fmt::Display>::fmt as for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Safe), Implicit));
+        _29 = copy _30 as for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error> (Transmute);
+        _27 = core::fmt::rt::ArgumentType::<'_>::Placeholder { value: move _28, formatter: copy _29, _lifetime: const PhantomData::<&()> };
+        StorageDead(_28);
+        _16 = core::fmt::rt::Argument::<'_> { ty: move _27 };
+        StorageDead(_32);
+        StorageDead(_29);
+        _14 = [move _15, move _16];
+        _17 = &_14;
+        StorageLive(_33);
+        StorageLive(_34);
+        _33 = const b"\x05used \xc0# bytes of stack, should at most be \xc0\x01\n\x00" as std::ptr::NonNull<u8> (Transmute);
+        _34 = copy _17 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        _12 = Arguments::<'_> { template: move _33, args: move _34 };
+        StorageDead(_34);
+        StorageDead(_33);
+        _11 = std::io::_print(move _12) -> [return: bb1, unwind: bb3];
+    }
+
+    bb7: {
+        _20 = Eq(copy _7, const isize::MIN);
+        assert(!move _20, "attempt to negate `{}`, which would overflow", copy _7) -> [success: bb8, unwind: bb3];
+    }
+
+    bb8: {
+        _6 = Neg(copy _7);
+        goto -> bb6;
+    }
+
+    bb9: {
+        _6 = copy _7;
+        goto -> bb6;
+    }
+}
+
+alloc107 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 08 00 00 00 00 00 00 00 │ ................
+}
+
+alloc2 (size: 47, align: 1) {
+    0x00 │ 05 75 73 65 64 20 c0 23 20 62 79 74 65 73 20 6f │ .used .# bytes o
+    0x10 │ 66 20 73 74 61 63 6b 2c 20 73 68 6f 75 6c 64 20 │ f stack, should 
+    0x20 │ 61 74 20 6d 6f 73 74 20 62 65 20 c0 01 0a 00    │ at most be ....
+}
+
+const verify_stack_usage::promoted[0]: &usize = {
+    let mut _0: &usize;
+    let mut _1: usize;
+    let mut _2: usize;
+    let mut _3: usize;
+
+    bb0: {
+        _3 = std::mem::size_of::<Big>() -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = Mul(move _3, const 2_usize);
+        _1 = Add(move _2, const 272_usize);
+        _0 = &_1;
+        return;
+    }
+}
+
+fn main() -> () {
+    let mut _0: ();
+    let mut _1: std::vec::Vec<Big>;
+    let _2: &mut std::vec::Vec<Big>;
+    let mut _3: &mut std::vec::Vec<Big>;
+    let _4: ();
+    let mut _5: &mut std::vec::Vec<Big>;
+    scope 1 {
+        debug v => _1;
+        scope 15 (inlined std::hint::black_box::<&mut Vec<Big>>) {
+        }
+    }
+    scope 2 (inlined Vec::<Big>::new) {
+        scope 3 (inlined alloc::raw_vec::RawVec::<Big>::new) {
+            scope 4 (inlined alloc::raw_vec::RawVec::<Big>::new_in) {
+                scope 5 (inlined std::ptr::Alignment::of::<Big>) {
+                }
+                scope 6 (inlined alloc::raw_vec::RawVecInner::new_in) {
+                    scope 7 {
+                    }
+                    scope 8 (inlined std::ptr::Alignment::as_nonzero) {
+                    }
+                    scope 9 (inlined NonNull::<u8>::without_provenance) {
+                        scope 10 {
+                        }
+                        scope 11 (inlined NonZero::<usize>::get) {
+                        }
+                        scope 12 (inlined std::ptr::without_provenance::<u8>) {
+                            scope 13 (inlined without_provenance_mut::<u8>) {
+                            }
+                        }
+                    }
+                    scope 14 (inlined std::ptr::Unique::<u8>::from_non_null) {
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        _1 = Vec::<Big> { buf: const alloc::raw_vec::RawVec::<Big> {{ inner: alloc::raw_vec::RawVecInner {{ ptr: std::ptr::Unique::<u8> {{ pointer: NonNull::<u8> {{ pointer: {0x8 as *const u8} }}, _marker: PhantomData::<u8> }}, cap: core::num::niche_types::UsizeNoHighBit(0_usize is 0..=9223372036854775807), alloc: std::alloc::Global }}, _marker: PhantomData::<Big> }}, len: const 0_usize };
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = &mut _1;
+        _2 = std::intrinsics::black_box::<&mut Vec<Big>>(move _3) -> [return: bb5, unwind unreachable];
+    }
+
+    bb1: {
+        drop(_1) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3 (cleanup): {
+        drop(_1) -> [return: bb4, unwind terminate(cleanup)];
+    }
+
+    bb4 (cleanup): {
+        resume;
+    }
+
+    bb5: {
+        _5 = &mut _1;
+        _4 = supersize_me(move _5) -> [return: bb1, unwind: bb3];
+    }
+}
+
+alloc113 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 08 00 00 00 00 00 00 00 │ ................
+}

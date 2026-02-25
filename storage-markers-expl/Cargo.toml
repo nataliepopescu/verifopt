@@ -34,6 +34,14 @@ path = "src/cereal.rs"
 name = "cereal_200"
 path = "src/cereal_200.rs"
 
+[[bin]]
+name = "blowup_stack"
+path = "src/blowup_stack.rs"
+
+[[bin]]
+name = "stack_overflow"
+path = "src/stack_overflow.rs"
+
 [[bench]]
 name = "bench_storage_markers"
 harness = false

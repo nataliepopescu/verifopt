@@ -18,10 +18,10 @@ const INTO_RAW_FN_DEFID: DefId = DefId {
     krate: CrateNum::from_u32(3),
 };
 // DefId(2:2610 ~ core[c945]::ptr::metadata::{impl#9}::eq) ?
-const DYNMETADATA_EQ_FN_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(2610),
-    krate: CrateNum::from_u32(2),
-};
+//const DYNMETADATA_EQ_FN_DEFID: DefId = DefId {
+//    index: DefIndex::from_u32(2610),
+//    krate: CrateNum::from_u32(2),
+//};
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -741,6 +741,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         )
     }
 
+    /*
     fn add_switch_block(
         &self,
         patch: &mut MirPatch<'tcx>,
@@ -767,6 +768,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let bb_data = BasicBlockData::new(Some(term), false);
         patch.new_block(bb_data)
     }
+    */
 
     fn make_dynmetadata_adt(&self, traitobj_did: DefId) -> Ty<'tcx> {
         // DynMetadata AdtDef
@@ -1156,8 +1158,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     traitobj_vtable_ref.unwrap(),
                     variant_vtable.unwrap(),
                     variant_vtable_ref.unwrap(),
-                    bb_last_variant_speak.unwrap(),
                     bb_cur_variant_speak,
+                    bb_last_variant_speak.unwrap(),
                     first_eq_res,
                     //traitobj_did,
                     false,

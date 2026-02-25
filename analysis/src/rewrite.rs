@@ -826,18 +826,18 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     fn add_compare_vtable_block(
         &self,
         patch: &mut MirPatch<'tcx>,
-        bb_next: BasicBlock,
-        bb_cleanup: BasicBlock,
+        //bb_next: BasicBlock,
+        //bb_cleanup: BasicBlock,
         raw_traitobj1_loc: Local,
         mut_dyn_traitobj_loc: Local,
         dynmetadata_traitobj_loc: Local,
         dynmetadata_traitobj_ref_loc: Local,
         dynmetadata_concretety_loc: Local,
         dynmetadata_concretety_ref_loc: Local,
-        //bb_eq: BasicBlock,
-        //bb_neq: BasicBlock,
+        bb_eq: BasicBlock,
+        bb_neq: BasicBlock,
         eq_res_loc: Local,
-        traitobj_did: DefId,
+        //traitobj_did: DefId,
         done_copy: bool,
         to_free_opt: Option<Vec<Local>>,
     ) -> BasicBlock {
@@ -899,6 +899,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             StatementKind::StorageLive(eq_res_loc),
         ));
 
+        /*
         stmts.push(Statement::new(
             self.dummy_source_info(),
             StatementKind::Assign(Box::new((
@@ -934,31 +935,33 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 ),
             ))),
         ));
+        */
 
-        //stmts.push(Statement::new(
-        //    self.dummy_source_info(),
-        //    StatementKind::Assign(Box::new((
-        //        Place {
-        //            local: eq_res_loc,
-        //            projection: empty_proj,
-        //        },
-        //        Rvalue::BinaryOp(
-        //            BinOp::Eq,
-        //            Box::new((
-        //                Operand::Move(Place {
-        //                    local: dynmetadata_traitobj_loc,
-        //                    projection: empty_proj,
-        //                }),
-        //                Operand::Move(Place {
-        //                    local: dynmetadata_concretety_loc,
-        //                    projection: empty_proj,
-        //                }),
-        //            )),
-        //        ),
-        //    ))),
-        //));
+        stmts.push(Statement::new(
+            self.dummy_source_info(),
+            StatementKind::Assign(Box::new((
+                Place {
+                    local: eq_res_loc,
+                    projection: empty_proj,
+                },
+                Rvalue::BinaryOp(
+                    BinOp::Eq,
+                    Box::new((
+                        Operand::Copy(Place {
+                            local: dynmetadata_traitobj_loc,
+                            projection: empty_proj,
+                        }),
+                        Operand::Copy(Place {
+                            local: dynmetadata_concretety_loc,
+                            projection: empty_proj,
+                        }),
+                    )),
+                ),
+            ))),
+        ));
 
         // add terminator
+        /*
         let dm_adt = self.make_dynmetadata_adt(traitobj_did);
         let gen_args_ref = self
             .tcx
@@ -1003,18 +1006,19 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 fn_span: self.dummy_span(),
             },
         };
+        */
 
-        //let targets = vec![(0u128, bb_neq)].into_iter();
-        //let term = Terminator {
-        //    source_info: self.dummy_source_info(),
-        //    kind: TerminatorKind::SwitchInt {
-        //        discr: Operand::Move(Place {
-        //            local: eq_res_loc,
-        //            projection: empty_proj,
-        //        }),
-        //        targets: SwitchTargets::new(targets, bb_eq),
-        //    },
-        //};
+        let targets = vec![(0u128, bb_neq)].into_iter();
+        let term = Terminator {
+            source_info: self.dummy_source_info(),
+            kind: TerminatorKind::SwitchInt {
+                discr: Operand::Move(Place {
+                    local: eq_res_loc,
+                    projection: empty_proj,
+                }),
+                targets: SwitchTargets::new(targets, bb_eq),
+            },
+        };
 
         let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
         patch.new_block(bb_data)
@@ -1135,27 +1139,27 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             if i > 0 {
                 // comparison & switch (if > 1 variant)
                 let first_eq_res = self.add_mut_bool_temp(patch);
-                let bb_switch = self.add_switch_block(
-                    patch,
-                    bb_cur_variant_speak,
-                    bb_last_variant_speak.unwrap(),
-                    first_eq_res,
-                );
+                //let bb_switch = self.add_switch_block(
+                //    patch,
+                //    bb_cur_variant_speak,
+                //    bb_last_variant_speak.unwrap(),
+                //    first_eq_res,
+                //);
 
                 let bb_compare = self.add_compare_vtable_block(
                     patch,
-                    bb_switch,
-                    bb_old_cleanup,
+                    //bb_switch,
+                    //bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),
                     traitobj_vtable_ref.unwrap(),
                     variant_vtable.unwrap(),
                     variant_vtable_ref.unwrap(),
-                    //bb_last_variant_speak.unwrap(),
-                    //bb_cur_variant_speak,
+                    bb_last_variant_speak.unwrap(),
+                    bb_cur_variant_speak,
                     first_eq_res,
-                    traitobj_did,
+                    //traitobj_did,
                     false,
                     Some(vec![boxed_dyn_traitobj1]),
                 );

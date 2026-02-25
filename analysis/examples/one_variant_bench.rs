@@ -3,6 +3,8 @@
 
 use std::time::Instant;
 
+use rand::RngExt;
+
 pub trait Animal {
     fn speak(&self, ctr: &mut Ctr) -> usize;
     fn walk(&self) -> usize;
@@ -39,15 +41,7 @@ fn wrap_dyn_call(animal: &Box<dyn Animal>, ctr: &mut Ctr) {
 }
 
 fn main() {
-    // when the below line is uncommented, the speak call is resolved to
-    // <Cat as Animal>::speak(), so interprocedural may indeed be the "spot"
-    //let animal = Box::new(Cat {});
-
-    // note that even when we pass in a statically-known value to `get_animal`,
-    // the information from that function is not propagated, so `speak` remains
-    // a dynamic dispatch
-    //let animal = get_animal(rand::rng().random_range(..2usize));
-    let animal_really_cat = get_animal(0);
+    let animal_really_cat = get_animal(rand::rng().random_range(..2usize));
     let cat = get_cat();
     let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
     let _cat_vtable = core::ptr::metadata(&*cat);

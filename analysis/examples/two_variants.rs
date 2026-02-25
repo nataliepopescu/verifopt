@@ -53,10 +53,13 @@ fn main() {
             let x = args[1].parse().unwrap();
             let animal = get_animal(x);
             let cat = get_cat();
-            let _animal_vtable = core::ptr::metadata(&*animal);
-            let _cat_vtable = core::ptr::metadata(&*cat);
+            let animal_vtable = core::ptr::metadata(&*animal);
+            let cat_vtable = core::ptr::metadata(&*cat);
             let res = animal.speak();
             println!("x: {:?}", x);
+            println!("animal_vtable: {:?}", animal_vtable);
+            println!("cat_vtable: {:?}", cat_vtable);
+            println!("eq? {:?}", animal_vtable == cat_vtable);
             println!("res: {:?}", res);
         }
     }

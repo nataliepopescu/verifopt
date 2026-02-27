@@ -17,16 +17,34 @@ const INTO_RAW_FN_DEFID: DefId = DefId {
     index: DefIndex::from_u32(749),
     krate: CrateNum::from_u32(3),
 };
+// old eq: <DynMetadata<dyn Animal> as PartialEq>::eq
+// partialEq: DefId 2:3313 - no MIR (trait func)
 // DefId(2:2610 ~ core[c945]::ptr::metadata::{impl#9}::eq) ?
-//const DYNMETADATA_EQ_FN_DEFID: DefId = DefId {
-//    index: DefIndex::from_u32(2610),
-//    krate: CrateNum::from_u32(2),
-//};
+const EQ_FN_DEFID: DefId = DefId {
+    index: DefIndex::from_u32(2610),
+    krate: CrateNum::from_u32(2),
+};
 // DefId(2:2583 ~ core[c945]::ptr::metadata::{extern#0}::VTable)
 // - defkind == ForeignTy
 const VTABLE_TY_DEFID: DefId = DefId {
     index: DefIndex::from_u32(2583),
     krate: CrateNum::from_u32(2),
+};
+const DEBUG_BOOL_DEFID: DefId = DefId {
+    index: DefIndex::from_u32(22),
+    krate: CrateNum::from_u32(0),
+};
+const DEBUG_ITEM_DEFID: DefId = DefId {
+    index: DefIndex::from_u32(21),
+    krate: CrateNum::from_u32(0),
+};
+const DEBUG_ADDY_DEFID: DefId = DefId {
+    index: DefIndex::from_u32(20),
+    krate: CrateNum::from_u32(0),
+};
+const ANIMAL_DEFID: DefId = DefId {
+    index: DefIndex::from_u32(4),
+    krate: CrateNum::from_u32(0),
 };
 
 pub struct RewritePass<'a, 'tcx> {
@@ -555,7 +573,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.new_block(bb_data)
     }
 
-    /*
     fn add_goto_block(&self, patch: &mut MirPatch<'tcx>, bb_ret: BasicBlock) -> BasicBlock {
         let term = Terminator {
             source_info: self.dummy_source_info(),
@@ -565,7 +582,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let bb_data = BasicBlockData::new(Some(term), false);
         patch.new_block(bb_data)
     }
-    */
 
     fn make_empty_tup(&self) -> Ty<'tcx> {
         let tup_inner: &[Ty<'tcx>] = &[];
@@ -748,6 +764,17 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
 
     /*
+     * let mut_: usize;
+     */
+    /*
+    fn add_mut_usize_temp(&self, patch: &mut MirPatch<'tcx>) -> Local {
+        patch.new_temp(
+            self.tcx.mk_ty_from_kind(rustc_middle::ty::Uint(UintTy::Usize)),
+            self.dummy_span(),
+        )
+    }
+    */
+
     fn add_switch_block(
         &self,
         patch: &mut MirPatch<'tcx>,
@@ -774,7 +801,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let bb_data = BasicBlockData::new(Some(term), false);
         patch.new_block(bb_data)
     }
-    */
 
     /*
      * let mut _: *const std::ptr::metadata::VTable;
@@ -782,6 +808,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     fn make_const_ptr_vtable_adt(&self) -> Ty<'tcx> {
         Ty::new_imm_ptr(self.tcx, Ty::new_foreign(self.tcx, VTABLE_TY_DEFID))
     }
+
+    /*
+     * let mut _: usize;
+     */
+    /*
+    fn make_usize(&self) -> Ty<'tcx> {
+        Ty::new_uint(self.tcx, UintTy::Usize)
+    }
+    */
 
     /*
     fn make_dynmetadata_adt(&self, traitobj_did: DefId) -> Ty<'tcx> {
@@ -843,16 +878,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     fn add_compare_vtable_and_switch_block(
         &self,
         patch: &mut MirPatch<'tcx>,
-        //bb_next: BasicBlock,
-        //bb_cleanup: BasicBlock,
+        bb_next: BasicBlock,
+        bb_cleanup: BasicBlock,
         raw_traitobj1_loc: Local,
         mut_dyn_traitobj_loc: Local,
         dynmetadata_traitobj_loc: Local,
         dynmetadata_traitobj_vtable_loc: Local,
         dynmetadata_concretety_loc: Local,
         dynmetadata_concretety_vtable_loc: Local,
-        bb_eq: BasicBlock,
-        bb_neq: BasicBlock,
         eq_res_loc: Local,
         //traitobj_did: DefId,
         done_copy: bool,
@@ -1005,10 +1038,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     BinOp::Eq,
                     Box::new((
                         Operand::Copy(Place {
+                            //local: dynmetadata_traitobj_loc,
                             local: dynmetadata_traitobj_vtable_loc,
                             projection: empty_proj,
                         }),
                         Operand::Copy(Place {
+                            //local: dynmetadata_concretety_loc,
                             local: dynmetadata_concretety_vtable_loc,
                             projection: empty_proj,
                         }),
@@ -1018,23 +1053,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         ));
 
         // add terminator
-        /*
-        let dm_adt = self.make_dynmetadata_adt(traitobj_did);
-        let gen_args_ref = self
-            .tcx
-            .mk_args(&[GenericArg::from(dm_adt), GenericArg::from(dm_adt)]);
+        let genargs_ref = self.tcx.mk_args(&[]);
 
         let args: Box<[Spanned<Operand<'tcx>>]> = Box::new([
             Spanned {
                 node: Operand::Copy(Place {
-                    local: dynmetadata_traitobj_ref_loc,
-                    projection: empty_proj,
-                }),
-                span: self.dummy_span(),
-            },
-            Spanned {
-                node: Operand::Copy(Place {
-                    local: dynmetadata_concretety_ref_loc,
+                    local: eq_res_loc,
+                    //local: dynmetadata_traitobj_vtable_loc,
                     projection: empty_proj,
                 }),
                 span: self.dummy_span(),
@@ -1049,7 +1074,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     user_ty: None,
                     const_: rustc_middle::mir::Const::Val(
                         ConstValue::ZeroSized,
-                        Ty::new_fn_def(self.tcx, DYNMETADATA_EQ_FN_DEFID, gen_args_ref),
+                        Ty::new_fn_def(self.tcx, DEBUG_BOOL_DEFID, genargs_ref),
                     ),
                 })),
                 args,
@@ -1061,19 +1086,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 unwind: UnwindAction::Cleanup(bb_cleanup),
                 call_source: CallSource::Normal,
                 fn_span: self.dummy_span(),
-            },
-        };
-        */
-
-        let targets = vec![(0u128, bb_neq)].into_iter();
-        let term = Terminator {
-            source_info: self.dummy_source_info(),
-            kind: TerminatorKind::SwitchInt {
-                discr: Operand::Move(Place {
-                    local: eq_res_loc,
-                    projection: empty_proj,
-                }),
-                targets: SwitchTargets::new(targets, bb_eq),
             },
         };
 
@@ -1193,12 +1205,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut into_raw_target = None;
         let mut bb_last_variant_speak = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
+            // add back old goto?
+            let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
+
             // speak (returns to old_next)
             let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
             let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
             let bb_cur_variant_speak = self.add_speak_block(
                 patch,
-                bb_old_next,
+                bb_variant_ret, //bb_old_next,
                 bb_old_cleanup,
                 raw_traitobj1,
                 raw_traitobj2,
@@ -1211,27 +1226,25 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
             if i > 0 {
                 // comparison & switch (if > 1 variant)
-                let first_eq_res = self.add_mut_bool_temp(patch);
-                //let bb_switch = self.add_switch_block(
-                //    patch,
-                //    bb_cur_variant_speak,
-                //    bb_last_variant_speak.unwrap(),
-                //    first_eq_res,
-                //);
+                let eq_res_bool = self.add_mut_bool_temp(patch);
+                let bb_switch = self.add_switch_block(
+                    patch,
+                    bb_cur_variant_speak,
+                    bb_last_variant_speak.unwrap(),
+                    eq_res_bool,
+                );
 
                 let bb_compare = self.add_compare_vtable_and_switch_block(
                     patch,
-                    //bb_switch,
-                    //bb_old_cleanup,
+                    bb_switch,
+                    bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),
                     traitobj_vtable_ptr.unwrap(),
                     variant_vtable.unwrap(),
                     variant_vtable_ptr.unwrap(),
-                    bb_cur_variant_speak,
-                    bb_last_variant_speak.unwrap(),
-                    first_eq_res,
+                    eq_res_bool,
                     //traitobj_did,
                     false,
                     Some(vec![boxed_dyn_traitobj1]),

@@ -44,3 +44,38 @@ manually going through the patch to see if anything looks weird
 
 - weird that new_block() doesn't have the same behavior but ok
 
+?
+
+(seem to have solved but forgot to document)
+
+## Discriminant Bug
+
+
+purely goto blocks are important??? for some reason???
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

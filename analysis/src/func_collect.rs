@@ -484,7 +484,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
     pub fn collect_funcs(&self, funcs: &mut FuncMap<'tcx>) {
         // TODO try past 4
         //let num_crates = 4u32;
-        let num_crates = self.tcx.used_crates(()).len() as u32;
+        let crates = self.tcx.used_crates(());
+        let num_crates = crates.len() as u32;
         if self.debug {
             println!("num_crates: {:?}", num_crates);
         }
@@ -498,7 +499,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 // one_variant (no bmark): limit = 21
                 // one_variant (bmark): limit = 26
                 // two_variants (no bmark): limit = 26
-                if crate_num == 0 && def_index >= 26
+                if crate_num == 0 && def_index >= 28
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

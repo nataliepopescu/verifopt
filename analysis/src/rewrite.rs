@@ -20,32 +20,32 @@ const INTO_RAW_FN_DEFID: DefId = DefId {
 // old eq: <DynMetadata<dyn Animal> as PartialEq>::eq
 // partialEq: DefId 2:3313 - no MIR (trait func)
 // DefId(2:2610 ~ core[c945]::ptr::metadata::{impl#9}::eq) ?
-const EQ_FN_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(2610),
-    krate: CrateNum::from_u32(2),
-};
+//const EQ_FN_DEFID: DefId = DefId {
+//    index: DefIndex::from_u32(2610),
+//    krate: CrateNum::from_u32(2),
+//};
 // DefId(2:2583 ~ core[c945]::ptr::metadata::{extern#0}::VTable)
 // - defkind == ForeignTy
 const VTABLE_TY_DEFID: DefId = DefId {
     index: DefIndex::from_u32(2583),
     krate: CrateNum::from_u32(2),
 };
-const DEBUG_BOOL_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(22),
-    krate: CrateNum::from_u32(0),
-};
-const DEBUG_ITEM_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(21),
-    krate: CrateNum::from_u32(0),
-};
-const DEBUG_ADDY_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(20),
-    krate: CrateNum::from_u32(0),
-};
-const ANIMAL_DEFID: DefId = DefId {
-    index: DefIndex::from_u32(4),
-    krate: CrateNum::from_u32(0),
-};
+//const DEBUG_BOOL_DEFID: DefId = DefId {
+//    index: DefIndex::from_u32(22),
+//    krate: CrateNum::from_u32(0),
+//};
+//const DEBUG_ITEM_DEFID: DefId = DefId {
+//    index: DefIndex::from_u32(21),
+//    krate: CrateNum::from_u32(0),
+//};
+//const DEBUG_ADDY_DEFID: DefId = DefId {
+//    index: DefIndex::from_u32(20),
+//    krate: CrateNum::from_u32(0),
+//};
+//const ANIMAL_DEFID: DefId = DefId {
+//    index: DefIndex::from_u32(4),
+//    krate: CrateNum::from_u32(0),
+//};
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -875,11 +875,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.new_block(bb_data)
     }
 
-    fn add_compare_vtable_and_switch_block(
+    fn add_compare_vtable_block(
         &self,
         patch: &mut MirPatch<'tcx>,
         bb_next: BasicBlock,
-        bb_cleanup: BasicBlock,
+        //bb_cleanup: BasicBlock,
         raw_traitobj1_loc: Local,
         mut_dyn_traitobj_loc: Local,
         dynmetadata_traitobj_loc: Local,
@@ -1053,8 +1053,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         ));
 
         // add terminator
-        let genargs_ref = self.tcx.mk_args(&[]);
 
+        let term = Terminator {
+            source_info: self.dummy_source_info(),
+            kind: TerminatorKind::Goto { target: bb_next },
+        };
+
+        /*
+        let genargs_ref = self.tcx.mk_args(&[]);
         let args: Box<[Spanned<Operand<'tcx>>]> = Box::new([
             Spanned {
                 node: Operand::Copy(Place {
@@ -1088,6 +1094,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 fn_span: self.dummy_span(),
             },
         };
+        */
 
         let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
         patch.new_block(bb_data)
@@ -1229,15 +1236,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 let eq_res_bool = self.add_mut_bool_temp(patch);
                 let bb_switch = self.add_switch_block(
                     patch,
-                    bb_cur_variant_speak,
                     bb_last_variant_speak.unwrap(),
+                    bb_cur_variant_speak,
                     eq_res_bool,
                 );
 
-                let bb_compare = self.add_compare_vtable_and_switch_block(
+                let bb_compare = self.add_compare_vtable_block(
                     patch,
                     bb_switch,
-                    bb_old_cleanup,
+                    //bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),

@@ -42,6 +42,13 @@ impl Animal for Dog {
     }
 }
 
+/*
+#[inline(never)]
+fn noop() {
+    println!("\n");
+}
+*/
+
 pub fn run_src_rw_into_raw(
     animal: Box<dyn Animal>,
     animal_vtable: DynMetadata<dyn Animal>,
@@ -73,7 +80,8 @@ fn main() {
             let animal_vtable = core::ptr::metadata(&*animal);
             let cat_vtable = core::ptr::metadata(&*cat);
             let res = run_src_rw_into_raw(animal, animal_vtable, cat_vtable);
-            println!("vtables eq? {:?}", animal_vtable == cat_vtable);
+            //let eq_res: usize = (animal_vtable == cat_vtable) as usize;
+            //println!("vtables eq? {:?}", eq_res);
             println!("res: {:?}", res);
         }
     }

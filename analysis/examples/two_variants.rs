@@ -1,11 +1,14 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
+//use std::ptr::DynMetadata;
+
 pub trait Animal {
     fn speak(&self) -> usize;
     fn walk(&self) -> usize;
 }
 
+#[inline(never)]
 pub fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
         Box::new(Cat {})
@@ -45,6 +48,30 @@ impl Animal for Dog {
     }
 }
 
+/*
+fn debug_vtable_addy(addy: DynMetadata<dyn Animal>) {
+    println!("addy: {:?}", addy);
+}
+
+fn debug_item(item: usize) {
+    println!("item: {:?}", item);
+}
+
+fn debug_bool(b: bool) {
+    println!("b: {:?}", b);
+}
+
+#[inline(never)]
+fn noop_dog() {
+    println!("\ndog");
+}
+
+#[inline(never)]
+fn noop_cat() {
+    println!("\ncat");
+}
+*/
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
@@ -52,14 +79,12 @@ fn main() {
         _ => {
             let x = args[1].parse().unwrap();
             let animal = get_animal(x);
-            let cat = get_cat();
-            let animal_vtable = core::ptr::metadata(&*animal);
-            let cat_vtable = core::ptr::metadata(&*cat);
+            let cat = get_animal(0);
+            let _animal_vtable = core::ptr::metadata(&*animal);
+            let _cat_vtable = core::ptr::metadata(&*cat);
             let res = animal.speak();
-            println!("x: {:?}", x);
-            println!("animal_vtable: {:?}", animal_vtable);
-            println!("cat_vtable: {:?}", cat_vtable);
-            println!("eq? {:?}", animal_vtable == cat_vtable);
+            //println!("animal_vtable: {:?}", animal_vtable);
+            //println!("cat_vtable: {:?}", cat_vtable);
             println!("res: {:?}", res);
         }
     }

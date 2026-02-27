@@ -3,7 +3,11 @@
 
 use std::time::Instant;
 
-use rand::RngExt;
+//use rand::RngExt;
+
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::fs::File;
 
 pub trait Animal {
     fn speak(&self, ctr: &mut Ctr) -> usize;
@@ -51,48 +55,33 @@ fn wrap_dyn_call(animal: &Box<dyn Animal>, ctr: &mut Ctr) {
     let _res = animal.speak(ctr);
 }
 
-const WARMUP: usize = 1000000;
-const RUNS: usize = 10000000;
-
-fn main() {
+fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let cat = get_cat();
     let _cat_vtable = core::ptr::metadata(&*cat);
 
     let mut warmup_ctr: Ctr = Ctr { ctr: 0 };
     let mut ctr: Ctr = Ctr { ctr: 0 };
 
-    //let mut animal_arr_warmup = [const { None }; WARMUP];
-    //let mut animal_vtable_arr_warmup = []; //Metadata; WARMUP];
-    //let mut animal_arr = [const { None }; RUNS];
-    //let mut animal_vtable_arr = []; //Metadata; RUNS];
-
-    // initialize data structures
-
-    /*
-    for i in 0..WARMUP {
-        let animal = get_animal(rand::rng().random_range(..2usize));
-        animal_vtable_arr_warmup[i] = core::ptr::metadata(&*animal);
-        animal_arr_warmup[i] = Some(animal);
-    }
-
-    for i in 0..RUNS {
-        let animal = get_animal(rand::rng().random_range(..2usize));
-        animal_vtable_arr[i] = core::ptr::metadata(&*animal);
-        animal_arr[i] = Some(animal);
-    }
-    */
+    let warmup_file = File::open(filename)?;
+    let mut warmup_reader = BufReader::new(warmup_file);
+    let file = File::open(filename)?;
+    let mut reader = BufReader::new(file);
 
     // start benchmarking
 
-    for _ in 0..WARMUP {
-        let animal = get_animal(rand::rng().random_range(..2usize));
+    for _ in 0..warmup {
+        let mut buf: [u8; 1] = [0; 1];
+        warmup_reader.read_exact(&mut buf)?;
+        let animal = get_animal(buf[0].into());
         let _vtable = core::ptr::metadata(&*animal);
         wrap_dyn_call(&animal, &mut warmup_ctr);
     }
 
     let mut times = Vec::new();
-    for _ in 0..RUNS {
-        let animal = get_animal(rand::rng().random_range(..2usize));
+    for _ in 0..runs {
+        let mut buf: [u8; 1] = [0; 1];
+        reader.read_exact(&mut buf)?;
+        let animal = get_animal(buf[0].into());
         let _vtable = core::ptr::metadata(&*animal);
         let start = Instant::now();
         wrap_dyn_call(&animal, &mut ctr);
@@ -106,4 +95,28 @@ fn main() {
 
     println!("ctr: {:?}", ctr.ctr);
     println!("mean: {:?}", mean);
+
+    Ok(())
+}
+
+fn main() -> std::io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    match args.len() {
+        1 => {
+            println!("USAGE \nPass in:
+                     \n\t(1) a filename to read from for bench input,
+                     \n\t(2) a number of warmup runs,
+                     \n\t(3) a number of actual runs");
+            Ok(())
+        }
+        _ => {
+            let filename = &args[1];
+            let warmup = args[2].parse().unwrap();
+            let runs = args[3].parse().unwrap();
+            println!("filename: {:?}", filename);
+            println!("num warmup runs: {:?}", warmup);
+            println!("num actual runs: {:?}", runs);
+            bench(filename, warmup, runs)
+        }
+    }
 }

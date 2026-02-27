@@ -17,42 +17,19 @@ const INTO_RAW_FN_DEFID: DefId = DefId {
     index: DefIndex::from_u32(749),
     krate: CrateNum::from_u32(3),
 };
-// old eq: <DynMetadata<dyn Animal> as PartialEq>::eq
-// partialEq: DefId 2:3313 - no MIR (trait func)
-// DefId(2:2610 ~ core[c945]::ptr::metadata::{impl#9}::eq) ?
-//const EQ_FN_DEFID: DefId = DefId {
-//    index: DefIndex::from_u32(2610),
-//    krate: CrateNum::from_u32(2),
-//};
 // DefId(2:2583 ~ core[c945]::ptr::metadata::{extern#0}::VTable)
 // - defkind == ForeignTy
 const VTABLE_TY_DEFID: DefId = DefId {
     index: DefIndex::from_u32(2583),
     krate: CrateNum::from_u32(2),
 };
-//const DEBUG_BOOL_DEFID: DefId = DefId {
-//    index: DefIndex::from_u32(22),
-//    krate: CrateNum::from_u32(0),
-//};
-//const DEBUG_ITEM_DEFID: DefId = DefId {
-//    index: DefIndex::from_u32(21),
-//    krate: CrateNum::from_u32(0),
-//};
-//const DEBUG_ADDY_DEFID: DefId = DefId {
-//    index: DefIndex::from_u32(20),
-//    krate: CrateNum::from_u32(0),
-//};
-//const ANIMAL_DEFID: DefId = DefId {
-//    index: DefIndex::from_u32(4),
-//    krate: CrateNum::from_u32(0),
-//};
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
     pub cmap: &'a ConstraintMap<'tcx>,
     pub debug: bool,
-    // TODO put into_raw and eq_fn defids here
+    // TODO put dynamically-acquired into_raw and eq_fn defids here
 }
 
 impl<'a, 'tcx> RewritePass<'a, 'tcx> {
@@ -219,18 +196,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         (bb_old_next, bb_old_cleanup)
     }
 
-    //fn dyndispatch_retval(
-    //    &self,
-    //    old_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-    //    term_dst_place: Place<'tcx>,
-    //) -> bool {
-    //    if old_locals.get(term_dst_place.local).is_some() {
-    //        true
-    //    } else {
-    //        false
-    //    }
-    //}
-
     fn get_traitobj_did(&self, ty: Ty<'tcx>) -> DefId {
         let traitobj_did: Option<DefId>;
         match ty.kind() {
@@ -281,12 +246,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         if genargs_outer.len() != 1 {
                             panic!("handle diff genarg len");
                         }
-                        let genarg_constraint_vec = &genargs_outer[0];
-                        //if genarg_constraint_vec.len() != 1 {
-                        //    println!("genarg_constraint_vec: {:?}", genarg_constraint_vec);
-                        //    panic!("handle different genarg constraint len");
-                        //}
-                        //let genarg_constraint = &genarg_constraint_vec[0];
 
                         let mut defids = Vec::new();
                         for genarg_constraint in genarg_constraint_vec.iter() {
@@ -350,10 +309,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         if let Some(first_arg_vartype) = first_arg {
             if let VarType::Values(first_arg_constraints) = first_arg_vartype {
-                //if first_arg_constraints.len() != 1 {
-                //    println!("first_arg_constraints: {:?}", first_arg_constraints);
-                //    todo!("handle diff lens: {:?}", first_arg_constraints.len());
-                //}
                 for first_arg_constraint in first_arg_constraints.iter() {
                     structs.append(&mut self.resolve_first_arg_constraints(first_arg_constraint));
                 }
@@ -374,13 +329,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut impls = vec![];
         for struct_ in structs.iter() {
             if let Some(impl_blocks) = self.funcs.struct_impls.get(struct_) {
-                //if self.debug {
-                //    println!("impl_blocks: {:?}", impl_blocks);
-                //}
                 if let Some(assoc) = self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
-                    //if self.debug {
-                    //    println!("assoc: {:?}", assoc);
-                    //}
                     for impltor in impltors {
                         if assoc.contains(impltor) {
                             impls.push(*impltor);
@@ -530,7 +479,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 })),
             ))),
         ));
-        //println!("PLACE AFTER: {:?}", boxed_dyn_traitobj_variant_loc);
 
         // add terminator
         let dyn_traitobj_tykind = self.make_dyn_traitobj_tykind(traitobj_did);
@@ -567,7 +515,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 fn_span: self.dummy_span(),
             },
         };
-        //println!("PLACE AFTER (term): {:?}", mut_dyn_traitobj_loc);
 
         let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
         patch.new_block(bb_data)
@@ -671,7 +618,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 })),
             ))),
         ));
-        //println!("PLACE AFTER: {:?}", raw_traitobj2_loc);
 
         // transmute raw_animal copy into &concrete_ty
         let struct_adt_def = self.tcx.adt_def(concrete_ty_did);
@@ -700,7 +646,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 ),
             ))),
         ));
-        //println!("PLACE AFTER: {:?}", concrete_ty_loc);
 
         stmts.push(Statement::new(
             self.dummy_source_info(),
@@ -747,7 +692,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 fn_span: self.dummy_span(),
             },
         };
-        //println!("PLACE AFTER (term): {:?}", func_ret_loc);
 
         let bb_data = BasicBlockData::new_stmts(stmts, Some(term), false);
         patch.new_block(bb_data)
@@ -762,18 +706,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             self.dummy_span(),
         )
     }
-
-    /*
-     * let mut_: usize;
-     */
-    /*
-    fn add_mut_usize_temp(&self, patch: &mut MirPatch<'tcx>) -> Local {
-        patch.new_temp(
-            self.tcx.mk_ty_from_kind(rustc_middle::ty::Uint(UintTy::Usize)),
-            self.dummy_span(),
-        )
-    }
-    */
 
     fn add_switch_block(
         &self,
@@ -808,31 +740,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     fn make_const_ptr_vtable_adt(&self) -> Ty<'tcx> {
         Ty::new_imm_ptr(self.tcx, Ty::new_foreign(self.tcx, VTABLE_TY_DEFID))
     }
-
-    /*
-     * let mut _: usize;
-     */
-    /*
-    fn make_usize(&self) -> Ty<'tcx> {
-        Ty::new_uint(self.tcx, UintTy::Usize)
-    }
-    */
-
-    /*
-    fn make_dynmetadata_adt(&self, traitobj_did: DefId) -> Ty<'tcx> {
-        // DynMetadata AdtDef
-        let dynmetadata_adt_def = self
-            .tcx
-            .adt_def(self.tcx.lang_items().dyn_metadata().unwrap());
-
-        // GenArgsRef
-        let dyn_traitobj_tykind = self.make_dyn_traitobj_tykind(traitobj_did);
-        let dyn_traitobj_ty = self.tcx.mk_ty_from_kind(dyn_traitobj_tykind);
-        let gen_args_ref = self.tcx.mk_args(&[GenericArg::from(dyn_traitobj_ty)]);
-
-        Ty::new_adt(self.tcx, dynmetadata_adt_def, gen_args_ref)
-    }
-    */
 
     fn add_compare_shim(
         &self,
@@ -879,7 +786,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         &self,
         patch: &mut MirPatch<'tcx>,
         bb_next: BasicBlock,
-        //bb_cleanup: BasicBlock,
         raw_traitobj1_loc: Local,
         mut_dyn_traitobj_loc: Local,
         dynmetadata_traitobj_loc: Local,
@@ -887,7 +793,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         dynmetadata_concretety_loc: Local,
         dynmetadata_concretety_vtable_loc: Local,
         eq_res_loc: Local,
-        //traitobj_did: DefId,
         done_copy: bool,
         to_free_opt: Option<Vec<Local>>,
     ) -> BasicBlock {
@@ -996,12 +901,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 },
                 Rvalue::Cast(
                     CastKind::Transmute,
-                    Operand::Copy(
-                        Place {
-                            local: dynmetadata_traitobj_loc,
-                            projection: empty_proj,
-                        }
-                    ),
+                    Operand::Copy(Place {
+                        local: dynmetadata_traitobj_loc,
+                        projection: empty_proj,
+                    }),
                     self.make_const_ptr_vtable_adt(),
                 ),
             ))),
@@ -1016,12 +919,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 },
                 Rvalue::Cast(
                     CastKind::Transmute,
-                    Operand::Copy(
-                        Place {
-                            local: dynmetadata_concretety_loc,
-                            projection: empty_proj,
-                        }
-                    ),
+                    Operand::Copy(Place {
+                        local: dynmetadata_concretety_loc,
+                        projection: empty_proj,
+                    }),
                     self.make_const_ptr_vtable_adt(),
                 ),
             ))),
@@ -1194,6 +1095,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             traitobj_vtable = Some(Local::from_u32(12));
             variant_vtable = Some(Local::from_u32(13));
 
+            // TODO maybe benchmark this route as an alternative, if it is functional?
             //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             //variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
@@ -1212,7 +1114,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut into_raw_target = None;
         let mut bb_last_variant_speak = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
-            // add back old goto?
+            // add back old goto
             let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
 
             // speak (returns to old_next)
@@ -1220,7 +1122,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
             let bb_cur_variant_speak = self.add_speak_block(
                 patch,
-                bb_variant_ret, //bb_old_next,
+                bb_variant_ret,
                 bb_old_cleanup,
                 raw_traitobj1,
                 raw_traitobj2,
@@ -1244,7 +1146,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 let bb_compare = self.add_compare_vtable_block(
                     patch,
                     bb_switch,
-                    //bb_old_cleanup,
                     raw_traitobj1,
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),
@@ -1252,7 +1153,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     variant_vtable.unwrap(),
                     variant_vtable_ptr.unwrap(),
                     eq_res_bool,
-                    //traitobj_did,
                     false,
                     Some(vec![boxed_dyn_traitobj1]),
                 );

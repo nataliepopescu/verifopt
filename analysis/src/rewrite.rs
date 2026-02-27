@@ -247,6 +247,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             panic!("handle diff genarg len");
                         }
 
+                        let genarg_constraint_vec = &genargs_outer[0];
                         let mut defids = Vec::new();
                         for genarg_constraint in genarg_constraint_vec.iter() {
                             match genarg_constraint {

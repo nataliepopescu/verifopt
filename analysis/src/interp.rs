@@ -842,6 +842,24 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         )
     }
 
+    fn fallback_to_func_ret(&self, funcval: &FuncVal<'tcx>) -> Option<Constraints<'tcx>> {
+        // if funcval has a return type, use that as the "summary" constraint
+        let mut constraints = HashSet::default();
+        if let Some(ret_did) = funcval.ret_did {
+            constraints.insert(VerifoptRval::IdkDefId(ret_did));
+            return Some(constraints);
+        } else if let Some(rettype) = funcval.rettype {
+            if self.debug {
+                println!("rettype: {:?}", rettype);
+            }
+
+            // FIXME resolve generics
+            constraints.insert(VerifoptRval::IdkType(rettype));
+            return Some(constraints);
+        }
+        None
+    }
+
     fn interp_direct_func_call(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -875,13 +893,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
                                 }
 
-                                let mut constraints = HashSet::default();
-                                if let Some(ret_did) = funcval.ret_did {
-                                    constraints.insert(VerifoptRval::IdkDefId(ret_did));
-                                } else if let Some(rettype) = funcval.rettype {
-                                    constraints.insert(VerifoptRval::IdkType(rettype));
+                                if let Some(constraints) = self.fallback_to_func_ret(funcval) {
+                                    res_vec.push(constraints);
                                 }
-                                res_vec.push(constraints);
                             } else if !self.tcx.is_mir_available(def_id) {
                                 if self.debug {
                                     println!("MIR NOT AVAILABLE for {:?}", def_id);
@@ -912,74 +926,47 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             println!("dyn_results: {:?}", dyn_results);
                                         }
 
-                                        for dyn_res in dyn_results.iter() {
-                                            match dyn_res {
-                                                Ok(Some(constraints)) => {
-                                                    if self.debug {
-                                                        println!(
-                                                            "\n##### DONE w DYN func {:?}\n",
-                                                            def_id
-                                                        );
-                                                        println!("constraints: {:?}", constraints);
-                                                    }
-
-                                                    if !res_vec.contains(&constraints) {
-                                                        res_vec.push(constraints.clone());
-                                                    } else {
+                                        if dyn_results.is_empty() {
+                                            if let Some(constraints) =
+                                                self.fallback_to_func_ret(funcval)
+                                            {
+                                                res_vec.push(constraints);
+                                            }
+                                        } else {
+                                            for dyn_res in dyn_results.iter() {
+                                                match dyn_res {
+                                                    Ok(Some(constraints)) => {
                                                         if self.debug {
                                                             println!(
-                                                                "dup constraint: {:?}",
+                                                                "\n##### DONE w DYN func {:?}\n",
+                                                                def_id
+                                                            );
+                                                            println!(
+                                                                "constraints: {:?}",
                                                                 constraints
                                                             );
                                                         }
-                                                    }
-                                                }
-                                                Ok(None) => {
-                                                    if self.debug {
-                                                        println!(
-                                                            "\n##### DONE w DYN func {:?}\n",
-                                                            def_id
-                                                        );
-                                                        println!("no retval, check for widening");
-                                                    }
-                                                    // if funcval has a return type, use that as the
-                                                    // "summary" constraint
-                                                    let mut constraints = HashSet::default();
-                                                    if let Some(ret_did) = funcval.ret_did {
-                                                        constraints.insert(VerifoptRval::IdkDefId(
-                                                            ret_did,
-                                                        ));
-                                                        if !res_vec.contains(&constraints) {
-                                                            res_vec.push(constraints);
-                                                        } else {
-                                                            if self.debug {
-                                                                println!(
-                                                                    "dup constraint: {:?}",
-                                                                    constraints
-                                                                );
-                                                            }
-                                                        }
-                                                    } else if let Some(rettype) = funcval.rettype {
-                                                        if self.debug {
-                                                            println!("rettype: {:?}", rettype);
-                                                        }
 
-                                                        // FIXME resolve generics
-                                                        constraints
-                                                            .insert(VerifoptRval::IdkType(rettype));
-                                                        if !res_vec.contains(&constraints) {
+                                                        res_vec.push(constraints.clone());
+                                                    }
+                                                    Ok(None) => {
+                                                        if self.debug {
+                                                            println!(
+                                                                "\n##### DONE w DYN func {:?}\n",
+                                                                def_id
+                                                            );
+                                                            println!(
+                                                                "no retval, check for widening"
+                                                            );
+                                                        }
+                                                        if let Some(constraints) =
+                                                            self.fallback_to_func_ret(funcval)
+                                                        {
                                                             res_vec.push(constraints);
-                                                        } else {
-                                                            if self.debug {
-                                                                println!(
-                                                                    "dup constraint: {:?}",
-                                                                    constraints
-                                                                );
-                                                            }
                                                         }
                                                     }
+                                                    e @ Err(_) => panic!("error: {:?}", e),
                                                 }
-                                                e @ Err(_) => return e.clone(),
                                             }
                                         }
                                     }
@@ -989,17 +976,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
                                         std::mem::drop(mutex);
 
-                                        // if funcval has a return type, use that as the
-                                        // "summary" constraint
-                                        let mut constraints = HashSet::default();
-                                        if let Some(ret_did) = funcval.ret_did {
-                                            constraints.insert(VerifoptRval::IdkDefId(ret_did));
-                                        } else if let Some(rettype) = funcval.rettype {
-                                            constraints.insert(VerifoptRval::IdkType(rettype));
-                                        } else {
-                                            constraints.insert(VerifoptRval::Undef());
+                                        match self.fallback_to_func_ret(funcval) {
+                                            Some(constraints) => res_vec.push(constraints),
+                                            None => {
+                                                let mut constraints = HashSet::default();
+                                                constraints.insert(VerifoptRval::Undef());
+                                                res_vec.push(constraints);
+                                            }
                                         }
-                                        res_vec.push(constraints);
                                     }
                                 }
                             } else {
@@ -1029,20 +1013,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                         cmap_vec.push(cmap_clone);
                                         if let Some(constraints) = maybe_constraints {
-                                            if !res_vec.contains(&constraints) {
-                                                if self.debug {
-                                                    println!("res_vec {:?}", res_vec);
-                                                    println!(
-                                                        "adding constraint: {:?}",
-                                                        constraints
-                                                    );
-                                                }
-                                                res_vec.push(constraints);
-                                            } else {
-                                                if self.debug {
-                                                    println!("dup constraint: {:?}", constraints);
-                                                }
+                                            if self.debug {
+                                                println!("res_vec {:?}", res_vec);
+                                                println!("adding constraint: {:?}", constraints);
                                             }
+                                            res_vec.push(constraints);
                                         } else if let Some(rettype) = funcval.rettype {
                                             // is `None` actually a None, or was the
                                             // analysis just unable to interpret something?
@@ -1183,6 +1158,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         _ => {}
                     },
                     None => {
+                        if self.debug {
+                            println!(
+                                "cur_scope cmap: {:#?}",
+                                cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+                            );
+                        }
                         panic!("place doesn't exist in cmap, maybe this is a func name");
                     }
                 }

@@ -5,9 +5,9 @@ use std::time::Instant;
 
 //use rand::RngExt;
 
-use std::io::prelude::*;
-use std::io::BufReader;
 use std::fs::File;
+use std::io::BufReader;
+use std::io::prelude::*;
 
 pub trait Animal {
     fn speak(&self, ctr: &mut Ctr) -> usize;
@@ -103,10 +103,12 @@ fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
         1 => {
-            println!("USAGE \nPass in:
+            println!(
+                "USAGE \nPass in:
                      \n\t(1) a filename to read from for bench input,
                      \n\t(2) a number of warmup runs,
-                     \n\t(3) a number of actual runs");
+                     \n\t(3) a number of actual runs"
+            );
             Ok(())
         }
         _ => {

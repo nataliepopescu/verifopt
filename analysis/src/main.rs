@@ -71,7 +71,7 @@ impl Callbacks for VerifoptCallbacks {
         //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         //// init + run Interpreter Pass
-        let debug_interp = false;
+        let debug_interp = true;
         let mut cmap = ConstraintMap::new(debug_interp);
         let interp = InterpPass::new(tcx, &funcs, debug_interp);
         let _res = interp.run(&mut cmap, None, entry_func, mir_body);

@@ -1,7 +1,6 @@
-
-use std::io::prelude::*;
-use std::io::BufWriter;
 use std::fs::File;
+use std::io::BufWriter;
+use std::io::prelude::*;
 //use rand::RngExt;
 
 fn main() -> std::io::Result<()> {

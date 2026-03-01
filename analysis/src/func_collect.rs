@@ -499,7 +499,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 // one_variant (no bmark): limit = 21
                 // one_variant (bmark): limit = 26
                 // two_variants (no bmark): limit = 26
-                if crate_num == 0 && def_index >= 26
+                // two_variants (bmark): limit = 43
+                if crate_num == 0 && def_index >= 43
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

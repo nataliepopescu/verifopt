@@ -5,11 +5,10 @@ use rustc_hir::def::DefKind;
 //use rustc_hir::def::Res;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{
-    GenericArg, GenericArgKind, Generics, InstanceKind, List, ParamTy, Ty, TyCtxt, TyKind,
-};
+use rustc_middle::ty::{GenericArg, GenericArgKind, Generics, InstanceKind, List, TyCtxt, TyKind};
 
 use crate::core::FuncVal;
+use crate::core::get_params_from_ty;
 
 use std::sync::{Arc, Mutex};
 
@@ -191,75 +190,6 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
-    fn get_params(&self, ty: &Ty<'tcx>) -> Option<Vec<ParamTy>> {
-        match ty.kind() {
-            TyKind::Param(param) => {
-                if self.debug {
-                    println!("arg has ty param: {:?}", param);
-                }
-                return Some(vec![*param]);
-            }
-            TyKind::Slice(ty) => {
-                if self.debug {
-                    println!("slice arg ty: {:?}", ty);
-                }
-                return self.get_params(ty);
-            }
-            TyKind::Ref(_, ty, _) => {
-                if self.debug {
-                    println!("ref arg ty: {:?}", ty);
-                }
-                return self.get_params(ty);
-            }
-            TyKind::Adt(_, genargs) => {
-                if self.debug {
-                    println!("adt genargs: {:?}", genargs);
-                }
-                let mut params = vec![];
-                for genarg in genargs.as_slice().iter() {
-                    if self.debug {
-                        println!("LOOP genarg: {:?}", genarg);
-                    }
-                    match genarg.kind() {
-                        GenericArgKind::Lifetime(_) => {
-                            if self.debug {
-                                println!("skipping lifetime arg...");
-                            }
-                            continue;
-                        }
-                        GenericArgKind::Type(ty) => {
-                            if let Some(inner_params) = self.get_params(&ty) {
-                                if self.debug {
-                                    println!("ty arg contains: {:?}", inner_params);
-                                }
-                                for param in inner_params.iter() {
-                                    params.push(*param);
-                                }
-                            }
-                        }
-                        GenericArgKind::Const(_) => {
-                            if self.debug {
-                                println!("skipping const arg...");
-                            }
-                            continue;
-                        }
-                    }
-                }
-                if params.len() == 0 {
-                    None
-                } else {
-                    Some(params)
-                }
-            }
-            _ => {
-                if self.debug {
-                    println!("different ty: {:?}", ty.kind());
-                }
-                return None;
-            }
-        }
-    }
-
     pub fn handle_fn(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
         // TODO for AssocFns, might be useful to have a field describing if it has a
         // default implementation or not
@@ -322,7 +252,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     println!("local (arg) type: {:?}", loc.ty);
                 }
 
-                match self.get_params(&loc.ty) {
+                match get_params_from_ty(&loc.ty) {
                     Some(param_vec) => {
                         for param in param_vec {
                             arg_generics_inner.push(param);
@@ -402,10 +332,9 @@ impl<'tcx> FuncCollectPass<'tcx> {
         if self.debug {
             println!("sig: {:?}", sig);
             println!("rettype: {:?}", rettype);
-            //println!("ret impl trait?: {:?}", self.tcx.collect_return_position_impl_trait_in_trait_tys(def_id));
         }
         let mut ret_did = None;
-        let mut ret_generic = None;
+        let mut ret_generics = None;
         match rettype.kind() {
             TyKind::Adt(def, adt_genargs) => {
                 if self.debug {
@@ -415,29 +344,15 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 ret_did = Some(def.did());
                 if adt_genargs.len() > 0 {
                     match adt_genargs[0].kind() {
-                        //GenericArgKind::Const(c) => match c.kind() {
-                        //    ConstKind::Param(param_const) => {
-                        //        if self.debug {
-                        //            println!("rettype has const param: {:?}", param_const);
-                        //        }
-                        //        ret_generic =
-                        //            Some(ParamTy::new(param_const.index, param_const.name));
-                        //    }
-                        //    _ => {
-                        //        if self.debug {
-                        //            println!("not a param: {:?}", c.kind());
-                        //        }
-                        //    }
-                        //},
-                        GenericArgKind::Type(ty) => match ty.kind() {
-                            TyKind::Param(param) => {
-                                if self.debug {
-                                    println!("rettype has ty param: {:?}", param);
-                                }
-                                ret_generic = Some(*param);
+                        GenericArgKind::Type(ty) => {
+                            let params_opt = get_params_from_ty(&ty);
+                            if self.debug {
+                                println!("PARAMS: {:?}", params_opt);
                             }
-                            _ => {}
-                        },
+                            if let Some(params_vec) = params_opt {
+                                ret_generics = Some(params_vec);
+                            }
+                        }
                         _ => {
                             if self.debug {
                                 println!("genarg is not a ty: {:?}", adt_genargs[0].kind());
@@ -450,7 +365,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 if self.debug {
                     println!("rettype == param: {:?}", param);
                 }
-                ret_generic = Some(*param);
+                ret_generics = Some(vec![*param]);
             }
             _ => {}
         }
@@ -465,7 +380,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             arg_generics,
             Some(rettype),
             ret_did,
-            ret_generic,
+            ret_generics,
         );
         let vec_to_insert: Vec<FuncVal>;
         match funcs.funcs.get_mut(&def_id) {

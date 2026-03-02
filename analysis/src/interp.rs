@@ -8,8 +8,8 @@ use rustc_middle::ty::{GenericArg, GenericArgKind, List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
-use crate::core::is_box;
 use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
+use crate::core::{get_params_from_ty, is_box};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
 use crate::wto::BBDeps;
@@ -816,7 +816,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             self.resolve_generic_argtys(&mut cmap, cur_scope, body_locals, funcval, func_genargs);
         }
 
-        if funcval.ret_generic.is_some() {
+        if funcval.ret_generics.is_some() {
             if self.debug {
                 println!("\n## RESOLVING GENERICS IN RETTY...\n");
             }
@@ -1449,7 +1449,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         destination: &Place<'tcx>,
     ) {
         if self.debug {
-            println!("funcval.ret_generic: {:?}", funcval.ret_generic);
+            println!("funcval.rettype: {:?}", funcval.rettype);
+            println!("funcval.ret_generics: {:?}", funcval.ret_generics);
             println!("func genargs: {:?}", func_genargs);
             println!("destination: {:?}", destination);
             println!("body_locals[dest]: {:?}", body_locals[destination.local]);
@@ -1477,7 +1478,29 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
                                     }
                                 }
-                                _ => {}
+                                TyKind::Slice(ty) => {
+                                    let params_vec_opt = get_params_from_ty(&ty);
+                                    if self.debug {
+                                        println!("params: {:?}", params_vec_opt);
+                                    }
+                                    if let Some(params_vec) = params_vec_opt {
+                                        if func_genargs.len() > 0 {
+                                            if func_genargs.len() != 1 {
+                                                todo!(
+                                                    "unexpected func_genargs len (handle non-1 len)"
+                                                );
+                                            }
+                                            for param in params_vec.iter() {
+                                                if let Some(genarg_ty) = func_genargs[0].as_type() {
+                                                    name_opt = Some(param.name);
+                                                    constraints
+                                                        .insert(VerifoptRval::IdkType(genarg_ty));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => println!("OTHER KIND: {:?}", ty.kind()),
                             },
                             _ => todo!("first genarg is not a ty: {:?}", adt_genargs[0].kind()),
                         }

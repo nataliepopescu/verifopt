@@ -25,7 +25,7 @@ pub struct FuncVal<'tcx> {
     pub param_generics: Option<Vec<ParamTy>>,
     pub rettype: Option<Ty<'tcx>>,
     pub ret_did: Option<DefId>,
-    pub ret_generic: Option<ParamTy>,
+    pub ret_generics: Option<Vec<ParamTy>>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
@@ -38,7 +38,7 @@ impl<'tcx> FuncVal<'tcx> {
         param_generics: Option<Vec<ParamTy>>,
         rettype: Option<Ty<'tcx>>,
         ret_did: Option<DefId>,
-        ret_generic: Option<ParamTy>,
+        ret_generics: Option<Vec<ParamTy>>,
     ) -> FuncVal<'tcx> {
         let params;
         if let Some(arg_types) = arg_types_opt {
@@ -58,7 +58,7 @@ impl<'tcx> FuncVal<'tcx> {
             param_generics,
             rettype,
             ret_did,
-            ret_generic,
+            ret_generics,
         }
     }
 }
@@ -88,6 +88,75 @@ pub enum VerifoptRval<'tcx> {
     IdkDefId(DefId),
     Idk(),
     Undef(),
+}
+
+pub fn get_params_from_ty<'tcx>(ty: &Ty<'tcx>) -> Option<Vec<ParamTy>> {
+    match ty.kind() {
+        TyKind::Param(param) => {
+            //if self.debug {
+            //    println!("arg has ty param: {:?}", param);
+            //}
+            return Some(vec![*param]);
+        }
+        TyKind::Slice(ty) => {
+            //if self.debug {
+            //    println!("slice arg ty: {:?}", ty);
+            //}
+            return get_params_from_ty(ty);
+        }
+        TyKind::Ref(_, ty, _) => {
+            //if self.debug {
+            //    println!("ref arg ty: {:?}", ty);
+            //}
+            return get_params_from_ty(ty);
+        }
+        TyKind::Adt(_, genargs) => {
+            //if self.debug {
+            //    println!("adt genargs: {:?}", genargs);
+            //}
+            let mut params = vec![];
+            for genarg in genargs.as_slice().iter() {
+                //if self.debug {
+                //    println!("LOOP genarg: {:?}", genarg);
+                //}
+                match genarg.kind() {
+                    GenericArgKind::Lifetime(_) => {
+                        //if self.debug {
+                        //    println!("skipping lifetime arg...");
+                        //}
+                        continue;
+                    }
+                    GenericArgKind::Type(ty) => {
+                        if let Some(inner_params) = get_params_from_ty(&ty) {
+                            //if self.debug {
+                            //    println!("ty arg contains: {:?}", inner_params);
+                            //}
+                            for param in inner_params.iter() {
+                                params.push(*param);
+                            }
+                        }
+                    }
+                    GenericArgKind::Const(_) => {
+                        //if self.debug {
+                        //    println!("skipping const arg...");
+                        //}
+                        continue;
+                    }
+                }
+            }
+            if params.len() == 0 {
+                None
+            } else {
+                Some(params)
+            }
+        }
+        _ => {
+            //if self.debug {
+            //    println!("different ty: {:?}", ty.kind());
+            //}
+            return None;
+        }
+    }
 }
 
 pub struct VerifoptConverter<'a, 'tcx> {
@@ -287,8 +356,9 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 | CastKind::FloatToInt
                 | CastKind::FloatToFloat
                 | CastKind::IntToFloat
-                | CastKind::PtrToPtr => return constraint.clone(),
-                _ => todo!("cannot yet cast: {:?}", constraint),
+                | CastKind::PtrToPtr
+                | CastKind::PointerCoercion(_, _) => return constraint.clone(),
+                _ => todo!("cannot yet cast: {:?} ({:?})", constraint, kind),
             },
             _ => todo!("cannot yet cast: {:?}", constraint),
         }
@@ -458,13 +528,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     return self.resolve_genargkind(cmap, cur_scope, defid, *inner_genarg);
                 }
             }
-            TyKind::Slice(s) => match s.kind() {
-                TyKind::Int(_) | TyKind::Uint(_) => {}
-                TyKind::Param(param) => {
-                    return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
-                }
-                _ => todo!("other slice tykind: {:?}", s.kind()),
-            },
+            TyKind::Slice(s_ty) => return self.resolve_genargtype(cmap, cur_scope, defid, *s_ty),
             TyKind::Int(_) | TyKind::Uint(_) => {}
             TyKind::Tuple(tylist) => {
                 if self.debug {

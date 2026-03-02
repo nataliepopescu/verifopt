@@ -712,13 +712,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         // `impltors` are the concrete implementations of this assoc_fn
-        if let Some(impltors) = self
-            .funcs
-            .trait_fn_impltors
-            .lock()
-            .unwrap()
-            .get(&assoc_funcval.def_id)
-        {
+        let mutex = self.funcs.trait_fn_impltors.lock().unwrap();
+        if let Some(impltors_) = mutex.get(&assoc_funcval.def_id) {
+            let impltors = impltors_.clone();
+            std::mem::drop(mutex);
+
             // get the first (`self`) arg place
             match args[0].node {
                 Operand::Copy(place) | Operand::Move(place) => {
@@ -752,7 +750,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                             // unwrap any refs or boxed types
                             if let Some(self_constraint_vec) = self.resolve_dyn_self_constraint(
-                                cmap, cur_scope, impltors, constraint, args,
+                                cmap, cur_scope, &impltors, constraint, args,
                             ) {
                                 if self.debug {
                                     println!("\n## BEFORE DYN_TO_STATIC");
@@ -765,7 +763,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     cur_scope,
                                     body_locals,
                                     self_constraint_vec,
-                                    impltors,
+                                    &impltors,
                                     func_genargs,
                                     args,
                                     destination,
@@ -782,6 +780,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 _ => {}
             }
         } else {
+            std::mem::drop(mutex);
             panic!("missing implementors");
         }
 
@@ -904,11 +903,12 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 let mutex = self.funcs.assocfns_to_traits.lock().unwrap();
                                 match mutex.get(def_id) {
                                     Some(trait_def_id) => {
+                                        let trait_def_id_clone = trait_def_id.clone();
+                                        std::mem::drop(mutex);
+
                                         if self.debug {
                                             println!("\n### DYN DISPATCH TO {:?}\n", def_id);
                                         }
-                                        let trait_def_id_clone = trait_def_id.clone();
-                                        std::mem::drop(mutex);
 
                                         let dyn_results = self.handle_dyn_dispatch(
                                             cmap,
@@ -971,10 +971,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
                                     }
                                     None => {
+                                        std::mem::drop(mutex);
+
                                         if self.debug {
                                             println!("\n### UNDEF FN / RES {:?}\n", def_id);
                                         }
-                                        std::mem::drop(mutex);
 
                                         match self.fallback_to_func_ret(funcval) {
                                             Some(constraints) => res_vec.push(constraints),

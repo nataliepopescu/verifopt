@@ -1,0 +1,14 @@
+| Dynamic Dispatch Calls                                                                    | # Dynamic Dispatch Calls |
+| ----------------------------------------------------------------------------------------- | ------------------------ |
+| `run_animal_dispatch(animal: Box<dyn Animal>, v: Box<Visitor1>)`                          | 2 dynamic calls          |
+| `run_visitor_dispatch(animal: &Dog, v: Box<dyn AnimalVisitor>)`                           | 1 dynamic calls          |
+| `visitor0sf_2::run_not_rw(animal: Box<dyn Animal>, dc: &Visitor1)`                        | 2 dynamic calls          |
+| `double_visitor0sf::run_full_not_rw(animal: Box<dyn Animal>, dc: Box<dyn AnimalVisitor>)` | 2 dynamic calls          |
+
+
+
+| Branch Misprediction Effects                                                              | random                                                                                                           | always 1                                   | always 2                | alternating                                                                                       |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `double_visitor0sf::run_animal_dispatch(animal: Box<dyn Animal>, v: Box<Visitor1>)`       | **High**: animal indirect target flips (Cat/Dog). Visitor call inside `visit`is stable (Visitor1).               | **Low**: animal target stable (Cat).       |                         | **High → Very High**: alternating Cat/Dog often worse than random for indirect-target predictors. |
+| `double_visitor0sf::run_visitor_dispatch(animal: &Dog, v: Box<dyn AnimalVisitor>)`        | **Moderate/High**: visitor call target flips (Visitor1/Visitor2).                                                | **Low**: visitor target stable (Visitor1). |                         | **Moderate/High**: alternating Visitor1/2 stresses indirect prediction (often worse than random). |
+| `double_visitor0sf::run_full_not_rw(animal: Box<dyn Animal>, dc: Box<dyn AnimalVisitor>)` | **Very High**: Animal::visit flips (Cat/Dog) and visitor method flips (V1/V2) → more target entropy than others. | **Moderate**_(only one pinned)_.           | **Low** _(both pinned)_ | **Very High**: alternation in one or both dimensions.                                             |

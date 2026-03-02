@@ -745,10 +745,17 @@ fn bench_visitor0sf(c: &mut Criterion) {
     group.finish();
 }
 
+fn read_exact_bytes(path: &str, n: usize) -> Vec<usize> {
+    let mut f = File::open(path).unwrap();
+    let mut buf = vec![0u8; n];
+    f.read_exact(&mut buf).unwrap();
+    buf.into_iter().map(|b| (b & 1) as usize).collect()
+}
+
 fn bench_visitor_ref(c: &mut Criterion) {
     let mut group = c.benchmark_group("double_visitor0sf_ref");
-    group.bench_function("visitor0sf_2_not_rw_alternating", |b| {
-        const INNER: usize = 50_000;
+    group.bench_function("frandom", |b| {
+        const INNER: usize = 500_000;
         // Construct concrete values once
         let cat = double_visitor0sf_ref::Cat {};
         let dog = double_visitor0sf_ref::Dog {};
@@ -762,14 +769,43 @@ fn bench_visitor_ref(c: &mut Criterion) {
         let visitors: [&dyn double_visitor0sf_ref::AnimalVisitor; 2] = [&v1, &v2];
         b.iter_batched(
             || {
-                // pre-generate indices (no allocations, small)
-                let mut rng = rand::rng();
-                let mut a = Vec::with_capacity(INNER);
-                let mut v = Vec::with_capacity(INNER);
-                for _ in 0..INNER {
-                    a.push(rng.random_range(..2usize));
-                    v.push(rng.random_range(..2usize));
+                let a = read_exact_bytes("/home/akalaba/verifopt/rewrites/benches/random_a.bin", INNER);
+                let v = read_exact_bytes("/home/akalaba/verifopt/rewrites/benches/random_v.bin", INNER);
+                (a, v)
+            },
+            |(a_idx, v_idx)| {
+                for i in 0..INNER {
+                    // Make indices opaque so compiler can't constant-fold
+                    let ai = std::hint::black_box(a_idx[i] & 1);
+                    let vi = std::hint::black_box(v_idx[i] & 1);
+
+                    let animal = animals[ai];
+                    let visitor = visitors[vi];
+
+                    // Call through dyn trait (this should remain an indirect call)
+                    std::hint::black_box(double_visitor0sf_ref::run_full_not_rw(animal, visitor));
                 }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("fknown", |b| {
+        const INNER: usize = 500_000;
+        // Construct concrete values once
+        let cat = double_visitor0sf_ref::Cat {};
+        let dog = double_visitor0sf_ref::Dog {};
+
+        // Construct visitors once (adjust these constructors to your real types)
+        let v1 = double_visitor0sf_ref::Visitor1 {};
+        let v2 = double_visitor0sf_ref::Visitor2 {};
+
+        // Store as trait object references (fat pointers)
+        let animals: [&dyn double_visitor0sf_ref::Animal; 2] = [&cat, &dog];
+        let visitors: [&dyn double_visitor0sf_ref::AnimalVisitor; 2] = [&v1, &v2];
+        b.iter_batched(
+            || {
+                let a = read_exact_bytes("/home/akalaba/verifopt/rewrites/benches/known_a.bin", INNER);
+                let v = read_exact_bytes("/home/akalaba/verifopt/rewrites/benches/known_v.bin", INNER);
                 (a, v)
             },
             |(a_idx, v_idx)| {

@@ -8,7 +8,7 @@ use std::io::Read;
 use std::io::Write;
 
 use rand::Rng;
-use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime2sf, visitor0sf_2, double_visitor0sf};
+use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime2sf, visitor0sf_2, double_visitor0sf, double_visitor0sf_ref};
 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
@@ -744,6 +744,53 @@ fn bench_visitor0sf(c: &mut Criterion) {
     });
     group.finish();
 }
+
+fn bench_visitor_ref(c: &mut Criterion) {
+    let mut group = c.benchmark_group("double_visitor0sf_ref");
+    group.bench_function("visitor0sf_2_not_rw_alternating", |b| {
+        const INNER: usize = 50_000;
+        // Construct concrete values once
+        let cat = double_visitor0sf_ref::Cat {};
+        let dog = double_visitor0sf_ref::Dog {};
+
+        // Construct visitors once (adjust these constructors to your real types)
+        let v1 = double_visitor0sf_ref::Visitor1 {};
+        let v2 = double_visitor0sf_ref::Visitor2 {};
+
+        // Store as trait object references (fat pointers)
+        let animals: [&dyn double_visitor0sf_ref::Animal; 2] = [&cat, &dog];
+        let visitors: [&dyn double_visitor0sf_ref::AnimalVisitor; 2] = [&v1, &v2];
+        b.iter_batched(
+            || {
+                // pre-generate indices (no allocations, small)
+                let mut rng = rand::rng();
+                let mut a = Vec::with_capacity(INNER);
+                let mut v = Vec::with_capacity(INNER);
+                for _ in 0..INNER {
+                    a.push(rng.random_range(..2usize));
+                    v.push(rng.random_range(..2usize));
+                }
+                (a, v)
+            },
+            |(a_idx, v_idx)| {
+                for i in 0..INNER {
+                    // Make indices opaque so compiler can't constant-fold
+                    let ai = std::hint::black_box(a_idx[i] & 1);
+                    let vi = std::hint::black_box(v_idx[i] & 1);
+
+                    let animal = animals[ai];
+                    let visitor = visitors[vi];
+
+                    // Call through dyn trait (this should remain an indirect call)
+                    std::hint::black_box(double_visitor0sf_ref::run_full_not_rw(animal, visitor));
+                }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
 
 fn bench_visitor_alternating(c: &mut Criterion) {
     let cat: &visitor0sf_2::Cat = &visitor0sf_2::Cat {};
@@ -1809,8 +1856,9 @@ criterion_group! {
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
     targets =
-        bench_visitor0sf_2,
-        bench_visitor_alternating,
+        //bench_visitor0sf_2,
+        //bench_visitor_alternating,
+        bench_visitor_ref,
         // bench_double_visitor0sf,
         // bench_visitor0sf,
         // bench_visitor2sf,

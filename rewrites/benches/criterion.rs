@@ -3,9 +3,12 @@
 use core::ptr::DynMetadata;
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::time::Duration;
+use std::fs::File;
+use std::io::Read;
+use std::io::Write;
 
 use rand::Rng;
-use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime2sf};
+use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime2sf, visitor0sf_2, double_visitor0sf};
 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
@@ -357,13 +360,75 @@ fn bench_vec2sf(c: &mut Criterion) {
 fn bench_visitor0sf(c: &mut Criterion) {
     let cat: &visitor0sf::Cat = &visitor0sf::Cat {};
     let sbd: &visitor0sf::SpeakBetterDogs = &visitor0sf::SpeakBetterDogs {};
+    let dog: &visitor0sf_2::Dog = &visitor0sf_2::Dog {};
+    let sbd0_2: &visitor0sf_2::Visitor1 = &visitor0sf_2::Visitor1 { };
+    let cat0_2: &visitor0sf_2::Cat = &visitor0sf_2::Cat {};
     let mut group = c.benchmark_group("visitor0sf");
 
     group.bench_function("visitor0sf_best", |b| b.iter(|| std::hint::black_box(visitor0sf::run_best(cat, sbd))));
+    group.bench_function("visitor0sf_best_cat", |b| b.iter(|| std::hint::black_box(visitor0sf::run_best_cat(cat, sbd))));
+
     group.bench_function("visitor0sf_not_rw", |b| {
         b.iter_batched(
-            || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| std::hint::black_box(visitor0sf::run_not_rw(animal, sbd)),
+            // || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_not_rw_alwaysdog", |b| {
+        b.iter_batched(
+            // || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor0sf_not_rw_alwayscat", |b| {
+        b.iter_batched(
+            // || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_full_not_rw", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf::run_full_not_rw(animal, sbd))
+            },
             BatchSize::SmallInput,
         )
     });
@@ -371,7 +436,54 @@ fn bench_visitor0sf(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor0sf::get_cat();
+                // let the_cat = visitor0sf::get_cat();
+                let cat = visitor0sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor0sf_src_rw_into_raw_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x.into());
+                // let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor0sf::get_cat();
+                let cat = visitor0sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor0sf_src_rw_into_raw_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x.into());
+                // let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor0sf::get_cat();
+                let cat = visitor0sf::get_animal(0);
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
@@ -386,13 +498,321 @@ fn bench_visitor0sf(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor0sf::get_cat();
+                // let cat = visitor0sf::get_cat();
+                let cat = visitor0sf::get_animal(0);
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
             },
             move |(animal, animal_vtable, cat_vtable)| {
                 std::hint::black_box(visitor0sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor0sf_src_rw_transmutes_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x.into());
+                // let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf::get_cat();
+                let cat = visitor0sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor0sf_src_rw_transmutes_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf::get_animal(x.into());
+                // let animal = visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf::get_cat();
+                let cat = visitor0sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_best", |b| b.iter(|| std::hint::black_box(visitor0sf_2::run_best(dog, sbd0_2))));
+    group.bench_function("visitor0sf_2_best_cat", |b| b.iter(|| std::hint::black_box(visitor0sf_2::run_best_cat(cat0_2, sbd0_2))));
+    group.bench_function("visitor0sf_2_not_rw", |b| {
+        b.iter_batched(
+            // || visitor0sf_2::get_animal(rand::rng().random_range(..2usize)),
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_not_rw(animal, sbd0_2))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_not_rw_alwaysdog", |b| {
+        b.iter_batched(
+            // || visitor0sf_2::get_animal(rand::rng().random_range(..2usize)),
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_not_rw(animal, sbd0_2))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor0sf_2_not_rw_alwayscat", |b| {
+        b.iter_batched(
+            // || visitor0sf_2::get_animal(rand::rng().random_range(..2usize)),
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_not_rw(animal, sbd0_2))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_full_not_rw", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_full_not_rw(animal, sbd0_2))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_into_raw(animal, sbd0_2, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_into_raw_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_into_raw(animal, sbd0_2, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_into_raw_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_into_raw(animal, sbd0_2, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_transmutes(animal, sbd0_2, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_transmutes_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_transmutes(animal, sbd0_2, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_transmutes_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_transmutes(animal, sbd0_2, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
+fn bench_visitor_alternating(c: &mut Criterion) {
+    let cat: &visitor0sf_2::Cat = &visitor0sf_2::Cat {};
+    let dog: &visitor0sf_2::Dog = &visitor0sf_2::Dog {};
+    let sbd: &visitor0sf_2::Visitor1 = &visitor0sf_2::Visitor1 { };
+    let v1: &double_visitor0sf::Visitor1 = &double_visitor0sf::Visitor1 {};
+    let ddog: &double_visitor0sf::Dog = &double_visitor0sf::Dog {};
+    let mut group = c.benchmark_group("visitor_alternating");
+
+    group.bench_function("visitor0sf_2_not_rw_alternating", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/alternating.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let mut x = b[0] & 1;
+                x = (x + 1) % 2; // alternate
+                // write this back to file
+                let mut f = File::create("/home/akalaba/verifopt/rewrites/benches/alternating.bin").unwrap();
+                f.write_all(&[x]).unwrap();
+                let animal = visitor0sf_2::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    
+    group.bench_function("double_visitor0sf_run_animal_dispatch_alternating", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/alternating2.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let mut x = b[0] & 1;
+                x = (x + 1) % 2; // alternate
+                // write this back to file
+                let mut f = File::create("/home/akalaba/verifopt/rewrites/benches/alternating2.bin").unwrap();
+                f.write_all(&[x]).unwrap();
+                let animal = double_visitor0sf::get_animal(x.into());
+                let visitor = Box::new(double_visitor0sf::Visitor1 {});
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_animal_dispatch(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    
+    group.bench_function("double_visitor0sf_run_visitor_dispatch_alternating", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/alternating3.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let mut x = b[0] & 1;
+                x = (x + 1) % 2; // alternate
+                // write this back to file
+                let mut f = File::create("/home/akalaba/verifopt/rewrites/benches/alternating3.bin").unwrap();
+                f.write_all(&[x]).unwrap();
+                let animal = &double_visitor0sf::Dog {};
+                let visitor = double_visitor0sf::get_visitor(x.into());
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_visitor_dispatch(animal, visitor))
             },
             BatchSize::SmallInput,
         )
@@ -453,14 +873,69 @@ fn bench_visitor2sf(c: &mut Criterion) {
         age: 1,
         num_siblings: 13,
     };
-    let sbd: &visitor2sf::SpeakBetterDogs = &visitor2sf::SpeakBetterDogs { tmp1: 6, tmp2: 7 };
+    let sbd: &visitor2sf::SpeakBetterDogs = &visitor2sf::SpeakBetterDogs { };
     let mut group = c.benchmark_group("visitor2sf");
 
     group.bench_function("visitor2sf_best", |b| b.iter(|| std::hint::black_box(visitor2sf::run_best(cat, sbd))));
+    group.bench_function("visitor2sf_best_cat", |b| b.iter(|| std::hint::black_box(visitor2sf::run_best_cat(cat, sbd))));
     group.bench_function("visitor2sf_not_rw", |b| {
         b.iter_batched(
-            || visitor2sf::get_animal(rand::rng().random_range(..2usize)),
-            move |animal| std::hint::black_box(visitor2sf::run_not_rw(animal, sbd)),
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor2sf::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor2sf_not_rw_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor2sf::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor2sf_not_rw_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor2sf::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor2sf_full_not_rw", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor2sf::run_full_not_rw(animal, sbd))
+            },
             BatchSize::SmallInput,
         )
     });
@@ -468,7 +943,8 @@ fn bench_visitor2sf(c: &mut Criterion) {
         b.iter_batched(
             || {
                 let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor2sf::get_cat();
+                // let cat = visitor2sf::get_cat();
+                let cat = visitor2sf::get_animal(0);
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
@@ -479,11 +955,56 @@ fn bench_visitor2sf(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    /*group.bench_function("visitor2sf_src_rw_transmutes", |b| {
+    group.bench_function("visitor2sf_src_rw_into_raw_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x.into());
+                // let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor2sf::get_cat();
+                let cat = visitor2sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor2sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor2sf_src_rw_into_raw_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x.into());
+                // let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor2sf::get_cat();
+                let cat = visitor2sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor2sf::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor2sf_src_rw_transmutes", |b| {
         b.iter_batched(
             || {
                 let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
-                let cat = visitor2sf::get_cat();
+                // let cat = visitor2sf::get_cat();
+                let cat = visitor2sf::get_animal(0);
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
                 (animal, animal_vtable, cat_vtable)
@@ -493,7 +1014,529 @@ fn bench_visitor2sf(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });*/
+    });
+    group.bench_function("visitor2sf_src_rw_transmutes_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x.into());
+                // let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor2sf::get_cat();
+                let cat = visitor2sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor2sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor2sf_src_rw_transmutes_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor2sf::get_animal(x.into());
+                // let animal = visitor2sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor2sf::get_cat();
+                let cat = visitor2sf::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor2sf::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
+fn bench_visitor0sf_2(c: &mut Criterion) {
+    let cat: &visitor0sf_2::Cat = &visitor0sf_2::Cat {};
+    let dog: &visitor0sf_2::Dog = &visitor0sf_2::Dog {};
+    let sbd: &visitor0sf_2::Visitor1 = &visitor0sf_2::Visitor1 { };
+    let v1: &double_visitor0sf::Visitor1 = &double_visitor0sf::Visitor1 {};
+    let ddog: &double_visitor0sf::Dog = &double_visitor0sf::Dog {};
+    let mut group = c.benchmark_group("visitor0sf_2");
+
+    group.bench_function("visitor0sf_2_best", |b| b.iter(|| std::hint::black_box(visitor0sf_2::run_best(dog, sbd))));
+    group.bench_function("visitor0sf_2_best_cat", |b| b.iter(|| std::hint::black_box(visitor0sf_2::run_best_cat(cat, sbd))));
+    group.bench_function("visitor0sf_2_not_rw", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_not_rw_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("visitor0sf_2_not_rw_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    
+    group.bench_function("visitor0sf_2_full_not_rw", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x);
+                animal
+            },
+            move |animal| {
+                std::hint::black_box(visitor0sf_2::run_full_not_rw(animal, sbd))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                
+                // print out the vtable addresses
+                // let other_cat = visitor0sf_2::get_cat();
+                // let other_vtable = core::ptr::metadata(&*other_cat);
+                // let animal_vptr: *const () = unsafe { std::mem::transmute(animal_vtable) };
+                // let cat_vptr: *const () = unsafe { std::mem::transmute(cat_vtable) };
+                // let other_vptr: *const () = unsafe { std::mem::transmute(other_vtable) };
+                // let less_mem_cat_vtable = core::ptr::metadata(&*less_mem_cat);
+                // let less_mem_cat_vptr: *const () = unsafe { std::mem::transmute(less_mem_cat_vtable) };
+                // println!("animal vtable: {:p}", animal_vptr);
+                // println!("cat vtable: {:p}", cat_vptr);
+                // println!("other cat vtable: {:p}", other_vptr);
+                // println!("less mem cat vtable: {:p}", less_mem_cat_vptr);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_into_raw_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_into_raw_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let the_cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_into_raw(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_transmutes_alwaysdog", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor0sf_2_src_rw_transmutes_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                // let x = rand::rng().random_range(..2usize);
+                let animal = visitor0sf_2::get_animal(x.into());
+                // let animal = visitor0sf_2::get_animal(rand::rng().random_range(..2usize));
+                // let cat = visitor0sf_2::get_cat();
+                let cat = visitor0sf_2::get_animal(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                (animal, animal_vtable, cat_vtable)
+            },
+            move |(animal, animal_vtable, cat_vtable)| {
+                std::hint::black_box(visitor0sf_2::run_src_rw_transmutes(animal, sbd, animal_vtable, cat_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("double_visitor0sf_run_no_dispatch", |b| b.iter(|| std::hint::black_box(double_visitor0sf::run_no_dispatch(ddog, v1))));
+    group.bench_function("double_visitor0sf_run_animal_dispatch", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = double_visitor0sf::get_animal(x);
+                let visitor = Box::new(double_visitor0sf::Visitor1 {});
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_animal_dispatch(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("double_visitor0sf_run_animal_dispatch_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                let animal = double_visitor0sf::get_animal(x.into());
+                let visitor = Box::new(double_visitor0sf::Visitor1 {});
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_animal_dispatch(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("double_visitor0sf_run_visitor_dispatch", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = &double_visitor0sf::Dog {};
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_visitor_dispatch(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("double_visitor0sf_run_visitor_dispatch_always_v1", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                let animal = &double_visitor0sf::Dog {};
+                let visitor = double_visitor0sf::get_visitor(x.into());
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_visitor_dispatch(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    
+    group.bench_function("double_visitor0sf_full_not_rw", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = double_visitor0sf::get_animal(x);
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_full_not_rw(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("double_visitor0sf_full_not_rw_alwayscat", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                let animal = double_visitor0sf::get_animal(x.into());
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_full_not_rw(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("double_visitor0sf_full_not_rw_alwaysv1", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                let visitor = double_visitor0sf::get_visitor(x.into());
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_full_not_rw(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("double_visitor0sf_full_not_rw_alwayscat_alwaysv1", |b| {
+        b.iter_batched(
+            || {
+                let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
+                let mut b = [0u8; 1];
+                f.read_exact(&mut b).unwrap();
+                let x = b[0] & 1;
+                let y = x + 1;
+                let animal = double_visitor0sf::get_animal(y.into());
+                let visitor = double_visitor0sf::get_visitor(x.into());
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_full_not_rw(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("double_visitor0sf_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = double_visitor0sf::get_cat();
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                let cat = double_visitor0sf::get_animal(0);
+                let visitor1 = double_visitor0sf::get_visitor(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                let visitor_vtable = core::ptr::metadata(&*visitor);
+                let visitor1_vtable = core::ptr::metadata(&*visitor1);
+                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
+            },
+            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_src_rw_into_raw(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("double_visitor0sf_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = double_visitor0sf::get_cat();
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                let cat = double_visitor0sf::get_animal(0);
+                let visitor1 = double_visitor0sf::get_visitor(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                let visitor_vtable = core::ptr::metadata(&*visitor);
+                let visitor1_vtable = core::ptr::metadata(&*visitor1);
+                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
+            },
+            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_src_rw_transmutes(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
+fn bench_double_visitor0sf(c: &mut Criterion) {
+    let v1: &double_visitor0sf::Visitor1 = &double_visitor0sf::Visitor1 {};
+    let dog: &double_visitor0sf::Dog = &double_visitor0sf::Dog {};
+    let mut group = c.benchmark_group("double_visitor0sf");
+    group.bench_function("double_visitor0sf_run_no_dispatch", |b| b.iter(|| std::hint::black_box(double_visitor0sf::run_no_dispatch(dog, v1))));
+    group.bench_function("double_visitor0sf_run_animal_dispatch", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = double_visitor0sf::get_animal(x);
+                let visitor = Box::new(double_visitor0sf::Visitor1 {});
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_animal_dispatch(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("double_visitor0sf_run_visitor_dispatch", |b| {
+        b.iter_batched(
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = &double_visitor0sf::Dog {};
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_visitor_dispatch(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    
+    group.bench_function("double_visitor0sf_full_not_rw", |b| {
+        b.iter_batched(
+            // || double_visitor0sf::get_animal(rand::rng().random_range(..2usize)),
+            || {
+                let x = rand::rng().random_range(..2usize);
+                let animal = double_visitor0sf::get_animal(x);
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                (animal, visitor)
+            },
+            move |(animal, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_full_not_rw(animal, visitor))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("double_visitor0sf_src_rw_into_raw", |b| {
+        b.iter_batched(
+            || {
+                let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = double_visitor0sf::get_cat();
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                let cat = double_visitor0sf::get_animal(0);
+                let visitor1 = double_visitor0sf::get_visitor(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                let visitor_vtable = core::ptr::metadata(&*visitor);
+                let visitor1_vtable = core::ptr::metadata(&*visitor1);
+                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
+            },
+            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_src_rw_into_raw(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("double_visitor0sf_src_rw_transmutes", |b| {
+        b.iter_batched(
+            || {
+                let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
+                // let cat = double_visitor0sf::get_cat();
+                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+                let cat = double_visitor0sf::get_animal(0);
+                let visitor1 = double_visitor0sf::get_visitor(0);
+                let animal_vtable = core::ptr::metadata(&*animal);
+                let cat_vtable = core::ptr::metadata(&*cat);
+                let visitor_vtable = core::ptr::metadata(&*visitor);
+                let visitor1_vtable = core::ptr::metadata(&*visitor1);
+                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
+            },
+            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
+                std::hint::black_box(double_visitor0sf::run_src_rw_transmutes(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    
+
     group.finish();
 }
 
@@ -766,8 +1809,11 @@ criterion_group! {
         .warm_up_time(Duration::new(WARMUP_TIME, 0))
         .measurement_time(Duration::new(MEASUREMENT_TIME, 0));
     targets =
-        bench_visitor0sf,
-        bench_visitor2sf,
+        bench_visitor0sf_2,
+        bench_visitor_alternating,
+        // bench_double_visitor0sf,
+        // bench_visitor0sf,
+        // bench_visitor2sf,
 }
 
-criterion_main!(all_benches);
+criterion_main!(visitor_benches);

@@ -1,0 +1,34 @@
+# plot_visitor0sf_2.gpi
+# Usage:
+#   gnuplot -e "IN='/path/to/criterion/visitor0sf_2'; OUT='/path/to/out.png'" plot_visitor0sf_2.gpi
+
+IN  = exists("IN")  ? IN  : "criterion/visitor0sf_2"
+OUT = exists("OUT") ? OUT : "visitor0sf_2.png"
+
+set terminal pngcairo size 1400,900 noenhanced font "DejaVu Sans,18"
+# set terminal pngcairo size 1400,900 enhanced font "DejaVu Sans,18"
+set output OUT
+
+# set title sprintf("Criterion slope estimates: %s", IN)
+set xlabel "Benchmark"
+set ylabel "Latency (ns)"
+set grid ytics
+set key off
+set xtics rotate by -45 right
+
+# NOTE: Requires: bash + jq
+# Output columns:
+#   1 idx
+#   2 name
+#   3 point_estimate
+#   4 lower_bound
+#   5 upper_bound
+set ytics nomirror
+set ylabel "Benchmark"
+set xlabel "Latency (ns)"
+
+# set lmargin 20
+# set size ratio -1
+
+plot "< bash -lc 'shopt -s nullglob; i=0; for d in \"".IN."\"/*; do f=\"$d/base/estimates.json\"; if [ -f \"$f\" ]; then name=$(basename \"$d\"); pe=$(jq -r .slope.point_estimate \"$f\"); lo=$(jq -r .slope.confidence_interval.lower_bound \"$f\"); hi=$(jq -r .slope.confidence_interval.upper_bound \"$f\"); printf \"%d\t%s\t%f\t%f\t%f\n\" \"$i\" \"$name\" \"$pe\" \"$lo\" \"$hi\"; i=$((i+1)); fi; done'" \
+     using 3:1:4:5:ytic(2) with xerrorbars pointtype 7 linewidth 2

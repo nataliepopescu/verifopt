@@ -11,10 +11,10 @@ visitor-use = { path = "../visitor-ex/visitor-use" }
 # from https://doc.rust-lang.org/cargo/reference/profiles.html#lto : 
 # "No LTO is performed if codegen units is 1 or opt-level is 0."
 [profile.release]
-#lto = true
+opt-level = 3
+debug = 1   # or 2
 codegen-units = 1
-#opt-level = "s"
-opt-level = "z"
+lto = false
 
 [profile.dev]
 codegen-units = 1
@@ -28,3 +28,18 @@ visitor-use = { path = "../visitor-ex/visitor-use" }
 name = "criterion"
 harness = false
 
+[[bin]]
+name = "visitor0sf"
+path = "src/visitor0sf.rs"
+
+[[bin]]
+name = "visitor0sf_2"
+path = "src/visitor0sf_2.rs"
+
+[[bin]]
+name = "visitor2sf"
+path = "src/visitor2sf.rs"
+
+[[bin]]
+name = "double_visitor0sf"
+path = "src/double_visitor0sf.rs"

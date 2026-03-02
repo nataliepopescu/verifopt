@@ -236,12 +236,14 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let mir_avail = self.tcx.is_mir_available(def_id);
         let mut arg_types = None;
         let mut arg_generics = None;
+        let mut body = None;
         if mir_avail {
             let mut arg_types_inner = vec![];
             let mut arg_generics_inner = vec![];
-            let body = self.tcx.instance_mir(InstanceKind::Item(def_id));
+            let inner_body = self.tcx.instance_mir(InstanceKind::Item(def_id));
+            body = Some(inner_body);
 
-            for (i, loc) in body.local_decls.clone().into_iter_enumerated() {
+            for (i, loc) in inner_body.local_decls.clone().into_iter_enumerated() {
                 let idx = i.as_usize();
                 if idx == 0 || idx > num_args {
                     continue;
@@ -265,38 +267,6 @@ impl<'tcx> FuncCollectPass<'tcx> {
             arg_types = Some(arg_types_inner);
             if arg_generics_inner.len() > 0 {
                 arg_generics = Some(arg_generics_inner);
-            }
-
-            if self.debug {
-                println!("arg_count: {:?}", body.arg_count);
-                println!("arg_types: {:?}", arg_types);
-                println!("arg_generics: {:?}", arg_generics);
-                println!("----Start MIR Body----");
-
-                let locs = &body.local_decls;
-                let bbs = &body.basic_blocks;
-
-                println!("num LocalDecls: {:?}", locs.len());
-                println!("{{");
-                for i in 0..locs.len() {
-                    println!("-local{:?}", i);
-                    println!("{:#?}", locs[Local::from_usize(i)]);
-                }
-                println!("}}");
-
-                println!("num BasicBlocks: {:?}", bbs.len());
-                println!("{{");
-                for i in 0..bbs.len() {
-                    println!("-bb{:?}", i);
-                    println!("{:#?}", bbs[BasicBlock::from_usize(i)]);
-                }
-                println!("}}");
-
-                println!("----End MIR Body----");
-            }
-        } else {
-            if self.debug {
-                println!("no mir :(");
             }
         }
 
@@ -370,6 +340,41 @@ impl<'tcx> FuncCollectPass<'tcx> {
             _ => {}
         }
         // TODO ty has an is_never() method which we can use to not execute panic methods
+
+        // print out locals/body after all generic param resolution
+        if let Some(inner_body) = body {
+            if self.debug {
+                println!("arg_count: {:?}", inner_body.arg_count);
+                println!("arg_types: {:?}", arg_types);
+                println!("arg_generics: {:?}", arg_generics);
+                println!("----Start MIR Body----");
+
+                let locs = &inner_body.local_decls;
+                let bbs = &inner_body.basic_blocks;
+
+                println!("num LocalDecls: {:?}", locs.len());
+                println!("{{");
+                for i in 0..locs.len() {
+                    println!("-local{:?}", i);
+                    println!("{:#?}", locs[Local::from_usize(i)]);
+                }
+                println!("}}");
+
+                println!("num BasicBlocks: {:?}", bbs.len());
+                println!("{{");
+                for i in 0..bbs.len() {
+                    println!("-bb{:?}", i);
+                    println!("{:#?}", bbs[BasicBlock::from_usize(i)]);
+                }
+                println!("}}");
+
+                println!("----End MIR Body----");
+            }
+        } else {
+            if self.debug {
+                println!("no mir :(");
+            }
+        }
 
         let funcval = FuncVal::new(
             def_id,

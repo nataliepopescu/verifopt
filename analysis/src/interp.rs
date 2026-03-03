@@ -594,7 +594,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
             return to_dispatch;
         } else {
-            panic!("cannot get struct impl_blocks: {:?}", self_defid);
+            panic!("cannot get struct impl_blocks for: {:?}", self_defid);
         }
     }
 
@@ -895,6 +895,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 if let Some(constraints) = self.fallback_to_func_ret(funcval) {
                                     res_vec.push(constraints);
                                 }
+                            } else if funcval.is_closure {
+                                if self.debug {
+                                    todo!("\n### FUNC IS CLOSURE: {:?}\n", def_id);
+                                }
+                                // TODO
                             } else if !self.tcx.is_mir_available(def_id) {
                                 if self.debug {
                                     println!("MIR NOT AVAILABLE for {:?}", def_id);
@@ -1480,7 +1485,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     }
                                 }
                                 TyKind::Slice(ty) => {
-                                    let params_vec_opt = get_params_from_ty(&ty);
+                                    let params_vec_opt = get_params_from_ty(&ty, self.debug);
                                     if self.debug {
                                         println!("params: {:?}", params_vec_opt);
                                     }

@@ -20,6 +20,7 @@ pub type Type = &'static str;
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,
     pub is_intrinsic: bool,
+    pub is_closure: bool,
     pub self_arg: Option<Place<'tcx>>,
     pub params: Vec<(Place<'tcx>, Ty<'tcx>)>,
     pub param_generics: Option<Vec<ParamTy>>,
@@ -32,6 +33,7 @@ impl<'tcx> FuncVal<'tcx> {
     pub fn new(
         def_id: DefId,
         is_intrinsic: bool,
+        is_closure: bool,
         self_arg: Option<Place<'tcx>>,
         arg_names: Vec<Place<'tcx>>,
         arg_types_opt: Option<Vec<Ty<'tcx>>>,
@@ -53,6 +55,7 @@ impl<'tcx> FuncVal<'tcx> {
         Self {
             def_id,
             is_intrinsic,
+            is_closure,
             self_arg,
             params,
             param_generics,
@@ -90,59 +93,54 @@ pub enum VerifoptRval<'tcx> {
     Undef(),
 }
 
-pub fn get_params_from_ty<'tcx>(ty: &Ty<'tcx>) -> Option<Vec<ParamTy>> {
+fn get_params_from_genarg<'tcx>(genarg: &GenericArg, debug: bool) -> Vec<ParamTy> {
+    let mut params = Vec::new();
+    match genarg.kind() {
+        GenericArgKind::Type(ty) => {
+            if let Some(inner_params) = get_params_from_ty(&ty, debug) {
+                if debug {
+                    println!("ty arg contains: {:?}", inner_params);
+                }
+                for param in inner_params.iter() {
+                    params.push(*param);
+                }
+            }
+        }
+        _ => {}
+    }
+    params
+}
+
+pub fn get_params_from_ty<'tcx>(ty: &Ty<'tcx>, debug: bool) -> Option<Vec<ParamTy>> {
     match ty.kind() {
         TyKind::Param(param) => {
-            //if self.debug {
-            //    println!("arg has ty param: {:?}", param);
-            //}
+            if debug {
+                println!("arg has ty param: {:?}", param);
+            }
             return Some(vec![*param]);
         }
         TyKind::Slice(ty) => {
-            //if self.debug {
-            //    println!("slice arg ty: {:?}", ty);
-            //}
-            return get_params_from_ty(ty);
+            if debug {
+                println!("slice arg ty: {:?}", ty);
+            }
+            return get_params_from_ty(ty, debug);
         }
         TyKind::Ref(_, ty, _) => {
-            //if self.debug {
-            //    println!("ref arg ty: {:?}", ty);
-            //}
-            return get_params_from_ty(ty);
+            if debug {
+                println!("ref arg ty: {:?}", ty);
+            }
+            return get_params_from_ty(ty, debug);
         }
         TyKind::Adt(_, genargs) => {
-            //if self.debug {
-            //    println!("adt genargs: {:?}", genargs);
-            //}
-            let mut params = vec![];
+            if debug {
+                println!("adt genargs: {:?}", genargs);
+            }
+            let mut params = Vec::new();
             for genarg in genargs.as_slice().iter() {
-                //if self.debug {
-                //    println!("LOOP genarg: {:?}", genarg);
-                //}
-                match genarg.kind() {
-                    GenericArgKind::Lifetime(_) => {
-                        //if self.debug {
-                        //    println!("skipping lifetime arg...");
-                        //}
-                        continue;
-                    }
-                    GenericArgKind::Type(ty) => {
-                        if let Some(inner_params) = get_params_from_ty(&ty) {
-                            //if self.debug {
-                            //    println!("ty arg contains: {:?}", inner_params);
-                            //}
-                            for param in inner_params.iter() {
-                                params.push(*param);
-                            }
-                        }
-                    }
-                    GenericArgKind::Const(_) => {
-                        //if self.debug {
-                        //    println!("skipping const arg...");
-                        //}
-                        continue;
-                    }
+                if debug {
+                    println!("LOOP genarg: {:?}", genarg);
                 }
+                params.append(&mut get_params_from_genarg(genarg, debug));
             }
             if params.len() == 0 {
                 None
@@ -150,10 +148,42 @@ pub fn get_params_from_ty<'tcx>(ty: &Ty<'tcx>) -> Option<Vec<ParamTy>> {
                 Some(params)
             }
         }
+        TyKind::Closure(closure_defid, genargs) => {
+            if debug {
+                println!("closure defid: {:?}", closure_defid);
+            }
+            let mut params = Vec::new();
+            for genarg in genargs.as_slice().iter() {
+                if debug {
+                    println!("LOOP genarg: {:?}", genarg);
+                }
+                params.append(&mut get_params_from_genarg(genarg, debug));
+            }
+            if params.len() == 0 {
+                None
+            } else {
+                Some(params)
+            }
+        }
+        TyKind::FnPtr(bound_sig, _header) => {
+            if debug {
+                println!("FNPTR");
+                println!("bound_sig: {:?}", bound_sig);
+            }
+            // TODO
+            return None;
+        }
+        TyKind::Tuple(_) => {
+            if debug {
+                println!("TUPLE");
+            }
+            // TODO
+            return None;
+        }
         _ => {
-            //if self.debug {
-            //    println!("different ty: {:?}", ty.kind());
-            //}
+            if debug {
+                println!("diff ty: {:?}", ty.kind());
+            }
             return None;
         }
     }

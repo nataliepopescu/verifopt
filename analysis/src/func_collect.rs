@@ -20,35 +20,31 @@ pub struct FuncMap<'tcx> {
     // all fns, trait-related or not
     pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
     // assoc fn of a trait -> concrete implementations of that assoc fn
-    pub trait_fn_impltors: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
+    pub trait_fn_impls: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
     // assoc fn of a trait -> that trait
-    pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
-    // trait -> structs
-    pub trait_impltors: HashMap<DefId, Vec<DefId>>,
-    // struct defid -> generics
-    pub struct_generics: HashMap<DefId, Generics>,
-    // struct -> [impl blocks]
+    pub assoc_fns_to_trait: Arc<Mutex<HashMap<DefId, DefId>>>,
+    // trait -> structs that implement them
+    pub trait_to_struct_impls: HashMap<DefId, Vec<DefId>>,
+    // struct defid -> generics of that struct
+    pub struct_to_generics: HashMap<DefId, Generics>,
+    // struct -> impl blocks
     // FIXME this only covers explicit trait implementations;
     // missing auto/blanket implementations
-    pub struct_impls: HashMap<DefId, Vec<DefId>>,
-    // impl blocks -> [impl fns/methods]
-    pub impl_blocks_to_impls: HashMap<DefId, Vec<DefId>>,
-    // ty -> defid map
-    // TODO currently just adding struct defs
-    //pub ty_to_defids: HashMap<Ty<'tcx>, DefId>,
+    pub struct_to_impls: HashMap<DefId, Vec<DefId>>,
+    // impl blocks -> impl fns/methods
+    pub impl_blocks_to_fn_impls: HashMap<DefId, Vec<DefId>>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
         Self {
             funcs: HashMap::default(),
-            trait_fn_impltors: Arc::new(Mutex::new(HashMap::default())),
-            assocfns_to_traits: Arc::new(Mutex::new(HashMap::default())),
-            trait_impltors: HashMap::default(),
-            struct_generics: HashMap::default(),
-            struct_impls: HashMap::default(),
-            impl_blocks_to_impls: HashMap::default(),
-            //ty_to_defids: HashMap::default(),
+            trait_fn_impls: Arc::new(Mutex::new(HashMap::default())),
+            assoc_fns_to_trait: Arc::new(Mutex::new(HashMap::default())),
+            trait_to_struct_impls: HashMap::default(),
+            struct_to_generics: HashMap::default(),
+            struct_to_impls: HashMap::default(),
+            impl_blocks_to_fn_impls: HashMap::default(),
         }
     }
 }
@@ -189,7 +185,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             println!("generics: {:#?}", self.tcx.generics_of(def_id));
         }
         funcs
-            .struct_generics
+            .struct_to_generics
             .insert(def_id, self.tcx.generics_of(def_id).clone());
     }
 
@@ -198,10 +194,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
             println!("generics: {:#?}", self.tcx.generics_of(def_id));
         }
 
-        match funcs.trait_impltors.get(&def_id) {
+        match funcs.trait_to_struct_impls.get(&def_id) {
             Some(_) => {}
             None => {
-                funcs.trait_impltors.insert(def_id, vec![]);
+                funcs.trait_to_struct_impls.insert(def_id, vec![]);
             }
         }
 
@@ -213,7 +209,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             //}
 
             impltors.items().all(|(key, val)| {
-                let mut trait_map_lock = funcs.trait_fn_impltors.lock().unwrap();
+                let mut trait_map_lock = funcs.trait_fn_impls.lock().unwrap();
                 match trait_map_lock.get_mut(key) {
                     Some(existing_vals) => {
                         let mut new_vals = existing_vals.clone();
@@ -227,7 +223,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
                 // add for reverse search
                 funcs
-                    .assocfns_to_traits
+                    .assoc_fns_to_trait
                     .lock()
                     .unwrap()
                     .insert(*key, def_id);
@@ -253,31 +249,29 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 }
 
                 // add struct -> impl block pairing
-                match funcs.struct_impls.get(&struct_defid) {
+                match funcs.struct_to_impls.get(&struct_defid) {
                     Some(other_impls) => {
                         let mut updated_impls = other_impls.clone();
                         updated_impls.push(def_id);
-                        funcs.struct_impls.insert(struct_defid, updated_impls);
+                        funcs.struct_to_impls.insert(struct_defid, updated_impls);
                     }
                     None => {
-                        funcs.struct_impls.insert(struct_defid, vec![def_id]);
+                        funcs.struct_to_impls.insert(struct_defid, vec![def_id]);
                     }
                 }
 
-                match funcs.trait_impltors.get(&trait_defid) {
+                match funcs.trait_to_struct_impls.get(&trait_defid) {
                     Some(vec_impltors) => {
-                        //if self.debug {
-                        //    println!("adding impltor to trait-struct map");
-                        //}
                         let mut new_impltors = vec_impltors.clone();
                         new_impltors.push(def.did());
-                        funcs.trait_impltors.insert(trait_defid, new_impltors);
+                        funcs
+                            .trait_to_struct_impls
+                            .insert(trait_defid, new_impltors);
                     }
                     None => {
-                        //if self.debug {
-                        //    println!("trait doesn't exist in map yet, adding now");
-                        //}
-                        funcs.trait_impltors.insert(trait_defid, vec![def.did()]);
+                        funcs
+                            .trait_to_struct_impls
+                            .insert(trait_defid, vec![def.did()]);
                     }
                 }
             }
@@ -326,20 +320,24 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
 
         if let Some(impl_defid) = impl_of_assoc {
-            match funcs.impl_blocks_to_impls.get(&impl_defid) {
+            match funcs.impl_blocks_to_fn_impls.get(&impl_defid) {
                 Some(existing_assoc) => {
                     if self.debug {
                         println!("existing assoc fns in impl block: {:?}", existing_assoc);
                     }
                     let mut updated_assoc = existing_assoc.clone();
                     updated_assoc.push(def_id);
-                    funcs.impl_blocks_to_impls.insert(impl_defid, updated_assoc);
+                    funcs
+                        .impl_blocks_to_fn_impls
+                        .insert(impl_defid, updated_assoc);
                 }
                 None => {
                     if self.debug {
                         println!("first assoc fn in impl block");
                     }
-                    funcs.impl_blocks_to_impls.insert(impl_defid, vec![def_id]);
+                    funcs
+                        .impl_blocks_to_fn_impls
+                        .insert(impl_defid, vec![def_id]);
                 }
             }
         }

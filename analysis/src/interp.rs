@@ -563,7 +563,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) -> Vec<DefId> {
         let mut to_dispatch = vec![];
         // what are all of this struct's impl blocks?
-        if let Some(impl_blocks) = self.funcs.struct_impls.get(&self_defid) {
+        if let Some(impl_blocks) = self.funcs.struct_to_impls.get(&self_defid) {
             if self.debug {
                 println!("self_defid: {:?}", self_defid);
                 println!("impl_blocks: {:?}", impl_blocks);
@@ -572,7 +572,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             // for each such impl block, get the exact list of (associated/trait)
             // functions that it is implementing
             for impl_block in impl_blocks {
-                match self.funcs.impl_blocks_to_impls.get(&impl_block) {
+                match self.funcs.impl_blocks_to_fn_impls.get(&impl_block) {
                     Some(assoc) => {
                         if self.debug {
                             println!("assoc: {:?}", assoc);
@@ -608,8 +608,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         impltors: &Vec<DefId>,
     ) -> Vec<DefId> {
         match *self_constraint {
-            VerifoptRval::IdkStruct(did, _)
-            | VerifoptRval::IdkDefId(did) => self.get_trait_fn_impls_from_defid(&did, impltors),
+            VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did) => {
+                self.get_trait_fn_impls_from_defid(&did, impltors)
+            }
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
             // (later) use the function return type as the retval's "constraint"
             VerifoptRval::IdkType(_) => {
@@ -712,7 +713,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         // `impltors` are the concrete implementations of this assoc_fn
-        let mutex = self.funcs.trait_fn_impltors.lock().unwrap();
+        let mutex = self.funcs.trait_fn_impls.lock().unwrap();
         if let Some(impltors_) = mutex.get(&assoc_funcval.def_id) {
             let impltors = impltors_.clone();
             std::mem::drop(mutex);
@@ -728,7 +729,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                         );
                         println!("impltors: {:#?}", impltors);
-                        println!("structs: {:#?}", self.funcs.trait_impltors.get(trait_def_id));
+                        println!(
+                            "structs: {:#?}",
+                            self.funcs.trait_to_struct_impls.get(trait_def_id)
+                        );
                     }
 
                     // get the constraints for the first (`self`) arg from the current scope
@@ -905,7 +909,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     println!("MIR NOT AVAILABLE for {:?}", def_id);
                                 }
 
-                                let mutex = self.funcs.assocfns_to_traits.lock().unwrap();
+                                let mutex = self.funcs.assoc_fns_to_trait.lock().unwrap();
                                 match mutex.get(def_id) {
                                     Some(trait_def_id) => {
                                         let trait_def_id_clone = trait_def_id.clone();

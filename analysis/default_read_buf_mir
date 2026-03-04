@@ -1,1275 +1,839 @@
-Body {
-    basic_blocks: BasicBlocks {
-        basic_blocks: [
-            BasicBlockData {
-                statements: [
-                    StorageLive(_3),
-                    StorageLive(_4),
-                    StorageLive(_5),
-                    _13 = const true,
-                    _5 = move _1,
-                    StorageLive(_6),
-                    StorageLive(_9),
-                    _9 = &mut _2,
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:38 (#0),
-                            scope: scope[0],
-                        },
-                        kind: _8 = std::io::BorrowedCursor::<'_>::ensure_init(move _9) -> [return: bb1, unwind: bb7],
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    StorageDead(_9),
-                    StorageLive(_14),
-                    StorageLive(_15),
-                    StorageLive(_16),
-                    StorageLive(_17),
-                    StorageLive(_18),
-                    StorageLive(_19),
-                    _16 = copy ((*_8).0: &mut std::io::BorrowedBuf<'_>),
-                    _17 = copy ((*_16).0: &mut [std::mem::MaybeUninit<u8>]),
-                    _18 = copy ((*_8).0: &mut std::io::BorrowedBuf<'_>),
-                    _14 = copy ((*_18).1: usize),
-                    _19 = copy ((*_8).0: &mut std::io::BorrowedBuf<'_>),
-                    _15 = copy ((*_19).2: usize),
-                    StorageLive(_21),
-                    _21 = &raw mut (*_17),
-                    StorageLive(_24),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:77:35: 77:42 (#480),
-                            scope: scope[9],
-                        },
-                        kind: switchInt(UbChecks) -> [0: bb10, otherwise: bb8],
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    StorageDead(_6),
-                    StorageDead(_5),
-                    StorageLive(_28),
-                    StorageLive(_29),
-                    StorageLive(_30),
-                    _28 = discriminant(_4),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2173:9: 2173:19 (#0),
-                            scope: scope[17],
-                        },
-                        kind: switchInt(move _28) -> [0: bb12, 1: bb11, otherwise: bb3],
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: no-location (#0),
-                            scope: scope[0],
-                        },
-                        kind: unreachable,
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:593:2: 593:2 (#0),
-                            scope: scope[0],
-                        },
-                        kind: return,
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:1: 593:2 (#0),
-                            scope: scope[0],
-                        },
-                        kind: resume,
-                    },
-                ),
-                is_cleanup: true,
-            },
-            BasicBlockData {
-                statements: [],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:49: 590:50 (#0),
-                            scope: scope[0],
-                        },
-                        kind: drop(_5) -> [return: bb5, unwind terminate(cleanup)],
-                    },
-                ),
-                is_cleanup: true,
-            },
-            BasicBlockData {
-                statements: [],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:49: 590:50 (#0),
-                            scope: scope[0],
-                        },
-                        kind: switchInt(copy _13) -> [0: bb5, otherwise: bb6],
-                    },
-                ),
-                is_cleanup: true,
-            },
-            BasicBlockData {
-                statements: [
-                    StorageLive(_23),
-                    _23 = PtrMetadata(copy _17),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:78:17: 78:46 (#480),
-                            scope: scope[9],
-                        },
-                        kind: _22 = <std::ops::Range<usize> as std::slice::SliceIndex<[T]>>::get_unchecked_mut::precondition_check(copy _14, copy _15, move _23) -> [return: bb9, unwind unreachable],
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    StorageDead(_23),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:77:13: 79:14 (#480),
-                            scope: scope[9],
-                        },
-                        kind: goto -> bb10,
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    _24 = SubUnchecked(copy _15, copy _14),
-                    StorageLive(_25),
-                    StorageLive(_26),
-                    _25 = copy _21 as *mut std::mem::MaybeUninit<u8> (PtrToPtr),
-                    _26 = Offset(copy _25, copy _14),
-                    _20 = *mut [std::mem::MaybeUninit<u8>] from (copy _26, copy _24),
-                    StorageDead(_26),
-                    StorageDead(_25),
-                    StorageDead(_24),
-                    StorageDead(_21),
-                    StorageLive(_27),
-                    _27 = copy _20 as *mut [u8] (PtrToPtr),
-                    _7 = &mut (*_27),
-                    StorageDead(_27),
-                    StorageDead(_19),
-                    StorageDead(_18),
-                    StorageDead(_17),
-                    StorageDead(_16),
-                    StorageDead(_15),
-                    StorageDead(_14),
-                    _6 = (copy _7,),
-                    _13 = const false,
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:50 (#0),
-                            scope: scope[0],
-                        },
-                        kind: _4 = <F as std::ops::FnOnce<(&mut [u8],)>>::call_once(move _5, move _6) -> [return: bb2, unwind: bb7],
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    _30 = move ((_4 as Err).0: std::io::Error),
-                    StorageLive(_31),
-                    _31 = std::result::Result::<std::convert::Infallible, std::io::Error>::Err(copy _30),
-                    _3 = std::ops::ControlFlow::<std::result::Result<std::convert::Infallible, std::io::Error>, usize>::Break(move _31),
-                    StorageDead(_31),
-                    StorageDead(_30),
-                    StorageDead(_29),
-                    StorageDead(_28),
-                    StorageDead(_4),
-                    _10 = move ((_3 as Break).0: std::result::Result<std::convert::Infallible, std::io::Error>),
-                    _41 = copy ((_10 as Err).0: std::io::Error),
-                    _0 = std::result::Result::<(), std::io::Error>::Err(copy _41),
-                    StorageDead(_3),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:593:1: 593:2 (#0),
-                            scope: scope[0],
-                        },
-                        kind: goto -> bb4,
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    _29 = move ((_4 as Ok).0: usize),
-                    _3 = std::ops::ControlFlow::<std::result::Result<std::convert::Infallible, std::io::Error>, usize>::Continue(copy _29),
-                    StorageDead(_30),
-                    StorageDead(_29),
-                    StorageDead(_28),
-                    StorageDead(_4),
-                    _11 = copy ((_3 as Continue).0: usize),
-                    StorageDead(_3),
-                    StorageLive(_37),
-                    StorageLive(_38),
-                    StorageLive(_39),
-                    StorageLive(_40),
-                    StorageLive(_32),
-                    StorageLive(_33),
-                    StorageLive(_34),
-                    _37 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
-                    _34 = copy ((*_37).2: usize),
-                    StorageLive(_35),
-                    _38 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
-                    _35 = copy ((*_38).1: usize),
-                    _33 = Sub(move _34, move _35),
-                    StorageDead(_35),
-                    StorageDead(_34),
-                    _32 = Le(copy _11, move _33),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:17: 277:53 (#0),
-                            scope: scope[20],
-                        },
-                        kind: switchInt(move _32) -> [0: bb14, otherwise: bb13],
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    StorageDead(_33),
-                    StorageDead(_32),
-                    _39 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
-                    _40 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
-                    ((*_39).1: usize) = Add(copy ((*_40).1: usize), copy _11),
-                    StorageDead(_40),
-                    StorageDead(_39),
-                    StorageDead(_38),
-                    StorageDead(_37),
-                    _0 = const std::result::Result::<(), std::io::Error>::Ok(()),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:593:1: 593:2 (#0),
-                            scope: scope[0],
-                        },
-                        kind: goto -> bb4,
-                    },
-                ),
-                is_cleanup: false,
-            },
-            BasicBlockData {
-                statements: [
-                    StorageDead(_33),
-                ],
-                after_last_stmt_debuginfos: StmtDebugInfos(
-                    [],
-                ),
-                terminator: Some(
-                    Terminator {
-                        source_info: SourceInfo {
-                            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:9: 277:54 (#573),
-                            scope: scope[20],
-                        },
-                        kind: _36 = core::panicking::panic(const "assertion failed: n <= self.buf.init - self.buf.filled") -> unwind continue,
-                    },
-                ),
-                is_cleanup: false,
-            },
-        ],
-        cache: Cache {
-            predecessors: OnceLock(
-                <uninit>,
-            ),
-            reverse_postorder: OnceLock(
-                <uninit>,
-            ),
-            dominators: OnceLock(
-                <uninit>,
-            ),
-        },
+arg count: 2
+----Start MIR Body----
+num LocalDecls: 42
+{
+-local0
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: std::result::Result<(), std::io::Error>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:79: 586:89 (#0),
+        scope: scope[0],
     },
-    phase: Runtime(
-        Optimized,
-    ),
-    pass_count: 1,
-    source: MirSource {
-        instance: Item(
-            DefId(1:4143 ~ std[a5f4]::io::default_read_buf),
-        ),
-        promoted: None,
+}
+-local1
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: F/#0,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:35: 586:39 (#0),
+        scope: scope[0],
     },
-    source_scopes: [
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:1: 593:2 (#0),
-            parent_scope: None,
-            inlined: None,
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:5: 593:2 (#0),
-            parent_scope: Some(
-                scope[0],
-            ),
-            inlined: None,
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:50: 590:51 (#572),
-            parent_scope: Some(
-                scope[0],
-            ),
-            inlined: None,
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:50: 590:51 (#572),
-            parent_scope: Some(
-                scope[2],
-            ),
-            inlined: None,
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#0),
-            parent_scope: Some(
-                scope[0],
-            ),
-            inlined: None,
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#0),
-            parent_scope: Some(
-                scope[4],
-            ),
-            inlined: None,
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:5: 249:6 (#0),
-            parent_scope: Some(
-                scope[0],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:6580 ~ core[c945]::io::borrowed_buf::{impl#5}::init_mut),
-                        ),
-                        args: [
-                            '{erased},
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:39: 590:49 (#0),
-                ),
-            ),
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:246:13: 248:10 (#0),
-            parent_scope: Some(
-                scope[6],
-            ),
-            inlined: None,
-            inlined_parent_scope: Some(
-                scope[6],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/mod.rs:684:5: 692:6 (#0),
-            parent_scope: Some(
-                scope[6],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:14576 ~ core[c945]::slice::{impl#0}::get_unchecked_mut),
-                        ),
-                        args: [
-                            std::mem::MaybeUninit<u8>,
-                            std::ops::Range<usize>,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:246:36: 246:85 (#0),
-                ),
-            ),
-            inlined_parent_scope: Some(
-                scope[6],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:417:5: 432:6 (#0),
-            parent_scope: Some(
-                scope[8],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:13491 ~ core[c945]::slice::index::{impl#4}::get_unchecked_mut),
-                        ),
-                        args: [
-                            std::mem::MaybeUninit<u8>,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/mod.rs:691:30: 691:53 (#0),
-                ),
-            ),
-            inlined_parent_scope: Some(
-                scope[8],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:429:13: 431:10 (#0),
-            parent_scope: Some(
-                scope[9],
-            ),
-            inlined: None,
-            inlined_parent_scope: Some(
-                scope[9],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ptr/mut_ptr.rs:1691:5: 1693:6 (#0),
-            parent_scope: Some(
-                scope[9],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:3042 ~ core[c945]::ptr::mut_ptr::{impl#3}::len),
-                        ),
-                        args: [
-                            std::mem::MaybeUninit<u8>,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:424:36: 424:41 (#0),
-                ),
-            ),
-            inlined_parent_scope: Some(
-                scope[9],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ptr/metadata.rs:100:1: 102:2 (#0),
-            parent_scope: Some(
-                scope[11],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:2570 ~ core[c945]::ptr::metadata::metadata),
-                        ),
-                        args: [
-                            [std::mem::MaybeUninit<u8>],
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ptr/mut_ptr.rs:1692:9: 1692:23 (#0),
-                ),
-            ),
-            inlined_parent_scope: Some(
-                scope[11],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:94:1: 103:2 (#0),
-            parent_scope: Some(
-                scope[10],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:13435 ~ core[c945]::slice::index::get_offset_len_mut_noubcheck),
-                        ),
-                        args: [
-                            std::mem::MaybeUninit<u8>,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:430:13: 430:69 (#0),
-                ),
-            ),
-            inlined_parent_scope: Some(
-                scope[9],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:99:5: 103:2 (#0),
-            parent_scope: Some(
-                scope[13],
-            ),
-            inlined: None,
-            inlined_parent_scope: Some(
-                scope[13],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:101:5: 103:2 (#0),
-            parent_scope: Some(
-                scope[14],
-            ),
-            inlined: None,
-            inlined_parent_scope: Some(
-                scope[13],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/mem/maybe_uninit.rs:1509:5: 1513:6 (#0),
-            parent_scope: Some(
-                scope[7],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:2283 ~ core[c945]::mem::maybe_uninit::{impl#4}::assume_init_mut),
-                        ),
-                        args: [
-                            u8,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:247:17: 247:34 (#0),
-                ),
-            ),
-            inlined_parent_scope: Some(
-                scope[6],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2172:5: 2177:6 (#0),
-            parent_scope: Some(
-                scope[0],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:11689 ~ core[c945]::result::{impl#27}::branch),
-                        ),
-                        args: [
-                            usize,
-                            std::io::Error,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#571),
-                ),
-            ),
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2174:13: 2174:46 (#0),
-            parent_scope: Some(
-                scope[17],
-            ),
-            inlined: None,
-            inlined_parent_scope: Some(
-                scope[17],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2175:13: 2175:49 (#0),
-            parent_scope: Some(
-                scope[17],
-            ),
-            inlined: None,
-            inlined_parent_scope: Some(
-                scope[17],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:5: 281:6 (#0),
-            parent_scope: Some(
-                scope[1],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:6582 ~ core[c945]::io::borrowed_buf::{impl#5}::advance),
-                        ),
-                        args: [
-                            '{erased},
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:591:12: 591:22 (#0),
-                ),
-            ),
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2187:5: 2191:6 (#0),
-            parent_scope: Some(
-                scope[3],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:11694 ~ core[c945]::result::{impl#28}::from_residual),
-                        ),
-                        args: [
-                            (),
-                            std::io::Error,
-                            std::io::Error,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#571),
-                ),
-            ),
-            inlined_parent_scope: None,
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2189:13: 2189:41 (#0),
-            parent_scope: Some(
-                scope[21],
-            ),
-            inlined: None,
-            inlined_parent_scope: Some(
-                scope[21],
-            ),
-            local_data: Clear,
-        },
-        SourceScopeData {
-            span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/convert/mod.rs:788:5: 790:6 (#0),
-            parent_scope: Some(
-                scope[22],
-            ),
-            inlined: Some(
-                (
-                    Instance {
-                        def: Item(
-                            DefId(2:3561 ~ core[c945]::convert::{impl#4}::from),
-                        ),
-                        args: [
-                            std::io::Error,
-                        ],
-                    },
-                    /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2189:27: 2189:40 (#0),
-                ),
-            ),
-            inlined_parent_scope: Some(
-                scope[21],
-            ),
-            local_data: Clear,
-        },
+}
+-local2
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: std::io::BorrowedCursor<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:44: 586:54 (#0),
+        scope: scope[0],
+    },
+}
+-local3
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: std::ops::ControlFlow<std::result::Result<std::convert::Infallible, std::io::Error>, usize>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#571),
+        scope: scope[0],
+    },
+}
+-local4
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: std::result::Result<usize, std::io::Error>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:50 (#0),
+        scope: scope[0],
+    },
+}
+-local5
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: F/#0,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:17 (#0),
+        scope: scope[0],
+    },
+}
+-local6
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: (&'{erased} mut [u8],),
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:50 (#0),
+        scope: scope[0],
+    },
+}
+-local7
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut [u8],
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:49 (#0),
+        scope: scope[0],
+    },
+}
+-local8
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedCursor<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:38 (#0),
+        scope: scope[0],
+    },
+}
+-local9
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedCursor<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:24 (#0),
+        scope: scope[0],
+    },
+}
+-local10
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: std::result::Result<std::convert::Infallible, std::io::Error>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:50: 590:51 (#572),
+        scope: scope[0],
+    },
+}
+-local11
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#0),
+        scope: scope[0],
+    },
+}
+-local12
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedCursor<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:591:5: 591:11 (#0),
+        scope: scope[0],
+    },
+}
+-local13
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: bool,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:49: 590:50 (#0),
+        scope: scope[0],
+    },
+}
+-local14
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:246:54: 246:69 (#0),
+        scope: scope[6],
+    },
+}
+-local15
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:246:71: 246:84 (#0),
+        scope: scope[6],
+    },
+}
+-local16
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
+        scope: scope[6],
+    },
+}
+-local17
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut [std::mem::MaybeUninit<u8>],
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
+        scope: scope[6],
+    },
+}
+-local18
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
+        scope: scope[6],
+    },
+}
+-local19
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
+        scope: scope[6],
+    },
+}
+-local20
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: *mut [std::mem::MaybeUninit<u8>],
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/mod.rs:691:24: 691:53 (#0),
+        scope: scope[8],
+    },
+}
+-local21
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: *mut [std::mem::MaybeUninit<u8>],
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/mod.rs:691:48: 691:52 (#0),
+        scope: scope[8],
+    },
+}
+-local22
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: (),
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:78:17: 78:46 (#480),
+        scope: scope[9],
+    },
+}
+-local23
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:424:30: 424:41 (#0),
+        scope: scope[9],
+    },
+}
+-local24
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:429:17: 429:24 (#0),
+        scope: scope[9],
+    },
+}
+-local25
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: *mut std::mem::MaybeUninit<u8>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:99:9: 99:12 (#0),
+        scope: scope[13],
+    },
+}
+-local26
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: *mut std::mem::MaybeUninit<u8>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:101:9: 101:12 (#0),
+        scope: scope[14],
+    },
+}
+-local27
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: *mut [u8],
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/mem/maybe_uninit.rs:1512:24: 1512:55 (#0),
+        scope: scope[16],
+    },
+}
+-local28
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: isize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2174:13: 2174:18 (#0),
+        scope: scope[17],
+    },
+}
+-local29
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2174:16: 2174:17 (#0),
+        scope: scope[17],
+    },
+}
+-local30
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: std::io::Error,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2175:17: 2175:18 (#0),
+        scope: scope[17],
+    },
+}
+-local31
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: std::result::Result<std::convert::Infallible, std::io::Error>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2175:42: 2175:48 (#0),
+        scope: scope[17],
+    },
+}
+-local32
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: bool,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:17: 277:53 (#0),
+        scope: scope[20],
+    },
+}
+-local33
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:22: 277:53 (#0),
+        scope: scope[20],
+    },
+}
+-local34
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:22: 277:35 (#0),
+        scope: scope[20],
+    },
+}
+-local35
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: usize,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:38: 277:53 (#0),
+        scope: scope[20],
+    },
+}
+-local36
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: !,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:9: 277:54 (#573),
+        scope: scope[20],
+    },
+}
+-local37
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
+        scope: scope[20],
+    },
+}
+-local38
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
+        scope: scope[20],
+    },
+}
+-local39
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
+        scope: scope[20],
+    },
+}
+-local40
+LocalDecl {
+    mutability: Mut,
+    local_info: Clear,
+    ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
+        scope: scope[20],
+    },
+}
+-local41
+LocalDecl {
+    mutability: Not,
+    local_info: Clear,
+    ty: std::io::Error,
+    user_ty: None,
+    source_info: SourceInfo {
+        span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2189:17: 2189:18 (#0),
+        scope: scope[21],
+    },
+}
+}
+num BasicBlocks: 15
+{
+-bb0
+BasicBlockData {
+    statements: [
+        StorageLive(_3),
+        StorageLive(_4),
+        StorageLive(_5),
+        _13 = const true,
+        _5 = move _1,
+        StorageLive(_6),
+        StorageLive(_9),
+        _9 = &mut _2,
     ],
-    coroutine: None,
-    local_decls: [
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: std::result::Result<(), std::io::Error>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:79: 586:89 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: F/#0,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:35: 586:39 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: std::io::BorrowedCursor<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:44: 586:54 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: std::ops::ControlFlow<std::result::Result<std::convert::Infallible, std::io::Error>, usize>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#571),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: std::result::Result<usize, std::io::Error>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:50 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: F/#0,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:17 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: (&'{erased} mut [u8],),
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:50 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut [u8],
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:49 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedCursor<'{erased}>,
-            user_ty: None,
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
                 span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:38 (#0),
                 scope: scope[0],
             },
+            kind: _8 = std::io::BorrowedCursor::<'_>::ensure_init(move _9) -> [return: bb1, unwind: bb7],
         },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedCursor<'{erased}>,
-            user_ty: None,
+    ),
+    is_cleanup: false,
+}
+-bb1
+BasicBlockData {
+    statements: [
+        StorageDead(_9),
+        StorageLive(_14),
+        StorageLive(_15),
+        StorageLive(_16),
+        StorageLive(_17),
+        StorageLive(_18),
+        StorageLive(_19),
+        _16 = copy ((*_8).0: &mut std::io::BorrowedBuf<'_>),
+        _17 = copy ((*_16).0: &mut [std::mem::MaybeUninit<u8>]),
+        _18 = copy ((*_8).0: &mut std::io::BorrowedBuf<'_>),
+        _14 = copy ((*_18).1: usize),
+        _19 = copy ((*_8).0: &mut std::io::BorrowedBuf<'_>),
+        _15 = copy ((*_19).2: usize),
+        StorageLive(_21),
+        _21 = &raw mut (*_17),
+        StorageLive(_24),
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:24 (#0),
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:77:35: 77:42 (#480),
+                scope: scope[9],
+            },
+            kind: switchInt(UbChecks) -> [0: bb10, otherwise: bb8],
+        },
+    ),
+    is_cleanup: false,
+}
+-bb2
+BasicBlockData {
+    statements: [
+        StorageDead(_6),
+        StorageDead(_5),
+        StorageLive(_28),
+        StorageLive(_29),
+        StorageLive(_30),
+        _28 = discriminant(_4),
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
+            source_info: SourceInfo {
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2173:9: 2173:19 (#0),
+                scope: scope[17],
+            },
+            kind: switchInt(move _28) -> [0: bb12, 1: bb11, otherwise: bb3],
+        },
+    ),
+    is_cleanup: false,
+}
+-bb3
+BasicBlockData {
+    statements: [],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
+            source_info: SourceInfo {
+                span: no-location (#0),
                 scope: scope[0],
             },
+            kind: unreachable,
         },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: std::result::Result<std::convert::Infallible, std::io::Error>,
-            user_ty: None,
+    ),
+    is_cleanup: false,
+}
+-bb4
+BasicBlockData {
+    statements: [],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:50: 590:51 (#572),
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:593:2: 593:2 (#0),
                 scope: scope[0],
             },
+            kind: return,
         },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
+    ),
+    is_cleanup: false,
+}
+-bb5
+BasicBlockData {
+    statements: [],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:51 (#0),
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:1: 593:2 (#0),
                 scope: scope[0],
             },
+            kind: resume,
         },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedCursor<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:591:5: 591:11 (#0),
-                scope: scope[0],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: bool,
-            user_ty: None,
+    ),
+    is_cleanup: true,
+}
+-bb6
+BasicBlockData {
+    statements: [],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
                 span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:49: 590:50 (#0),
                 scope: scope[0],
             },
+            kind: drop(_5) -> [return: bb5, unwind terminate(cleanup)],
         },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
+    ),
+    is_cleanup: true,
+}
+-bb7
+BasicBlockData {
+    statements: [],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:246:54: 246:69 (#0),
-                scope: scope[6],
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:49: 590:50 (#0),
+                scope: scope[0],
             },
+            kind: switchInt(copy _13) -> [0: bb5, otherwise: bb6],
         },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:246:71: 246:84 (#0),
-                scope: scope[6],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
-                scope: scope[6],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut [std::mem::MaybeUninit<u8>],
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
-                scope: scope[6],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
-                scope: scope[6],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:243:21: 243:30 (#0),
-                scope: scope[6],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: *mut [std::mem::MaybeUninit<u8>],
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/mod.rs:691:24: 691:53 (#0),
-                scope: scope[8],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: *mut [std::mem::MaybeUninit<u8>],
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/mod.rs:691:48: 691:52 (#0),
-                scope: scope[8],
-            },
-        },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: (),
-            user_ty: None,
+    ),
+    is_cleanup: true,
+}
+-bb8
+BasicBlockData {
+    statements: [
+        StorageLive(_23),
+        _23 = PtrMetadata(copy _17),
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
                 span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:78:17: 78:46 (#480),
                 scope: scope[9],
             },
+            kind: _22 = <std::ops::Range<usize> as std::slice::SliceIndex<[T]>>::get_unchecked_mut::precondition_check(copy _14, copy _15, move _23) -> [return: bb9, unwind unreachable],
         },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
+    ),
+    is_cleanup: false,
+}
+-bb9
+BasicBlockData {
+    statements: [
+        StorageDead(_23),
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:424:30: 424:41 (#0),
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:77:13: 79:14 (#480),
                 scope: scope[9],
             },
+            kind: goto -> bb10,
         },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
+    ),
+    is_cleanup: false,
+}
+-bb10
+BasicBlockData {
+    statements: [
+        _24 = SubUnchecked(copy _15, copy _14),
+        StorageLive(_25),
+        StorageLive(_26),
+        _25 = copy _21 as *mut std::mem::MaybeUninit<u8> (PtrToPtr),
+        _26 = Offset(copy _25, copy _14),
+        _20 = *mut [std::mem::MaybeUninit<u8>] from (copy _26, copy _24),
+        StorageDead(_26),
+        StorageDead(_25),
+        StorageDead(_24),
+        StorageDead(_21),
+        StorageLive(_27),
+        _27 = copy _20 as *mut [u8] (PtrToPtr),
+        _7 = &mut (*_27),
+        StorageDead(_27),
+        StorageDead(_19),
+        StorageDead(_18),
+        StorageDead(_17),
+        StorageDead(_16),
+        StorageDead(_15),
+        StorageDead(_14),
+        _6 = (copy _7,),
+        _13 = const false,
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:429:17: 429:24 (#0),
-                scope: scope[9],
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:50 (#0),
+                scope: scope[0],
             },
+            kind: _4 = <F as std::ops::FnOnce<(&mut [u8],)>>::call_once(move _5, move _6) -> [return: bb2, unwind: bb7],
         },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: *mut std::mem::MaybeUninit<u8>,
-            user_ty: None,
+    ),
+    is_cleanup: false,
+}
+-bb11
+BasicBlockData {
+    statements: [
+        _30 = move ((_4 as Err).0: std::io::Error),
+        StorageLive(_31),
+        _31 = std::result::Result::<std::convert::Infallible, std::io::Error>::Err(copy _30),
+        _3 = std::ops::ControlFlow::<std::result::Result<std::convert::Infallible, std::io::Error>, usize>::Break(move _31),
+        StorageDead(_31),
+        StorageDead(_30),
+        StorageDead(_29),
+        StorageDead(_28),
+        StorageDead(_4),
+        _10 = move ((_3 as Break).0: std::result::Result<std::convert::Infallible, std::io::Error>),
+        _41 = copy ((_10 as Err).0: std::io::Error),
+        _0 = std::result::Result::<(), std::io::Error>::Err(copy _41),
+        StorageDead(_3),
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:99:9: 99:12 (#0),
-                scope: scope[13],
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:593:1: 593:2 (#0),
+                scope: scope[0],
             },
+            kind: goto -> bb4,
         },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: *mut std::mem::MaybeUninit<u8>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/slice/index.rs:101:9: 101:12 (#0),
-                scope: scope[14],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: *mut [u8],
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/mem/maybe_uninit.rs:1512:24: 1512:55 (#0),
-                scope: scope[16],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: isize,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2174:13: 2174:18 (#0),
-                scope: scope[17],
-            },
-        },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2174:16: 2174:17 (#0),
-                scope: scope[17],
-            },
-        },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: std::io::Error,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2175:17: 2175:18 (#0),
-                scope: scope[17],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: std::result::Result<std::convert::Infallible, std::io::Error>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2175:42: 2175:48 (#0),
-                scope: scope[17],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: bool,
-            user_ty: None,
+    ),
+    is_cleanup: false,
+}
+-bb12
+BasicBlockData {
+    statements: [
+        _29 = move ((_4 as Ok).0: usize),
+        _3 = std::ops::ControlFlow::<std::result::Result<std::convert::Infallible, std::io::Error>, usize>::Continue(copy _29),
+        StorageDead(_30),
+        StorageDead(_29),
+        StorageDead(_28),
+        StorageDead(_4),
+        _11 = copy ((_3 as Continue).0: usize),
+        StorageDead(_3),
+        StorageLive(_37),
+        StorageLive(_38),
+        StorageLive(_39),
+        StorageLive(_40),
+        StorageLive(_32),
+        StorageLive(_33),
+        StorageLive(_34),
+        _37 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
+        _34 = copy ((*_37).2: usize),
+        StorageLive(_35),
+        _38 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
+        _35 = copy ((*_38).1: usize),
+        _33 = Sub(move _34, move _35),
+        StorageDead(_35),
+        StorageDead(_34),
+        _32 = Le(copy _11, move _33),
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
             source_info: SourceInfo {
                 span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:17: 277:53 (#0),
                 scope: scope[20],
             },
+            kind: switchInt(move _32) -> [0: bb14, otherwise: bb13],
         },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:22: 277:53 (#0),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:22: 277:35 (#0),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: usize,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:38: 277:53 (#0),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: !,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:9: 277:54 (#573),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Mut,
-            local_info: Clear,
-            ty: &'{erased} mut std::io::BorrowedBuf<'{erased}>,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:275:20: 275:29 (#0),
-                scope: scope[20],
-            },
-        },
-        LocalDecl {
-            mutability: Not,
-            local_info: Clear,
-            ty: std::io::Error,
-            user_ty: None,
-            source_info: SourceInfo {
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/result.rs:2189:17: 2189:18 (#0),
-                scope: scope[21],
-            },
-        },
+    ),
+    is_cleanup: false,
+}
+-bb13
+BasicBlockData {
+    statements: [
+        StorageDead(_33),
+        StorageDead(_32),
+        _39 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
+        _40 = copy (_2.0: &mut std::io::BorrowedBuf<'_>),
+        ((*_39).1: usize) = Add(copy ((*_40).1: usize), copy _11),
+        StorageDead(_40),
+        StorageDead(_39),
+        StorageDead(_38),
+        StorageDead(_37),
+        _0 = const std::result::Result::<(), std::io::Error>::Ok(()),
     ],
-    user_type_annotations: [],
-    arg_count: 2,
-    spread_arg: None,
-    var_debug_info: [
-        read => _1,
-        cursor => _2,
-        n => _11,
-        residual => _10,
-        val => _11,
-        self => _8,
-        buf => _20,
-        self => _17,
-        ((index: std::ops::Range<usize>).0: usize) => _14,
-        ((index: std::ops::Range<usize>).1: usize) => _15,
-        ((self: std::ops::Range<usize>).0: usize) => _14,
-        ((self: std::ops::Range<usize>).1: usize) => _15,
-        slice => _21,
-        new_len => _24,
-        self => _21,
-        ptr => _21,
-        offset => _14,
-        len => _24,
-        self => _20,
-        self => _4,
-        v => _29,
-        e => _30,
-        self => _12,
-        n => _11,
-        residual => _10,
-        e => _41,
-        t => _41,
-    ],
-    span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:586:1: 593:2 (#0),
-    required_consts: Some(
+    after_last_stmt_debuginfos: StmtDebugInfos(
         [],
     ),
-    mentioned_items: Some(
-        [
-            Spanned {
-                node: Fn(
-                    FnDef(
-                        DefId(2:6584 ~ core[c945]::io::borrowed_buf::{impl#5}::ensure_init),
-                        [
-                            '{erased},
-                        ],
-                    ),
-                ),
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:18: 590:38 (#0),
+    terminator: Some(
+        Terminator {
+            source_info: SourceInfo {
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:593:1: 593:2 (#0),
+                scope: scope[0],
             },
-            Spanned {
-                node: Fn(
-                    FnDef(
-                        DefId(2:4206 ~ core[c945]::ops::function::FnOnce::call_once),
-                        [
-                            F/#0,
-                            (&'{erased} mut [u8],),
-                        ],
-                    ),
-                ),
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:13: 590:50 (#0),
-            },
-            Spanned {
-                node: Drop(
-                    F/#0,
-                ),
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/io/mod.rs:590:49: 590:50 (#0),
-            },
-            Spanned {
-                node: Fn(
-                    FnDef(
-                        DefId(2:51025 ~ core[c945]::slice::index::{impl#4}::get_unchecked_mut::precondition_check),
-                        [],
-                    ),
-                ),
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/ub_checks.rs:78:17: 78:46 (#480),
-            },
-            Spanned {
-                node: Fn(
-                    FnDef(
-                        DefId(2:11028 ~ core[c945]::panicking::panic),
-                        [],
-                    ),
-                ),
-                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:9: 277:54 (#573),
-            },
-        ],
+            kind: goto -> bb4,
+        },
     ),
-    is_polymorphic: true,
-    injection_phase: None,
-    tainted_by_errors: None,
-    coverage_info_hi: None,
-    function_coverage_info: None,
+    is_cleanup: false,
 }
+-bb14
+BasicBlockData {
+    statements: [
+        StorageDead(_33),
+    ],
+    after_last_stmt_debuginfos: StmtDebugInfos(
+        [],
+    ),
+    terminator: Some(
+        Terminator {
+            source_info: SourceInfo {
+                span: /home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/io/borrowed_buf.rs:277:9: 277:54 (#573),
+                scope: scope[20],
+            },
+            kind: _36 = core::panicking::panic(const "assertion failed: n <= self.buf.init - self.buf.filled") -> unwind continue,
+        },
+    ),
+    is_cleanup: false,
+}
+}
+----End MIR Body----

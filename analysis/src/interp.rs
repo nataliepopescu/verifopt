@@ -515,13 +515,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         cur_scope: DefId,
-        impltors: &Vec<DefId>,
+        impls: &Vec<DefId>,
         constraint: VerifoptRval<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) -> Option<Vec<VerifoptRval<'tcx>>> {
         match constraint {
             VerifoptRval::Ref(inner) => {
-                self.resolve_dyn_self_constraint(cmap, cur_scope, impltors, *inner, args)
+                self.resolve_dyn_self_constraint(cmap, cur_scope, impls, *inner, args)
             }
             ref idkstruct @ VerifoptRval::IdkStruct(struct_defid, ref genarg_vec) => {
                 if is_box(struct_defid) {
@@ -552,14 +552,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
-    /*
-     * Get all the relevant trait function implementations (given self_defid)
-     * for this particular dynamic invocation
-     */
-    fn get_trait_fn_impls_from_defid(
+    fn get_impls_from_constraint_defid(
         &self,
         self_defid: &DefId,
-        impltors: &Vec<DefId>,
+        impls: &Vec<DefId>,
     ) -> Vec<DefId> {
         let mut to_dispatch = vec![];
         // what are all of this struct's impl blocks?
@@ -583,9 +579,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         // dispatch dynamically), add the matching concrete
                         // implementation to the list of things we want to
                         // continue interpreting/analyzing
-                        for impltor in impltors {
-                            if assoc.contains(impltor) {
-                                to_dispatch.push(*impltor);
+                        for impl_ in impls {
+                            if assoc.contains(impl_) {
+                                to_dispatch.push(*impl_);
                             }
                         }
                     }
@@ -598,18 +594,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
-    /*
-     * Get all the relevant trait function implementations (given self_constraint)
-     * for this particular dynamic invocation
-     */
-    fn get_trait_fn_impls(
-        &self,
-        self_constraint: &VerifoptRval<'tcx>,
-        impltors: &Vec<DefId>,
-    ) -> Vec<DefId> {
+    fn get_impls(&self, self_constraint: &VerifoptRval<'tcx>, impls: &Vec<DefId>) -> Vec<DefId> {
         match *self_constraint {
             VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did) => {
-                self.get_trait_fn_impls_from_defid(&did, impltors)
+                self.get_impls_from_constraint_defid(&did, impls)
             }
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
             // (later) use the function return type as the retval's "constraint"
@@ -625,29 +613,30 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
     }
 
-    fn dyn_to_static_dispatch(
+    fn make_static_dispatch(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
         call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         self_constraint_vec: Vec<VerifoptRval<'tcx>>,
-        impltors: &Vec<DefId>,
+        impls: &Vec<DefId>,
         func_genargs: &[GenericArg<'tcx>],
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
-        // assoc dyn obj w the correct trait fn impl(s)
         let mut to_dispatch = Vec::new();
+        // get the list of possible static functions to dispatch to, given the constraints
+        // available for `self`
         for self_constraint in self_constraint_vec.iter() {
-            to_dispatch.append(&mut self.get_trait_fn_impls(self_constraint, impltors));
+            to_dispatch.append(&mut self.get_impls(self_constraint, impls));
         }
 
         if self.debug {
             println!("to_dispatch: {:?}", to_dispatch);
         }
 
-        // call each impl
+        // call each static function
         let mut res_vec = Vec::new();
         for func_defid in to_dispatch {
             if self.debug {
@@ -712,10 +701,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             return vec![Ok(None)];
         }
 
-        // `impltors` are the concrete implementations of this assoc_fn
+        // get the concrete implementations of this (trait's) assoc_fn
         let mutex = self.funcs.trait_fn_impls.lock().unwrap();
-        if let Some(impltors_) = mutex.get(&assoc_funcval.def_id) {
-            let impltors = impltors_.clone();
+        if let Some(impls_) = mutex.get(&assoc_funcval.def_id) {
+            let impls = impls_.clone();
             std::mem::drop(mutex);
 
             // get the first (`self`) arg place
@@ -728,7 +717,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             "value: {:?}",
                             cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                         );
-                        println!("impltors: {:#?}", impltors);
+                        println!("impls: {:#?}", impls);
                         println!(
                             "structs: {:#?}",
                             self.funcs.trait_to_struct_impls.get(trait_def_id)
@@ -752,22 +741,22 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 println!("constraint: {:?}", constraint);
                             }
 
-                            // unwrap any refs or boxed types
+                            // unwrap any refs or boxed types...
                             if let Some(self_constraint_vec) = self.resolve_dyn_self_constraint(
-                                cmap, cur_scope, &impltors, constraint, args,
+                                cmap, cur_scope, &impls, constraint, args,
                             ) {
                                 if self.debug {
                                     println!("\n## BEFORE DYN_TO_STATIC");
                                     println!("self_constraint_vec: {:?}", self_constraint_vec);
                                 }
-                                // interp dyn dispatch as one or more static dispatches
-                                res_vec.append(&mut self.dyn_to_static_dispatch(
+                                // and interp the dyn dispatch as one or more static dispatches
+                                res_vec.append(&mut self.make_static_dispatch(
                                     cmap,
                                     call_stack,
                                     cur_scope,
                                     body_locals,
                                     self_constraint_vec,
-                                    &impltors,
+                                    &impls,
                                     func_genargs,
                                     args,
                                     destination,

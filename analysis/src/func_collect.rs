@@ -582,6 +582,11 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     println!("def_kind: {:?}", def_kind);
                 }
 
+                //if self.tcx.def_path_str(def_id).contains("call_once") {
+                //    println!("DEFID: {:?}", def_id);
+                //    println!("- def_kind: {:?}", def_kind);
+                //}
+
                 match def_kind {
                     DefKind::Trait => self.handle_trait(funcs, def_id),
                     DefKind::Struct => self.handle_struct(funcs, def_id),

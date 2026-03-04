@@ -71,6 +71,16 @@ pub fn is_box(def_id: DefId) -> bool {
     def_id.krate.as_usize() == 3 && def_id.index.as_usize() == 662
 }
 
+pub fn is_fn_trait(def_id: DefId) -> bool {
+    // FIXME does this ever change....
+    // FnOnce DefId
+    def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 4203
+    // FnMut DefId
+    //|| def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 4203
+    // Fn DefId
+    || def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 4197
+}
+
 //pub fn is_option(def_id: DefId) -> bool {
 //    // FIXME does this ever change....
 //    def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 49010

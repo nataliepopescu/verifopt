@@ -795,7 +795,14 @@ function pointers (since FnOnce is a supertrait of FnMut)."
 
 
 
+tried to just call the first implementation, but this doesn't seem to be the
+correct one (/might be dispatching to the concrete auto-impl)
+- ultimately calls Fn::call, and then stack overflow
+- pointing this call to the first impl is infinitely recursive
 
+maybe the FnOnce redirection is fine but not the Fn one
+
+- i think we need to find out where the automatic trait impls are
 
 
 

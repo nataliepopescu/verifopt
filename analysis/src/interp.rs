@@ -9,7 +9,7 @@ use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
 use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
-use crate::core::{get_params_from_ty, is_box};
+use crate::core::{get_params_from_ty, is_box, is_fn_trait};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
 use crate::wto::BBDeps;
@@ -554,11 +554,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn get_impls_from_constraint_defid(
         &self,
+        trait_def_id: &DefId,
         self_defid: &DefId,
         impls: &Vec<DefId>,
     ) -> Vec<DefId> {
-        let mut to_dispatch = vec![];
+        if self.debug {
+            println!("getting impl blocks for {:?} struct", self_defid);
+            println!("trait_defid: {:?}", trait_def_id);
+            println!("all possible impls: {:#?}", impls);
+        }
+
         // what are all of this struct's impl blocks?
+        let mut to_dispatch = vec![];
         if let Some(impl_blocks) = self.funcs.struct_to_impls.get(&self_defid) {
             if self.debug {
                 println!("self_defid: {:?}", self_defid);
@@ -589,15 +596,28 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
             }
             return to_dispatch;
+        } else if is_fn_trait(*trait_def_id) {
+            // FIXME not sure if it is correct to always dispatch to this implementation (probably
+            // not, in fact, but let's see if it works here for now)
+            // indeed, results in a stack overflow
+            //to_dispatch.push(impls[0]);
+            todo!();
         } else {
             panic!("cannot get struct impl_blocks for: {:?}", self_defid);
         }
+
+        //to_dispatch
     }
 
-    fn get_impls(&self, self_constraint: &VerifoptRval<'tcx>, impls: &Vec<DefId>) -> Vec<DefId> {
+    fn get_impls(
+        &self,
+        trait_def_id: &DefId,
+        self_constraint: &VerifoptRval<'tcx>,
+        impls: &Vec<DefId>,
+    ) -> Vec<DefId> {
         match *self_constraint {
             VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did) => {
-                self.get_impls_from_constraint_defid(&did, impls)
+                self.get_impls_from_constraint_defid(trait_def_id, &did, impls)
             }
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
             // (later) use the function return type as the retval's "constraint"
@@ -619,17 +639,18 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
+        trait_def_id: &DefId,
         self_constraint_vec: Vec<VerifoptRval<'tcx>>,
         impls: &Vec<DefId>,
         func_genargs: &[GenericArg<'tcx>],
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
-        let mut to_dispatch = Vec::new();
         // get the list of possible static functions to dispatch to, given the constraints
         // available for `self`
+        let mut to_dispatch = Vec::new();
         for self_constraint in self_constraint_vec.iter() {
-            to_dispatch.append(&mut self.get_impls(self_constraint, impls));
+            to_dispatch.append(&mut self.get_impls(trait_def_id, self_constraint, impls));
         }
 
         if self.debug {
@@ -755,6 +776,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     call_stack,
                                     cur_scope,
                                     body_locals,
+                                    trait_def_id,
                                     self_constraint_vec,
                                     &impls,
                                     func_genargs,
@@ -1500,7 +1522,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         }
                                     }
                                 }
-                                _ => println!("OTHER KIND: {:?}", ty.kind()),
+                                _ => {
+                                    if self.debug {
+                                        println!("OTHER KIND: {:?}", ty.kind());
+                                    }
+                                }
                             },
                             _ => todo!("first genarg is not a ty: {:?}", adt_genargs[0].kind()),
                         }

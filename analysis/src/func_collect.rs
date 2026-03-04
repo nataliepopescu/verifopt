@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 pub struct FuncMap<'tcx> {
     // all fns, trait-related or not
     pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
-    // assoc fn of a trait -> implementors of that assoc fn
+    // assoc fn of a trait -> concrete implementations of that assoc fn
     pub trait_fn_impltors: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
     // assoc fn of a trait -> that trait
     pub assocfns_to_traits: Arc<Mutex<HashMap<DefId, DefId>>>,
@@ -127,6 +127,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
             }
         }
 
+        if self.debug {
+            println!("ARG PARAMS: {:?}", arg_generics_inner);
+        }
+
         let arg_types = Some(arg_types_inner);
         if arg_generics_inner.len() > 0 {
             arg_generics = Some(arg_generics_inner);
@@ -155,7 +159,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                         GenericArgKind::Type(ty) => {
                             let params_opt = get_params_from_ty(&ty, self.debug);
                             if self.debug {
-                                println!("PARAMS: {:?}", params_opt);
+                                println!("RET PARAMS: {:?}", params_opt);
                             }
                             if let Some(params_vec) = params_opt {
                                 return (ret_did, Some(params_vec));

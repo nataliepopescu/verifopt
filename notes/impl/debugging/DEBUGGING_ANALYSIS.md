@@ -716,9 +716,81 @@ bb1
 
 - return
 
+### FnOnce
+
+in term bb10 of defid 1:4143 (default_read_buffer)
+- triggered by read_exact (not directly, down the line)
+
+- pub(crate)
+
+```rust
+pub(crate) fn default_read_buf<F>(read: F, mut cursor: BorrowedCursor<'_>) -> Result<()>
+where
+    F: FnOnce(&mut [u8]) -> Result<usize>,
+{
+    let n = read(cursor.ensure_init().init_mut())?;
+    cursor.advance(n);
+    Ok(())
+}
+```
+
+- so, invoke the passed-in FnOnce read func (curser as arg)
+
+- directly invoked by the following:
+
+```rust
+    #[unstable(feature = "read_buf", issue = "78485")]
+    fn read_buf(&mut self, buf: BorrowedCursor<'_>) -> Result<()> {
+        default_read_buf(|b| self.read(b), buf)
+    }
+```
+
+- so the `read` function in `default_read_buf` is the closure `|b| self.read(b)`
+- self seems to be the `Read` trait (concretely, as, this is a default
+  implementation which we need to handle)
+    - but maybe not? TBD
+- `read` has no default implementation, so presumably that's the `BufReader`'s
+  impl
 
 
+the term in question:
 
+`kind: _4 = <F as std::ops::FnOnce<(&mut [u8],)>>::call_once(move _5, move _6) -> [return: bb2, unwind: bb7],`
+
+tool correctly identifies `F` as a generic argument param for `default_read_buffer`
+- F is a FnOnce traitobj
+
+local5 == the closure
+
+local6 == the cursor
+
+- tool tries to dyn dispatch call_once()
+- find the func in the `FnOnce` trait: 
+  (`found in trait: DefId(2:4203 ~ core[c945]::ops::function::FnOnce)`)
+- identifies first arg constraints: `Some(Values({IdkDefId(DefId(1:4166 ~ std[a5f4]::io::Read::read_buf::{closure#0}))}))`
+
+- which call_once() to call?
+
+impltors
+- Fn
+- FnMut
+- ...
+
+structs
+- none of the above ^
+
+
+FnOnce trait (or call_once() func) operates on a `self`
+
+"FnOnce is implemented automatically by closures that might consume captured
+variables, as well as all types that implement FnMut, e.g., (safe)
+function pointers (since FnOnce is a supertrait of FnMut)."
+
+- so are we looking for an automate trait impl?
+- our closure doesn't capture any vars? although it does use `self.read`
+- so it must capture `self`
+
+[closures](https://doc.rust-lang.org/book/ch13-01-closures.html)
 
 
 

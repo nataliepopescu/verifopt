@@ -86,7 +86,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
             println!("cur_scope: {:?}", cur_scope);
             println!("prev_scope: {:?}", prev_scope);
-            println!("call_stack: {:?}", call_stack);
+            //println!("call_stack: {:?}", call_stack);
         }
 
         // if there exists a memoized WTO, use it; otherwise, create and save it
@@ -608,8 +608,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         impltors: &Vec<DefId>,
     ) -> Vec<DefId> {
         match *self_constraint {
-            VerifoptRval::IdkStruct(did, _) => self.get_trait_fn_impls_from_defid(&did, impltors),
-            VerifoptRval::IdkDefId(did) => self.get_trait_fn_impls_from_defid(&did, impltors),
+            VerifoptRval::IdkStruct(did, _)
+            | VerifoptRval::IdkDefId(did) => self.get_trait_fn_impls_from_defid(&did, impltors),
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
             // (later) use the function return type as the retval's "constraint"
             VerifoptRval::IdkType(_) => {
@@ -728,7 +728,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             cmap.scoped_get(Some(cur_scope), &MapKey::Place(place), false)
                         );
                         println!("impltors: {:#?}", impltors);
-                        println!("structs: {:?}", self.funcs.trait_impltors.get(trait_def_id));
+                        println!("structs: {:#?}", self.funcs.trait_impltors.get(trait_def_id));
                     }
 
                     // get the constraints for the first (`self`) arg from the current scope
@@ -1117,14 +1117,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         if self.debug {
             println!("\n-----------");
             println!("call!");
+            println!("call_stack: {:#?}", call_stack);
             println!("cur scope: {:?}", cur_scope);
             println!("func: {:?}", func);
             println!("args: {:?}", args);
             println!("destination place: {:?}", destination);
-            println!(
-                "cmap @ scope: {:?}",
-                cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-            );
+            //println!(
+            //    "cmap @ scope: {:?}",
+            //    cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+            //);
         }
 
         match func {

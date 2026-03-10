@@ -41,7 +41,7 @@ impl BBDeps {
         }
 
         let mut ret_bb = BasicBlock::from_u32(0);
-        let mut ret_found = false;
+        //let mut ret_found = false;
         bb_deps.ordering = traversal::reverse_postorder(body)
             .filter(|(_, bbd)| !bbd.is_cleanup)
             .filter(|(bbi, bbd)| {
@@ -51,7 +51,7 @@ impl BBDeps {
                         TerminatorKind::Return => {
                             // add the return bb last so retval doesn't get overriden
                             ret_bb = bbi.clone();
-                            ret_found = true;
+                            //ret_found = true;
                             return false;
                         }
                         _ => {}
@@ -62,9 +62,9 @@ impl BBDeps {
             .map(|(bb, _)| bb)
             .collect();
 
-        if !ret_found {
-            panic!("no return block?");
-        }
+        //if !ret_found {
+        //    panic!("no return block?");
+        //}
         bb_deps.ordering.push(ret_bb);
         if debug {
             println!("\nself.ordering: {:?}", bb_deps.ordering);

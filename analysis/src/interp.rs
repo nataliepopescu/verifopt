@@ -374,23 +374,92 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         &self,
         constraint: &VerifoptRval<'tcx>,
         vals: &[Pu128],
-        discr_vals_slice: &mut [i32],
+        discr_vals: &mut [u8],
     ) {
         match constraint {
+            // use discriminant constraint to update this "counter" of which possible values this
+            // discriminant might be
             VerifoptRval::Scalar(scalar) => {
                 let num = scalar.to_bits_unchecked();
                 for (i, val) in vals.iter().enumerate() {
                     if num == val.get() {
-                        discr_vals_slice[i] += 1;
+                        discr_vals[i] += 1;
                     }
                 }
             }
             VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_) | VerifoptRval::Idk() => {}
             VerifoptRval::Ref(reffed) => {
-                self.resolve_switchint_constraints(&*reffed, vals, discr_vals_slice)
+                self.resolve_switchint_constraints(&*reffed, vals, discr_vals)
             }
             _ => panic!("unexpected switchint discr: {:?}", constraint),
         }
+    }
+
+    fn get_prune_targets(&self, discr_vals: &mut [u8]) -> Option<Vec<usize>> {
+        if self.debug {
+            println!("discr_vals: {:?}", discr_vals);
+        }
+
+        let mut not_possible = Vec::new();
+        let mut possible = Vec::new();
+        for i in 0..discr_vals.len() {
+            if discr_vals[i] > 0 {
+                possible.push(i);
+            } else {
+                not_possible.push(i);
+            }
+        }
+
+        if self.debug {
+            println!("possible: {:?}", possible);
+            println!("not possible: {:?}", not_possible);
+        }
+
+        if not_possible.len() > 0 && possible.len() > 0 {
+            return Some(not_possible);
+        }
+
+        None
+    }
+
+    fn prune_switchint_targets(
+        &self,
+        bb: &BasicBlock,
+        bb_deps: &mut BBDeps,
+        targets: &[BasicBlock],
+        discr_vals: &mut [u8],
+    ) {
+        //let len = discr_vals.len();
+        // FIXME use helper function to determine which, if any, is the sole "bitflip"
+        let to_prune = self.get_prune_targets(discr_vals);
+
+        if self.debug {
+            println!("to_prune: {:?}", to_prune);
+        }
+
+        if let Some(prune_targets) = to_prune {
+            todo!();
+        }
+
+        /*
+        if discr_vals[0] != 0 && discr_vals[1] == 0 && discr_vals[2] == 0 {
+            // only explore first target
+            bb_deps.prune(bb, targets[1]);
+            if len > 1 {
+                bb_deps.prune(bb, targets[2]);
+            }
+        } else if discr_vals[0] == 0 && discr_vals[1] != 0 && discr_vals[2] == 0 {
+            // only explore second target
+            bb_deps.prune(bb, targets[0]);
+            if len > 1 {
+                bb_deps.prune(bb, targets[2]);
+            }
+        } else if discr_vals[0] == 0 && discr_vals[1] == 0 && discr_vals[2] != 0 {
+            // only explore third target (if it exists)
+            bb_deps.prune(bb, targets[0]);
+            bb_deps.prune(bb, targets[1]);
+        }
+        */
     }
 
     fn interp_switchint(
@@ -433,44 +502,24 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     Some(vartype) => match vartype {
                         VarType::Values(constraints) => {
                             let vals = targets.all_values();
+                            let targets = targets.all_targets();
                             if self.debug {
                                 println!("values: {:?}", vals);
+                                println!("constraints: {:?}", constraints);
                             }
                             let len = vals.len();
-                            if len > 2 {
-                                todo!("more than 2 possible switchint vals ({:?})", len);
-                            }
-                            let mut discr_vals: [i32; 3] = [0; 3];
-                            let discr_vals_slice: &mut [i32] = &mut discr_vals[0..len + 1];
+                            let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(len);
+                            let discr_vals = discr_vals_uninit.write_filled(0);
 
                             for constraint in constraints.iter() {
-                                self.resolve_switchint_constraints(
-                                    constraint,
-                                    vals,
-                                    discr_vals_slice,
-                                );
+                                self.resolve_switchint_constraints(constraint, vals, discr_vals);
                             }
 
-                            // FIXME improve
-                            if discr_vals[0] != 0 && discr_vals[1] == 0 && discr_vals[2] == 0 {
-                                // only explore first target
-                                bb_deps.prune(bb, targets.all_targets()[1]);
-                                if len > 1 {
-                                    bb_deps.prune(bb, targets.all_targets()[2]);
-                                }
-                            } else if discr_vals[0] == 0 && discr_vals[1] != 0 && discr_vals[2] == 0
-                            {
-                                // only explore second target
-                                bb_deps.prune(bb, targets.all_targets()[0]);
-                                if len > 1 {
-                                    bb_deps.prune(bb, targets.all_targets()[2]);
-                                }
-                            } else if discr_vals[0] == 0 && discr_vals[1] == 0 && discr_vals[2] != 0
-                            {
-                                // only explore third target (if it exists)
-                                bb_deps.prune(bb, targets.all_targets()[0]);
-                                bb_deps.prune(bb, targets.all_targets()[1]);
-                            }
+                            //if len > 1 {
+                            //    todo!("more than 1 possible switchint vals ({:?})", len);
+                            //}
+
+                            self.prune_switchint_targets(bb, bb_deps, targets, discr_vals);
                         }
                         _ => todo!("scope not impl"),
                     },

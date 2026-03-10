@@ -544,7 +544,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 // one_variant (bmark): limit = 26
                 // two_variants (no bmark): limit = 26
                 // two_variants (bmark): limit = 43
-                if crate_num == 0 && def_index >= 43
+                if crate_num == 0 && def_index >= 42
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636
@@ -585,6 +585,14 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 //if self.tcx.def_path_str(def_id).contains("call_once") {
                 //    println!("DEFID: {:?}", def_id);
                 //    println!("- def_kind: {:?}", def_kind);
+                //}
+
+                //if crate_num == 1 && def_index == 4143 {
+                //    let body = self.tcx.instance_mir(InstanceKind::Item(def_id));
+                //    self.print_mir(body); //println!("{:#?}", body);
+                //}
+                //else {
+                //    println!("defid: {:?}", def_id);
                 //}
 
                 match def_kind {

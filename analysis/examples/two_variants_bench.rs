@@ -5,9 +5,9 @@ use std::time::Instant;
 
 //use rand::RngExt;
 
-use std::fs::File;
-use std::io::BufReader;
 use std::io::prelude::*;
+//use std::io::BufReader;
+use std::fs::File;
 
 pub trait Animal {
     fn speak(&self, ctr: &mut Ctr) -> usize;
@@ -62,17 +62,18 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let mut warmup_ctr: Ctr = Ctr { ctr: 0 };
     let mut ctr: Ctr = Ctr { ctr: 0 };
 
-    let warmup_file = File::open(filename)?;
-    let mut warmup_reader = BufReader::new(warmup_file);
-    let file = File::open(filename)?;
-    let mut reader = BufReader::new(file);
+    let mut warmup_file = File::open(filename)?;
+    //let mut warmup_reader = BufReader::new(warmup_file);
+    let mut file = File::open(filename)?;
+    //let mut reader = BufReader::new(file);
 
     // start benchmarking
 
     for _ in 0..warmup {
         let mut buf: [u8; 1] = [0; 1];
-        warmup_reader.read_exact(&mut buf)?;
-        let animal = get_animal(buf[0].into());
+        warmup_file.read_exact(&mut buf)?;
+        let b = buf[0] & 1;
+        let animal = get_animal(b.into()); //buf[0].into());
         let _vtable = core::ptr::metadata(&*animal);
         wrap_dyn_call(&animal, &mut warmup_ctr);
     }
@@ -80,8 +81,9 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let mut times = Vec::new();
     for _ in 0..runs {
         let mut buf: [u8; 1] = [0; 1];
-        reader.read_exact(&mut buf)?;
-        let animal = get_animal(buf[0].into());
+        file.read_exact(&mut buf)?;
+        let b = buf[0] & 1;
+        let animal = get_animal(b.into()); //buf[0].into());
         let _vtable = core::ptr::metadata(&*animal);
         let start = Instant::now();
         wrap_dyn_call(&animal, &mut ctr);

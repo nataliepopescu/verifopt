@@ -387,7 +387,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     }
                 }
             }
-            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_) | VerifoptRval::Idk() => {}
+            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_) | VerifoptRval::Idk() => {
+                // inc counter for the "otherwise" switchint option
+                discr_vals[discr_vals.len() - 1] += 1;
+            }
             VerifoptRval::Ref(reffed) => {
                 self.resolve_switchint_constraints(&*reffed, vals, discr_vals)
             }
@@ -397,9 +400,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
     fn get_prune_targets(&self, discr_vals: &mut [u8]) -> Option<Vec<usize>> {
         if self.debug {
-            println!("discr_vals: {:?}", discr_vals);
+            println!("discr_vals (init): {:?}", discr_vals);
         }
 
+        // if the last val > 0, constraints were an "idk" type, therefore cannot prune anything
+        if discr_vals[discr_vals.len() - 1] > 0 {
+            return None;
+        }
+
+        // track basicblock "possibilities"
         let mut not_possible = Vec::new();
         let mut possible = Vec::new();
         for i in 0..discr_vals.len() {
@@ -411,14 +420,24 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         if self.debug {
-            println!("possible: {:?}", possible);
-            println!("not possible: {:?}", not_possible);
+            println!("possible (discr_val idxs): {:?}", possible);
+            println!("not possible (discr_val idxs): {:?}", not_possible);
         }
 
+        // if there are some impossible branches (and at least one _possible_ branch),
+        // prune those impossible branches
         if not_possible.len() > 0 && possible.len() > 0 {
             return Some(not_possible);
         }
 
+        // if there impossible branches without any possible branches, this is an error of
+        // some kind
+        if not_possible.len() > 0 && possible.len() == 0 {
+            panic!("no possible branches");
+        }
+
+        // if there are possible branches without any impossible branches, then
+        // we cannot prune anything. 
         None
     }
 
@@ -429,37 +448,21 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         targets: &[BasicBlock],
         discr_vals: &mut [u8],
     ) {
-        //let len = discr_vals.len();
-        // FIXME use helper function to determine which, if any, is the sole "bitflip"
+        if self.debug {
+            println!("targets: {:?}", targets);
+        }
+
         let to_prune = self.get_prune_targets(discr_vals);
 
         if self.debug {
             println!("to_prune: {:?}", to_prune);
         }
 
-        if let Some(prune_targets) = to_prune {
-            todo!();
-        }
-
-        /*
-        if discr_vals[0] != 0 && discr_vals[1] == 0 && discr_vals[2] == 0 {
-            // only explore first target
-            bb_deps.prune(bb, targets[1]);
-            if len > 1 {
-                bb_deps.prune(bb, targets[2]);
+        if let Some(prune_idxs) = to_prune {
+            for prune_idx in prune_idxs.iter() {
+                bb_deps.prune(bb, targets[*prune_idx]);
             }
-        } else if discr_vals[0] == 0 && discr_vals[1] != 0 && discr_vals[2] == 0 {
-            // only explore second target
-            bb_deps.prune(bb, targets[0]);
-            if len > 1 {
-                bb_deps.prune(bb, targets[2]);
-            }
-        } else if discr_vals[0] == 0 && discr_vals[1] == 0 && discr_vals[2] != 0 {
-            // only explore third target (if it exists)
-            bb_deps.prune(bb, targets[0]);
-            bb_deps.prune(bb, targets[1]);
         }
-        */
     }
 
     fn interp_switchint(
@@ -503,21 +506,22 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         VarType::Values(constraints) => {
                             let vals = targets.all_values();
                             let targets = targets.all_targets();
+                            let len = vals.len();
+                            let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(len + 1);
+                            let discr_vals = discr_vals_uninit.write_filled(0);
                             if self.debug {
                                 println!("values: {:?}", vals);
                                 println!("constraints: {:?}", constraints);
+                                println!("discr_vals (uninit): {:?}", discr_vals);
                             }
-                            let len = vals.len();
-                            let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(len);
-                            let discr_vals = discr_vals_uninit.write_filled(0);
 
                             for constraint in constraints.iter() {
                                 self.resolve_switchint_constraints(constraint, vals, discr_vals);
                             }
 
-                            //if len > 1 {
-                            //    todo!("more than 1 possible switchint vals ({:?})", len);
-                            //}
+                            if len > 4 {
+                                todo!("more than 4 possible switchint vals ({:?})", len);
+                            }
 
                             self.prune_switchint_targets(bb, bb_deps, targets, discr_vals);
                         }

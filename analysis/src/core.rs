@@ -589,6 +589,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 TyKind::Param(param) => {
                     return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
                 }
+                TyKind::Int(_) | TyKind::Uint(_) => {}
                 _ => todo!("other ref tykind: {:?}", ty.kind()),
             },
             _ => todo!("other tykind: {:?}", genarg_ty.kind()),

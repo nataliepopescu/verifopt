@@ -437,7 +437,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         // if there are possible branches without any impossible branches, then
-        // we cannot prune anything. 
+        // we cannot prune anything.
         None
     }
 

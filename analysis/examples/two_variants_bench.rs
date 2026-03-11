@@ -50,9 +50,21 @@ impl Animal for Dog {
     }
 }
 
+// iterative mean alg (handle overflow)
+fn mean(times: Vec<u128>) -> f64 {
+    let mut mean: f64 = 0.0;
+    let mut i = 1;
+    for time in times.iter() {
+        let diff = f64::from(*time as u32) - mean;
+        mean += diff / (i as f64);
+        i += 1;
+    }
+    mean
+}
+
 #[inline(never)]
-fn wrap_dyn_call(animal: &Box<dyn Animal>, ctr: &mut Ctr) {
-    let _res = animal.speak(ctr);
+fn wrap_dyn_call(animal: &Box<dyn Animal>, ctr: &mut Ctr) -> usize {
+    animal.speak(ctr)
 }
 
 fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
@@ -63,37 +75,40 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let mut ctr: Ctr = Ctr { ctr: 0 };
 
     let mut warmup_file = File::open(filename)?;
-    //let mut warmup_reader = BufReader::new(warmup_file);
     let mut file = File::open(filename)?;
-    //let mut reader = BufReader::new(file);
 
     // start benchmarking
 
     for _ in 0..warmup {
+        // setup
         let mut buf: [u8; 1] = [0; 1];
         warmup_file.read_exact(&mut buf)?;
         let b = buf[0] & 1;
-        let animal = get_animal(b.into()); //buf[0].into());
+        let animal = get_animal(b.into());
         let _vtable = core::ptr::metadata(&*animal);
-        wrap_dyn_call(&animal, &mut warmup_ctr);
+
+        // bench
+        std::hint::black_box(wrap_dyn_call(&animal, &mut warmup_ctr));
     }
 
     let mut times = Vec::new();
     for _ in 0..runs {
+        // setup
         let mut buf: [u8; 1] = [0; 1];
         file.read_exact(&mut buf)?;
         let b = buf[0] & 1;
-        let animal = get_animal(b.into()); //buf[0].into());
+        let animal = get_animal(b.into());
         let _vtable = core::ptr::metadata(&*animal);
+
+        // bench
         let start = Instant::now();
-        wrap_dyn_call(&animal, &mut ctr);
+        std::hint::black_box(wrap_dyn_call(&animal, &mut ctr));
         let duration = start.elapsed().as_nanos();
+
         times.push(duration);
     }
 
-    // FIXME not handling overflow
-    let sum: u128 = Iterator::sum(times.iter());
-    let mean = f64::from(sum as u32) / (times.len() as f64);
+    let mean = mean(times);
 
     println!("ctr: {:?}", ctr.ctr);
     println!("mean: {:?}", mean);

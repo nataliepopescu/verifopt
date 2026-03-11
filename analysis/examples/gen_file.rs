@@ -1,3 +1,5 @@
+//extern crate rand;
+
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::prelude::*;
@@ -20,12 +22,13 @@ fn main() -> std::io::Result<()> {
             let mut writer = BufWriter::new(file);
 
             for i in 0..num {
-                if i % 2 == 0 {
-                    writer.write(b"0")?;
-                } else {
-                    writer.write(b"1")?;
-                }
-                //let r = rand::rng().random_range(..2u8);
+                //if i % 2 == 0 {
+                writer.write(b"0")?;
+                //} else {
+                //    writer.write(b"1")?;
+                //}
+
+                //let r = rand::rng().random_range(..2u8) & 1;
                 //writer.write(&[r])?;
             }
             writer.flush()?;

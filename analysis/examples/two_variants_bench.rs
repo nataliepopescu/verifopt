@@ -10,12 +10,16 @@ use std::io::prelude::*;
 use std::fs::File;
 
 pub trait Animal {
-    fn speak(&self, ctr: &mut Ctr) -> usize;
+    fn speak(&self, cat_ctr: &mut Ctr, dog_ctr: &mut Ctr) -> usize;
     fn walk(&self) -> usize;
 }
 
-pub fn get_animal(_num: usize) -> Box<dyn Animal> {
-    Box::new(Cat {})
+pub fn get_animal(num: usize) -> Box<dyn Animal> {
+    if num == 0 {
+        Box::new(Cat {})
+    } else {
+        Box::new(Dog {})
+    }
 }
 
 #[inline(always)]
@@ -31,8 +35,8 @@ pub struct Ctr {
 }
 
 impl Animal for Cat {
-    fn speak(&self, ctr: &mut Ctr) -> usize {
-        ctr.ctr += 1;
+    fn speak(&self, cat_ctr: &mut Ctr, _dog_ctr: &mut Ctr) -> usize {
+        cat_ctr.ctr += 1;
         11111
     }
     fn walk(&self) -> usize {
@@ -41,8 +45,8 @@ impl Animal for Cat {
 }
 
 impl Animal for Dog {
-    fn speak(&self, ctr: &mut Ctr) -> usize {
-        ctr.ctr += 1;
+    fn speak(&self, _cat_ctr: &mut Ctr, dog_ctr: &mut Ctr) -> usize {
+        dog_ctr.ctr += 1;
         22222
     }
     fn walk(&self) -> usize {
@@ -63,16 +67,18 @@ fn mean(times: Vec<u128>) -> f64 {
 }
 
 #[inline(never)]
-fn wrap_dyn_call(animal: &Box<dyn Animal>, ctr: &mut Ctr) -> usize {
-    animal.speak(ctr)
+fn wrap_dyn_call(animal: &Box<dyn Animal>, cat_ctr: &mut Ctr, dog_ctr: &mut Ctr) -> usize {
+    animal.speak(cat_ctr, dog_ctr)
 }
 
 fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let cat = get_cat();
     let _cat_vtable = core::ptr::metadata(&*cat);
 
-    let mut warmup_ctr: Ctr = Ctr { ctr: 0 };
-    let mut ctr: Ctr = Ctr { ctr: 0 };
+    let mut w_cat_ctr: Ctr = Ctr { ctr: 0 };
+    let mut w_dog_ctr: Ctr = Ctr { ctr: 0 };
+    let mut cat_ctr: Ctr = Ctr { ctr: 0 };
+    let mut dog_ctr: Ctr = Ctr { ctr: 0 };
 
     let mut warmup_file = File::open(filename)?;
     let mut file = File::open(filename)?;
@@ -88,7 +94,7 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
         let _vtable = core::ptr::metadata(&*animal);
 
         // bench
-        std::hint::black_box(wrap_dyn_call(&animal, &mut warmup_ctr));
+        std::hint::black_box(wrap_dyn_call(&animal, &mut w_cat_ctr, &mut w_dog_ctr));
     }
 
     let mut times = Vec::new();
@@ -102,7 +108,7 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
 
         // bench
         let start = Instant::now();
-        std::hint::black_box(wrap_dyn_call(&animal, &mut ctr));
+        std::hint::black_box(wrap_dyn_call(&animal, &mut cat_ctr, &mut dog_ctr));
         let duration = start.elapsed().as_nanos();
 
         times.push(duration);
@@ -110,7 +116,8 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
 
     let mean = mean(times);
 
-    println!("ctr: {:?}", ctr.ctr);
+    println!("cat ctr: {:?}", cat_ctr.ctr);
+    println!("dog ctr: {:?}", dog_ctr.ctr);
     println!("mean: {:?}", mean);
 
     Ok(())

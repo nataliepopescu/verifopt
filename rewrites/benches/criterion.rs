@@ -10,8 +10,20 @@ use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, 
 fn bench_og0sf(c: &mut Criterion) {
     let cat: &og0sf::Cat = &og0sf::Cat {};
     let mut group = c.benchmark_group("og0sf");
+    const INNER: usize = 500_000;
 
     group.bench_function("og0sf_best", |b| b.iter(|| std::hint::black_box(og0sf::run_best(cat))));
+    //group.bench_function("og0sf_best", |b| {
+    //    b.iter_batched(
+    //        || {},
+    //        |_| {
+    //            for i in 0..INNER {
+    //                std::hint::black_box(og0sf::run_best(cat));
+    //            }
+    //        },
+    //        BatchSize::SmallInput,
+    //    )
+    //});
     group.bench_function("og0sf_not_rw", |b| {
         b.iter_batched(
             || og0sf::get_animal(rand::rng().random_range(..2usize)),
@@ -48,7 +60,7 @@ fn bench_og0sf(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });*/
+    });
     group.bench_function("og0sf_mir_rw", |b| {
         b.iter_batched(
             || {
@@ -63,7 +75,7 @@ fn bench_og0sf(c: &mut Criterion) {
             },
             BatchSize::SmallInput,
         )
-    });
+    });*/
     group.finish();
 }
 
@@ -770,4 +782,4 @@ criterion_group! {
         bench_visitor2sf,
 }
 
-criterion_main!(all_benches);
+criterion_main!(og0sf_benches);

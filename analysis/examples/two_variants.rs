@@ -48,29 +48,10 @@ impl Animal for Dog {
     }
 }
 
-/*
-fn debug_vtable_addy(addy: DynMetadata<dyn Animal>) {
-    println!("addy: {:?}", addy);
-}
-
-fn debug_item(item: usize) {
-    println!("item: {:?}", item);
-}
-
-fn debug_bool(b: bool) {
-    println!("b: {:?}", b);
-}
-
 #[inline(never)]
-fn noop_dog() {
-    println!("\ndog");
+fn wrap_dyn_call(animal: &Box<dyn Animal>) -> usize {
+    animal.speak()
 }
-
-#[inline(never)]
-fn noop_cat() {
-    println!("\ncat");
-}
-*/
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -82,9 +63,7 @@ fn main() {
             let cat = get_animal(0);
             let _animal_vtable = core::ptr::metadata(&*animal);
             let _cat_vtable = core::ptr::metadata(&*cat);
-            let res = animal.speak();
-            //println!("animal_vtable: {:?}", animal_vtable);
-            //println!("cat_vtable: {:?}", cat_vtable);
+            let res = wrap_dyn_call(&animal);
             println!("res: {:?}", res);
         }
     }

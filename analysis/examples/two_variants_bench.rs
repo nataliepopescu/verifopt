@@ -2,11 +2,8 @@
 #![allow(dead_code)]
 
 use std::time::Instant;
-
-//use rand::RngExt;
-
+use std::ptr::DynMetadata;
 use std::io::prelude::*;
-//use std::io::BufReader;
 use std::fs::File;
 
 pub trait Animal {
@@ -55,70 +52,69 @@ impl Animal for Dog {
 }
 
 // iterative mean alg (handle overflow)
-fn mean(times: Vec<u128>) -> f64 {
-    let mut mean: f64 = 0.0;
-    let mut i = 1;
-    for time in times.iter() {
-        let diff = f64::from(*time as u32) - mean;
-        mean += diff / (i as f64);
-        i += 1;
-    }
-    mean
-}
+//fn mean(times: Vec<u128>) -> f64 {
+//    let mut mean: f64 = 0.0;
+//    let mut i = 1;
+//    for time in times.iter() {
+//        let diff = f64::from(*time as u32) - mean;
+//        mean += diff / (i as f64);
+//        i += 1;
+//    }
+//    mean
+//}
 
 #[inline(never)]
-fn wrap_dyn_call(animal: &Box<dyn Animal>, cat_ctr: &mut Ctr, dog_ctr: &mut Ctr) -> usize {
+fn wrap_dyn_call(
+    animal: &Box<dyn Animal>,
+    _animal_vtable: DynMetadata<dyn Animal>,
+    _cat_vtable: DynMetadata<dyn Animal>,
+    cat_ctr: &mut Ctr,
+    dog_ctr: &mut Ctr,
+) -> usize {
     animal.speak(cat_ctr, dog_ctr)
 }
 
 fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let cat = get_cat();
-    let _cat_vtable = core::ptr::metadata(&*cat);
+    let cat_vtable = core::ptr::metadata(&*cat);
 
     let mut w_cat_ctr: Ctr = Ctr { ctr: 0 };
     let mut w_dog_ctr: Ctr = Ctr { ctr: 0 };
     let mut cat_ctr: Ctr = Ctr { ctr: 0 };
     let mut dog_ctr: Ctr = Ctr { ctr: 0 };
 
-    let mut warmup_file = File::open(filename)?;
     let mut file = File::open(filename)?;
+    let mut animals = Vec::new();
 
-    // start benchmarking
-
-    for _ in 0..warmup {
-        // setup
-        let mut buf: [u8; 1] = [0; 1];
-        warmup_file.read_exact(&mut buf)?;
-        let b = buf[0] & 1;
-        let animal = get_animal(b.into());
-        let _vtable = core::ptr::metadata(&*animal);
-
-        // bench
-        std::hint::black_box(wrap_dyn_call(&animal, &mut w_cat_ctr, &mut w_dog_ctr));
-    }
-
-    let mut times = Vec::new();
-    for _ in 0..runs {
-        // setup
+    // setup
+    for _ in 0..(warmup + runs) {
         let mut buf: [u8; 1] = [0; 1];
         file.read_exact(&mut buf)?;
         let b = buf[0] & 1;
         let animal = get_animal(b.into());
-        let _vtable = core::ptr::metadata(&*animal);
-
-        // bench
-        let start = Instant::now();
-        std::hint::black_box(wrap_dyn_call(&animal, &mut cat_ctr, &mut dog_ctr));
-        let duration = start.elapsed().as_nanos();
-
-        times.push(duration);
+        let vtable = core::ptr::metadata(&*animal);
+        animals.push((animal, vtable));
     }
 
-    let mean = mean(times);
+    // warmup
+    for _ in 0..warmup {
+        let (animal, vtable) = animals.pop().unwrap();
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut w_cat_ctr, &mut w_dog_ctr));
+    }
+
+    // benchmark
+    let start = Instant::now();
+    for _ in 0..warmup {
+        let (animal, vtable) = animals.pop().unwrap();
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut cat_ctr, &mut dog_ctr));
+    }
+    let duration = start.elapsed().as_nanos();
+
+    let mean = f64::from(duration as u32) / (runs as f64);
 
     println!("cat ctr: {:?}", cat_ctr.ctr);
     println!("dog ctr: {:?}", dog_ctr.ctr);
-    println!("mean: {:?}", mean);
+    println!("mean (ns): {:?}", mean);
 
     Ok(())
 }

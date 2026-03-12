@@ -2,8 +2,9 @@
 #![allow(dead_code)]
 
 use std::time::Instant;
-
-use rand::RngExt;
+use std::ptr::DynMetadata;
+use std::io::prelude::*;
+use std::fs::File;
 
 pub trait Animal {
     fn speak(&self, ctr: &mut Ctr) -> usize;
@@ -36,38 +37,75 @@ impl Animal for Cat {
 }
 
 #[inline(never)]
-fn wrap_dyn_call(animal: &Box<dyn Animal>, ctr: &mut Ctr) {
-    let _res = animal.speak(ctr);
+fn wrap_dyn_call(
+    animal: &Box<dyn Animal>,
+    _animal_vtable: DynMetadata<dyn Animal>,
+    _cat_vtable: DynMetadata<dyn Animal>,
+    ctr: &mut Ctr,
+) -> usize {
+    animal.speak(ctr)
 }
 
-fn main() {
-    let animal_really_cat = get_animal(rand::rng().random_range(..2usize));
+fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let cat = get_cat();
-    let _animal_vtable = core::ptr::metadata(&*animal_really_cat);
-    let _cat_vtable = core::ptr::metadata(&*cat);
+    let cat_vtable = core::ptr::metadata(&*cat);
 
-    let mut warmup_ctr: Ctr = Ctr { ctr: 0 };
+    let mut w_ctr: Ctr = Ctr { ctr: 0 };
     let mut ctr: Ctr = Ctr { ctr: 0 };
 
-    let warmup = 1000000;
-    let runs = 10000000;
+    let mut file = File::open(filename)?;
+    let mut animals = Vec::new();
+
+    // setup
+    for _ in 0..(warmup + runs) {
+        let mut buf: [u8; 1] = [0; 1];
+        file.read_exact(&mut buf)?;
+        let b = buf[0] & 1;
+        let animal = get_animal(b.into());
+        let vtable = core::ptr::metadata(&*animal);
+        animals.push((animal, vtable));
+    }
 
     for _ in 0..warmup {
-        wrap_dyn_call(&animal_really_cat, &mut warmup_ctr);
+        let (animal, vtable) = animals.pop().unwrap();
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut w_ctr));
     }
 
-    let mut times = Vec::new();
+    let start = Instant::now();
     for _ in 0..runs {
-        let start = Instant::now();
-        wrap_dyn_call(&animal_really_cat, &mut ctr);
-        let duration = start.elapsed().as_nanos();
-        times.push(duration);
+        let (animal, vtable) = animals.pop().unwrap();
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut ctr));
     }
+    let duration = start.elapsed().as_nanos();
 
-    // FIXME not handling overflow
-    let sum: u128 = Iterator::sum(times.iter());
-    let mean = f64::from(sum as u32) / (times.len() as f64);
+    let mean = f64::from(duration as u32) / (runs as f64);
 
     println!("ctr: {:?}", ctr.ctr);
-    println!("mean: {:?}", mean);
+    println!("mean (ns): {:?}", mean);
+
+    Ok(())
+}
+
+fn main() -> std::io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    match args.len() {
+        1 => {
+            println!(
+                "USAGE \nPass in:
+                     \n\t(1) a filename to read from for bench input,
+                     \n\t(2) a number of warmup runs,
+                     \n\t(3) a number of actual runs"
+            );
+            Ok(())
+        }
+        _ => {
+            let filename = &args[1];
+            let warmup = args[2].parse().unwrap();
+            let runs = args[3].parse().unwrap();
+            println!("filename: {:?}", filename);
+            println!("num warmup runs: {:?}", warmup);
+            println!("num actual runs: {:?}", runs);
+            bench(filename, warmup, runs)
+        }
+    }
 }

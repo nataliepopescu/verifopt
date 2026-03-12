@@ -1,10 +1,10 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
-use std::time::Instant;
-use std::ptr::DynMetadata;
-use std::io::prelude::*;
 use std::fs::File;
+use std::io::prelude::*;
+use std::ptr::DynMetadata;
+use std::time::Instant;
 
 pub trait Animal {
     fn speak(&self, ctr: &mut Ctr) -> usize;
@@ -105,7 +105,48 @@ fn main() -> std::io::Result<()> {
             println!("filename: {:?}", filename);
             println!("num warmup runs: {:?}", warmup);
             println!("num actual runs: {:?}", runs);
-            bench(filename, warmup, runs)
+
+            //bench(filename, warmup, runs)
+
+            // attempt to rewrite w/out traversing callee fns
+
+            let cat = get_cat();
+            let _cat_vtable = core::ptr::metadata(&*cat);
+
+            let mut w_ctr: Ctr = Ctr { ctr: 0 };
+            let mut ctr: Ctr = Ctr { ctr: 0 };
+
+            let mut file = File::open(filename)?;
+            let mut animals = Vec::new();
+
+            // setup
+            for _ in 0..(warmup + runs) {
+                let mut buf: [u8; 1] = [0; 1];
+                file.read_exact(&mut buf)?;
+                let b = buf[0] & 1;
+                let animal = get_animal(b.into());
+                let vtable = core::ptr::metadata(&*animal);
+                animals.push((animal, vtable));
+            }
+
+            for _ in 0..warmup {
+                let (animal, _vtable) = animals.pop().unwrap();
+                std::hint::black_box(animal.speak(&mut w_ctr)); //wrap_dyn_call(&animal, vtable, cat_vtable, &mut w_ctr));
+            }
+
+            let start = Instant::now();
+            for _ in 0..runs {
+                let (animal, _vtable) = animals.pop().unwrap();
+                std::hint::black_box(animal.speak(&mut ctr)); //wrap_dyn_call(&animal, vtable, cat_vtable, &mut ctr));
+            }
+            let duration = start.elapsed().as_nanos();
+
+            let mean = f64::from(duration as u32) / (runs as f64);
+
+            println!("ctr: {:?}", ctr.ctr);
+            println!("mean (ns): {:?}", mean);
+
+            Ok(())
         }
     }
 }

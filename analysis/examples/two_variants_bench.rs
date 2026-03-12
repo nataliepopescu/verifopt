@@ -1,10 +1,10 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
-use std::time::Instant;
-use std::ptr::DynMetadata;
-use std::io::prelude::*;
 use std::fs::File;
+use std::io::prelude::*;
+use std::ptr::DynMetadata;
+use std::time::Instant;
 
 pub trait Animal {
     fn speak(&self, cat_ctr: &mut Ctr, dog_ctr: &mut Ctr) -> usize;
@@ -99,14 +99,26 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     // warmup
     for _ in 0..warmup {
         let (animal, vtable) = animals.pop().unwrap();
-        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut w_cat_ctr, &mut w_dog_ctr));
+        std::hint::black_box(wrap_dyn_call(
+            &animal,
+            vtable,
+            cat_vtable,
+            &mut w_cat_ctr,
+            &mut w_dog_ctr,
+        ));
     }
 
     // benchmark
     let start = Instant::now();
     for _ in 0..warmup {
         let (animal, vtable) = animals.pop().unwrap();
-        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut cat_ctr, &mut dog_ctr));
+        std::hint::black_box(wrap_dyn_call(
+            &animal,
+            vtable,
+            cat_vtable,
+            &mut cat_ctr,
+            &mut dog_ctr,
+        ));
     }
     let duration = start.elapsed().as_nanos();
 

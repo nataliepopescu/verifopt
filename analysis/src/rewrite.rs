@@ -51,6 +51,42 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         self.visit_body(cur_scope, body);
     }
 
+    #[allow(invalid_reference_casting)]
+    fn setup_visit_body(&self, func: &Operand<'tcx>) {
+        if self.debug {
+            println!("\n######## TRAVERSING!!\n");
+        }
+
+        // get defid
+        match func {
+            Operand::Constant(box co) => match co.const_ {
+                rustc_middle::mir::Const::Val(_, ty) => match ty.kind() {
+                    TyKind::FnDef(defid, _) => {
+                        // get body
+                        if !self.tcx.is_mir_available(defid) {
+                            if self.debug {
+                                println!("# skipping traversal.....");
+                            }
+                        } else {
+                            let body = self.tcx.optimized_mir(defid);
+
+                            // turn &body _&mut_ body
+                            let const_body_ptr: *const Body = &*body;
+                            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+
+                            unsafe {
+                                self.visit_body(*defid, &mut *mut_body_ptr);
+                            }
+                        }
+                    }
+                    _ => panic!("not a FnDef"),
+                },
+                _ => todo!("not a Val Const"),
+            },
+            _ => todo!("handle indirect invocations"),
+        }
+    }
+
     pub fn visit_body(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
         if self.debug {
             println!("#############################");
@@ -61,6 +97,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         for (bb, data) in body.basic_blocks.iter_enumerated() {
             // TODO add some notion of WTO?
             if data.is_cleanup {
+                println!("CLEANUP: {:?}", bb);
                 continue;
             }
 
@@ -71,9 +108,18 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     destination,
                     ..
                 } => {
-                    //println!("PLACE BEFORE (term): {:?}", destination);
                     if let Some((defid, genargs)) = func.const_fn_def() {
                         if genargs.len() == 0 {
+                            if self.debug {
+                                println!("\n# -------------------------------");
+                                println!("# in {:?} of {:?}", bb, cur_scope);
+                                println!("# no genargs");
+                                println!("# func: {:?}", func);
+                                println!("# args: {:?}", args);
+                                println!("# dest: {:?}", destination);
+                                println!("# -------------------------------");
+                            }
+                            self.setup_visit_body(func);
                             continue;
                         }
 
@@ -123,10 +169,41 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             }
                             continue;
                         }
+
+                        // TODO if a dyn dispatch was replaced, traverse into those funcs (via
+                        // patch?)
+
+                        if self.debug {
+                            println!("\n# -------------------------------");
+                            println!("# in {:?} of {:?}", bb, cur_scope);
+                            println!("# POST CONST FN DEF");
+                            println!("# func: {:?}", func);
+                            println!("# args: {:?}", args);
+                            println!("# dest: {:?}", destination);
+                            println!("# -------------------------------");
+                        }
+                    } else {
+                        todo!();
+                        //if self.debug {
+                        //    println!("\n# -------------------------------");
+                        //    println!("# in {:?} of {:?}", bb, cur_scope);
+                        //    println!("# NON CONST FN DEF");
+                        //    println!("# func: {:?}", func);
+                        //    println!("# args: {:?}", args);
+                        //    println!("# dest: {:?}", destination);
+                        //    println!("# -------------------------------");
+                        //}
+                    }
+                    // TODO traverse into non-replaced func calls
+                }
+                termkind @ _ => {
+                    if self.debug {
+                        println!("\n# -------------------------------");
+                        println!("# in {:?} of {:?}", bb, cur_scope);
+                        println!("# NON-CALL term: {:?}", termkind);
+                        println!("# -------------------------------");
                     }
                 }
-                // TODO also scan _called_ bodies + rewrite
-                _ => {}
             }
         }
 
@@ -136,6 +213,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         patch.apply(body);
 
+        /*
         if self.debug {
             println!("\n# NEW BODY:\n");
 
@@ -158,6 +236,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
             println!("}}");
         }
+        */
     }
 
     fn dummy_span(&self) -> Span {
@@ -172,10 +251,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
     }
 
-    fn get_bbs(&self, data: &BasicBlockData<'tcx>) -> (BasicBlock, BasicBlock) {
+    fn get_bbs(&self, data: &BasicBlockData<'tcx>) -> (BasicBlock, UnwindAction) {
         let edges = data.terminator().kind.edges();
         let bb_old_next;
-        let bb_old_cleanup;
+        let unwind_action;
         match edges {
             TerminatorEdges::AssignOnReturn {
                 return_, cleanup, ..
@@ -183,17 +262,18 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 if return_.len() > 1 {
                     panic!("RET: multiple return blocks");
                 }
-                if cleanup.is_none() {
-                    panic!("CLN: no cleanup");
+                if let Some(cleanup_bb) = cleanup { // cleanup.is_none() {
+                    unwind_action = UnwindAction::Cleanup(cleanup_bb);
+                } else {
+                    unwind_action = UnwindAction::Continue;
                 }
                 bb_old_next = return_[0];
-                bb_old_cleanup = cleanup.unwrap();
             }
             _ => {
                 panic!("verifopt: need to set terminator edges");
             }
         }
-        (bb_old_next, bb_old_cleanup)
+        (bb_old_next, unwind_action)
     }
 
     fn get_traitobj_did(&self, ty: Ty<'tcx>) -> DefId {
@@ -431,7 +511,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         &self,
         patch: &mut MirPatch<'tcx>,
         bb_next: BasicBlock,
-        bb_cleanup: BasicBlock,
+        unwind_action: UnwindAction,
         mut_dyn_traitobj_loc: Local,
         boxed_dyn_traitobj_variant_loc: Local,
         boxed_dyn_traitobj_trait_loc: Local,
@@ -511,7 +591,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     projection: empty_proj,
                 },
                 target: Some(bb_next),
-                unwind: UnwindAction::Cleanup(bb_cleanup),
+                unwind: unwind_action,
                 call_source: CallSource::Normal,
                 fn_span: self.dummy_span(),
             },
@@ -570,7 +650,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         &self,
         patch: &mut MirPatch<'tcx>,
         bb_ret: BasicBlock,
-        bb_cleanup: BasicBlock,
+        unwind_action: UnwindAction,
         raw_traitobj1_loc: Local,
         raw_traitobj2_loc: Local,
         ret_place: Place<'tcx>,
@@ -688,7 +768,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 args,
                 destination: ret_place,
                 target: Some(bb_ret),
-                unwind: UnwindAction::Cleanup(bb_cleanup),
+                unwind: unwind_action,
                 call_source: CallSource::Normal,
                 fn_span: self.dummy_span(),
             },
@@ -1065,10 +1145,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
 
         // get old terminator's edges
-        let (bb_old_next, bb_old_cleanup) = self.get_bbs(data);
+        let (bb_old_next, unwind_action) = self.get_bbs(data);
         if self.debug {
             println!("bb_old_next: {:?}", bb_old_next);
-            println!("bb_old_cleanup: {:?}", bb_old_cleanup);
+            println!("unwind_action: {:?}", unwind_action);
         }
 
         let traitobj_did = self.get_traitobj_did(ty);
@@ -1124,7 +1204,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             let bb_cur_variant_speak = self.add_speak_block(
                 patch,
                 bb_variant_ret,
-                bb_old_cleanup,
+                unwind_action,
                 raw_traitobj1,
                 raw_traitobj2,
                 term_dst_place,
@@ -1179,7 +1259,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let bb_into_raw = self.add_into_raw_block(
             patch,
             into_raw_target.unwrap(),
-            bb_old_cleanup,
+            unwind_action,
             mut_dyn_traitobj,
             boxed_dyn_traitobj1,
             traitobj,

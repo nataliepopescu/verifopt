@@ -20,25 +20,27 @@ pub type Type = &'static str;
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,
     pub is_intrinsic: bool,
+    pub is_closure: bool,
     pub self_arg: Option<Place<'tcx>>,
     pub params: Vec<(Place<'tcx>, Ty<'tcx>)>,
     pub param_generics: Option<Vec<ParamTy>>,
     pub rettype: Option<Ty<'tcx>>,
     pub ret_did: Option<DefId>,
-    pub ret_generic: Option<ParamTy>,
+    pub ret_generics: Option<Vec<ParamTy>>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
     pub fn new(
         def_id: DefId,
         is_intrinsic: bool,
+        is_closure: bool,
         self_arg: Option<Place<'tcx>>,
         arg_names: Vec<Place<'tcx>>,
         arg_types_opt: Option<Vec<Ty<'tcx>>>,
         param_generics: Option<Vec<ParamTy>>,
         rettype: Option<Ty<'tcx>>,
         ret_did: Option<DefId>,
-        ret_generic: Option<ParamTy>,
+        ret_generics: Option<Vec<ParamTy>>,
     ) -> FuncVal<'tcx> {
         let params;
         if let Some(arg_types) = arg_types_opt {
@@ -53,12 +55,13 @@ impl<'tcx> FuncVal<'tcx> {
         Self {
             def_id,
             is_intrinsic,
+            is_closure,
             self_arg,
             params,
             param_generics,
             rettype,
             ret_did,
-            ret_generic,
+            ret_generics,
         }
     }
 }
@@ -66,6 +69,16 @@ impl<'tcx> FuncVal<'tcx> {
 pub fn is_box(def_id: DefId) -> bool {
     // FIXME does this ever change....
     def_id.krate.as_usize() == 3 && def_id.index.as_usize() == 662
+}
+
+pub fn is_fn_trait(def_id: DefId) -> bool {
+    // FIXME does this ever change....
+    // FnOnce DefId
+    def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 4203
+    // FnMut DefId
+    //|| def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 4203
+    // Fn DefId
+    || def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 4197
 }
 
 //pub fn is_option(def_id: DefId) -> bool {
@@ -88,6 +101,102 @@ pub enum VerifoptRval<'tcx> {
     IdkDefId(DefId),
     Idk(),
     Undef(),
+}
+
+fn get_params_from_genarg<'tcx>(genarg: &GenericArg, debug: bool) -> Vec<ParamTy> {
+    let mut params = Vec::new();
+    match genarg.kind() {
+        GenericArgKind::Type(ty) => {
+            if let Some(inner_params) = get_params_from_ty(&ty, debug) {
+                if debug {
+                    println!("ty arg contains: {:?}", inner_params);
+                }
+                for param in inner_params.iter() {
+                    params.push(*param);
+                }
+            }
+        }
+        _ => {}
+    }
+    params
+}
+
+pub fn get_params_from_ty<'tcx>(ty: &Ty<'tcx>, debug: bool) -> Option<Vec<ParamTy>> {
+    match ty.kind() {
+        TyKind::Param(param) => {
+            if debug {
+                println!("arg has ty param: {:?}", param);
+            }
+            return Some(vec![*param]);
+        }
+        TyKind::Slice(ty) => {
+            if debug {
+                println!("slice arg ty: {:?}", ty);
+            }
+            return get_params_from_ty(ty, debug);
+        }
+        TyKind::Ref(_, ty, _) => {
+            if debug {
+                println!("ref arg ty: {:?}", ty);
+            }
+            return get_params_from_ty(ty, debug);
+        }
+        TyKind::Adt(_, genargs) => {
+            if debug {
+                println!("adt genargs: {:?}", genargs);
+            }
+            let mut params = Vec::new();
+            for genarg in genargs.as_slice().iter() {
+                if debug {
+                    println!("LOOP genarg: {:?}", genarg);
+                }
+                params.append(&mut get_params_from_genarg(genarg, debug));
+            }
+            if params.len() == 0 {
+                None
+            } else {
+                Some(params)
+            }
+        }
+        TyKind::Closure(closure_defid, genargs) => {
+            if debug {
+                println!("closure defid: {:?}", closure_defid);
+            }
+            let mut params = Vec::new();
+            for genarg in genargs.as_slice().iter() {
+                if debug {
+                    println!("LOOP genarg: {:?}", genarg);
+                }
+                params.append(&mut get_params_from_genarg(genarg, debug));
+            }
+            if params.len() == 0 {
+                None
+            } else {
+                Some(params)
+            }
+        }
+        TyKind::FnPtr(bound_sig, _header) => {
+            if debug {
+                println!("FNPTR");
+                println!("bound_sig: {:?}", bound_sig);
+            }
+            // TODO
+            return None;
+        }
+        TyKind::Tuple(_) => {
+            if debug {
+                println!("TUPLE");
+            }
+            // TODO
+            return None;
+        }
+        _ => {
+            if debug {
+                println!("diff ty: {:?}", ty.kind());
+            }
+            return None;
+        }
+    }
 }
 
 pub struct VerifoptConverter<'a, 'tcx> {
@@ -287,8 +396,9 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 | CastKind::FloatToInt
                 | CastKind::FloatToFloat
                 | CastKind::IntToFloat
-                | CastKind::PtrToPtr => return constraint.clone(),
-                _ => todo!("cannot yet cast: {:?}", constraint),
+                | CastKind::PtrToPtr
+                | CastKind::PointerCoercion(_, _) => return constraint.clone(),
+                _ => todo!("cannot yet cast: {:?} ({:?})", constraint, kind),
             },
             _ => todo!("cannot yet cast: {:?}", constraint),
         }
@@ -420,7 +530,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
             }
             Some(_) => panic!("unexpected generic mapping (subscope)"),
             None => {
-                if let Some(struct_generics) = self.funcs.struct_generics.get(defid) {
+                if let Some(struct_generics) = self.funcs.struct_to_generics.get(defid) {
                     if self.debug {
                         println!("struct generics for {:?}: {:?}", defid, struct_generics);
                     }
@@ -458,13 +568,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     return self.resolve_genargkind(cmap, cur_scope, defid, *inner_genarg);
                 }
             }
-            TyKind::Slice(s) => match s.kind() {
-                TyKind::Int(_) | TyKind::Uint(_) => {}
-                TyKind::Param(param) => {
-                    return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
-                }
-                _ => todo!("other slice tykind: {:?}", s.kind()),
-            },
+            TyKind::Slice(s_ty) => return self.resolve_genargtype(cmap, cur_scope, defid, *s_ty),
             TyKind::Int(_) | TyKind::Uint(_) => {}
             TyKind::Tuple(tylist) => {
                 if self.debug {
@@ -485,6 +589,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 TyKind::Param(param) => {
                     return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
                 }
+                TyKind::Int(_) | TyKind::Uint(_) => {}
                 _ => todo!("other ref tykind: {:?}", ty.kind()),
             },
             _ => todo!("other tykind: {:?}", genarg_ty.kind()),

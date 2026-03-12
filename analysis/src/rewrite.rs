@@ -329,8 +329,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     ) -> Vec<DefId> {
         let mut impls = vec![];
         for struct_ in structs.iter() {
-            if let Some(impl_blocks) = self.funcs.struct_impls.get(struct_) {
-                if let Some(assoc) = self.funcs.impl_blocks_to_impls.get(&impl_blocks[0]) {
+            if let Some(impl_blocks) = self.funcs.struct_to_impls.get(struct_) {
+                if let Some(assoc) = self.funcs.impl_blocks_to_fn_impls.get(&impl_blocks[0]) {
                     for impltor in impltors {
                         if assoc.contains(impltor) {
                             impls.push(*impltor);
@@ -365,7 +365,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         if let Some(impltors) = self
             .funcs
-            .trait_fn_impltors
+            .trait_fn_impls
             .lock()
             .unwrap()
             .get(&dynfunc_defid)

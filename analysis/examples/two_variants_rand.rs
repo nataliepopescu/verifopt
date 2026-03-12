@@ -1,7 +1,8 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
-//use std::ptr::DynMetadata;
+extern crate rand;
+use rand::RngExt;
 
 pub trait Animal {
     fn speak(&self) -> usize;
@@ -48,23 +49,12 @@ impl Animal for Dog {
     }
 }
 
-#[inline(never)]
-fn wrap_dyn_call(animal: &Box<dyn Animal>) -> usize {
-    animal.speak()
-}
-
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    match args.len() {
-        1 => println!("Pass in a number and see what happens!"),
-        _ => {
-            let x = args[1].parse().unwrap();
-            let animal = get_animal(x);
-            let cat = get_animal(0);
-            let _animal_vtable = core::ptr::metadata(&*animal);
-            let _cat_vtable = core::ptr::metadata(&*cat);
-            let res = wrap_dyn_call(&animal);
-            println!("res: {:?}", res);
-        }
-    }
+    let x = rand::rng().random_range(..2usize); //args[1].parse().unwrap();
+    let animal = get_animal(x);
+    let cat = get_animal(0);
+    let _animal_vtable = core::ptr::metadata(&*animal);
+    let _cat_vtable = core::ptr::metadata(&*cat);
+    let res = animal.speak();
+    println!("res: {:?}", res);
 }

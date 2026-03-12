@@ -32,35 +32,12 @@ impl Animal for Cat {
     }
 }
 
+#[inline(never)]
+fn wrap_dyn_call(animal: &Box<dyn Animal>) -> usize {
+    animal.speak()
+}
+
 fn main() {
-    // when the below line is uncommented, the speak call is resolved to
-    // <Cat as Animal>::speak(), so interprocedural may indeed be the "spot"
-    //let animal = Box::new(Cat {});
-
-    /*
-    let mut first_arg_opt: Option<String> = None;
-    let mut start = false;
-    for arg in std::env::args() {
-        if start {
-            first_arg_opt = Some(arg);
-            break;
-        } else {
-            start = true;
-        }
-    }
-
-    match first_arg_opt {
-        None => println!("Pass in a number and see what happens!"),
-        Some(first_arg) => {
-            let animal = get_animal(first_arg.parse().unwrap());
-            let cat = get_cat();
-            let _animal_vtable = core::ptr::metadata(&*animal);
-            let _cat_vtable = core::ptr::metadata(&*cat);
-            let _res = animal.speak();
-        }
-    }
-    */
-
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
         1 => println!("Pass in a number and see what happens!"),
@@ -69,7 +46,8 @@ fn main() {
             let cat = get_cat();
             let _animal_vtable = core::ptr::metadata(&*animal);
             let _cat_vtable = core::ptr::metadata(&*cat);
-            let _res = animal.speak();
+            let res = wrap_dyn_call(&animal);
+            println!("res: {:?}", res);
         }
     }
 }

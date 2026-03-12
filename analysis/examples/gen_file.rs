@@ -1,7 +1,8 @@
+//extern crate rand;
 
-use std::io::prelude::*;
-use std::io::BufWriter;
 use std::fs::File;
+use std::io::BufWriter;
+use std::io::prelude::*;
 //use rand::RngExt;
 
 fn main() -> std::io::Result<()> {
@@ -26,7 +27,8 @@ fn main() -> std::io::Result<()> {
                 } else {
                     writer.write(b"1")?;
                 }
-                //let r = rand::rng().random_range(..2u8);
+
+                //let r = rand::rng().random_range(..2u8) & 1;
                 //writer.write(&[r])?;
             }
             writer.flush()?;

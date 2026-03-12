@@ -6,6 +6,7 @@ use std::time::Duration;
 use std::fs::File;
 use std::io::Read;
 use std::io::Write;
+use std::any::type_name;
 
 use rand::Rng;
 use rewrites::{og0sf, og2sf, og5sf, og0sf_mir_rw, og2sf_mir_rw, vec0sf, vec2sf, visitor0sf, visitor0sf_import, visitor2sf, prime2sf, visitor0sf_2, double_visitor0sf, double_visitor0sf_ref};
@@ -370,7 +371,6 @@ fn bench_visitor0sf(c: &mut Criterion) {
 
     group.bench_function("visitor0sf_not_rw", |b| {
         b.iter_batched(
-            // || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
             || {
                 let x = rand::rng().random_range(..2usize);
                 let animal = visitor0sf::get_animal(x);
@@ -384,7 +384,6 @@ fn bench_visitor0sf(c: &mut Criterion) {
     });
     group.bench_function("visitor0sf_not_rw_alwaysdog", |b| {
         b.iter_batched(
-            // || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
             || {
                 let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/zero.bin").unwrap();
                 let mut b = [0u8; 1];
@@ -403,7 +402,6 @@ fn bench_visitor0sf(c: &mut Criterion) {
 
     group.bench_function("visitor0sf_not_rw_alwayscat", |b| {
         b.iter_batched(
-            // || visitor0sf::get_animal(rand::rng().random_range(..2usize)),
             || {
                 let mut f = File::open("/home/akalaba/verifopt/rewrites/benches/one.bin").unwrap();
                 let mut b = [0u8; 1];
@@ -1483,26 +1481,26 @@ fn bench_visitor0sf_2(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-    group.bench_function("double_visitor0sf_src_rw_into_raw", |b| {
-        b.iter_batched(
-            || {
-                let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
-                // let cat = double_visitor0sf::get_cat();
-                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
-                let cat = double_visitor0sf::get_animal(0);
-                let visitor1 = double_visitor0sf::get_visitor(0);
-                let animal_vtable = core::ptr::metadata(&*animal);
-                let cat_vtable = core::ptr::metadata(&*cat);
-                let visitor_vtable = core::ptr::metadata(&*visitor);
-                let visitor1_vtable = core::ptr::metadata(&*visitor1);
-                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
-            },
-            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
-                std::hint::black_box(double_visitor0sf::run_src_rw_into_raw(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    // group.bench_function("double_visitor0sf_src_rw_into_raw", |b| {
+    //     b.iter_batched(
+    //         || {
+    //             let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
+    //             // let cat = double_visitor0sf::get_cat();
+    //             let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+    //             let cat = double_visitor0sf::get_animal(0);
+    //             let visitor1 = double_visitor0sf::get_visitor(0);
+    //             let animal_vtable = core::ptr::metadata(&*animal);
+    //             let cat_vtable = core::ptr::metadata(&*cat);
+    //             let visitor_vtable = core::ptr::metadata(&*visitor);
+    //             let visitor1_vtable = core::ptr::metadata(&*visitor1);
+    //             (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
+    //         },
+    //         move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
+    //             std::hint::black_box(double_visitor0sf::run_src_rw_into_raw(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
+    //         },
+    //         BatchSize::SmallInput,
+    //     )
+    // });
 
     group.bench_function("double_visitor0sf_src_rw_transmutes", |b| {
         b.iter_batched(
@@ -1527,96 +1525,103 @@ fn bench_visitor0sf_2(c: &mut Criterion) {
     group.finish();
 }
 
+fn type_of<T>(_: &T) -> &'static str {
+    type_name::<T>()
+}
+
 fn bench_double_visitor0sf(c: &mut Criterion) {
-    let v1: &double_visitor0sf::Visitor1 = &double_visitor0sf::Visitor1 {};
-    let dog: &double_visitor0sf::Dog = &double_visitor0sf::Dog {};
+    // let v1: &double_visitor0sf::Visitor1 = &double_visitor0sf::Visitor1 {};
+    // let dog: &double_visitor0sf::Dog = &double_visitor0sf::Dog {};
     let mut group = c.benchmark_group("double_visitor0sf");
-    group.bench_function("double_visitor0sf_run_no_dispatch", |b| b.iter(|| std::hint::black_box(double_visitor0sf::run_no_dispatch(dog, v1))));
-    group.bench_function("double_visitor0sf_run_animal_dispatch", |b| {
-        b.iter_batched(
-            || {
-                let x = rand::rng().random_range(..2usize);
-                let animal = double_visitor0sf::get_animal(x);
-                let visitor = Box::new(double_visitor0sf::Visitor1 {});
-                (animal, visitor)
-            },
-            move |(animal, visitor)| {
-                std::hint::black_box(double_visitor0sf::run_animal_dispatch(animal, visitor))
-            },
-            BatchSize::SmallInput,
-        )
-    });
-    group.bench_function("double_visitor0sf_run_visitor_dispatch", |b| {
-        b.iter_batched(
-            || {
-                let x = rand::rng().random_range(..2usize);
-                let animal = &double_visitor0sf::Dog {};
-                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
-                (animal, visitor)
-            },
-            move |(animal, visitor)| {
-                std::hint::black_box(double_visitor0sf::run_visitor_dispatch(animal, visitor))
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    // group.bench_function("double_visitor0sf_run_no_dispatch", |b| b.iter(|| std::hint::black_box(double_visitor0sf::run_no_dispatch(dog, v1))));
+    // group.bench_function("double_visitor0sf_run_animal_dispatch", |b| {
+    //     b.iter_batched(
+    //         || {
+    //             let x = rand::rng().random_range(..2usize);
+    //             let animal = double_visitor0sf::get_animal(x);
+    //             let visitor = Box::new(double_visitor0sf::Visitor1 {});
+    //             (animal, visitor)
+    //         },
+    //         move |(animal, visitor)| {
+    //             std::hint::black_box(double_visitor0sf::run_animal_dispatch(animal, visitor))
+    //         },
+    //         BatchSize::SmallInput,
+    //     )
+    // });
+    // group.bench_function("double_visitor0sf_run_visitor_dispatch", |b| {
+    //     b.iter_batched(
+    //         || {
+    //             let x = rand::rng().random_range(..2usize);
+    //             let animal = &double_visitor0sf::Dog {};
+    //             let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+    //             (animal, visitor)
+    //         },
+    //         move |(animal, visitor)| {
+    //             std::hint::black_box(double_visitor0sf::run_visitor_dispatch(animal, visitor))
+    //         },
+    //         BatchSize::SmallInput,
+    //     )
+    // });
     
-    group.bench_function("double_visitor0sf_full_not_rw", |b| {
-        b.iter_batched(
-            // || double_visitor0sf::get_animal(rand::rng().random_range(..2usize)),
-            || {
-                let x = rand::rng().random_range(..2usize);
-                let animal = double_visitor0sf::get_animal(x);
-                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
-                (animal, visitor)
-            },
-            move |(animal, visitor)| {
-                std::hint::black_box(double_visitor0sf::run_full_not_rw(animal, visitor))
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    // group.bench_function("double_visitor0sf_full_not_rw", |b| {
+    //     b.iter_batched(
+    //         || {
+    //             let x = rand::rng().random_range(..2usize);
+    //             let animal = double_visitor0sf::get_animal(x);
+    //             let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+    //             (animal, visitor)
+    //         },
+    //         move |(animal, visitor)| {
+    //             std::hint::black_box(double_visitor0sf::run_full_not_rw(animal, visitor))
+    //         },
+    //         BatchSize::SmallInput,
+    //     )
+    // });
     group.bench_function("double_visitor0sf_src_rw_into_raw", |b| {
         b.iter_batched(
             || {
                 let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
-                // let cat = double_visitor0sf::get_cat();
+                let wrong_cat = double_visitor0sf::get_cat();
                 let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
                 let cat = double_visitor0sf::get_animal(0);
                 let visitor1 = double_visitor0sf::get_visitor(0);
                 let animal_vtable = core::ptr::metadata(&*animal);
                 let cat_vtable = core::ptr::metadata(&*cat);
+                let wrong_cat_vtable = core::ptr::metadata(&*wrong_cat);
                 let visitor_vtable = core::ptr::metadata(&*visitor);
                 let visitor1_vtable = core::ptr::metadata(&*visitor1);
-                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
+                println!("{}", type_of(&animal));
+                println!("{}", type_of(&cat));
+                println!("{}", type_of(&wrong_cat));
+                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor, wrong_cat_vtable)
             },
-            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
-                std::hint::black_box(double_visitor0sf::run_src_rw_into_raw(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
+            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor, wrong_cat_vtable)| {
+                std::hint::black_box(double_visitor0sf::run_src_rw_into_raw(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable, wrong_cat_vtable))
             },
             BatchSize::SmallInput,
         )
     });
 
-    group.bench_function("double_visitor0sf_src_rw_transmutes", |b| {
-        b.iter_batched(
-            || {
-                let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
-                // let cat = double_visitor0sf::get_cat();
-                let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
-                let cat = double_visitor0sf::get_animal(0);
-                let visitor1 = double_visitor0sf::get_visitor(0);
-                let animal_vtable = core::ptr::metadata(&*animal);
-                let cat_vtable = core::ptr::metadata(&*cat);
-                let visitor_vtable = core::ptr::metadata(&*visitor);
-                let visitor1_vtable = core::ptr::metadata(&*visitor1);
-                (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
-            },
-            move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
-                std::hint::black_box(double_visitor0sf::run_src_rw_transmutes(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    // group.bench_function("double_visitor0sf_src_rw_transmutes", |b| {
+    //     b.iter_batched(
+    //         || {
+    //             let animal = double_visitor0sf::get_animal(rand::rng().random_range(..2usize));
+    //             // let cat = double_visitor0sf::get_cat();
+    //             let visitor = double_visitor0sf::get_visitor(rand::rng().random_range(..2usize));
+    //             let cat = double_visitor0sf::get_animal(0);
+    //             let visitor1 = double_visitor0sf::get_visitor(0);
+    //             let animal_vtable = core::ptr::metadata(&*animal);
+    //             let cat_vtable = core::ptr::metadata(&*cat);
+    //             let visitor_vtable = core::ptr::metadata(&*visitor);
+    //             let visitor1_vtable = core::ptr::metadata(&*visitor1);
+    //             (animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)
+    //         },
+    //         move |(animal, animal_vtable, cat_vtable, visitor_vtable, visitor1_vtable, visitor)| {
+    //             std::hint::black_box(double_visitor0sf::run_src_rw_transmutes(animal, visitor, animal_vtable, visitor_vtable, cat_vtable, visitor1_vtable))
+    //         },
+    //         BatchSize::SmallInput,
+    //     )
+    // });
 
     
 
@@ -1894,8 +1899,8 @@ criterion_group! {
     targets =
         //bench_visitor0sf_2,
         //bench_visitor_alternating,
-        bench_visitor_ref,
-        // bench_double_visitor0sf,
+        // bench_visitor_ref,
+        bench_double_visitor0sf,
         // bench_visitor0sf,
         // bench_visitor2sf,
 }

@@ -190,7 +190,25 @@ what about no blackbox...
 might be the reading from the file?
 
 apparently its the counters.........
+- TODO WHAT IS HAPPENING
 
 lets try benching without counters then
 - need to get the right vtable ptr locals
     - 35, 54, 207, 210
+
+### rewrite might be messing up vec push/pop()?
+
+when trying to bench, after setup, the first pop() returns a None value (while
+the non-rewritten binary runs fine :') )
+
+das is so veird
+
+for some reason when 0 warmup runs it works....
+- ~1.5 ns (vs 2ns OG)
+
+somehow flanking w the Instant blocks also fixes things
+- veiiiird
+
+- TODO WHAT IS HAPPENING
+
+

@@ -117,6 +117,11 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     Ok(())
 }
 
+#[inline(never)]
+fn noop() {
+    println!("NOOP");
+}
+
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
@@ -156,13 +161,16 @@ fn main() -> std::io::Result<()> {
                 animals.push((animal, vtable));
             }
 
-            println!("len: {:?}", animals.len());
+            //println!("len: {:?}", animals.len());
+            //noop();
 
             // warmup
+            let start_ = Instant::now();
             for _ in 0..warmup {
                 let (animal, _vtable) = animals.pop().unwrap();
                 std::hint::black_box(animal.speak());
             }
+            let _duration_ = start_.elapsed().as_nanos();
 
             // benchmark
             let start = Instant::now();

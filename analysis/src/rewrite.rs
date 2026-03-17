@@ -1266,7 +1266,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             // FIXME get dynamically
             //traitobj_vtable = Some(Local::from_u32(12));
             //variant_vtable = Some(Local::from_u32(13));
-            traitobj_vtable = Some(Local::from_u32(210));
+            traitobj_vtable = Some(Local::from_u32(223));
             variant_vtable = Some(Local::from_u32(35));
 
             // TODO maybe benchmark this route as an alternative, if it is functional?

@@ -65,7 +65,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         // get body
                         if !self.tcx.is_mir_available(defid) {
                             if self.debug {
-                                println!("# skipping traversal.....");
+                                println!("# skipping traversal (TODO no mir).....");
                             }
                         } else {
                             let body = self.tcx.optimized_mir(defid);
@@ -97,7 +97,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         for (bb, data) in body.basic_blocks.iter_enumerated() {
             // TODO add some notion of WTO?
             if data.is_cleanup {
-                println!("CLEANUP: {:?}", bb);
+                //println!("CLEANUP: {:?}", bb);
                 continue;
             }
 
@@ -194,7 +194,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         //    println!("# -------------------------------");
                         //}
                     }
-                    // TODO traverse into non-replaced func calls
                 }
                 termkind @ _ => {
                     if self.debug {
@@ -262,7 +261,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 if return_.len() > 1 {
                     panic!("RET: multiple return blocks");
                 }
-                if let Some(cleanup_bb) = cleanup { // cleanup.is_none() {
+                if let Some(cleanup_bb) = cleanup {
+                    // cleanup.is_none() {
                     unwind_action = UnwindAction::Cleanup(cleanup_bb);
                 } else {
                     unwind_action = UnwindAction::Continue;
@@ -311,6 +311,126 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.patch_terminator(cur_bb, TerminatorKind::Goto { target: new_start });
     }
 
+    fn resolve_genarg(&self, genarg: &GenericArg<'tcx>) -> Vec<DefId> {
+        match genarg.kind() {
+            GenericArgKind::Type(ty) => match ty.kind() {
+                TyKind::Dynamic(list, _) => {
+                    if self.debug {
+                        println!("dyn");
+                        println!("list: {:?}", list);
+                    }
+                    let mut defids = Vec::new();
+                    for inner in list.iter() {
+                        if self.debug {
+                            println!("inner: {:?}", inner);
+                            println!("inner.skip_binder: {:?}", inner.skip_binder());
+                        }
+                        match inner.skip_binder() {
+                            ExistentialPredicate::Trait(etraitref) => {
+                                if self.debug {
+                                    println!("etraitref: {:?}", etraitref);
+                                    println!("etraitref defid: {:?}", etraitref.def_id);
+                                }
+                                match self.funcs.trait_to_struct_impls.get(&etraitref.def_id) {
+                                    Some(structs) => {
+                                        for struct_ in structs {
+                                            defids.push(*struct_);
+                                        }
+                                    }
+                                    None => panic!("no structs to return: {:?}", etraitref.def_id),
+                                }
+                            }
+                            _ => println!("other"),
+                        }
+                    }
+                    return defids;
+                }
+                TyKind::Adt(adtdef, genargs) => {
+                    if self.debug {
+                        println!("adt");
+                    }
+                    self.resolve_adt(&adtdef.did(), genargs)
+                }
+                _ => {
+                    if self.debug {
+                        println!("other");
+                    }
+                    todo!();
+                }
+            },
+            _ => todo!(),
+        }
+    }
+
+    fn resolve_adt(&self, adt_defid: &DefId, genargs: &[GenericArg<'tcx>]) -> Vec<DefId> {
+        if self.debug {
+            println!("adtdefid: {:?}", adt_defid);
+            println!("genargs: {:?}", genargs);
+        }
+        if is_box(*adt_defid) {
+            let mut defids = Vec::new();
+            for genarg in genargs {
+                defids.append(&mut self.resolve_genarg(genarg));
+            }
+            return defids;
+        } else {
+            if self.debug {
+                println!(
+                    "adt is not a box: {:?} \n\t(genargs: {:?})",
+                    adt_defid, genargs
+                );
+            }
+            return vec![];
+        }
+    }
+
+    fn resolve_struct(
+        &self,
+        struct_defid: &DefId,
+        genarg_vec: &Option<Vec<Vec<VerifoptRval<'tcx>>>>,
+    ) -> Vec<DefId> {
+        if is_box(*struct_defid) {
+            if let Some(genargs_outer) = genarg_vec {
+                if genargs_outer.len() != 1 {
+                    panic!("handle diff genarg len");
+                }
+
+                let genarg_constraint_vec = &genargs_outer[0];
+                let mut defids = Vec::new();
+                for genarg_constraint in genarg_constraint_vec.iter() {
+                    match genarg_constraint {
+                        VerifoptRval::IdkStruct(defid, _) => {
+                            if self.debug {
+                                println!("- found struct: {:?}", defid);
+                            }
+                            if !defids.contains(defid) {
+                                if self.debug {
+                                    println!("defids vec: {:?}", defids);
+                                    println!("adding new defid: {:?}", defid);
+                                }
+                                defids.push(*defid);
+                            } else {
+                                if self.debug {
+                                    println!("(duplicate)");
+                                }
+                            }
+                        }
+                        _ => todo!(),
+                    }
+                }
+                return defids;
+            } else {
+                panic!("no genargs in box...");
+            }
+        } else {
+            todo!(
+                "struct is not a box: {:?} (\ngenargs: {:?})",
+                struct_defid,
+                genarg_vec
+            );
+        }
+    }
+
     fn resolve_first_arg_constraints(
         &self,
         first_arg_constraint: &VerifoptRval<'tcx>,
@@ -321,47 +441,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         match first_arg_constraint {
             VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
-                if is_box(*struct_defid) {
-                    if let Some(genargs_outer) = genarg_vec {
-                        if genargs_outer.len() != 1 {
-                            panic!("handle diff genarg len");
-                        }
-
-                        let genarg_constraint_vec = &genargs_outer[0];
-                        let mut defids = Vec::new();
-                        for genarg_constraint in genarg_constraint_vec.iter() {
-                            match genarg_constraint {
-                                VerifoptRval::IdkStruct(defid, _) => {
-                                    if self.debug {
-                                        println!("- found struct: {:?}", defid);
-                                    }
-                                    if !defids.contains(defid) {
-                                        if self.debug {
-                                            println!("defids vec: {:?}", defids);
-                                            println!("adding new defid: {:?}", defid);
-                                        }
-                                        defids.push(*defid);
-                                    } else {
-                                        if self.debug {
-                                            println!("(duplicate)");
-                                        }
-                                    }
-                                }
-                                _ => todo!(),
-                            }
-                        }
-                        return defids;
-                    } else {
-                        panic!("no genargs in box...");
-                    }
-                } else {
-                    todo!(
-                        "struct is not a box: {:?} (\ngenargs: {:?})",
-                        struct_defid,
-                        genarg_vec
-                    );
-                }
+                self.resolve_struct(struct_defid, genarg_vec)
             }
+            VerifoptRval::IdkType(ty) => match ty.kind() {
+                TyKind::Adt(adtdef, genargs) => self.resolve_adt(&adtdef.did(), genargs.as_slice()),
+                _ => todo!(),
+            },
             VerifoptRval::Ref(boxed) => self.resolve_first_arg_constraints(&*boxed),
             _ => todo!("handle more kinds: {:?}", first_arg_constraint),
         }
@@ -396,6 +481,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             } else {
                 panic!("first arg is a scope...");
             }
+        }
+        if self.debug {
+            println!(
+                "RESOLVED first arg constraints (struct defids): {:?}",
+                structs
+            );
         }
 
         structs
@@ -1173,8 +1264,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
 
             // FIXME get dynamically
-            traitobj_vtable = Some(Local::from_u32(12));
-            variant_vtable = Some(Local::from_u32(13));
+            //traitobj_vtable = Some(Local::from_u32(12));
+            //variant_vtable = Some(Local::from_u32(13));
+            traitobj_vtable = Some(Local::from_u32(210));
+            variant_vtable = Some(Local::from_u32(35));
 
             // TODO maybe benchmark this route as an alternative, if it is functional?
             //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));

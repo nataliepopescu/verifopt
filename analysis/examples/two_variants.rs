@@ -48,9 +48,14 @@ impl Animal for Dog {
     }
 }
 
+//#[inline(never)]
+//fn wrap_dyn_call(animal: &Box<dyn Animal>) -> usize {
+//    animal.speak()
+//}
+
 #[inline(never)]
-fn wrap_dyn_call(animal: &Box<dyn Animal>) -> usize {
-    animal.speak()
+fn noop(num: usize) {
+    println!("NOOP {:?}", num);
 }
 
 fn main() {
@@ -63,7 +68,10 @@ fn main() {
             let cat = get_animal(0);
             let _animal_vtable = core::ptr::metadata(&*animal);
             let _cat_vtable = core::ptr::metadata(&*cat);
-            let res = wrap_dyn_call(&animal);
+            //let res = wrap_dyn_call(&animal);
+            //noop(01234);
+            let res = animal.speak();
+            //noop(56789);
             println!("res: {:?}", res);
         }
     }

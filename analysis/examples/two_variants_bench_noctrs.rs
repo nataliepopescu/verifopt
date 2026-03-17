@@ -7,7 +7,7 @@ use std::ptr::DynMetadata;
 use std::time::Instant;
 
 pub trait Animal {
-    fn speak(&self, cat_ctr: &mut Ctr, dog_ctr: &mut Ctr) -> usize;
+    fn speak(&self) -> usize;
     fn walk(&self) -> usize;
 }
 
@@ -27,13 +27,8 @@ pub fn get_cat() -> Box<dyn Animal> {
 pub struct Cat;
 pub struct Dog;
 
-pub struct Ctr {
-    ctr: usize,
-}
-
 impl Animal for Cat {
-    fn speak(&self, cat_ctr: &mut Ctr, _dog_ctr: &mut Ctr) -> usize {
-        cat_ctr.ctr += 1;
+    fn speak(&self) -> usize {
         11111
     }
     fn walk(&self) -> usize {
@@ -42,8 +37,7 @@ impl Animal for Cat {
 }
 
 impl Animal for Dog {
-    fn speak(&self, _cat_ctr: &mut Ctr, dog_ctr: &mut Ctr) -> usize {
-        dog_ctr.ctr += 1;
+    fn speak(&self) -> usize {
         22222
     }
     fn walk(&self) -> usize {
@@ -68,20 +62,18 @@ fn wrap_dyn_call(
     animal: &Box<dyn Animal>,
     _animal_vtable: DynMetadata<dyn Animal>,
     _cat_vtable: DynMetadata<dyn Animal>,
-    cat_ctr: &mut Ctr,
-    dog_ctr: &mut Ctr,
 ) -> usize {
-    animal.speak(cat_ctr, dog_ctr)
+    animal.speak()
 }
 
 fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let cat = get_cat();
     let cat_vtable = core::ptr::metadata(&*cat);
 
-    let mut w_cat_ctr: Ctr = Ctr { ctr: 0 };
-    let mut w_dog_ctr: Ctr = Ctr { ctr: 0 };
-    let mut cat_ctr: Ctr = Ctr { ctr: 0 };
-    let mut dog_ctr: Ctr = Ctr { ctr: 0 };
+    //let mut w_cat_ctr: Ctr = Ctr { ctr: 0 };
+    //let mut w_dog_ctr: Ctr = Ctr { ctr: 0 };
+    //let mut cat_ctr: Ctr = Ctr { ctr: 0 };
+    //let mut dog_ctr: Ctr = Ctr { ctr: 0 };
 
     let mut file = File::open(filename)?;
     let mut animals = Vec::new();
@@ -103,8 +95,6 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
             &animal,
             vtable,
             cat_vtable,
-            &mut w_cat_ctr,
-            &mut w_dog_ctr,
         ));
     }
 
@@ -116,16 +106,12 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
             &animal,
             vtable,
             cat_vtable,
-            &mut cat_ctr,
-            &mut dog_ctr,
         ));
     }
     let duration = start.elapsed().as_nanos();
 
     let mean = f64::from(duration as u32) / (runs as f64);
 
-    println!("cat ctr: {:?}", cat_ctr.ctr);
-    println!("dog ctr: {:?}", dog_ctr.ctr);
     println!("mean (ns): {:?}", mean);
 
     Ok(())
@@ -157,11 +143,6 @@ fn main() -> std::io::Result<()> {
             let cat = get_cat();
             let _cat_vtable = core::ptr::metadata(&*cat);
 
-            let mut w_cat_ctr: Ctr = Ctr { ctr: 0 };
-            let mut w_dog_ctr: Ctr = Ctr { ctr: 0 };
-            let mut cat_ctr: Ctr = Ctr { ctr: 0 };
-            let mut dog_ctr: Ctr = Ctr { ctr: 0 };
-
             let mut file = File::open(filename)?;
             let mut animals = Vec::new();
 
@@ -175,38 +156,23 @@ fn main() -> std::io::Result<()> {
                 animals.push((animal, vtable));
             }
 
+            println!("len: {:?}", animals.len());
+
             // warmup
-            //for _ in 0..warmup {
-            //    let (animal, _vtable) = animals.pop().unwrap();
-            //    std::hint::black_box(animal.speak(&mut w_cat_ctr, &mut w_dog_ctr));
-            //    //std::hint::black_box(wrap_dyn_call(
-            //    //    &animal,
-            //    //    vtable,
-            //    //    cat_vtable,
-            //    //    &mut w_cat_ctr,
-            //    //    &mut w_dog_ctr,
-            //    //));
-            //}
+            for _ in 0..warmup {
+                let (animal, _vtable) = animals.pop().unwrap();
+                std::hint::black_box(animal.speak());
+            }
 
             // benchmark
             let start = Instant::now();
             for _ in 0..runs {
                 let (animal, _vtable) = animals.pop().unwrap();
-                std::hint::black_box(animal.speak(&mut cat_ctr, &mut dog_ctr));
-                //std::hint::black_box(wrap_dyn_call(
-                //    &animal,
-                //    vtable,
-                //    cat_vtable,
-                //    &mut cat_ctr,
-                //    &mut dog_ctr,
-                //));
+                std::hint::black_box(animal.speak());
             }
             let duration = start.elapsed().as_nanos();
 
             let mean = f64::from(duration as u32) / (runs as f64);
-
-            println!("cat ctr: {:?}", cat_ctr.ctr);
-            println!("dog ctr: {:?}", dog_ctr.ctr);
             println!("mean (ns): {:?}", mean);
 
             Ok(())

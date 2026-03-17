@@ -94,6 +94,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("#############################");
         }
         let mut patch = MirPatch::new(body);
+        let mut ctr: usize = 0;
         for (bb, data) in body.basic_blocks.iter_enumerated() {
             // TODO add some notion of WTO?
             if data.is_cleanup {
@@ -151,6 +152,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 }
 
                                 let num_bbs = body.basic_blocks.len();
+                                let temp_vtable_loc;
+                                if ctr == 0 {
+                                    temp_vtable_loc = Some(Local::from_u32(217));
+                                } else {
+                                    temp_vtable_loc = Some(Local::from_u32(220));
+                                }
+                                ctr += 1;
                                 self.replace_dynamic_dispatch(
                                     cur_scope,
                                     &mut patch,
@@ -161,6 +169,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                     bb,
                                     data,
                                     num_bbs,
+                                    temp_vtable_loc,
                                 );
                             }
                         } else {
@@ -1222,6 +1231,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         bb: BasicBlock,
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
+        traitobj_vtable: Option<Local>,
     ) {
         if self.debug {
             println!("\n### STARTING\n");
@@ -1252,7 +1262,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("dids: {:?}", dids);
         }
 
-        let mut traitobj_vtable = None;
+        //let mut traitobj_vtable = None;
         let mut variant_vtable = None;
         let mut traitobj_vtable_ptr = None;
         let mut variant_vtable_ptr = None;
@@ -1266,7 +1276,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             // FIXME get dynamically
             //traitobj_vtable = Some(Local::from_u32(12));
             //variant_vtable = Some(Local::from_u32(13));
-            traitobj_vtable = Some(Local::from_u32(223));
+            //traitobj_vtable = Some(Local::from_u32(223));
             variant_vtable = Some(Local::from_u32(35));
 
             // TODO maybe benchmark this route as an alternative, if it is functional?

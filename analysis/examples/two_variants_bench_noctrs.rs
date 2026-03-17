@@ -118,8 +118,8 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
 }
 
 #[inline(never)]
-fn noop() {
-    println!("NOOP");
+fn noop(num: usize) {
+    println!("NOOP {:?}", num);
 }
 
 fn main() -> std::io::Result<()> {
@@ -165,12 +165,15 @@ fn main() -> std::io::Result<()> {
             //noop();
 
             // warmup
-            let start_ = Instant::now();
+            //let start_ = Instant::now();
             for _ in 0..warmup {
+                //noop(69905);
                 let (animal, _vtable) = animals.pop().unwrap();
+                //noop(139810);
                 std::hint::black_box(animal.speak());
+                //noop(209715);
             }
-            let _duration_ = start_.elapsed().as_nanos();
+            //let _duration_ = start_.elapsed().as_nanos();
 
             // benchmark
             let start = Instant::now();

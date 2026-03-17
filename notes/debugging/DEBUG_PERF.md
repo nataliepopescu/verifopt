@@ -211,4 +211,57 @@ somehow flanking w the Instant blocks also fixes things
 
 - TODO WHAT IS HAPPENING
 
+try flanking speak() w noops, the latter noop doesn't get printed (in fact it
+doesn't seem to even end up in the asm)
+
+fixing the rewrite (vtable_loc) constants seems to fix this...
+
+#### should probably automate getting the vtable_loc
+
+when are the actual vtable ptrs calculated?
+
+well first they are calculated, then those are added to a Vec, and then popped
+from the Vec
+
+calc
+- PtrMetdata call
+- _24 = PtrMetadata(copy _52);
+- _5 = PtrMetadata(copy _51);
+- _97 = PtrMetadata(copy _99);
+- _54 = PtrMetadata(copy _82);
+- _35 = PtrMetadata(copy _81);
+
+
+some res locals are DynMetadata (overlap), but what are the others?
+- let mut _24: &usize;
+- let mut _5: std::fmt::Arguments<'_>;
+- let mut _97: usize;
+
+- let _35: std::ptr::DynMetadata<dyn Animal>;
+- let _54: std::ptr::DynMetadata<dyn Animal>;
+
+so one step could be finding the overlap of 
+1. calling PtrMetadata
+2. into a DynMetadata<dyn Trait>
+- this would give us _35 (cat_vtable) and _54 (the vtable loc used in the setup loop)
+- so not an exact match
+
+what about getting all DynMetadata types?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

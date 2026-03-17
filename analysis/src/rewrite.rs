@@ -154,9 +154,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 let num_bbs = body.basic_blocks.len();
                                 let temp_vtable_loc;
                                 if ctr == 0 {
-                                    temp_vtable_loc = Some(Local::from_u32(217));
+                                    temp_vtable_loc = Some(Local::from_u32(207));
                                 } else {
-                                    temp_vtable_loc = Some(Local::from_u32(220));
+                                    temp_vtable_loc = Some(Local::from_u32(210));
                                 }
                                 ctr += 1;
                                 self.replace_dynamic_dispatch(

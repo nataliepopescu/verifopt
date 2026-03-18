@@ -70,11 +70,6 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let cat = get_cat();
     let cat_vtable = core::ptr::metadata(&*cat);
 
-    //let mut w_cat_ctr: Ctr = Ctr { ctr: 0 };
-    //let mut w_dog_ctr: Ctr = Ctr { ctr: 0 };
-    //let mut cat_ctr: Ctr = Ctr { ctr: 0 };
-    //let mut dog_ctr: Ctr = Ctr { ctr: 0 };
-
     let mut file = File::open(filename)?;
     let mut animals = Vec::new();
 
@@ -96,7 +91,7 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
 
     // benchmark
     let start = Instant::now();
-    for _ in 0..warmup {
+    for _ in 0..runs {
         let (animal, vtable) = animals.pop().unwrap();
         std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable));
     }
@@ -133,10 +128,11 @@ fn main() -> std::io::Result<()> {
             println!("filename: {:?}", filename);
             println!("num warmup runs: {:?}", warmup);
             println!("num actual runs: {:?}", runs);
-            //bench(filename, warmup, runs)
+            bench(filename, warmup, runs)
 
             // bench without nested functions
 
+            /*
             let cat = get_cat();
             let _cat_vtable = core::ptr::metadata(&*cat);
 
@@ -171,6 +167,7 @@ fn main() -> std::io::Result<()> {
             println!("mean (ns): {:?}", mean);
 
             Ok(())
+            */
         }
     }
 }

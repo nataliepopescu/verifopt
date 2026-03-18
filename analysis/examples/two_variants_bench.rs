@@ -51,18 +51,6 @@ impl Animal for Dog {
     }
 }
 
-// iterative mean alg (handle overflow)
-//fn mean(times: Vec<u128>) -> f64 {
-//    let mut mean: f64 = 0.0;
-//    let mut i = 1;
-//    for time in times.iter() {
-//        let diff = f64::from(*time as u32) - mean;
-//        mean += diff / (i as f64);
-//        i += 1;
-//    }
-//    mean
-//}
-
 #[inline(never)]
 fn wrap_dyn_call(
     animal: &Box<dyn Animal>,
@@ -110,7 +98,7 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
 
     // benchmark
     let start = Instant::now();
-    for _ in 0..warmup {
+    for _ in 0..runs {
         let (animal, vtable) = animals.pop().unwrap();
         std::hint::black_box(wrap_dyn_call(
             &animal,
@@ -150,10 +138,11 @@ fn main() -> std::io::Result<()> {
             println!("filename: {:?}", filename);
             println!("num warmup runs: {:?}", warmup);
             println!("num actual runs: {:?}", runs);
-            //bench(filename, warmup, runs)
+            bench(filename, warmup, runs)
 
             // bench without nested functions
 
+            /*
             let cat = get_cat();
             let _cat_vtable = core::ptr::metadata(&*cat);
 
@@ -210,6 +199,7 @@ fn main() -> std::io::Result<()> {
             println!("mean (ns): {:?}", mean);
 
             Ok(())
+            */
         }
     }
 }

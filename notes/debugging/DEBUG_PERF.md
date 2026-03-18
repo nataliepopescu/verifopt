@@ -196,6 +196,21 @@ lets try benching without counters then
 - need to get the right vtable ptr locals
     - 35, 54, 207, 210
 
+#### debugging counters
+
+try to not even use the counters (but still pass them around) and see if that
+has the same effect
+
+- it does, meaning the bug is not about how the counters are used (which makes
+  sense since that is isolated in speak()), but rather how they are propagated
+  - makes a bit less sense because how is the rewrite affecting speak()
+    arguments..... oh
+  - there we go, the rewrite is hardcoding speak args (and not passing the
+    counters)
+
+- when transforming/adding back the speak call, only the FIRST argument should
+  change (the rest should NOT)
+
 ### rewrite might be messing up vec push/pop()?
 
 when trying to bench, after setup, the first pop() returns a None value (while

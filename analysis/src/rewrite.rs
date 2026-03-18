@@ -94,7 +94,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("#############################");
         }
         let mut patch = MirPatch::new(body);
-        let mut ctr: usize = 0;
+        //let mut ctr: usize = 0;
         for (bb, data) in body.basic_blocks.iter_enumerated() {
             // TODO add some notion of WTO?
             if data.is_cleanup {
@@ -152,14 +152,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 }
 
                                 let num_bbs = body.basic_blocks.len();
-                                let temp_vtable_loc;
+                                //let temp_vtable_loc;
                                 //if ctr == 0 {
                                 //    temp_vtable_loc = Some(Local::from_u32(207));
                                 //} else {
                                 //    temp_vtable_loc = Some(Local::from_u32(210));
                                 //}
                                 //ctr += 1;
-                                temp_vtable_loc = Some(Local::from_u32(2));
+                                //temp_vtable_loc = Some(Local::from_u32(2));
                                 self.replace_dynamic_dispatch(
                                     cur_scope,
                                     &mut patch,
@@ -170,7 +170,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                     bb,
                                     data,
                                     num_bbs,
-                                    temp_vtable_loc,
+                                    //temp_vtable_loc,
                                 );
                             }
                         } else {
@@ -750,6 +750,23 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         )
     }
 
+    fn replace_first_arg(
+        &self,
+        args: &mut Box<[Spanned<Operand<'tcx>>]>,
+        concrete_ty_loc: Local,
+    ) -> Box<[Spanned<Operand<'tcx>>]> {
+        let empty_proj_slice: &[ProjectionElem<Local, Ty<'_>>] = &[];
+        let empty_proj = self.tcx.mk_place_elems(empty_proj_slice);
+        args[0] = Spanned {
+            node: Operand::Move(Place {
+                local: concrete_ty_loc,
+                projection: empty_proj,
+            }),
+            span: self.dummy_span(),
+        };
+        args.clone()
+    }
+
     fn add_speak_block(
         &self,
         patch: &mut MirPatch<'tcx>,
@@ -759,6 +776,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         raw_traitobj2_loc: Local,
         ret_place: Place<'tcx>,
         concrete_ty_loc: Local,
+        args: &Box<[Spanned<Operand<'tcx>>]>,
         concrete_ty_did: DefId,
         speak_fn_did: DefId,
         to_free_opt: Option<Vec<Local>>,
@@ -844,17 +862,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         // why &*s? try just using result of prev as speak arg
 
         // construct Cat::speak call
-        let empty_proj_slice: &[ProjectionElem<Local, Ty<'_>>] = &[];
-        let empty_proj = self.tcx.mk_place_elems(empty_proj_slice);
-
-        let args: Box<[Spanned<Operand<'tcx>>]> = Box::new([Spanned {
-            node: Operand::Move(Place {
-                local: concrete_ty_loc,
-                projection: empty_proj,
-            }),
-            span: self.dummy_span(),
-        }]);
-
+        let new_args = self.replace_first_arg(&mut args.clone(), concrete_ty_loc);
+        if self.debug {
+            println!("OLD ARGS: {:?}", args);
+            println!("NEW ARGS: {:?}", new_args);
+        }
         let gen_args: &[GenericArg<'tcx>] = &[];
         let gen_args_ref = self.tcx.mk_args(gen_args);
 
@@ -869,7 +881,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         Ty::new_fn_def(self.tcx, speak_fn_did, gen_args_ref),
                     ),
                 })),
-                args,
+                args: new_args,
                 destination: ret_place,
                 target: Some(bb_ret),
                 unwind: unwind_action,
@@ -1235,7 +1247,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         bb: BasicBlock,
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
-        traitobj_vtable: Option<Local>,
+        //traitobj_vtable: Option<Local>,
     ) {
         if self.debug {
             println!("\n### STARTING\n");
@@ -1247,6 +1259,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let traitobj = self.get_first_arg_local(args);
         if self.debug {
             println!("first arg local: {:?}", traitobj);
+            println!("args: {:?}", args);
         }
 
         // get old terminator's edges
@@ -1266,7 +1279,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("dids: {:?}", dids);
         }
 
-        //let mut traitobj_vtable = None;
+        let mut traitobj_vtable = None;
         let mut variant_vtable = None;
         let mut traitobj_vtable_ptr = None;
         let mut variant_vtable_ptr = None;
@@ -1280,6 +1293,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             // FIXME get dynamically
             //traitobj_vtable = Some(Local::from_u32(12));
             //variant_vtable = Some(Local::from_u32(13));
+            traitobj_vtable = Some(Local::from_u32(2));
             variant_vtable = Some(Local::from_u32(3));
 
             if self.debug {
@@ -1320,6 +1334,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 raw_traitobj2,
                 term_dst_place,
                 struct_obj,
+                args,
                 *struct_did,
                 *func_did,
                 None,

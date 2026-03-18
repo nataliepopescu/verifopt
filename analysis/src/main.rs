@@ -84,6 +84,7 @@ impl Callbacks for VerifoptCallbacks {
         let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
         unsafe {
             rewriter.run(entry_func, &mut *mut_body_ptr);
+            //println!("body: \n{:#?}", *mut_body_ptr);
         }
 
         Compilation::Continue

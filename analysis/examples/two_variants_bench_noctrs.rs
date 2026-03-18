@@ -7,12 +7,16 @@ use std::ptr::DynMetadata;
 use std::time::Instant;
 
 pub trait Animal {
-    fn speak(&self, ctr: &mut Ctr) -> usize;
+    fn speak(&self) -> usize;
     fn walk(&self) -> usize;
 }
 
-pub fn get_animal(_num: usize) -> Box<dyn Animal> {
-    Box::new(Cat {})
+pub fn get_animal(num: usize) -> Box<dyn Animal> {
+    if num == 0 {
+        Box::new(Cat {})
+    } else {
+        Box::new(Dog {})
+    }
 }
 
 #[inline(always)]
@@ -21,14 +25,10 @@ pub fn get_cat() -> Box<dyn Animal> {
 }
 
 pub struct Cat;
-
-pub struct Ctr {
-    ctr: usize,
-}
+pub struct Dog;
 
 impl Animal for Cat {
-    fn speak(&self, ctr: &mut Ctr) -> usize {
-        ctr.ctr += 1;
+    fn speak(&self) -> usize {
         11111
     }
     fn walk(&self) -> usize {
@@ -36,22 +36,39 @@ impl Animal for Cat {
     }
 }
 
+impl Animal for Dog {
+    fn speak(&self) -> usize {
+        22222
+    }
+    fn walk(&self) -> usize {
+        44444
+    }
+}
+
+// iterative mean alg (handle overflow)
+//fn mean(times: Vec<u128>) -> f64 {
+//    let mut mean: f64 = 0.0;
+//    let mut i = 1;
+//    for time in times.iter() {
+//        let diff = f64::from(*time as u32) - mean;
+//        mean += diff / (i as f64);
+//        i += 1;
+//    }
+//    mean
+//}
+
 #[inline(never)]
 fn wrap_dyn_call(
     animal: &Box<dyn Animal>,
     _animal_vtable: DynMetadata<dyn Animal>,
     _cat_vtable: DynMetadata<dyn Animal>,
-    ctr: &mut Ctr,
 ) -> usize {
-    animal.speak(ctr)
+    animal.speak()
 }
 
 fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     let cat = get_cat();
     let cat_vtable = core::ptr::metadata(&*cat);
-
-    let mut w_ctr: Ctr = Ctr { ctr: 0 };
-    let mut ctr: Ctr = Ctr { ctr: 0 };
 
     let mut file = File::open(filename)?;
     let mut animals = Vec::new();
@@ -66,24 +83,30 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
         animals.push((animal, vtable));
     }
 
+    // warmup
     for _ in 0..warmup {
         let (animal, vtable) = animals.pop().unwrap();
-        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut w_ctr));
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable));
     }
 
+    // benchmark
     let start = Instant::now();
     for _ in 0..runs {
         let (animal, vtable) = animals.pop().unwrap();
-        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable, &mut ctr));
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable));
     }
     let duration = start.elapsed().as_nanos();
 
     let mean = f64::from(duration as u32) / (runs as f64);
 
-    println!("ctr: {:?}", ctr.ctr);
     println!("mean (ns): {:?}", mean);
 
     Ok(())
+}
+
+#[inline(never)]
+fn noop(num: usize) {
+    println!("NOOP {:?}", num);
 }
 
 fn main() -> std::io::Result<()> {
@@ -100,21 +123,18 @@ fn main() -> std::io::Result<()> {
         }
         _ => {
             let filename = &args[1];
-            let warmup = args[2].parse().unwrap();
-            let runs = args[3].parse().unwrap();
+            let warmup: usize = args[2].parse().unwrap();
+            let runs: usize = args[3].parse().unwrap();
             println!("filename: {:?}", filename);
             println!("num warmup runs: {:?}", warmup);
             println!("num actual runs: {:?}", runs);
+            bench(filename, warmup, runs)
 
-            //bench(filename, warmup, runs)
+            // bench without nested functions
 
-            // attempt to rewrite w/out traversing callee fns
-
+            /*
             let cat = get_cat();
             let _cat_vtable = core::ptr::metadata(&*cat);
-
-            let mut w_ctr: Ctr = Ctr { ctr: 0 };
-            let mut ctr: Ctr = Ctr { ctr: 0 };
 
             let mut file = File::open(filename)?;
             let mut animals = Vec::new();
@@ -129,24 +149,25 @@ fn main() -> std::io::Result<()> {
                 animals.push((animal, vtable));
             }
 
+            // warmup
             for _ in 0..warmup {
                 let (animal, _vtable) = animals.pop().unwrap();
-                std::hint::black_box(animal.speak(&mut w_ctr)); //wrap_dyn_call(&animal, vtable, cat_vtable, &mut w_ctr));
+                std::hint::black_box(animal.speak());
             }
 
+            // benchmark
             let start = Instant::now();
             for _ in 0..runs {
                 let (animal, _vtable) = animals.pop().unwrap();
-                std::hint::black_box(animal.speak(&mut ctr)); //wrap_dyn_call(&animal, vtable, cat_vtable, &mut ctr));
+                std::hint::black_box(animal.speak());
             }
             let duration = start.elapsed().as_nanos();
 
             let mean = f64::from(duration as u32) / (runs as f64);
-
-            println!("ctr: {:?}", ctr.ctr);
             println!("mean (ns): {:?}", mean);
 
             Ok(())
+            */
         }
     }
 }

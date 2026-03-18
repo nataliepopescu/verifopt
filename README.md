@@ -1,12 +1,12 @@
 # Verified Compiler Optimization Project (VerifOpt)
 
 VerifOpt targets dynamic dispatch in the Rust compiler, seeking to turn each
-dynamic dispatch call 
-into one or more static calls. Since dynamic dispatch results in blind jumps at
+dynamic dispatch call into one or more static calls. 
+
+Since dynamic dispatch results in blind jumps at
 the IR level, they are difficult to optimize and inhibit a range of downstream
 optimizations from happening (constant propagation, function inlining, branch
-prediction, etc). 
-VerifOpt is a gateway optimization, as it's main performance
+prediction, etc). VerifOpt is a gateway optimization, as it's main performance
 benefits come from re-enabling more impactful downstream optimizations. 
 
 VerifOpt performs flow-sensitive abstract interpretation over Rust's MIR to

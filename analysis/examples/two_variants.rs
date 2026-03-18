@@ -1,7 +1,7 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
-//use std::ptr::DynMetadata;
+use std::ptr::DynMetadata;
 
 pub trait Animal {
     fn speak(&self) -> usize;
@@ -48,10 +48,14 @@ impl Animal for Dog {
     }
 }
 
-//#[inline(never)]
-//fn wrap_dyn_call(animal: &Box<dyn Animal>) -> usize {
-//    animal.speak()
-//}
+#[inline(never)]
+fn wrap_dyn_call(
+    animal: &Box<dyn Animal>,
+    _animal_vtable: DynMetadata<dyn Animal>,
+    _cat_vtable: DynMetadata<dyn Animal>,
+) -> usize {
+    animal.speak()
+}
 
 #[inline(never)]
 fn noop(num: usize) {
@@ -66,12 +70,10 @@ fn main() {
             let x = args[1].parse().unwrap();
             let animal = get_animal(x);
             let cat = get_animal(0);
-            let _animal_vtable = core::ptr::metadata(&*animal);
-            let _cat_vtable = core::ptr::metadata(&*cat);
-            //let res = wrap_dyn_call(&animal);
-            //noop(01234);
-            let res = animal.speak();
-            //noop(56789);
+            let animal_vtable = core::ptr::metadata(&*animal);
+            let cat_vtable = core::ptr::metadata(&*cat);
+            let res = wrap_dyn_call(&animal, animal_vtable, cat_vtable);
+            //let res = animal.speak();
             println!("res: {:?}", res);
         }
     }

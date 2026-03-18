@@ -91,22 +91,14 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
     // warmup
     for _ in 0..warmup {
         let (animal, vtable) = animals.pop().unwrap();
-        std::hint::black_box(wrap_dyn_call(
-            &animal,
-            vtable,
-            cat_vtable,
-        ));
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable));
     }
 
     // benchmark
     let start = Instant::now();
     for _ in 0..warmup {
         let (animal, vtable) = animals.pop().unwrap();
-        std::hint::black_box(wrap_dyn_call(
-            &animal,
-            vtable,
-            cat_vtable,
-        ));
+        std::hint::black_box(wrap_dyn_call(&animal, vtable, cat_vtable));
     }
     let duration = start.elapsed().as_nanos();
 

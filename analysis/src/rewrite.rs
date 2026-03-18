@@ -153,12 +153,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
                                 let num_bbs = body.basic_blocks.len();
                                 let temp_vtable_loc;
-                                if ctr == 0 {
-                                    temp_vtable_loc = Some(Local::from_u32(207));
-                                } else {
-                                    temp_vtable_loc = Some(Local::from_u32(210));
-                                }
-                                ctr += 1;
+                                //if ctr == 0 {
+                                //    temp_vtable_loc = Some(Local::from_u32(207));
+                                //} else {
+                                //    temp_vtable_loc = Some(Local::from_u32(210));
+                                //}
+                                //ctr += 1;
+                                temp_vtable_loc = Some(Local::from_u32(2));
                                 self.replace_dynamic_dispatch(
                                     cur_scope,
                                     &mut patch,
@@ -322,51 +323,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
     fn resolve_genarg(&self, genarg: &GenericArg<'tcx>) -> Vec<DefId> {
         match genarg.kind() {
-            GenericArgKind::Type(ty) => match ty.kind() {
-                TyKind::Dynamic(list, _) => {
-                    if self.debug {
-                        println!("dyn");
-                        println!("list: {:?}", list);
-                    }
-                    let mut defids = Vec::new();
-                    for inner in list.iter() {
-                        if self.debug {
-                            println!("inner: {:?}", inner);
-                            println!("inner.skip_binder: {:?}", inner.skip_binder());
-                        }
-                        match inner.skip_binder() {
-                            ExistentialPredicate::Trait(etraitref) => {
-                                if self.debug {
-                                    println!("etraitref: {:?}", etraitref);
-                                    println!("etraitref defid: {:?}", etraitref.def_id);
-                                }
-                                match self.funcs.trait_to_struct_impls.get(&etraitref.def_id) {
-                                    Some(structs) => {
-                                        for struct_ in structs {
-                                            defids.push(*struct_);
-                                        }
-                                    }
-                                    None => panic!("no structs to return: {:?}", etraitref.def_id),
-                                }
-                            }
-                            _ => println!("other"),
-                        }
-                    }
-                    return defids;
-                }
-                TyKind::Adt(adtdef, genargs) => {
-                    if self.debug {
-                        println!("adt");
-                    }
-                    self.resolve_adt(&adtdef.did(), genargs)
-                }
-                _ => {
-                    if self.debug {
-                        println!("other");
-                    }
-                    todo!();
-                }
-            },
+            GenericArgKind::Type(ty) => self.resolve_ty(&ty), //match ty.kind() {
+            //},
             _ => todo!(),
         }
     }
@@ -440,6 +398,55 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
     }
 
+    fn resolve_ty(&self, ty: &Ty<'tcx>) -> Vec<DefId> {
+        match ty.kind() {
+            TyKind::RawPtr(ty, _mut) => self.resolve_ty(ty),
+            TyKind::Dynamic(list, _) => {
+                if self.debug {
+                    println!("dyn");
+                    println!("list: {:?}", list);
+                }
+                let mut defids = Vec::new();
+                for inner in list.iter() {
+                    if self.debug {
+                        println!("inner: {:?}", inner);
+                        println!("inner.skip_binder: {:?}", inner.skip_binder());
+                    }
+                    match inner.skip_binder() {
+                        ExistentialPredicate::Trait(etraitref) => {
+                            if self.debug {
+                                println!("etraitref: {:?}", etraitref);
+                                println!("etraitref defid: {:?}", etraitref.def_id);
+                            }
+                            match self.funcs.trait_to_struct_impls.get(&etraitref.def_id) {
+                                Some(structs) => {
+                                    for struct_ in structs {
+                                        defids.push(*struct_);
+                                    }
+                                }
+                                None => panic!("no structs to return: {:?}", etraitref.def_id),
+                            }
+                        }
+                        _ => println!("other"),
+                    }
+                }
+                return defids;
+            }
+            TyKind::Adt(adtdef, genargs) => {
+                if self.debug {
+                    println!("adt");
+                }
+                self.resolve_adt(&adtdef.did(), genargs)
+            }
+            _ => {
+                if self.debug {
+                    println!("other: {:?}", ty.kind());
+                }
+                todo!();
+            }
+        }
+    }
+
     fn resolve_first_arg_constraints(
         &self,
         first_arg_constraint: &VerifoptRval<'tcx>,
@@ -452,10 +459,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
                 self.resolve_struct(struct_defid, genarg_vec)
             }
-            VerifoptRval::IdkType(ty) => match ty.kind() {
-                TyKind::Adt(adtdef, genargs) => self.resolve_adt(&adtdef.did(), genargs.as_slice()),
-                _ => todo!(),
-            },
+            VerifoptRval::IdkType(ty) => self.resolve_ty(ty),
             VerifoptRval::Ref(boxed) => self.resolve_first_arg_constraints(&*boxed),
             _ => todo!("handle more kinds: {:?}", first_arg_constraint),
         }
@@ -1276,8 +1280,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             // FIXME get dynamically
             //traitobj_vtable = Some(Local::from_u32(12));
             //variant_vtable = Some(Local::from_u32(13));
-            //traitobj_vtable = Some(Local::from_u32(223));
-            variant_vtable = Some(Local::from_u32(35));
+            variant_vtable = Some(Local::from_u32(3));
+
+            if self.debug {
+                println!("traitobj vtable: {:?}", traitobj_vtable);
+                println!("variant vtable: {:?}", variant_vtable);
+            }
 
             // TODO maybe benchmark this route as an alternative, if it is functional?
             //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));

@@ -161,19 +161,11 @@ fn main() -> std::io::Result<()> {
                 animals.push((animal, vtable));
             }
 
-            //println!("len: {:?}", animals.len());
-            //noop();
-
             // warmup
-            //let start_ = Instant::now();
             for _ in 0..warmup {
-                //noop(69905);
                 let (animal, _vtable) = animals.pop().unwrap();
-                //noop(139810);
                 std::hint::black_box(animal.speak());
-                //noop(209715);
             }
-            //let _duration_ = start_.elapsed().as_nanos();
 
             // benchmark
             let start = Instant::now();

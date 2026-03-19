@@ -1,4 +1,4 @@
-# some initial performance numbers
+# some performance number sketches
 
 ## branch predictor
 
@@ -24,7 +24,7 @@ with various inlining attributes around `wrap_dyn_call`
 
 ### `two_variants_bench` (single dynamic dispatch)
 
-using alt 0s and 1s
+using alt 0s and 1s input type
 
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |

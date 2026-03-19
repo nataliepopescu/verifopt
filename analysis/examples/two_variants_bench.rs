@@ -51,7 +51,7 @@ impl Animal for Dog {
     }
 }
 
-#[inline(never)]
+//#[inline(always)]
 fn wrap_dyn_call(
     animal: &Box<dyn Animal>,
     _animal_vtable: DynMetadata<dyn Animal>,

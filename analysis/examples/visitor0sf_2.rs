@@ -137,7 +137,14 @@ fn main() {
             let av_vtable = core::ptr::metadata(&*av);
             let vis1_vtable = core::ptr::metadata(&*vis1);
 
-            let res = run_full_not_rw(animal, animal_vtable, cat_vtable, av, av_vtable, vis1_vtable);
+            let res = run_full_not_rw(
+                animal,
+                animal_vtable,
+                cat_vtable,
+                av,
+                av_vtable,
+                vis1_vtable,
+            );
             println!("res: {:?}", res);
         }
     }

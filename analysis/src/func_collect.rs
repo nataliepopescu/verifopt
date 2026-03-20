@@ -545,7 +545,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 // two_variants: limit = 27
                 // two_variants_bench: limit = 45
                 // two_variants_bench_noctrs: limit = 36
-                if crate_num == 0 && def_index >= 36
+                // visitor_bench: limit = 85
+                if crate_num == 0 && def_index >= 85
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

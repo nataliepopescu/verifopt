@@ -137,7 +137,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         let first = genargs_slice[0];
                         if let Some(ty) = first.as_type() {
                             if ty.is_trait() {
-                                if !self.tcx.def_path_debug_str(defid).contains("Animal::speak") {
+                                //if !self.tcx.def_path_debug_str(defid).contains("Animal::speak") {
+                                if !self.tcx.def_path_debug_str(defid).contains("Animal::visit") 
+                                && !self.tcx.def_path_debug_str(defid).contains("AnimalVisitor::visit_") {
                                     if self.debug {
                                         println!("SKIPPING OTHER DYN CALL: {:?}", defid);
                                     }

@@ -1,15 +1,17 @@
 //extern crate rand;
 
+use rand::RngExt;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::prelude::*;
-use rand::RngExt;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
         1 | 2 | 3 => {
-            println!("Pass in a filename, length, and type of generation (options: all, alt, rand)");
+            println!(
+                "Pass in a filename, length, and type of generation (options: all, alt, rand)"
+            );
             Ok(())
         }
         _ => {

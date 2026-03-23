@@ -16,7 +16,7 @@ pub(crate) struct MirPatch<'tcx> {
     term_patch_map: FxHashMap<BasicBlock, TerminatorKind<'tcx>>,
     /// Set of statements that should be replaced by `Nop`.
     nop_statements: Vec<Location>,
-    new_blocks: Vec<BasicBlockData<'tcx>>,
+    pub new_blocks: Vec<BasicBlockData<'tcx>>,
     new_statements: Vec<(Location, StatementKind<'tcx>)>,
     new_locals: Vec<LocalDecl<'tcx>>,
     resume_block: Option<BasicBlock>,

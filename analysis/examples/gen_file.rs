@@ -10,7 +10,7 @@ fn main() -> std::io::Result<()> {
     match args.len() {
         1 | 2 | 3 => {
             println!(
-                "Pass in a filename, length, and type of generation (options: all, alt, rand)"
+                "Pass in a filename, length, and type of generation (options: all, alt, rand, vis)"
             );
             Ok(())
         }
@@ -45,6 +45,22 @@ fn main() -> std::io::Result<()> {
                     writer.write(&[r])?;
                 }
                 writer.flush()?;
+            } else if ty == "vis" {
+                for i in 0..num {
+                    if i % 4 == 0 {
+                        writer.write(b"0")?;
+                        writer.write(b"0")?;
+                    } else if i % 4 == 1 {
+                        writer.write(b"0")?;
+                        writer.write(b"1")?;
+                    } else if i % 4 == 2 {
+                        writer.write(b"1")?;
+                        writer.write(b"0")?;
+                    } else {
+                        writer.write(b"1")?;
+                        writer.write(b"1")?;
+                    }
+                }
             } else {
                 panic!("nonexistent type: {:?}", ty);
             }

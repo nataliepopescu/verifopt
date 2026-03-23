@@ -141,7 +141,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                     && !self
                                         .tcx
                                         .def_path_debug_str(defid)
-                                        .contains("AnimalVisitor::visit_")
+                                        .contains("AnimalVisitor::visit_cat")
+                                    && !self
+                                        .tcx
+                                        .def_path_debug_str(defid)
+                                        .contains("AnimalVisitor::visit_dog")
                                 {
                                     if self.debug {
                                         println!("SKIPPING OTHER DYN CALL: {:?}", defid);
@@ -178,6 +182,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                     //temp_vtable_loc,
                                 );
                             }
+
+                            // TODO traverse into replacement code...
+                            if patch.new_blocks.len() > 0 {
+                                println!("HERE!!");
+                            }
                         } else {
                             if self.debug {
                                 println!("first arg no type, continuing...");
@@ -188,15 +197,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         // TODO if a dyn dispatch was replaced, traverse into those funcs (via
                         // patch?)
 
-                        if self.debug {
-                            println!("\n# -------------------------------");
-                            println!("# in {:?} of {:?}", bb, cur_scope);
-                            println!("# POST CONST FN DEF");
-                            println!("# func: {:?}", func);
-                            println!("# args: {:?}", args);
-                            println!("# dest: {:?}", destination);
-                            println!("# -------------------------------");
-                        }
+                        //if self.debug {
+                        //    println!("\n# -------------------------------");
+                        //    println!("# in {:?} of {:?}", bb, cur_scope);
+                        //    println!("# POST CONST FN DEF");
+                        //    println!("# func: {:?}", func);
+                        //    println!("# args: {:?}", args);
+                        //    println!("# dest: {:?}", destination);
+                        //    println!("# -------------------------------");
+                        //}
                     } else {
                         todo!();
                         //if self.debug {

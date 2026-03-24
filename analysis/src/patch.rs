@@ -27,7 +27,7 @@ pub(crate) struct MirPatch<'tcx> {
     // Cached block for UnwindTerminate (with reason)
     terminate_block: Option<(BasicBlock, UnwindTerminateReason)>,
     body_span: Span,
-    next_local: usize,
+    pub next_local: usize,
     /// The number of blocks at the start of the transformation. New blocks
     /// get appended at the end.
     next_block: usize,

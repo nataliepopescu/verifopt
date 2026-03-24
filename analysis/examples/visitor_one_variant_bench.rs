@@ -53,6 +53,7 @@ impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
     }
+    //#[inline(never)]
     fn visit(
         &self,
         av: &Box<dyn AnimalVisitor>,
@@ -80,6 +81,7 @@ impl Animal for Dog {
     fn speak(&self) -> usize {
         22222
     }
+    //#[inline(never)]
     fn visit(
         &self,
         av: &Box<dyn AnimalVisitor>,
@@ -119,7 +121,7 @@ impl AnimalVisitor for Visitor1 {
 
 /* benchmarking */
 
-//#[inline(always)]
+//#[inline(never)]
 fn wrap_dyn_call(
     animal: &Box<dyn Animal>,
     _animal_vtable: DynMetadata<dyn Animal>,

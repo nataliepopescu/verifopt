@@ -23,6 +23,9 @@ const VTABLE_TY_DEFID: DefId = DefId {
     krate: CrateNum::from_u32(2),
 };
 
+const FIRST_NONSELF_ARG_IDX: usize = 0;
+const VTABLE_ADDR_IDX: u32 = 2;
+
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
@@ -140,7 +143,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
     fn visit_block(&self, cur_scope: DefId, num_bbs: usize, bb: &BasicBlock, data: &BasicBlockData<'tcx>, mut patch: &mut MirPatch<'tcx>) {
         if self.debug {
-            println!("RW BB: {:?}", bb);
+            println!("BB: {:?}", bb);
         }
 
         // TODO add some notion of WTO?
@@ -180,6 +183,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         println!("printed as str: {:?}", genargs.print_as_list());
                     }
 
+                    // can assume that if multiple funcvals, they will have the same 
+                    // type, so just get the self_opt using the first funcval
+                    let mut funcval_vec = self.funcs.funcs.get(&cur_scope).unwrap().clone();
+                    let funcval = funcval_vec.pop().unwrap();
+                    if self.debug {
+                        println!("funcval_vec: {:#?}", funcval_vec);
+                        println!("funcval: {:?}", funcval);
+                    }
+
                     let genargs_slice = genargs.as_slice();
                     let first = genargs_slice[0];
                     if let Some(ty) = first.as_type() {
@@ -203,6 +215,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 &mut patch,
                                 &defid,
                                 ty,
+                                funcval.self_arg,
                                 args,
                                 *destination,
                                 bb,
@@ -211,26 +224,16 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 //temp_vtable_loc,
                             );
 
-                            // TODO if multiple patches in the same body? find way to
-                            // declare/apply each patch in this inner scope
+                            // TODO if multiple patches in the same body? 
+                            // find way to declare/apply each patch in an inner scope
                             // for now assuming only one patch per body
 
-                            // TODO traverse into replacement code...
+                            // traverse into replacement code
                             if patch.new_blocks.len() > 0 {
                                 if self.debug {
                                     println!("HERE!!");
                                     println!("num new blocks: {:?}", patch.new_blocks.len());
-                                    //println!("new blocks: {:#?}", patch.new_blocks);
                                 }
-
-                                // need to step into EITHER (1) the original dyn function
-                                // - pro: makes patching easier/uses existing impl
-                                // - con: need to find each concrete impl (like interp)
-                                // or (2) the replaced invocations in the patch
-                                // - pro: already have concrete impls
-                                // - con: how?
-                                //
-                                // trying (2)
 
                                 for (bb_num, data) in patch.new_blocks.clone().iter().enumerate() {
                                     self.visit_block(cur_scope, num_bbs + patch.new_blocks.len(), &BasicBlock::from_usize(bb_num), data, patch);
@@ -423,10 +426,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("\n##### Getting Struct DefIds\n");
             println!("cur_scope: {:?}", cur_scope);
             println!("traitobj should be at {:?}", traitobj);
-            println!(
-                "cmap @ scope: {:#?}",
-                self.cmap.cmap.get(&MapKey::ScopeId(cur_scope))
-            );
+            //println!(
+            //    "cmap @ scope: {:#?}",
+            //    self.cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+            //);
         }
 
         let mut structs = vec![];
@@ -465,15 +468,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         &self,
         _cur_scope: DefId,
         structs: &Vec<DefId>,
-        impltors: &Vec<DefId>,
+        impls: &Vec<DefId>,
     ) -> Vec<DefId> {
-        let mut impls = vec![];
+        let mut matching_impls = vec![];
         for struct_ in structs.iter() {
             if let Some(impl_blocks) = self.funcs.struct_to_impls.get(struct_) {
                 if let Some(assoc) = self.funcs.impl_blocks_to_fn_impls.get(&impl_blocks[0]) {
-                    for impltor in impltors {
-                        if assoc.contains(impltor) {
-                            impls.push(*impltor);
+                    for impl_ in impls {
+                        if assoc.contains(impl_) {
+                            matching_impls.push(*impl_);
                         }
                     }
                 } else {
@@ -483,7 +486,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 panic!("no struct impls");
             }
         }
-        impls
+        matching_impls
     }
 
     // TODO doing duplicate work as in interp, store interp's result somewhere
@@ -500,10 +503,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
         let structs = self.get_struct_dids(cur_scope, traitobj);
         if self.debug {
-            println!("structs: {:?}", structs);
+            println!("GOT structs: {:?}", structs);
         }
 
-        if let Some(impltors) = self
+        if let Some(impls) = self
             .funcs
             .trait_fn_impls
             .lock()
@@ -511,15 +514,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             .get(&dynfunc_defid)
         {
             if self.debug {
-                println!("impltors: {:?}", impltors);
-            }
-
-            let impls = self.get_impl_dids(cur_scope, &structs, impltors);
-            if self.debug {
                 println!("impls: {:?}", impls);
             }
 
-            return std::iter::zip(structs, impls).collect();
+            let matching_impls = self.get_impl_dids(cur_scope, &structs, impls);
+            if self.debug {
+                println!("matching impls: {:?}", matching_impls);
+            }
+
+            return std::iter::zip(structs, matching_impls).collect();
         } else {
             panic!("no impltors");
         }
@@ -1183,8 +1186,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
     */
 
-    fn get_first_arg_local(&self, args: &Box<[Spanned<Operand<'tcx>>]>) -> Local {
-        let op = &(*args)[0].node;
+    fn get_first_nonself_arg_local(
+        &self, 
+        _self_arg: Option<Place<'tcx>>,
+        args: &Box<[Spanned<Operand<'tcx>>]>
+    ) -> Local {
+        let op = &(*args)[FIRST_NONSELF_ARG_IDX].node;
         match op {
             Operand::Copy(place) | Operand::Move(place) => return place.local,
             _ => panic!("first arg is not a copy or move: {:?}", op),
@@ -1198,6 +1205,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch: &mut MirPatch<'tcx>,
         dynfunc_defid: &DefId,
         ty: Ty<'tcx>,
+        self_arg: Option<Place<'tcx>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         term_dst_place: Place<'tcx>,
         bb: &BasicBlock,
@@ -1207,12 +1215,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     ) {
         if self.debug {
             println!("\n### STARTING\n");
+            println!("cur_scope: {:?}", cur_scope);
+            println!("self_arg: {:?}", self_arg);
             println!("num_bbs: {:?}", num_bbs);
             println!("cur_bb: {:?}", bb);
-            println!("speak dest: {:?}", term_dst_place);
+            println!("func dest place: {:?}", term_dst_place);
         }
 
-        let traitobj = self.get_first_arg_local(args);
+        let traitobj = self.get_first_nonself_arg_local(self_arg, args);
         if self.debug {
             println!("first arg local: {:?}", traitobj);
             println!("args: {:?}", args);
@@ -1247,10 +1257,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
 
             // FIXME get dynamically
-            //traitobj_vtable = Some(Local::from_u32(12));
-            //variant_vtable = Some(Local::from_u32(13));
-            traitobj_vtable = Some(Local::from_u32(2));
-            variant_vtable = Some(Local::from_u32(3));
+            if self_arg.is_some() {
+                traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
+                variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 2));
+            } else {
+                traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX));
+                variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
+            }
 
             if self.debug {
                 println!("traitobj vtable: {:?}", traitobj_vtable);
@@ -1329,6 +1342,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     mut_dyn_traitobj,
                 );
                 into_raw_target = Some(bb_shim);
+            } else {
+                if self.debug {
+                    println!("i: {:?}", i);
+                    println!("dids: {:?}", dids);
+                }
             }
 
             bb_last_variant_speak = Some(bb_cur_variant_speak);

@@ -101,7 +101,7 @@ pub fn get_visitor1() -> Box<dyn AnimalVisitor> {
 
 /* Optimized Functions to Test */
 
-#[inline(never)]
+//#[inline(never)]
 pub fn run_full_not_rw(
     animal: Box<dyn Animal>,
     _animal_vtable: DynMetadata<dyn Animal>,

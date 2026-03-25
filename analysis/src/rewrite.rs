@@ -92,8 +92,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     fn should_rewrite(&self, defid: DefId) -> bool {
         self.tcx.def_path_debug_str(defid).contains("Animal::speak")
             || self.tcx.def_path_debug_str(defid).contains("Animal::visit")
-            || self.tcx.def_path_debug_str(defid).contains("AnimalVisitor::visit_cat")
-            || self.tcx.def_path_debug_str(defid).contains("AnimalVisitor::visit_dog")
+            || self
+                .tcx
+                .def_path_debug_str(defid)
+                .contains("AnimalVisitor::visit_cat")
+            || self
+                .tcx
+                .def_path_debug_str(defid)
+                .contains("AnimalVisitor::visit_dog")
     }
 
     pub fn visit_body(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
@@ -141,7 +147,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         */
     }
 
-    fn visit_block(&self, cur_scope: DefId, num_bbs: usize, bb: &BasicBlock, data: &BasicBlockData<'tcx>, mut patch: &mut MirPatch<'tcx>) {
+    fn visit_block(
+        &self,
+        cur_scope: DefId,
+        num_bbs: usize,
+        bb: &BasicBlock,
+        data: &BasicBlockData<'tcx>,
+        mut patch: &mut MirPatch<'tcx>,
+    ) {
         if self.debug {
             println!("BB: {:?}", bb);
         }
@@ -183,7 +196,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                         println!("printed as str: {:?}", genargs.print_as_list());
                     }
 
-                    // can assume that if multiple funcvals, they will have the same 
+                    // can assume that if multiple funcvals, they will have the same
                     // type, so just get the self_opt using the first funcval
                     let mut funcval_vec = self.funcs.funcs.get(&cur_scope).unwrap().clone();
                     let funcval = funcval_vec.pop().unwrap();
@@ -224,7 +237,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 //temp_vtable_loc,
                             );
 
-                            // TODO if multiple patches in the same body? 
+                            // TODO if multiple patches in the same body?
                             // find way to declare/apply each patch in an inner scope
                             // for now assuming only one patch per body
 
@@ -236,12 +249,16 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 }
 
                                 for (bb_num, data) in patch.new_blocks.clone().iter().enumerate() {
-                                    self.visit_block(cur_scope, num_bbs + patch.new_blocks.len(), &BasicBlock::from_usize(bb_num), data, patch);
+                                    self.visit_block(
+                                        cur_scope,
+                                        num_bbs + patch.new_blocks.len(),
+                                        &BasicBlock::from_usize(bb_num),
+                                        data,
+                                        patch,
+                                    );
                                 }
-
                             }
                         }
-
                     } else {
                         if self.debug {
                             println!("first arg no type, continuing...");
@@ -1187,9 +1204,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     */
 
     fn get_first_nonself_arg_local(
-        &self, 
+        &self,
         _self_arg: Option<Place<'tcx>>,
-        args: &Box<[Spanned<Operand<'tcx>>]>
+        args: &Box<[Spanned<Operand<'tcx>>]>,
     ) -> Local {
         let op = &(*args)[FIRST_NONSELF_ARG_IDX].node;
         match op {

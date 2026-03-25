@@ -37,19 +37,29 @@ no inlining annotations
 
 verifopt seems to make code much less susceptible to branch mispredictions
 
+note that this is _not_ optimized to the performance of a single static call,
+but rather roughly that of two static calls, since that is the best-case
+scenario here. 
+
+FIXME re-run actually, these numbers are slightly too small?
+
+
+
+
+
+
+
 ### `visitor_two_variants_bench` (two dynamic dispatch, both w two variants)
 
 no inlining annotations
 
 | input type | OG (ns) | RW (ns) |
 | --- | --- | --- |
-| all 0s (all)        | 3.44 | 3.12 |
-| alt 0s and 1s (alt) | 3.43 | 3.11 |
-| rand                | 9.26 | 3.22 |
-| 00,01,10,11 (vis1)  | 3.69 | 3.22 |
-| 00,10,01,11 (vis2)  | 3.76 | 3.22 |
-
-FIXME ignore above ^^^ numbers until rewrite is fixed
+| all 0s (all)        | 3.44 | 3.43 |
+| alt 0s and 1s (alt) | 3.43 | 3.41 |
+| rand                | 9.26 | 3.43 |
+| 00,01,10,11 (vis1)  | 3.69 | 3.44 |
+| 00,10,01,11 (vis2)  | 3.76 | 3.42 |
 
 ## inlining
 
@@ -96,25 +106,25 @@ also be seen in the above alt input case)
 
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
-| never  |  |  |
+| never  | 4.51 | 3.66 |
 | always | 3.71 |  |
-| none   | 3.69 | 3.22 |
+| none   | 3.69 | 3.44 |
 
 #### vis2 input
 
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
-| never  |  |  |
+| never  | 4.63 | 3.67 |
 | always | 3.71 |  |
-| none   | 3.76 | 3.22 |
+| none   | 3.76 | 3.42 |
 
 #### rand input
 
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
-| never  |  |  |
+| never  | 9.56 | 6.07 |
 | always | 9.15 |  |
-| none   | 9.26 | 3.22 |
+| none   | 9.26 | 3.43 |
 
 
 

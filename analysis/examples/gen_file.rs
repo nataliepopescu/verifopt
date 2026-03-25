@@ -41,8 +41,15 @@ fn main() -> std::io::Result<()> {
                 writer.flush()?;
             } else if ty == "rand" {
                 for _ in 0..num {
-                    let r = rand::rng().random_range(..2u8) & 1;
-                    writer.write(&[r])?;
+                    // could just write r, but the output file ends up being in binary
+                    // so using this roundabout way to get utf-8 0s and 1s, just to match
+                    // the other outputted formats
+                    let r = rand::rng().random_range(..2u8);
+                    if r == 0 {
+                        writer.write(b"0")?;
+                    } else {
+                        writer.write(b"1")?;
+                    }
                 }
                 writer.flush()?;
             } else if ty == "vis1" {

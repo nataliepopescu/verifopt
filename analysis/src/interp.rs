@@ -9,7 +9,7 @@ use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
 use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
-use crate::core::{get_params_from_ty, is_box, is_fn_trait};
+use crate::core::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
 use crate::wto::BBDeps;
@@ -668,19 +668,38 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         self_constraint: &VerifoptRval<'tcx>,
         impls: &Vec<DefId>,
     ) -> Vec<DefId> {
+        if self.debug {
+            println!("\nGETTING IMPLS\n");
+            println!("trait defid: {:?}", trait_def_id);
+            println!("impls: {:?}", impls);
+        }
         match *self_constraint {
             VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did) => {
                 self.get_impls_from_constraint_defid(trait_def_id, &did, impls)
             }
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
             // (later) use the function return type as the retval's "constraint"
-            VerifoptRval::IdkType(_) => {
+            VerifoptRval::IdkType(ty) => {
+                let res_dids = resolve_ty(&ty, self.funcs, self.debug);
+
                 if self.debug {
-                    println!(
-                        "cannot get fn_impl from type, return empty vec to ignore dispatch and use backup function rettype for retval"
-                    );
+                    println!("res dids: {:?}", res_dids);
+                    //println!(
+                    //    "cannot get fn_impl from type, return empty vec to ignore dispatch and use backup function rettype for retval"
+                    //);
                 }
-                vec![]
+
+                // for every returned did (constraint), get impls
+                let mut dids = Vec::new();
+                for did in res_dids {
+                    dids.append(&mut self.get_impls_from_constraint_defid(
+                        trait_def_id,
+                        &did,
+                        impls,
+                    ));
+                }
+
+                dids //vec![]
             }
             _ => todo!("handle other types: {:?}", self_constraint),
         }

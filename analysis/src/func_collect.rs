@@ -345,6 +345,9 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let arg_idents = self.tcx.fn_arg_idents(def_id);
         let num_args = arg_idents.len();
         let arg_names = self.get_arg_names(num_args);
+        if self.debug {
+            println!("arg idents: {:?}", arg_idents);
+        }
 
         let mut arg_types = None;
         let mut arg_generics = None;
@@ -357,11 +360,17 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
 
         let mut self_arg = None;
-        if num_args > 0 && generics_of.has_self {
-            self_arg = Some(arg_names[0]);
-            if self.debug {
-                println!("has self!");
-                println!("self type: {:?}", self_arg);
+        // FIXME generics_of.has_self is incorrect!
+        if num_args > 0 {
+            if let Some(first_arg) = arg_idents[0] {
+                //println!("FIRST ARG: {:?}", first_arg.as_str());
+                if first_arg.as_str() == "self" {
+                    self_arg = Some(arg_names[0]);
+                    if self.debug {
+                        println!("has self!");
+                        println!("self type: {:?}", self_arg);
+                    }
+                }
             }
         }
 
@@ -545,7 +554,11 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 // two_variants: limit = 27
                 // two_variants_bench: limit = 45
                 // two_variants_bench_noctrs: limit = 36
-                if crate_num == 0 && def_index >= 36
+                // visitor_one_variant: limit = 51
+                // visitor_one_variant_bench: limit = 85
+                // visitor_two_variants: limit = 64
+                // visitor_two_variants_bench: limit = ?
+                if crate_num == 0 && def_index >= 64
                     || crate_num == 1 && def_index >= 19549
                     || crate_num == 2 && def_index >= 78916
                     || crate_num == 3 && def_index >= 12636

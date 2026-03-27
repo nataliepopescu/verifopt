@@ -1,15 +1,17 @@
 //extern crate rand;
 
+use rand::RngExt;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::prelude::*;
-use rand::RngExt;
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
         1 | 2 | 3 => {
-            println!("Pass in a filename, length, and type of generation (options: all, alt, rand)");
+            println!(
+                "Pass in a filename, length, and type of generation (options: all, alt, rand, vis1, vis2)"
+            );
             Ok(())
         }
         _ => {
@@ -39,10 +41,49 @@ fn main() -> std::io::Result<()> {
                 writer.flush()?;
             } else if ty == "rand" {
                 for _ in 0..num {
-                    let r = rand::rng().random_range(..2u8) & 1;
-                    writer.write(&[r])?;
+                    // could just write r, but the output file ends up being in binary
+                    // so using this roundabout way to get utf-8 0s and 1s, just to match
+                    // the other outputted formats
+                    let r = rand::rng().random_range(..2u8);
+                    if r == 0 {
+                        writer.write(b"0")?;
+                    } else {
+                        writer.write(b"1")?;
+                    }
                 }
                 writer.flush()?;
+            } else if ty == "vis1" {
+                for i in 0..num {
+                    if i % 4 == 0 {
+                        writer.write(b"0")?;
+                        writer.write(b"0")?;
+                    } else if i % 4 == 1 {
+                        writer.write(b"0")?;
+                        writer.write(b"1")?;
+                    } else if i % 4 == 2 {
+                        writer.write(b"1")?;
+                        writer.write(b"0")?;
+                    } else {
+                        writer.write(b"1")?;
+                        writer.write(b"1")?;
+                    }
+                }
+            } else if ty == "vis2" {
+                for i in 0..num {
+                    if i % 4 == 0 {
+                        writer.write(b"0")?;
+                        writer.write(b"0")?;
+                    } else if i % 4 == 1 {
+                        writer.write(b"1")?;
+                        writer.write(b"0")?;
+                    } else if i % 4 == 2 {
+                        writer.write(b"0")?;
+                        writer.write(b"1")?;
+                    } else {
+                        writer.write(b"1")?;
+                        writer.write(b"1")?;
+                    }
+                }
             } else {
                 panic!("nonexistent type: {:?}", ty);
             }

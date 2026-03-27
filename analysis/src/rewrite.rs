@@ -6,8 +6,7 @@ use rustc_span::{BytePos, Span, SyntaxContext};
 
 use crate::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::VerifoptRval;
-use crate::core::is_box;
+use crate::core::{VerifoptRval, is_box, resolve_ty};
 use crate::patch::MirPatch;
 
 // FIXME get dynamically
@@ -23,6 +22,9 @@ const VTABLE_TY_DEFID: DefId = DefId {
     index: DefIndex::from_u32(2583),
     krate: CrateNum::from_u32(2),
 };
+
+//const FIRST_NONSELF_ARG_IDX: usize = 0;
+//const VTABLE_ADDR_IDX: u32 = 2;
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -87,133 +89,32 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
     }
 
+    fn should_rewrite(&self, defid: DefId) -> bool {
+        self.tcx.def_path_debug_str(defid).contains("Animal::speak")
+            || self.tcx.def_path_debug_str(defid).contains("Animal::visit")
+            || self
+                .tcx
+                .def_path_debug_str(defid)
+                .contains("AnimalVisitor::visit_cat")
+            || self
+                .tcx
+                .def_path_debug_str(defid)
+                .contains("AnimalVisitor::visit_dog")
+    }
+
     pub fn visit_body(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
         if self.debug {
             println!("#############################");
             println!("IN SCOPE: {:?}", cur_scope);
             println!("#############################");
         }
+
+        // for benchmarks, track "warmup" loop vtable ptr difference per _body_ (not per block)
+        let mut warmup = true;
         let mut patch = MirPatch::new(body);
-        //let mut ctr: usize = 0;
+        let num_bbs = body.basic_blocks.len();
         for (bb, data) in body.basic_blocks.iter_enumerated() {
-            // TODO add some notion of WTO?
-            if data.is_cleanup {
-                //println!("CLEANUP: {:?}", bb);
-                continue;
-            }
-
-            match &data.terminator().kind {
-                TerminatorKind::Call {
-                    func,
-                    args,
-                    destination,
-                    ..
-                } => {
-                    if let Some((defid, genargs)) = func.const_fn_def() {
-                        if genargs.len() == 0 {
-                            if self.debug {
-                                println!("\n# -------------------------------");
-                                println!("# in {:?} of {:?}", bb, cur_scope);
-                                println!("# no genargs");
-                                println!("# func: {:?}", func);
-                                println!("# args: {:?}", args);
-                                println!("# dest: {:?}", destination);
-                                println!("# -------------------------------");
-                            }
-                            self.setup_visit_body(func);
-                            continue;
-                        }
-
-                        if self.debug {
-                            println!("\n# -------------------------------");
-                            println!("# in {:?} of {:?}", bb, cur_scope);
-                            println!("# CALL term: {:?}", defid);
-                            println!("# -------------------------------");
-                            println!("genargs: {:?}", genargs);
-                            println!("printed as str: {:?}", genargs.print_as_list());
-                        }
-
-                        let genargs_slice = genargs.as_slice();
-                        let first = genargs_slice[0];
-                        if let Some(ty) = first.as_type() {
-                            if ty.is_trait() {
-                                if !self.tcx.def_path_debug_str(defid).contains("Animal::speak") {
-                                    if self.debug {
-                                        println!("SKIPPING OTHER DYN CALL: {:?}", defid);
-                                    }
-                                    continue;
-                                }
-
-                                if self.debug {
-                                    println!("\nFIRST ARG == TRAIT");
-                                    println!("arg: {:?}", first);
-                                    println!("func: {:?}", func);
-                                    println!("func_defid: {:?}", defid);
-                                }
-
-                                let num_bbs = body.basic_blocks.len();
-                                //let temp_vtable_loc;
-                                //if ctr == 0 {
-                                //    temp_vtable_loc = Some(Local::from_u32(207));
-                                //} else {
-                                //    temp_vtable_loc = Some(Local::from_u32(210));
-                                //}
-                                //ctr += 1;
-                                //temp_vtable_loc = Some(Local::from_u32(2));
-                                self.replace_dynamic_dispatch(
-                                    cur_scope,
-                                    &mut patch,
-                                    &defid,
-                                    ty,
-                                    args,
-                                    *destination,
-                                    bb,
-                                    data,
-                                    num_bbs,
-                                    //temp_vtable_loc,
-                                );
-                            }
-                        } else {
-                            if self.debug {
-                                println!("first arg no type, continuing...");
-                            }
-                            continue;
-                        }
-
-                        // TODO if a dyn dispatch was replaced, traverse into those funcs (via
-                        // patch?)
-
-                        if self.debug {
-                            println!("\n# -------------------------------");
-                            println!("# in {:?} of {:?}", bb, cur_scope);
-                            println!("# POST CONST FN DEF");
-                            println!("# func: {:?}", func);
-                            println!("# args: {:?}", args);
-                            println!("# dest: {:?}", destination);
-                            println!("# -------------------------------");
-                        }
-                    } else {
-                        todo!();
-                        //if self.debug {
-                        //    println!("\n# -------------------------------");
-                        //    println!("# in {:?} of {:?}", bb, cur_scope);
-                        //    println!("# NON CONST FN DEF");
-                        //    println!("# func: {:?}", func);
-                        //    println!("# args: {:?}", args);
-                        //    println!("# dest: {:?}", destination);
-                        //    println!("# -------------------------------");
-                        //}
-                    }
-                }
-                termkind @ _ => {
-                    if self.debug {
-                        println!("\n# -------------------------------");
-                        println!("# in {:?} of {:?}", bb, cur_scope);
-                        println!("# NON-CALL term: {:?}", termkind);
-                        println!("# -------------------------------");
-                    }
-                }
-            }
+            self.visit_block(cur_scope, num_bbs, &bb, data, &mut patch, &mut warmup);
         }
 
         if self.debug {
@@ -246,6 +147,202 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("}}");
         }
         */
+    }
+
+    #[allow(unused_assignments)]
+    fn visit_block(
+        &self,
+        cur_scope: DefId,
+        num_bbs: usize,
+        bb: &BasicBlock,
+        data: &BasicBlockData<'tcx>,
+        mut patch: &mut MirPatch<'tcx>,
+        warmup: &mut bool,
+    ) {
+        if self.debug {
+            println!("BB: {:?}", bb);
+        }
+
+        // TODO add some notion of WTO?
+        if data.is_cleanup {
+            //println!("CLEANUP: {:?}", bb);
+            return;
+        }
+
+        let mut updated_num_blocks = 0;
+
+        match &data.terminator().kind {
+            TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                ..
+            } => {
+                if let Some((defid, genargs)) = func.const_fn_def() {
+                    if genargs.len() == 0 {
+                        if self.debug {
+                            println!("\n# -------------------------------");
+                            println!("# in {:?} of {:?}", bb, cur_scope);
+                            println!("# no genargs");
+                            println!("# func: {:?}", func);
+                            println!("# args: {:?}", args);
+                            println!("# dest: {:?}", destination);
+                            println!("# -------------------------------");
+                        }
+                        self.setup_visit_body(func);
+                        return;
+                    }
+
+                    if self.debug {
+                        println!("\n# -------------------------------");
+                        println!("# in {:?} of {:?}", bb, cur_scope);
+                        println!("# CALL term: {:?}", defid);
+                        println!("# -------------------------------");
+                        println!("genargs: {:?}", genargs);
+                        println!("printed as str: {:?}", genargs.print_as_list());
+                    }
+
+                    // can assume that if multiple funcvals, they will have the same
+                    // type, so just get the self_opt using the first funcval
+                    let mut funcval_vec = self.funcs.funcs.get(&cur_scope).unwrap().clone();
+                    let funcval = funcval_vec.pop().unwrap();
+                    if self.debug {
+                        println!("funcval_vec: {:#?}", funcval_vec);
+                        println!("funcval: {:?}", funcval);
+                    }
+
+                    let genargs_slice = genargs.as_slice();
+                    let first = genargs_slice[0];
+                    if let Some(ty) = first.as_type() {
+                        if ty.is_trait() {
+                            if !self.should_rewrite(defid) {
+                                if self.debug {
+                                    println!("SKIPPING OTHER DYN CALL: {:?}", defid);
+                                }
+                                return;
+                            }
+
+                            if self.debug {
+                                println!("\nFIRST ARG == TRAIT");
+                                println!("arg: {:?}", first);
+                                println!("func: {:?}", func);
+                                println!("func_defid: {:?}", defid);
+                            }
+
+                            let vtable_locs;
+                            if cur_scope.krate.as_u32() == 0 && cur_scope.index.as_u32() == 46 {
+                                // different dyn animal vtables for warmup vs run block in
+                                // benchmarks (inlined bench())
+                                if *warmup == true {
+                                    *warmup = false;
+                                    //vtable_locs = (264, 5);
+                                    vtable_locs = (214, 5);
+                                } else {
+                                    //vtable_locs = (269, 5);
+                                    vtable_locs = (219, 5);
+                                }
+                            } else {
+                                if funcval.self_arg.is_some() {
+                                    // increase offset b/c arg list now includes `self`
+                                    vtable_locs = (3, 4);
+                                } else {
+                                    // default offset
+                                    vtable_locs = (2, 3);
+                                }
+                            }
+
+                            if self.debug {
+                                println!("PRE REPLACEMENT");
+                                println!("warmup: {:?}", warmup);
+                                println!("vtable_locs: {:?}", vtable_locs);
+                            }
+
+                            self.replace_dynamic_dispatch(
+                                cur_scope,
+                                &mut patch,
+                                &defid,
+                                ty,
+                                args,
+                                *destination,
+                                bb,
+                                data,
+                                num_bbs,
+                                vtable_locs,
+                            );
+
+                            // TODO if multiple patches in the same body?
+                            // find way to declare/apply each patch in an inner scope
+                            // for now assuming only one patch per body
+
+                            if self.debug {
+                                println!("POST REPLACEMENT");
+                                println!("updated_num_blocks: {:?}", updated_num_blocks);
+                                println!("patch.new_blocks.len(): {:?}", patch.new_blocks.len());
+                            }
+
+                            // traverse into replacement code
+                            if patch.new_blocks.len() - updated_num_blocks > 0 {
+                                if self.debug {
+                                    println!("TRAVERSING NESTED!!");
+                                    println!("num new blocks: {:?}", patch.new_blocks.len());
+                                }
+
+                                for (bb_num, data) in patch.new_blocks.clone().iter().enumerate() {
+                                    // we've already traversed this part of the patch
+                                    if bb_num < updated_num_blocks {
+                                        continue;
+                                    }
+                                    self.visit_block(
+                                        cur_scope,
+                                        num_bbs + patch.new_blocks.len(),
+                                        &BasicBlock::from_usize(bb_num),
+                                        data,
+                                        patch,
+                                        warmup,
+                                    );
+                                }
+                            }
+
+                            updated_num_blocks = patch.new_blocks.len();
+                        }
+                    } else {
+                        if self.debug {
+                            println!("first arg no type, continuing...");
+                        }
+                        return;
+                    }
+
+                    //if self.debug {
+                    //    println!("\n# -------------------------------");
+                    //    println!("# in {:?} of {:?}", bb, cur_scope);
+                    //    println!("# POST CONST FN DEF");
+                    //    println!("# func: {:?}", func);
+                    //    println!("# args: {:?}", args);
+                    //    println!("# dest: {:?}", destination);
+                    //    println!("# -------------------------------");
+                    //}
+                } else {
+                    todo!();
+                    //if self.debug {
+                    //    println!("\n# -------------------------------");
+                    //    println!("# in {:?} of {:?}", bb, cur_scope);
+                    //    println!("# NON CONST FN DEF");
+                    //    println!("# func: {:?}", func);
+                    //    println!("# args: {:?}", args);
+                    //    println!("# dest: {:?}", destination);
+                    //    println!("# -------------------------------");
+                    //}
+                }
+            }
+            termkind @ _ => {
+                if self.debug {
+                    println!("\n# -------------------------------");
+                    println!("# in {:?} of {:?}", bb, cur_scope);
+                    println!("# NON-CALL term: {:?}", termkind);
+                    println!("# -------------------------------");
+                }
+            }
+        }
     }
 
     fn dummy_span(&self) -> Span {
@@ -321,36 +418,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.patch_terminator(cur_bb, TerminatorKind::Goto { target: new_start });
     }
 
-    fn resolve_genarg(&self, genarg: &GenericArg<'tcx>) -> Vec<DefId> {
-        match genarg.kind() {
-            GenericArgKind::Type(ty) => self.resolve_ty(&ty), //match ty.kind() {
-            //},
-            _ => todo!(),
-        }
-    }
-
-    fn resolve_adt(&self, adt_defid: &DefId, genargs: &[GenericArg<'tcx>]) -> Vec<DefId> {
-        if self.debug {
-            println!("adtdefid: {:?}", adt_defid);
-            println!("genargs: {:?}", genargs);
-        }
-        if is_box(*adt_defid) {
-            let mut defids = Vec::new();
-            for genarg in genargs {
-                defids.append(&mut self.resolve_genarg(genarg));
-            }
-            return defids;
-        } else {
-            if self.debug {
-                println!(
-                    "adt is not a box: {:?} \n\t(genargs: {:?})",
-                    adt_defid, genargs
-                );
-            }
-            return vec![];
-        }
-    }
-
     fn resolve_struct(
         &self,
         struct_defid: &DefId,
@@ -398,55 +465,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
     }
 
-    fn resolve_ty(&self, ty: &Ty<'tcx>) -> Vec<DefId> {
-        match ty.kind() {
-            TyKind::RawPtr(ty, _mut) => self.resolve_ty(ty),
-            TyKind::Dynamic(list, _) => {
-                if self.debug {
-                    println!("dyn");
-                    println!("list: {:?}", list);
-                }
-                let mut defids = Vec::new();
-                for inner in list.iter() {
-                    if self.debug {
-                        println!("inner: {:?}", inner);
-                        println!("inner.skip_binder: {:?}", inner.skip_binder());
-                    }
-                    match inner.skip_binder() {
-                        ExistentialPredicate::Trait(etraitref) => {
-                            if self.debug {
-                                println!("etraitref: {:?}", etraitref);
-                                println!("etraitref defid: {:?}", etraitref.def_id);
-                            }
-                            match self.funcs.trait_to_struct_impls.get(&etraitref.def_id) {
-                                Some(structs) => {
-                                    for struct_ in structs {
-                                        defids.push(*struct_);
-                                    }
-                                }
-                                None => panic!("no structs to return: {:?}", etraitref.def_id),
-                            }
-                        }
-                        _ => println!("other"),
-                    }
-                }
-                return defids;
-            }
-            TyKind::Adt(adtdef, genargs) => {
-                if self.debug {
-                    println!("adt");
-                }
-                self.resolve_adt(&adtdef.did(), genargs)
-            }
-            _ => {
-                if self.debug {
-                    println!("other: {:?}", ty.kind());
-                }
-                todo!();
-            }
-        }
-    }
-
     fn resolve_first_arg_constraints(
         &self,
         first_arg_constraint: &VerifoptRval<'tcx>,
@@ -459,7 +477,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             VerifoptRval::IdkStruct(struct_defid, genarg_vec) => {
                 self.resolve_struct(struct_defid, genarg_vec)
             }
-            VerifoptRval::IdkType(ty) => self.resolve_ty(ty),
+            VerifoptRval::IdkType(ty) => resolve_ty(ty, self.funcs, self.debug),
             VerifoptRval::Ref(boxed) => self.resolve_first_arg_constraints(&*boxed),
             _ => todo!("handle more kinds: {:?}", first_arg_constraint),
         }
@@ -471,6 +489,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("\n##### Getting Struct DefIds\n");
             println!("cur_scope: {:?}", cur_scope);
             println!("traitobj should be at {:?}", traitobj);
+            //println!(
+            //    "cmap @ scope: {:#?}",
+            //    self.cmap.cmap.get(&MapKey::ScopeId(cur_scope))
+            //);
         }
 
         let mut structs = vec![];
@@ -509,15 +531,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         &self,
         _cur_scope: DefId,
         structs: &Vec<DefId>,
-        impltors: &Vec<DefId>,
+        impls: &Vec<DefId>,
     ) -> Vec<DefId> {
-        let mut impls = vec![];
+        let mut matching_impls = vec![];
         for struct_ in structs.iter() {
             if let Some(impl_blocks) = self.funcs.struct_to_impls.get(struct_) {
                 if let Some(assoc) = self.funcs.impl_blocks_to_fn_impls.get(&impl_blocks[0]) {
-                    for impltor in impltors {
-                        if assoc.contains(impltor) {
-                            impls.push(*impltor);
+                    for impl_ in impls {
+                        if assoc.contains(impl_) {
+                            matching_impls.push(*impl_);
                         }
                     }
                 } else {
@@ -527,7 +549,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 panic!("no struct impls");
             }
         }
-        impls
+        matching_impls
     }
 
     // TODO doing duplicate work as in interp, store interp's result somewhere
@@ -544,10 +566,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
         let structs = self.get_struct_dids(cur_scope, traitobj);
         if self.debug {
-            println!("structs: {:?}", structs);
+            println!("GOT structs: {:?}", structs);
         }
 
-        if let Some(impltors) = self
+        if let Some(impls) = self
             .funcs
             .trait_fn_impls
             .lock()
@@ -555,15 +577,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             .get(&dynfunc_defid)
         {
             if self.debug {
-                println!("impltors: {:?}", impltors);
-            }
-
-            let impls = self.get_impl_dids(cur_scope, &structs, impltors);
-            if self.debug {
                 println!("impls: {:?}", impls);
             }
 
-            return std::iter::zip(structs, impls).collect();
+            let matching_impls = self.get_impl_dids(cur_scope, &structs, impls);
+            if self.debug {
+                println!("matching impls: {:?}", matching_impls);
+            }
+
+            return std::iter::zip(structs, matching_impls).collect();
         } else {
             panic!("no impltors");
         }
@@ -1242,18 +1264,22 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch: &mut MirPatch<'tcx>,
         dynfunc_defid: &DefId,
         ty: Ty<'tcx>,
+        //self_arg: Option<Place<'tcx>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         term_dst_place: Place<'tcx>,
-        bb: BasicBlock,
+        bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
+        vtable_locs: (u32, u32),
         //traitobj_vtable: Option<Local>,
     ) {
         if self.debug {
             println!("\n### STARTING\n");
+            println!("cur_scope: {:?}", cur_scope);
+            //println!("self_arg: {:?}", self_arg);
             println!("num_bbs: {:?}", num_bbs);
             println!("cur_bb: {:?}", bb);
-            println!("speak dest: {:?}", term_dst_place);
+            println!("func dest place: {:?}", term_dst_place);
         }
 
         let traitobj = self.get_first_arg_local(args);
@@ -1280,6 +1306,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
 
         let mut traitobj_vtable = None;
+        // FIXME make vec to support 3 or more variants
         let mut variant_vtable = None;
         let mut traitobj_vtable_ptr = None;
         let mut variant_vtable_ptr = None;
@@ -1291,10 +1318,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
 
             // FIXME get dynamically
-            //traitobj_vtable = Some(Local::from_u32(12));
-            //variant_vtable = Some(Local::from_u32(13));
-            traitobj_vtable = Some(Local::from_u32(2));
-            variant_vtable = Some(Local::from_u32(3));
+            //if self_arg.is_some() {
+            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
+            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 2));
+            //} else {
+            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX));
+            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
+            //}
+            traitobj_vtable = Some(Local::from_u32(vtable_locs.0));
+            variant_vtable = Some(Local::from_u32(vtable_locs.1));
 
             if self.debug {
                 println!("traitobj vtable: {:?}", traitobj_vtable);
@@ -1373,6 +1405,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     mut_dyn_traitobj,
                 );
                 into_raw_target = Some(bb_shim);
+            } else {
+                if self.debug {
+                    println!("i: {:?}", i);
+                    println!("dids: {:?}", dids);
+                }
             }
 
             bb_last_variant_speak = Some(bb_cur_variant_speak);
@@ -1394,6 +1431,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         );
 
         // mod cur speak block w/ goto new start (into_raw)
-        self.replace_dyndispatch_term_w_goto(patch, bb, bb_into_raw);
+        self.replace_dyndispatch_term_w_goto(patch, *bb, bb_into_raw);
     }
 }

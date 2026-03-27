@@ -2,6 +2,7 @@
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
+use rustc_middle::ty::ExistentialPredicate;
 //use rustc_span::symbol::Symbol;
 //use rustc_span::Ident;
 use rustc_abi::FieldIdx;
@@ -196,6 +197,94 @@ pub fn get_params_from_ty<'tcx>(ty: &Ty<'tcx>, debug: bool) -> Option<Vec<ParamT
             }
             return None;
         }
+    }
+}
+
+pub fn resolve_ty<'tcx>(ty: &Ty<'tcx>, funcs: &FuncMap<'tcx>, debug: bool) -> Vec<DefId> {
+    match ty.kind() {
+        TyKind::RawPtr(ty, _mut) => resolve_ty(ty, funcs, debug),
+        TyKind::Dynamic(list, _) => {
+            if debug {
+                println!("dyn");
+                println!("list: {:?}", list);
+            }
+            let mut defids = Vec::new();
+            for inner in list.iter() {
+                if debug {
+                    println!("inner: {:?}", inner);
+                    println!("inner.skip_binder: {:?}", inner.skip_binder());
+                }
+                match inner.skip_binder() {
+                    ExistentialPredicate::Trait(etraitref) => {
+                        if debug {
+                            println!("etraitref: {:?}", etraitref);
+                            println!("etraitref defid: {:?}", etraitref.def_id);
+                        }
+                        match funcs.trait_to_struct_impls.get(&etraitref.def_id) {
+                            Some(structs) => {
+                                for struct_ in structs {
+                                    defids.push(*struct_);
+                                }
+                            }
+                            None => panic!("no structs to return: {:?}", etraitref.def_id),
+                        }
+                    }
+                    _ => println!("other"),
+                }
+            }
+            return defids;
+        }
+        TyKind::Adt(adtdef, genargs) => {
+            if debug {
+                println!("adt");
+            }
+            resolve_adt(&adtdef.did(), genargs, funcs, debug)
+        }
+        _ => {
+            if debug {
+                println!("other: {:?}", ty.kind());
+            }
+            //todo!();
+            vec![]
+        }
+    }
+}
+
+pub fn resolve_adt<'tcx>(
+    adt_defid: &DefId,
+    genargs: &[GenericArg<'tcx>],
+    funcs: &FuncMap<'tcx>,
+    debug: bool,
+) -> Vec<DefId> {
+    if debug {
+        println!("adtdefid: {:?}", adt_defid);
+        println!("genargs: {:?}", genargs);
+    }
+    if is_box(*adt_defid) {
+        let mut defids = Vec::new();
+        for genarg in genargs {
+            defids.append(&mut resolve_genarg(genarg, funcs, debug));
+        }
+        return defids;
+    } else {
+        if debug {
+            println!(
+                "adt is not a box: {:?} \n\t(genargs: {:?})",
+                adt_defid, genargs
+            );
+        }
+        return vec![];
+    }
+}
+
+pub fn resolve_genarg<'tcx>(
+    genarg: &GenericArg<'tcx>,
+    funcs: &FuncMap<'tcx>,
+    debug: bool,
+) -> Vec<DefId> {
+    match genarg.kind() {
+        GenericArgKind::Type(ty) => resolve_ty(&ty, funcs, debug),
+        _ => todo!(),
     }
 }
 

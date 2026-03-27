@@ -23,8 +23,8 @@ const VTABLE_TY_DEFID: DefId = DefId {
     krate: CrateNum::from_u32(2),
 };
 
-const FIRST_NONSELF_ARG_IDX: usize = 0;
-const VTABLE_ADDR_IDX: u32 = 2;
+//const FIRST_NONSELF_ARG_IDX: usize = 0;
+//const VTABLE_ADDR_IDX: u32 = 2;
 
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
@@ -109,10 +109,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("#############################");
         }
 
+        // for benchmarks, track "warmup" loop vtable ptr difference per _body_ (not per block)
+        let mut warmup = true;
         let mut patch = MirPatch::new(body);
         let num_bbs = body.basic_blocks.len();
         for (bb, data) in body.basic_blocks.iter_enumerated() {
-            self.visit_block(cur_scope, num_bbs, &bb, data, &mut patch);
+            self.visit_block(cur_scope, num_bbs, &bb, data, &mut patch, &mut warmup);
         }
 
         if self.debug {
@@ -147,6 +149,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         */
     }
 
+    #[allow(unused_assignments)]
     fn visit_block(
         &self,
         cur_scope: DefId,
@@ -154,6 +157,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
         mut patch: &mut MirPatch<'tcx>,
+        warmup: &mut bool,
     ) {
         if self.debug {
             println!("BB: {:?}", bb);
@@ -164,6 +168,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             //println!("CLEANUP: {:?}", bb);
             return;
         }
+
+        let mut updated_num_blocks = 0;
 
         match &data.terminator().kind {
             TerminatorKind::Call {
@@ -223,41 +229,81 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 println!("func_defid: {:?}", defid);
                             }
 
+                            let vtable_locs;
+                            if cur_scope.krate.as_u32() == 0 && cur_scope.index.as_u32() == 46 {
+                                // different dyn animal vtables for warmup vs run block in
+                                // benchmarks (inlined bench())
+                                if *warmup == true {
+                                    *warmup = false;
+                                    //vtable_locs = (264, 5);
+                                    vtable_locs = (214, 5);
+                                } else {
+                                    //vtable_locs = (269, 5);
+                                    vtable_locs = (219, 5);
+                                }
+                            } else {
+                                if funcval.self_arg.is_some() {
+                                    // increase offset b/c arg list now includes `self`
+                                    vtable_locs = (3, 4);
+                                } else {
+                                    // default offset
+                                    vtable_locs = (2, 3);
+                                }
+                            }
+
+                            if self.debug {
+                                println!("PRE REPLACEMENT");
+                                println!("warmup: {:?}", warmup);
+                                println!("vtable_locs: {:?}", vtable_locs);
+                            }
+
                             self.replace_dynamic_dispatch(
                                 cur_scope,
                                 &mut patch,
                                 &defid,
                                 ty,
-                                funcval.self_arg,
                                 args,
                                 *destination,
                                 bb,
                                 data,
                                 num_bbs,
-                                //temp_vtable_loc,
+                                vtable_locs,
                             );
 
                             // TODO if multiple patches in the same body?
                             // find way to declare/apply each patch in an inner scope
                             // for now assuming only one patch per body
 
+                            if self.debug {
+                                println!("POST REPLACEMENT");
+                                println!("updated_num_blocks: {:?}", updated_num_blocks);
+                                println!("patch.new_blocks.len(): {:?}", patch.new_blocks.len());
+                            }
+
                             // traverse into replacement code
-                            if patch.new_blocks.len() > 0 {
+                            if patch.new_blocks.len() - updated_num_blocks > 0 {
                                 if self.debug {
-                                    println!("HERE!!");
+                                    println!("TRAVERSING NESTED!!");
                                     println!("num new blocks: {:?}", patch.new_blocks.len());
                                 }
 
                                 for (bb_num, data) in patch.new_blocks.clone().iter().enumerate() {
+                                    // we've already traversed this part of the patch
+                                    if bb_num < updated_num_blocks {
+                                        continue;
+                                    }
                                     self.visit_block(
                                         cur_scope,
                                         num_bbs + patch.new_blocks.len(),
                                         &BasicBlock::from_usize(bb_num),
                                         data,
                                         patch,
+                                        warmup,
                                     );
                                 }
                             }
+
+                            updated_num_blocks = patch.new_blocks.len();
                         }
                     } else {
                         if self.debug {
@@ -1203,12 +1249,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
     */
 
-    fn get_first_nonself_arg_local(
+    fn get_first_arg_local(
         &self,
-        _self_arg: Option<Place<'tcx>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) -> Local {
-        let op = &(*args)[FIRST_NONSELF_ARG_IDX].node;
+        let op = &(*args)[0].node;
         match op {
             Operand::Copy(place) | Operand::Move(place) => return place.local,
             _ => panic!("first arg is not a copy or move: {:?}", op),
@@ -1222,24 +1267,25 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch: &mut MirPatch<'tcx>,
         dynfunc_defid: &DefId,
         ty: Ty<'tcx>,
-        self_arg: Option<Place<'tcx>>,
+        //self_arg: Option<Place<'tcx>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         term_dst_place: Place<'tcx>,
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
+        vtable_locs: (u32, u32),
         //traitobj_vtable: Option<Local>,
     ) {
         if self.debug {
             println!("\n### STARTING\n");
             println!("cur_scope: {:?}", cur_scope);
-            println!("self_arg: {:?}", self_arg);
+            //println!("self_arg: {:?}", self_arg);
             println!("num_bbs: {:?}", num_bbs);
             println!("cur_bb: {:?}", bb);
             println!("func dest place: {:?}", term_dst_place);
         }
 
-        let traitobj = self.get_first_nonself_arg_local(self_arg, args);
+        let traitobj = self.get_first_arg_local(args);
         if self.debug {
             println!("first arg local: {:?}", traitobj);
             println!("args: {:?}", args);
@@ -1263,6 +1309,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
 
         let mut traitobj_vtable = None;
+        // FIXME make vec to support 3 or more variants
         let mut variant_vtable = None;
         let mut traitobj_vtable_ptr = None;
         let mut variant_vtable_ptr = None;
@@ -1274,13 +1321,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
 
             // FIXME get dynamically
-            if self_arg.is_some() {
-                traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
-                variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 2));
-            } else {
-                traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX));
-                variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
-            }
+            //if self_arg.is_some() {
+            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
+            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 2));
+            //} else {
+            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX));
+            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
+            //}
+            traitobj_vtable = Some(Local::from_u32(vtable_locs.0));
+            variant_vtable = Some(Local::from_u32(vtable_locs.1));
 
             if self.debug {
                 println!("traitobj vtable: {:?}", traitobj_vtable);

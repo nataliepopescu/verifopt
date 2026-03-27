@@ -1249,10 +1249,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
     */
 
-    fn get_first_arg_local(
-        &self,
-        args: &Box<[Spanned<Operand<'tcx>>]>,
-    ) -> Local {
+    fn get_first_arg_local(&self, args: &Box<[Spanned<Operand<'tcx>>]>) -> Local {
         let op = &(*args)[0].node;
         match op {
             Operand::Copy(place) | Operand::Move(place) => return place.local,

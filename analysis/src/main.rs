@@ -1,6 +1,7 @@
 #![feature(rustc_private)]
 #![feature(box_patterns)]
 #![feature(maybe_uninit_fill)]
+#![feature(ptr_metadata)]
 
 extern crate rustc_abi;
 extern crate rustc_ast;
@@ -22,6 +23,7 @@ mod patch;
 mod wto;
 
 mod func_collect;
+mod vtable_shim;
 mod interp;
 mod rewrite;
 
@@ -45,6 +47,7 @@ use std::env;
 
 use constraints::ConstraintMap;
 use func_collect::{FuncCollectPass, FuncMap};
+use vtable_shim::{VtableShimPass, VtableMap};
 use interp::InterpPass;
 use rewrite::RewritePass;
 
@@ -67,6 +70,10 @@ impl Callbacks for VerifoptCallbacks {
         let mut funcs = FuncMap::new();
         let func_collect = FuncCollectPass::new(tcx, true);
         func_collect.run(&mut funcs);
+
+        let mut vtables = VtableMap::new();
+        let mut vtable_pass = VtableShimPass::new(tcx, &funcs, true);
+        vtable_pass.run(&mut vtables);
 
         //// init + run Function Signature Collection Pass
         //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig

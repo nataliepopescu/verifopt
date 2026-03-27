@@ -20,7 +20,7 @@ impl Animal for Cat {
         11111
     }
 
-    //#[inline(never)]
+    #[inline(always)]
     fn visit(
         &self,
         av: Box<dyn AnimalVisitor>,
@@ -49,7 +49,7 @@ impl Animal for Dog {
         22222
     }
 
-    //#[inline(never)]
+    #[inline(always)]
     fn visit(
         &self,
         av: Box<dyn AnimalVisitor>,
@@ -131,7 +131,7 @@ pub fn get_visitor1() -> Box<dyn AnimalVisitor> {
 
 /* Optimized Functions to Test */
 
-//#[inline(never)]
+#[inline(always)]
 pub fn run_full_not_rw(
     //_dummy: usize,
     animal: Box<dyn Animal>,

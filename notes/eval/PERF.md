@@ -83,7 +83,7 @@ using alt 0s and 1s input type
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 3.72 | 3.76 |
-| always | 3.53 | 2.92 |
+| always | 3.53 | 2.92 | ?
 | none   | 3.53 | 3.09 |
 
 #### rand input
@@ -91,7 +91,7 @@ using alt 0s and 1s input type
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 6.01 | 6.13 |
-| always | 6.09 | 2.96 |
+| always | 6.09 | 2.96 | ?
 | none   | 5.95 | 3.20 |
 
 it is actually pretty interesting to see here that if we disable inlining for
@@ -102,12 +102,19 @@ also be seen in the above alt input case)
 
 ### `visitor_two_variants_bench` (two dynamic dispatch, both w two variants)
 
+inlining is currently difficult to measure in a reliable way b/c inlining
+changes the indices of the vtable ptr locations, so things need to be manually
+adjusted (unlike non-inlined functions which always have the necessary vtable
+ptrs at a fixed offset)
+
+automating the vtable ptr shim in the future will fix this
+
 #### vis1 input
 
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 4.51 | 3.66 |
-| always | 3.71 |  |
+| always | 3.71 | 3.33 |
 | none   | 3.69 | 3.44 |
 
 #### vis2 input
@@ -115,7 +122,7 @@ also be seen in the above alt input case)
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 4.63 | 3.67 |
-| always | 3.71 |  |
+| always | 3.71 | 3.43 |
 | none   | 3.76 | 3.42 |
 
 #### rand input
@@ -123,7 +130,7 @@ also be seen in the above alt input case)
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 9.56 | 6.07 |
-| always | 9.15 |  |
+| always | 9.15 | 9.02 | ?
 | none   | 9.26 | 3.43 |
 
 

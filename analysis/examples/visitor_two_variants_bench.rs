@@ -6,6 +6,10 @@ use std::io::prelude::*;
 use std::ptr::DynMetadata;
 use std::time::Instant;
 
+// FIXME still doesn't solve the problem of the dynamic traitobj vtable ptr
+//const CAT: &dyn Animal = &Cat{};
+//const CAT_VTABLE: DynMetadata<dyn Animal> = core::ptr::metadata(&*CAT);
+
 pub trait Animal {
     fn speak(&self) -> usize;
     fn visit(
@@ -34,7 +38,6 @@ pub fn get_animal(num: usize) -> Box<dyn Animal> {
     }
 }
 
-//#[inline(always)]
 pub fn get_cat() -> Box<dyn Animal> {
     return Box::new(Cat {});
 }
@@ -70,7 +73,7 @@ impl Animal for Cat {
         vis1_ctr: &mut Ctr,
         vis2_ctr: &mut Ctr,
     ) -> usize {
-        println!("cat's visit()");
+        //println!("cat's visit()");
         av.visit_cat(self, cat_ctr, dog_ctr, vis1_ctr, vis2_ctr)
     }
 }
@@ -119,7 +122,7 @@ impl Animal for Dog {
         vis1_ctr: &mut Ctr,
         vis2_ctr: &mut Ctr,
     ) -> usize {
-        println!("dog's visit()");
+        //println!("dog's visit()");
         av.visit_dog(self, cat_ctr, dog_ctr, vis1_ctr, vis2_ctr)
     }
 }
@@ -182,7 +185,7 @@ impl AnimalVisitor for Visitor1 {
         vis1_ctr: &mut Ctr,
         vis2_ctr: &mut Ctr,
     ) -> usize {
-        println!("vis1's visit_dog()");
+        //println!("vis1's visit_dog()");
         d.fetch(cat_ctr, dog_ctr, vis1_ctr, vis2_ctr)
     }
     fn visit_cat(
@@ -193,7 +196,7 @@ impl AnimalVisitor for Visitor1 {
         vis1_ctr: &mut Ctr,
         vis2_ctr: &mut Ctr,
     ) -> usize {
-        println!("vis1's visit_cat()");
+        //println!("vis1's visit_cat()");
         c.purr(cat_ctr, dog_ctr, vis1_ctr, vis2_ctr)
     }
 }
@@ -207,7 +210,7 @@ impl AnimalVisitor for Visitor2 {
         vis1_ctr: &mut Ctr,
         vis2_ctr: &mut Ctr,
     ) -> usize {
-        println!("vis2's visit_dog()");
+        //println!("vis2's visit_dog()");
         d.dig(cat_ctr, dog_ctr, vis1_ctr, vis2_ctr)
     }
     fn visit_cat(
@@ -218,7 +221,7 @@ impl AnimalVisitor for Visitor2 {
         vis1_ctr: &mut Ctr,
         vis2_ctr: &mut Ctr,
     ) -> usize {
-        println!("vis2's visit_cat()");
+        //println!("vis2's visit_cat()");
         c.pounce(cat_ctr, dog_ctr, vis1_ctr, vis2_ctr)
     }
 }
@@ -238,7 +241,7 @@ fn wrap_dyn_call(
     vis1_ctr: &mut Ctr,
     vis2_ctr: &mut Ctr,
 ) -> usize {
-    println!("--wrap_dyn_call");
+    //println!("--wrap_dyn_call");
     animal.visit(
         av,
         av_vtable,
@@ -256,6 +259,9 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
 
     let vis1 = get_visitor1();
     let vis1_vtable = core::ptr::metadata(&*vis1);
+
+    //println!("cat_vtable addr: {:?}", cat_vtable);
+    //println!("vis1_vtable addr: {:?}", vis1_vtable);
 
     let mut w_cat_ctr: Ctr = Ctr { ctr: 0 };
     let mut w_dog_ctr: Ctr = Ctr { ctr: 0 };
@@ -279,24 +285,24 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
         let b_a = buf[0] & 1;
         let animal = get_animal(b_a.into());
         let vtable = core::ptr::metadata(&*animal);
-        println!("b_a: {:?}", b_a);
-        if b_a == 0 {
-            println!("should be CAT");
-        } else {
-            println!("should be DOG");
-        }
+        //println!("b_a: {:?}", b_a);
+        //if b_a == 0 {
+        //    println!("should be CAT");
+        //} else {
+        //    println!("should be DOG");
+        //}
 
         // read visitor input, construct obj + get vtable
         file.read_exact(&mut buf)?;
         let b_av = buf[0] & 1;
         let av = get_visitor(b_av.into());
         let av_vtable = core::ptr::metadata(&*av);
-        println!("b_av: {:?}", b_av);
-        if b_av == 0 {
-            println!("should be VIS1");
-        } else {
-            println!("should be VIS2");
-        }
+        //println!("b_av: {:?}", b_av);
+        //if b_av == 0 {
+        //    println!("should be VIS1");
+        //} else {
+        //    println!("should be VIS2");
+        //}
 
         animals.push((animal, vtable, av, av_vtable));
     }

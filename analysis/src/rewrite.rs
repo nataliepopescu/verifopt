@@ -1,13 +1,18 @@
+use rustc_abi::Size;
+use rustc_middle::mir::Const;
+use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
 use rustc_middle::ty::*;
 use rustc_span::def_id::{CrateNum, DefId, DefIndex};
 use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
-use crate::{FuncMap, VtableMap};
 use crate::constraints::{ConstraintMap, MapKey, VarType};
 use crate::core::{VerifoptRval, is_box, resolve_ty};
 use crate::patch::MirPatch;
+use crate::{FuncMap, VtableMap};
+
+//use std::num::NonZero;
 
 // FIXME get dynamically
 // alloc[7a7c]::boxed::{impl#8}::into_raw
@@ -957,7 +962,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
 
     /*
-     * let mut _: *const std::ptr::metadata::VTable;
+     * *const std::ptr::metadata::VTable;
      */
     fn make_const_ptr_vtable_adt(&self) -> Ty<'tcx> {
         Ty::new_imm_ptr(self.tcx, Ty::new_foreign(self.tcx, VTABLE_TY_DEFID))
@@ -1012,8 +1017,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         mut_dyn_traitobj_loc: Local,
         dynmetadata_traitobj_loc: Local,
         dynmetadata_traitobj_vtable_loc: Local,
-        dynmetadata_concretety_loc: Local,
-        dynmetadata_concretety_vtable_loc: Local,
+        //dynmetadata_concretety_loc: Local,
+        traitobj_vtable_u64_loc: Local,
+        vtable_const: u64,
+        //dynmetadata_concretety_vtable_loc: Local,
         eq_res_loc: Local,
         done_copy: bool,
         to_free_opt: Option<Vec<Local>>,
@@ -1067,10 +1074,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             self.dummy_source_info(),
             StatementKind::StorageLive(dynmetadata_traitobj_vtable_loc),
         ));
-        stmts.push(Statement::new(
-            self.dummy_source_info(),
-            StatementKind::StorageLive(dynmetadata_concretety_vtable_loc),
-        ));
+        //stmts.push(Statement::new(
+        //    self.dummy_source_info(),
+        //    StatementKind::StorageLive(dynmetadata_concretety_vtable_loc),
+        //));
         stmts.push(Statement::new(
             self.dummy_source_info(),
             StatementKind::StorageLive(eq_res_loc),
@@ -1132,20 +1139,56 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             ))),
         ));
 
+        //stmts.push(Statement::new(
+        //    self.dummy_source_info(),
+        //    StatementKind::Assign(Box::new((
+        //        Place {
+        //            local: dynmetadata_concretety_vtable_loc,
+        //            projection: empty_proj,
+        //        },
+        //        Rvalue::Cast(
+        //            CastKind::Transmute,
+        //            Operand::Copy(Place {
+        //                local: dynmetadata_concretety_loc,
+        //                projection: empty_proj,
+        //            }),
+        //            self.make_const_ptr_vtable_adt(),
+        //        ),
+        //    ))),
+        //));
+
+        let (scalar, trunc) = ScalarInt::truncate_from_uint(vtable_const, Size::from_bytes(8));
+        let const_op = ConstOperand {
+            span: self.dummy_span(),
+            user_ty: None,
+            const_: Const::Val(
+                ConstValue::Scalar(Scalar::Int(scalar)),
+                Ty::new_uint(self.tcx, UintTy::U64),
+            ),
+        };
+        if self.debug {
+            println!("THIS VTABLE: {:?}", vtable_const);
+            println!("SCALAR: {:?}", scalar);
+            println!("truncated? {:?}", trunc);
+            println!("const_op: {:?}", const_op);
+        }
+
+        // TODO convert Vtable type to u64 for safer(?) Eq comparison
+
         stmts.push(Statement::new(
             self.dummy_source_info(),
             StatementKind::Assign(Box::new((
                 Place {
-                    local: dynmetadata_concretety_vtable_loc,
+                    local: traitobj_vtable_u64_loc,
                     projection: empty_proj,
                 },
                 Rvalue::Cast(
                     CastKind::Transmute,
                     Operand::Copy(Place {
-                        local: dynmetadata_concretety_loc,
+                        local: dynmetadata_traitobj_vtable_loc,
                         projection: empty_proj,
                     }),
-                    self.make_const_ptr_vtable_adt(),
+                    Ty::new_uint(self.tcx, UintTy::U64),
                 ),
             ))),
         ));
@@ -1162,14 +1205,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     Box::new((
                         Operand::Copy(Place {
                             //local: dynmetadata_traitobj_loc,
-                            local: dynmetadata_traitobj_vtable_loc,
+                            local: traitobj_vtable_u64_loc, //dynmetadata_traitobj_vtable_loc,
                             projection: empty_proj,
                         }),
-                        Operand::Copy(Place {
-                            //local: dynmetadata_concretety_loc,
-                            local: dynmetadata_concretety_vtable_loc,
-                            projection: empty_proj,
-                        }),
+                        Operand::Constant(Box::new(const_op)),
+                        //Operand::Copy(Place {
+                        //    //local: dynmetadata_concretety_loc,
+                        //    local: dynmetadata_concretety_vtable_loc,
+                        //    projection: empty_proj,
+                        //}),
                     )),
                 ),
             ))),
@@ -1231,6 +1275,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             Ty::new_imm_ptr(self.tcx, Ty::new_foreign(self.tcx, VTABLE_TY_DEFID)),
             self.dummy_span(),
         )
+    }
+
+    /*
+     * let _: u64;
+     */
+    fn add_u64_temp(&self, patch: &mut MirPatch<'tcx>) -> Local {
+        patch.new_temp(Ty::new_uint(self.tcx, UintTy::U64), self.dummy_span())
     }
 
     /*
@@ -1299,7 +1350,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
 
         let traitobj_did = self.get_traitobj_did(ty);
-        let vtable_consts = self.vtables.traits.get(&traitobj_did);
+        let mut vtable_consts = self
+            .vtables
+            .traits
+            .get(&traitobj_did)
+            .unwrap()
+            .vtable_consts
+            .clone();
         if self.debug {
             println!("traitobj_did: {:?}", traitobj_did);
             println!("vtable_consts: {:?}", vtable_consts);
@@ -1312,9 +1369,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         let mut traitobj_vtable = None;
         // FIXME make vec to support 3 or more variants
-        let mut variant_vtable = None;
+        let mut variant_vtable = 0;
         let mut traitobj_vtable_ptr = None;
-        let mut variant_vtable_ptr = None;
+        let mut traitobj_vtable_u64_loc = None;
+        //let mut variant_vtable_ptr = None;
         //let mut traitobj_vtable_ref = None;
         //let mut variant_vtable_ref = None;
         if dids.len() > 1 {
@@ -1330,8 +1388,11 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX));
             //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
             //}
+
             traitobj_vtable = Some(Local::from_u32(vtable_locs.0));
-            variant_vtable = Some(Local::from_u32(vtable_locs.1));
+            // FIXME assuming at most two variants for now, and that each variant only has one
+            // valid vtable ptr
+            variant_vtable = vtable_consts.pop().unwrap().pop().unwrap();
 
             if self.debug {
                 println!("traitobj vtable: {:?}", traitobj_vtable);
@@ -1342,7 +1403,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             //variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
-            variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+            //variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+
+            traitobj_vtable_u64_loc = Some(self.add_u64_temp(patch));
         } else {
             if self.debug {
                 println!("- single variant case");
@@ -1394,8 +1457,9 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     mut_dyn_traitobj,
                     traitobj_vtable.unwrap(),
                     traitobj_vtable_ptr.unwrap(),
-                    variant_vtable.unwrap(),
-                    variant_vtable_ptr.unwrap(),
+                    traitobj_vtable_u64_loc.unwrap(),
+                    variant_vtable, //.unwrap(),
+                    //variant_vtable_ptr.unwrap(),
                     eq_res_bool,
                     false,
                     Some(vec![boxed_dyn_traitobj1]),

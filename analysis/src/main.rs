@@ -23,9 +23,9 @@ mod patch;
 mod wto;
 
 mod func_collect;
-mod vtable_shim;
 mod interp;
 mod rewrite;
+mod vtable_shim;
 
 // inspiration from
 // - https://github.com/lizhuohua/rust-mir-checker/blob/master/src/bin/mir-checker.rs
@@ -47,9 +47,9 @@ use std::env;
 
 use constraints::ConstraintMap;
 use func_collect::{FuncCollectPass, FuncMap};
-use vtable_shim::{VtableShimPass, VtableMap};
 use interp::InterpPass;
 use rewrite::RewritePass;
+use vtable_shim::{VtableMap, VtableShimPass};
 
 struct VerifoptCallbacks;
 

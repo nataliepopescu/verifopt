@@ -6,15 +6,17 @@ use rustc_middle::ty::TyCtxt;
 
 use crate::FuncMap;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Vtables {
-    pub vtable_consts: HashMap<DefId, usize>,
+    // outer vec represents unique structs, but each struct may have multiple valid vtable
+    // pointers, so we store that in the inner vec
+    pub vtable_consts: Vec<Vec<u64>>, //HashMap<DefId, u64>,
 }
 
 impl Vtables {
     pub fn new() -> Vtables {
         Self {
-            vtable_consts: HashMap::default(),
+            vtable_consts: Vec::new(), //HashMap::default(),
         }
     }
 }
@@ -39,8 +41,16 @@ pub struct VtableShimPass<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> VtableShimPass<'a, 'tcx> {
-    pub fn new(_tcx: TyCtxt<'tcx>, _funcs: &'a FuncMap<'tcx>, debug: bool) -> VtableShimPass<'a, 'tcx> {
-        Self { _tcx, _funcs, debug }
+    pub fn new(
+        _tcx: TyCtxt<'tcx>,
+        _funcs: &'a FuncMap<'tcx>,
+        debug: bool,
+    ) -> VtableShimPass<'a, 'tcx> {
+        Self {
+            _tcx,
+            _funcs,
+            debug,
+        }
     }
 
     pub fn run(&self, vtable_consts: &mut VtableMap) {
@@ -59,12 +69,15 @@ impl<'a, 'tcx> VtableShimPass<'a, 'tcx> {
         let mut a_inner = Vtables::new();
 
         // Cat Struct
-        let cat_defid = DefId {
-            index: DefIndex::from_u32(7),
-            krate: CrateNum::from_u32(0),
-        };
-        let cat_vtid = 9838263505978427528;
-        a_inner.vtable_consts.insert(cat_defid, cat_vtid);
+        //let cat_defid = DefId {
+        //    index: DefIndex::from_u32(7),
+        //    krate: CrateNum::from_u32(0),
+        //};
+        //a_inner.vtable_consts.insert(cat_defid, cat_vtid);
+
+        // 0x5555555555555555 (8 bytes / u64)
+        let cat_vtid: u64 = 6148914691236517205;
+        a_inner.vtable_consts.push(vec![cat_vtid]);
         vtable_consts.traits.insert(a_defid, a_inner);
 
         // AnimalVisitor Trait
@@ -75,12 +88,15 @@ impl<'a, 'tcx> VtableShimPass<'a, 'tcx> {
         let mut av_inner = Vtables::new();
 
         // Visitor1 Struct
-        let vis1_defid = DefId {
-            index: DefIndex::from_u32(26),
-            krate: CrateNum::from_u32(0),
-        };
-        let vis1_vtid = 6148914691236517205;
-        av_inner.vtable_consts.insert(vis1_defid, vis1_vtid);
+        //let vis1_defid = DefId {
+        //    index: DefIndex::from_u32(26),
+        //    krate: CrateNum::from_u32(0),
+        //};
+        //av_inner.vtable_consts.insert(vis1_defid, vis1_vtid);
+
+        // 0x4444444444444444 (8 bytes / u64)
+        let vis1_vtid: u64 = 4919131752989213764;
+        av_inner.vtable_consts.push(vec![vis1_vtid]);
         vtable_consts.traits.insert(av_defid, av_inner);
 
         if self.debug {

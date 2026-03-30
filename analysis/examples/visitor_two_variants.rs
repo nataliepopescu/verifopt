@@ -20,7 +20,7 @@ impl Animal for Cat {
         11111
     }
 
-    #[inline(always)]
+    //#[inline(always)]
     fn visit(
         &self,
         av: Box<dyn AnimalVisitor>,
@@ -49,7 +49,7 @@ impl Animal for Dog {
         22222
     }
 
-    #[inline(always)]
+    //#[inline(always)]
     fn visit(
         &self,
         av: Box<dyn AnimalVisitor>,
@@ -131,7 +131,7 @@ pub fn get_visitor1() -> Box<dyn AnimalVisitor> {
 
 /* Optimized Functions to Test */
 
-#[inline(always)]
+//#[inline(always)]
 pub fn run_full_not_rw(
     //_dummy: usize,
     animal: Box<dyn Animal>,
@@ -167,14 +167,17 @@ fn main() {
             }
 
             let animal = get_animal(animal_arg);
-            let cat = get_cat();
             let animal_vtable = core::ptr::metadata(&*animal);
+            let cat: &dyn Animal = &Cat {}; //get_cat();
             let cat_vtable = core::ptr::metadata(&*cat);
 
             let av = get_visitor(visitor_arg);
             let vis1 = get_visitor1();
             let av_vtable = core::ptr::metadata(&*av);
             let vis1_vtable = core::ptr::metadata(&*vis1);
+
+            println!("cat_vtable: {:?}", cat_vtable);
+            println!("vis1_vtable: {:?}", vis1_vtable);
 
             let res = run_full_not_rw(
                 //0,

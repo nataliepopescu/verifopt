@@ -1,7 +1,7 @@
 #![feature(rustc_private)]
 #![feature(box_patterns)]
 #![feature(maybe_uninit_fill)]
-#![feature(ptr_metadata)]
+//#![feature(ptr_metadata)]
 
 extern crate rustc_abi;
 extern crate rustc_ast;
@@ -72,7 +72,7 @@ impl Callbacks for VerifoptCallbacks {
         func_collect.run(&mut funcs);
 
         let mut vtables = VtableMap::new();
-        let mut vtable_pass = VtableShimPass::new(tcx, &funcs, true);
+        let vtable_pass = VtableShimPass::new(tcx, &funcs, false);
         vtable_pass.run(&mut vtables);
 
         //// init + run Function Signature Collection Pass
@@ -85,7 +85,7 @@ impl Callbacks for VerifoptCallbacks {
         let _res = interp.run(&mut cmap, None, entry_func, mir_body);
 
         // init + run Rewriter Pass
-        let rewriter = RewritePass::new(tcx, &funcs, &cmap, false);
+        let rewriter = RewritePass::new(tcx, &funcs, &vtables, &cmap, true);
         // turn &mir_body _&mut_ mir_body
         let const_body_ptr: *const Body = &*mir_body;
         let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;

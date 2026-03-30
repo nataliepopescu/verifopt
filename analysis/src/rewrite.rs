@@ -4,7 +4,7 @@ use rustc_span::def_id::{CrateNum, DefId, DefIndex};
 use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
-use crate::FuncMap;
+use crate::{FuncMap, VtableMap};
 use crate::constraints::{ConstraintMap, MapKey, VarType};
 use crate::core::{VerifoptRval, is_box, resolve_ty};
 use crate::patch::MirPatch;
@@ -29,6 +29,7 @@ const VTABLE_TY_DEFID: DefId = DefId {
 pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
+    pub vtables: &'a VtableMap,
     pub cmap: &'a ConstraintMap<'tcx>,
     pub debug: bool,
     // TODO put dynamically-acquired into_raw and eq_fn defids here
@@ -38,12 +39,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
+        vtables: &'a VtableMap,
         cmap: &'a ConstraintMap<'tcx>,
         debug: bool,
     ) -> RewritePass<'a, 'tcx> {
         Self {
             tcx,
             funcs,
+            vtables,
             cmap,
             debug,
         }
@@ -1296,8 +1299,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
 
         let traitobj_did = self.get_traitobj_did(ty);
+        let vtable_consts = self.vtables.traits.get(&traitobj_did);
         if self.debug {
             println!("traitobj_did: {:?}", traitobj_did);
+            println!("vtable_consts: {:?}", vtable_consts);
         }
 
         let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid, traitobj);

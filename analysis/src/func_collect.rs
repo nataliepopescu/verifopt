@@ -8,11 +8,13 @@ use rustc_middle::mir::*;
 use rustc_middle::ty::{
     GenericArg, GenericArgKind, Generics, InstanceKind, List, ParamTy, Ty, TyCtxt, TyKind,
 };
+//use rustc_middle::query::IntoQueryParam;
 
 use crate::core::FuncVal;
 use crate::core::get_params_from_ty;
 
 use std::sync::{Arc, Mutex};
+use std::panic::{self, AssertUnwindSafe};
 
 // omitting TraitStructOpt unless useful
 #[derive(Debug, Clone)]
@@ -547,46 +549,51 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("\n\ncrate_num: {:?}\n", crate_num);
             }
             for def_index in 0..u32::MAX {
-                // simple (no bmark): limit = 25
-                // simple (bmark): limit = 29
-                // one_variant: limit = 23
-                // one_variant_bench: limit = 26
-                // two_variants: limit = 27
-                // two_variants_bench: limit = 45
-                // two_variants_bench_noctrs: limit = 36
-                // visitor_one_variant: limit = 51
-                // visitor_one_variant_bench: limit = 85
-                // visitor_two_variants: limit = 64
-                // visitor_two_variants_bench: limit = ?
-                if crate_num == 0 && def_index >= 64
-                    || crate_num == 1 && def_index >= 19549
-                    || crate_num == 2 && def_index >= 78916
-                    || crate_num == 3 && def_index >= 12636
-                    || crate_num == 4 && def_index >= 4970
-                    || crate_num == 5 && def_index >= 12217
-                    || crate_num == 6 && def_index >= 3
-                    || crate_num == 7 && def_index >= 94
-                    || crate_num == 8 && def_index >= 513
-                    || crate_num == 9 && def_index >= 71
-                    || crate_num == 10 && def_index >= 3492
-                    || crate_num == 11 && def_index >= 3
-                    || crate_num == 12 && def_index >= 351
-                    || crate_num == 13 && def_index >= 317
-                    || crate_num == 14 && def_index >= 4
-                    || crate_num == 15 && def_index >= 636
-                    || crate_num == 16 && def_index >= 11666
-                    || crate_num == 17 && def_index >= 21753
-                    || crate_num == 18 && def_index >= 2174
-                    || crate_num == 19 && def_index >= 27
-                {
-                    break;
-                }
+                //if crate_num == 0 && def_index >= 65
+                //    || crate_num == 1 && def_index >= 19549
+                //    || crate_num == 2 && def_index >= 78916
+                //    || crate_num == 3 && def_index >= 12636
+                //    || crate_num == 4 && def_index >= 4970
+                //    || crate_num == 5 && def_index >= 12217
+                //    || crate_num == 6 && def_index >= 3
+                //    || crate_num == 7 && def_index >= 94
+                //    || crate_num == 8 && def_index >= 513
+                //    || crate_num == 9 && def_index >= 71
+                //    || crate_num == 10 && def_index >= 3492
+                //    || crate_num == 11 && def_index >= 3
+                //    || crate_num == 12 && def_index >= 351
+                //    || crate_num == 13 && def_index >= 317
+                //    || crate_num == 14 && def_index >= 4
+                //    || crate_num == 15 && def_index >= 636
+                //    || crate_num == 16 && def_index >= 11666
+                //    || crate_num == 17 && def_index >= 21753
+                //    || crate_num == 18 && def_index >= 2174
+                //    || crate_num == 19 && def_index >= 27
+                //{
+                //    break;
+                //}
 
+                println!("\n\nHERE0");
                 let def_id = DefId {
                     index: def_index.into(),
                     krate: crate_num.into(),
                 };
-                let def_kind = self.tcx.def_kind(def_id);
+                println!("HERE1");
+                println!("HERE2");
+                let result = panic::catch_unwind(AssertUnwindSafe(|| {
+                    let tcx = self.tcx;
+                    let def_id = def_id;
+                    tcx.def_kind(def_id)
+                }));
+                if result.is_err() {
+                    println!("BREAKING");
+                    println!("def_index: {:?}", def_index);
+                    println!("crate_num: {:?}", crate_num);
+                    break;
+                }
+
+                let def_kind = result.unwrap(); //self.tcx.def_kind(def_id);
+                println!("HERE3");
 
                 if self.debug {
                     println!("\nnew def_index");

@@ -65,7 +65,7 @@ impl Callbacks for VerifoptCallbacks {
 
         // init + run Function Collection Pass
         let mut funcs = FuncMap::new();
-        let func_collect = FuncCollectPass::new(tcx, true);
+        let func_collect = FuncCollectPass::new(tcx, false);
         func_collect.run(&mut funcs);
 
         //// init + run Function Signature Collection Pass
@@ -78,7 +78,7 @@ impl Callbacks for VerifoptCallbacks {
         let _res = interp.run(&mut cmap, None, entry_func, mir_body);
 
         // init + run Rewriter Pass
-        let rewriter = RewritePass::new(tcx, &funcs, &cmap, false);
+        let rewriter = RewritePass::new(tcx, &funcs, &cmap, true);
         // turn &mir_body _&mut_ mir_body
         let const_body_ptr: *const Body = &*mir_body;
         let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;

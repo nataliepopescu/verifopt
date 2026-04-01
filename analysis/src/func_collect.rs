@@ -582,9 +582,9 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 };
                 if crate_num == 0 && !self.is_valid_defid(def_id) {
                     if self.debug {
-                        println!("\nBREAKING");
-                        println!("def_index: {:?}", def_index);
-                        println!("crate_num: {:?}", crate_num);
+                        println!("\nBREAKING at:");
+                        println!("\tcrate_num: {:?}", crate_num);
+                        println!("\tdef_index: {:?}", def_index);
                     }
                     break;
                 }

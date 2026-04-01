@@ -32,7 +32,6 @@ pub fn get_animal(num: usize) -> Box<dyn Animal> {
     }
 }
 
-//#[inline(always)]
 pub fn get_cat() -> Box<dyn Animal> {
     return Box::new(Cat {});
 }
@@ -206,7 +205,7 @@ fn bench(filename: &String, warmup: usize, runs: usize) -> std::io::Result<()> {
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
-        1 => {
+        1 | 2 | 3 => {
             println!(
                 "USAGE \nPass in:
                      \n\t(1) a filename to read from for bench input,

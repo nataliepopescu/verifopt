@@ -230,16 +230,31 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             }
 
                             let vtable_locs;
-                            if cur_scope.krate.as_u32() == 0 && cur_scope.index.as_u32() == 46 {
+                            let bench_def_index = 39; //46
+                            if cur_scope.krate.as_u32() == 0
+                                && cur_scope.index.as_u32() == bench_def_index
+                            {
                                 // different dyn animal vtables for warmup vs run block in
                                 // benchmarks (inlined bench())
                                 if *warmup == true {
                                     *warmup = false;
+                                    // vis_two_variants_bench w prints
                                     //vtable_locs = (264, 5);
-                                    vtable_locs = (214, 5);
+
+                                    // vis_two_variants_bench
+                                    //vtable_locs = (214, 5);
+
+                                    // vis_one_variant_bench
+                                    vtable_locs = (165, 5);
                                 } else {
+                                    // vis_two_variants_bench w prints
                                     //vtable_locs = (269, 5);
-                                    vtable_locs = (219, 5);
+
+                                    // vis_two_variants_bench
+                                    //vtable_locs = (219, 5);
+
+                                    // vis_one_variant_bench
+                                    vtable_locs = (170, 5);
                                 }
                             } else {
                                 if funcval.self_arg.is_some() {

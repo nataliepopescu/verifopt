@@ -29,21 +29,17 @@ no inlining annotations
 
 | input type | OG (ns) | RW (ns) |
 | --- | --- | --- |
-| all 0s (all)        | 3.47 | 3.20 |
-| alt 0s and 1s (alt) | 3.53 | 3.09 |
-| rand                | 5.95 | 3.20 |
-| 00,01,10,11 (vis1)  | 3.50 | 3.05 |
-| 00,10,01,11 (vis2)  | 3.52 | 3.18 |
+| all 0s (all)        | 3.47 | 3.05 |
+| alt 0s and 1s (alt) | 3.53 | 3.16 |
+| rand                | 5.95 | 3.17 |
+| 00,01,10,11 (vis1)  | 3.50 | 3.22 |
+| 00,10,01,11 (vis2)  | 3.52 | 3.13 |
 
 verifopt seems to make code much less susceptible to branch mispredictions
 
 note that this is _not_ optimized to the performance of a single static call,
 but rather roughly that of two static calls, since that is the best-case
 scenario here. 
-
-FIXME re-run actually, these numbers are slightly too small?
-
-
 
 
 
@@ -83,7 +79,7 @@ using alt 0s and 1s input type
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 3.72 | 3.76 |
-| always | 3.53 | 2.92 | ?
+| always | 3.53 | 3.11 |
 | none   | 3.53 | 3.09 |
 
 #### rand input
@@ -91,7 +87,7 @@ using alt 0s and 1s input type
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 6.01 | 6.13 |
-| always | 6.09 | 2.96 | ?
+| always | 6.09 | 5.01 |
 | none   | 5.95 | 3.20 |
 
 it is actually pretty interesting to see here that if we disable inlining for
@@ -130,7 +126,7 @@ automating the vtable ptr shim in the future will fix this
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 9.56 | 6.07 |
-| always | 9.15 | 9.02 | ?
+| always | 9.15 | 9.02 ? |
 | none   | 9.26 | 3.43 |
 
 

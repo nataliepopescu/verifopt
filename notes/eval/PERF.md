@@ -98,12 +98,12 @@ also be seen in the above alt input case)
 
 ### `visitor_two_variants_bench` (two dynamic dispatch, both w two variants)
 
-inlining is currently difficult to measure in a reliable way b/c inlining
+inlining differences are currently a bit annoying to measure b/c inlining
 changes the indices of the vtable ptr locations, so things need to be manually
-adjusted (unlike non-inlined functions which always have the necessary vtable
-ptrs at a fixed offset)
+adjusted (unlike non-inlined functions which always have the vtable
+ptrs at specific, fixed offset that we choose in the source code)
 
-automating the vtable ptr shim in the future will fix this
+automating the vtable ptr shim in the future will help with this
 
 #### vis1 input
 
@@ -126,8 +126,10 @@ automating the vtable ptr shim in the future will fix this
 | inlining attribute | OG (ns) | RW (ns) |
 | --- | --- | --- |
 | never  | 9.56 | 6.07 |
-| always | 9.15 | 9.02 ? |
+| always | 9.15 | 9.02 |
 | none   | 9.26 | 3.43 |
 
-
+it is a bit weird that always inlining for rand input makes performance so bad,
+but i guess since inlining is also heuristic-based, more inlining is not always
+better, and perhaps more inlining can also mess with branch prediction
 

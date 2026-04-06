@@ -1,0 +1,6 @@
+[package]
+name = "two_variants_rand"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]

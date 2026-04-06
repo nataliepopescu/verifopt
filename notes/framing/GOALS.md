@@ -1,0 +1,19 @@
+# Project Goals / Hypotheses
+
+Use flow-sensitive program analysis to replace each dynamic dispatch with a 
+minimal set of possible static dispatches in Rust.
+
+## Hypotheses
+
+1. Replacing dynamic dispatch with static dispatch will improve performance
+   _and_ code size
+
+2. Replacing dynamic dispatch with a _minimal_ set of static dispatches will
+   improve performance and code size _more_ than the State-of-the-Art CHA approach
+
+3. Performance impacts are due to enabled downstream optimizations, such as
+   code motion, inlining, branch prediction, etc
+
+4. Code size impacts are due to no longer needing vtables for dynamic dispatch,
+   as they are converted to static, and thus vtables can be elided (effectively
+   another downstream optimization; dead code elimination)

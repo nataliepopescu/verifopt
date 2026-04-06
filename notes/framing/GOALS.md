@@ -13,7 +13,12 @@ minimal set of possible static dispatches in Rust.
 
 3. Performance impacts are due to enabled downstream optimizations, such as
    code motion, inlining, branch prediction, etc
+   - Different workloads lead to different performance: hypothesizing this is
+     branch prediction
+   - Different inlining annotations also lead to different performance
 
 4. Code size impacts are due to no longer needing vtables for dynamic dispatch,
    as they are converted to static, and thus vtables can be elided (effectively
    another downstream optimization; dead code elimination)
+   - Try to start evaluating this
+        - in a small example, are the vtables optimized out?

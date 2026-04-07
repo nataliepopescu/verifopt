@@ -273,7 +273,7 @@ pub fn resolve_adt<'tcx>(
                 adt_defid, genargs
             );
         }
-        return vec![];
+        return vec![*adt_defid];
     }
 }
 

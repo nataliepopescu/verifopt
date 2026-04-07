@@ -49,7 +49,7 @@ impl Animal for Dog {
 }
 
 fn main() {
-    let x = rand::rng().random_range(..2usize); //args[1].parse().unwrap();
+    let x = rand::rng().random_range(..2usize);
     let animal = get_animal(x);
     let cat = get_animal(0);
     let _animal_vtable = core::ptr::metadata(&*animal);

@@ -81,6 +81,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             }
                         } else {
                             let body = self.tcx.optimized_mir(defid);
+                            //let body = self.tcx.instance_mir(rustc_middle::ty::InstanceKind::Item(*defid));
 
                             // turn &body _&mut_ body
                             let const_body_ptr: *const Body = &*body;

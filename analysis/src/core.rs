@@ -745,7 +745,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     let mut genarg_vec = vec![];
                     for i in 0..genargsref.len() {
                         if self.debug {
-                            println!("genargsref at ({:?}): {:?}", i, genargsref[i]);
+                            println!("\ngenargsref at ({:?}): {:?}", i, genargsref[i]);
                         }
                         match self.resolve_genargkind(cmap, cur_scope, defid, genargsref[i]) {
                             Some(resolved) => {

@@ -44,7 +44,8 @@ pub struct FuncMap<'tcx> {
     // impl blocks -> impl fns/methods
     pub impl_blocks_to_fn_impls: HashMap<DefId, Vec<DefId>>,
     // impl block generics
-    pub impl_block_generics: HashMap<DefId, Generics>,
+    // FIXME maybe make this a set to remove duplicates...
+    pub impl_block_generics: HashMap<DefId, Vec<GenericArg<'tcx>>>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
@@ -291,6 +292,25 @@ impl<'tcx> FuncCollectPass<'tcx> {
                         funcs
                             .trait_to_struct_impls
                             .insert(trait_defid, vec![def.did()]);
+                    }
+                }
+
+                // add trait impl -> generics pairing to map
+                match funcs.impl_block_generics.get(&trait_defid) {
+                    Some(existing_genargs) => {
+                        //panic!("already have generics for this trait, what to do, (trait = {:?})", trait_defid),
+                        let mut genargs_vec = generic_args.as_slice().to_vec();
+                        if genargs_vec.len() > 0 {
+                            let mut new_genargs_vec = existing_genargs.clone();
+                            new_genargs_vec.append(&mut genargs_vec);
+                            funcs.impl_block_generics.insert(trait_defid, new_genargs_vec);
+                        }
+                    }
+                    None => {
+                        let genargs_vec = generic_args.as_slice().to_vec();
+                        if genargs_vec.len() > 0 {
+                            funcs.impl_block_generics.insert(trait_defid, genargs_vec);
+                        }
                     }
                 }
             }

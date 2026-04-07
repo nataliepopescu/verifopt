@@ -24,7 +24,7 @@ pub fn is_fn_trait(def_id: DefId) -> bool {
 //    def_id.krate.as_usize() == 2 && def_id.index.as_usize() == 49010
 //}
 
-fn get_params_from_genarg<'tcx>(genarg: &GenericArg, debug: bool) -> Vec<ParamTy> {
+pub fn get_params_from_genarg<'tcx>(genarg: &GenericArg, debug: bool) -> Vec<ParamTy> {
     let mut params = Vec::new();
     match genarg.kind() {
         GenericArgKind::Type(ty) => {

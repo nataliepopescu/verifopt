@@ -848,6 +848,9 @@ rand::random_range bb0:
 
 ### ? operator (Try::branch)
 
+E generic is declared at the trait impl level, not the function level, need to
+find in trait outer scope!
+
 
 
 

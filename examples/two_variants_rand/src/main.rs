@@ -1,7 +1,6 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
-extern crate rand;
 use rand::RngExt;
 
 pub trait Animal {

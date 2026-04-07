@@ -9,9 +9,9 @@ use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
 use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
-use crate::core::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
+use crate::helpers::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
 use crate::wto::BBDeps;
 
 pub struct InterpPass<'a, 'tcx> {
@@ -918,6 +918,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         // visit callee
         let callee_body = self.tcx.optimized_mir(funcval.def_id);
+        //let callee_body = self.tcx.instance_mir(rustc_middle::ty::InstanceKind::Item(funcval.def_id));
         call_stack.push(funcval.def_id);
         self.visit_body(
             cmap,

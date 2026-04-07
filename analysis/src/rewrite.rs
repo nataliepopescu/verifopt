@@ -6,7 +6,8 @@ use rustc_span::{BytePos, Span, SyntaxContext};
 
 use crate::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::{VerifoptRval, is_box, resolve_ty};
+use crate::core::VerifoptRval;
+use crate::helpers::{is_box, resolve_ty};
 use crate::patch::MirPatch;
 
 // FIXME get dynamically
@@ -71,6 +72,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             }
                         } else {
                             let body = self.tcx.optimized_mir(defid);
+                            //let body = self.tcx.instance_mir(rustc_middle::ty::InstanceKind::Item(*defid));
 
                             // turn &body _&mut_ body
                             let const_body_ptr: *const Body = &*body;

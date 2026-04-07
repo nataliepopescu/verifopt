@@ -18,6 +18,7 @@ extern crate rustc_span;
 mod constraints;
 mod core;
 mod error;
+mod helpers;
 mod patch;
 mod wto;
 
@@ -65,6 +66,7 @@ impl Callbacks for VerifoptCallbacks {
 
         // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
+        //let mir_body = tcx.instance_mir(rustc_middle::ty::InstanceKind::Item(entry_func));
 
         let debug = DebugPass::None;
         let style = Style::FlowSensitive;

@@ -6,7 +6,15 @@ use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
 use rustc_middle::mir::*;
 use rustc_middle::ty::{
-    GenericArg, GenericArgKind, Generics, InstanceKind, List, ParamTy, Ty, TyCtxt, TyKind,
+    GenericArg,
+    GenericArgKind,
+    Generics,
+    List,
+    ParamTy,
+    Ty,
+    TyCtxt,
+    TyKind,
+    //InstanceKind
 };
 //use rustc_middle::query::IntoQueryParam;
 
@@ -35,6 +43,8 @@ pub struct FuncMap<'tcx> {
     pub struct_to_impls: HashMap<DefId, Vec<DefId>>,
     // impl blocks -> impl fns/methods
     pub impl_blocks_to_fn_impls: HashMap<DefId, Vec<DefId>>,
+    // impl block generics
+    pub impl_block_generics: HashMap<DefId, Generics>,
 }
 
 impl<'tcx> FuncMap<'tcx> {
@@ -47,6 +57,7 @@ impl<'tcx> FuncMap<'tcx> {
             struct_to_generics: HashMap::default(),
             struct_to_impls: HashMap::default(),
             impl_blocks_to_fn_impls: HashMap::default(),
+            impl_block_generics: HashMap::default(),
         }
     }
 }
@@ -247,14 +258,15 @@ impl<'tcx> FuncCollectPass<'tcx> {
         impl_struct: GenericArg<'tcx>,
     ) {
         match impl_struct.as_type().unwrap().kind() {
-            TyKind::Adt(def, _) => {
+            TyKind::Adt(def, generic_args) => {
                 let struct_defid = def.did();
 
                 if self.debug {
                     println!("defid: {:?}", struct_defid);
+                    println!("generic_args: {:?}", generic_args);
                 }
 
-                // add struct -> impl block pairing
+                // add struct -> impl block pairing to map
                 match funcs.struct_to_impls.get(&struct_defid) {
                     Some(other_impls) => {
                         let mut updated_impls = other_impls.clone();
@@ -266,6 +278,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     }
                 }
 
+                // add trait -> struct pairing to map
                 match funcs.trait_to_struct_impls.get(&trait_defid) {
                     Some(vec_impltors) => {
                         let mut new_impltors = vec_impltors.clone();
@@ -360,7 +373,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let mut body = None;
         let mir_avail = self.tcx.is_mir_available(def_id);
         if mir_avail {
-            let inner_body = self.tcx.instance_mir(InstanceKind::Item(def_id));
+            let inner_body = self.tcx.optimized_mir(def_id);
+            //let inner_body = self.tcx.instance_mir(InstanceKind::Item(def_id));
             body = Some(inner_body);
             (arg_types, arg_generics) = self.get_arg_info(inner_body);
         }
@@ -472,7 +486,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let mut ret_generics = None;
         let mir_avail = self.tcx.is_mir_available(def_id);
         if mir_avail {
-            let inner_body = self.tcx.instance_mir(InstanceKind::Item(def_id));
+            let inner_body = self.tcx.optimized_mir(def_id);
+            //let inner_body = self.tcx.instance_mir(InstanceKind::Item(def_id));
             body = Some(inner_body);
 
             let arg_names_inner = self.get_arg_names(inner_body.arg_count);

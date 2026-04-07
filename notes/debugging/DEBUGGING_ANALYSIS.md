@@ -805,6 +805,48 @@ maybe the FnOnce redirection is fine but not the Fn one
 - i think we need to find out where the automatic trait impls are
 
 
+### rand::RngExt::random_range()
+
+self == Scalar... how did we get here?
+
+backtracking
+
+main bb0: _3 = rand::rng()
+- no MIR for this -> results in an IdkDefId (not IdkType, which is cool)
+    - ThreadRng DefId (20:1979)
+- really?
+
+main bb1: 
+- _2 = &mut _3
+- _1 = random_range(_2, RangeTo<usize>(2_usize))
+
+rand::random_range call SETUP
+- 1st arg: ThreadRng
+- 2nd arg: Scalar const (indeed)
+    - but const std::ops::RangeTo::<usize> {{ end: 2_usize }}
+    - what does a const of this kind actually mean?
+    - i guess it is probably not a simple Scalar const, but a const of type
+      RangeTo<usize>?
+
+- Self -> ThreadRng
+- R -> Scalar(2)
+- T -> usize
+
+rand::random_range bb0:
+- local0: T
+- local1: Self
+- local2: R
+- local4: &R
+
+- _4 = &_2
+
+- R is actually a SampleRange generic
+    - not sure if this is important, but SampleRange is _not_ dyn compatible
+    - meaning it cannot be the base trait of a trait object
+
+- we seem to be performing a dyn dispatch
+
+
 
 
 

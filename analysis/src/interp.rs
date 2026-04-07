@@ -902,7 +902,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 "\n### SETTING UP FUNC CALL (RESOLVING ARGS) for func {:?}\n",
                 funcval.def_id
             );
-            println!("args: {:?}\n", args);
+            println!("args: {:?}", args);
         }
 
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
@@ -1242,6 +1242,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         arg: Operand<'tcx>,
     ) -> Constraints<'tcx> {
+        if self.debug {
+            println!("resolving arg...");
+        }
+
         let mut constraints = HashSet::default();
         // get arg constraints from cmap
         match arg {
@@ -1275,8 +1279,24 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         ConstValue::Scalar(Scalar::Int(scalar)) => {
                             if self.debug {
                                 println!("scalar: {:?}", scalar);
+                                println!("ty: {:?}", ty);
                             }
-                            constraints.insert(VerifoptRval::Scalar(scalar));
+                            match ty.kind() {
+                                TyKind::Int(_) | TyKind::Uint(_) | TyKind::Float(_) => {
+                                    constraints.insert(VerifoptRval::Scalar(scalar));
+                                }
+                                // consts can have other types!
+                                _ => {
+                                    let mut defids = resolve_ty(&ty, self.funcs, self.debug);
+                                    if defids.len() != 1 {
+                                        panic!("unexpected defids: {:?}", defids);
+                                    }
+                                    constraints
+                                        .insert(VerifoptRval::IdkDefId(defids.pop().unwrap()));
+                                }
+                            }
+                            // FIXME not always a simple "int" or "uint" const - consts can have
+                            // other types!!
                         }
                         ConstValue::Scalar(Scalar::Ptr(ptr, _)) => {
                             todo!("ptr: {:?}", ptr);
@@ -1338,6 +1358,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         // add arg values into func_cmap
         for ((param_name, param_type), arg) in std::iter::zip(funcval.params.clone(), arg_vec) {
             if self.debug {
+                println!("\nnew param");
                 println!("param_name: {:?}", param_name);
                 println!("param_type: {:?}", param_type);
                 println!("arg: {:?}", arg);

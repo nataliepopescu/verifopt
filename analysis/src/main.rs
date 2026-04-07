@@ -113,5 +113,6 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
+    //println!("rustc_args: {:?}", rustc_args);
     run_compiler(&rustc_args, &mut VerifoptCallbacks)
 }

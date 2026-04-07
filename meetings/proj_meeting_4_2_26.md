@@ -83,3 +83,7 @@ where are vtables generated?
     - would be very easy to partition out
     - can maybe give them 2 options to use, 1 the simple partitioned-out
       func-collect, and then 2 the flow-sensitive interp results
+    - ah, but they still need the rewrite, so might as well do the
+      flow-sensitive stuff (since they don't really care about performance, it
+      won't hurt -- keep in mind unless there is a reason to _not_ use
+      flow-sensitive results)

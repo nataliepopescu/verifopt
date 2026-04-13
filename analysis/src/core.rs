@@ -429,6 +429,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
             }
             Some(_) => panic!("unexpected generic mapping (subscope)"),
             None => {
+                // FIXME also check enum generics
                 if let Some(struct_generics) = self.funcs.struct_to_generics.get(defid) {
                     if self.debug {
                         println!("struct generics for {:?}: {:?}", defid, struct_generics);

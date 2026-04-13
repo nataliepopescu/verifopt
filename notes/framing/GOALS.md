@@ -10,6 +10,7 @@ minimal set of possible static dispatches in Rust.
 
 2. Replacing dynamic dispatch with a _minimal_ set of static dispatches will
    improve performance and code size _more_ than the State-of-the-Art CHA approach
+   - Hypothesis: most dynamic dispatches only end up going to 1 or 2 methods in practice
 
 3. Performance impacts are due to enabled downstream optimizations, such as
    code motion, inlining, branch prediction, etc

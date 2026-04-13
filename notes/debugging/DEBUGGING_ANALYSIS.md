@@ -850,6 +850,22 @@ rand::random_range bb0:
 
 E generic is declared at the trait impl level, not the function level, need to
 find in trait outer scope!
+- added infrastructure for this
+
+2:4467 = core::ops::try_trait::Try::branch assoc fn decl
+2:4463 = core::ops::try_trait::Try trait decl
+
+2:11689 = core::result::branch impl#27
+2:11683 = core::result::Try impl#27
+
+2:11683 exists in impl_block_generics
+- T and E!
+- they probably aren't resolved...
+
+trying to link fn impl to the impl block T and E
+- added assoc_fn_impls_to_assoc_fn: map from concrete impls to assoc fn decl
+    - not actually using yet
+- is the thing we're looking for in assoc_fns or impl_block_gens?
 
 
 

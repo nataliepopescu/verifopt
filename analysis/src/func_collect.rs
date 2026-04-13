@@ -31,7 +31,9 @@ pub struct FuncMap<'tcx> {
     pub all_funcs: HashMap<DefId, FuncVal<'tcx>>,
     // assoc fn of a trait -> concrete implementations of that assoc fn
     pub trait_fn_impls: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
-    // assoc fn of a trait -> that trait
+    // concrete impl of assoc fn (of a trait) -> assoc fn decl
+    pub assoc_fn_impls_to_assoc_fn: Arc<Mutex<HashMap<DefId, DefId>>>,
+    // assoc fn of a trait (not concrete) -> that trait
     pub assoc_fns_to_trait: Arc<Mutex<HashMap<DefId, DefId>>>,
     // trait -> structs that implement them
     pub trait_to_struct_impls: HashMap<DefId, Vec<DefId>>,
@@ -39,7 +41,7 @@ pub struct FuncMap<'tcx> {
     pub struct_to_generics: HashMap<DefId, Generics>,
     // struct -> impl blocks
     // FIXME this only covers explicit trait implementations;
-    // missing auto/blanket implementations
+    // missing auto/blanket implementations (i think...)
     pub struct_to_impls: HashMap<DefId, Vec<DefId>>,
     // impl blocks -> impl fns/methods
     pub impl_blocks_to_fn_impls: HashMap<DefId, Vec<DefId>>,
@@ -53,6 +55,7 @@ impl<'tcx> FuncMap<'tcx> {
         Self {
             all_funcs: HashMap::default(),
             trait_fn_impls: Arc::new(Mutex::new(HashMap::default())),
+            assoc_fn_impls_to_assoc_fn: Arc::new(Mutex::new(HashMap::default())),
             assoc_fns_to_trait: Arc::new(Mutex::new(HashMap::default())),
             trait_to_struct_impls: HashMap::default(),
             struct_to_generics: HashMap::default(),
@@ -221,10 +224,6 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
         for impl_defid in self.tcx.all_impls(def_id) {
             let impltors = self.tcx.impl_item_implementor_ids(impl_defid);
-            //if self.debug {
-            //    println!("impl_defid: {:?}", impl_defid);
-            //    println!("impltors: {:?}", impltors);
-            //}
 
             impltors.items().all(|(key, val)| {
                 let mut trait_map_lock = funcs.trait_fn_impls.lock().unwrap();
@@ -298,18 +297,37 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 // add trait impl -> generics pairing to map
                 match funcs.impl_block_generics.get(&trait_defid) {
                     Some(existing_genargs) => {
-                        //panic!("already have generics for this trait, what to do, (trait = {:?})", trait_defid),
-                        let mut genargs_vec = generic_args.as_slice().to_vec();
+                        if self.debug {
+                            println!("ADDING TO _EXISTING_ IMPL_BLOCK_GEN");
+                        }
+                        let genargs_vec = generic_args.as_slice().to_vec();
                         if genargs_vec.len() > 0 {
                             let mut new_genargs_vec = existing_genargs.clone();
-                            new_genargs_vec.append(&mut genargs_vec);
-                            funcs.impl_block_generics.insert(trait_defid, new_genargs_vec);
+                            for genarg in genargs_vec.iter() {
+                                if !new_genargs_vec.contains(genarg) {
+                                    new_genargs_vec.push(*genarg);
+                                }
+                            }
+                            if self.debug {
+                                println!("old genargs: {:?}", existing_genargs);
+                                println!("new genargs: {:?}", genargs_vec);
+                                println!("updated genargs: {:?}", new_genargs_vec);
+                            }
+                            funcs.impl_block_generics.insert(def_id, new_genargs_vec);
+                            if self.debug {
+                                println!("trait_defid: {:?}", trait_defid);
+                                println!("defid: {:?}", def_id);
+                                println!("impl_block_gens: {:?}", funcs.impl_block_generics.get(&trait_defid));
+                            }
                         }
                     }
                     None => {
+                        if self.debug {
+                            println!("ADDING TO _NEW_ IMPL_BLOCK_GEN");
+                        }
                         let genargs_vec = generic_args.as_slice().to_vec();
                         if genargs_vec.len() > 0 {
-                            funcs.impl_block_generics.insert(trait_defid, genargs_vec);
+                            funcs.impl_block_generics.insert(def_id, genargs_vec);
                         }
                     }
                 }

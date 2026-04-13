@@ -67,14 +67,14 @@ impl Callbacks for VerifoptCallbacks {
 
         // init + run Function Collection Pass
         let mut funcs = FuncMap::new();
-        let func_collect = FuncCollectPass::new(tcx, true);
+        let func_collect = FuncCollectPass::new(tcx, false);
         func_collect.run(&mut funcs);
 
         //// init + run Function Signature Collection Pass
         //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
         //// init + run Interpreter Pass
-        let debug_interp = false;
+        let debug_interp = true;
         let mut cmap = ConstraintMap::new(debug_interp);
         let interp = InterpPass::new(tcx, &funcs, debug_interp);
         let _res = interp.run(&mut cmap, None, entry_func, mir_body);

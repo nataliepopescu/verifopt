@@ -421,7 +421,19 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         param.name
                     );
                 } else {
-                    panic!("no generic mapping");
+                    if self.debug {
+                        println!("defid: {:?}", defid);
+                    }
+                    // get enclosing impl block
+                    match self.funcs.assoc_fns_to_trait.lock().unwrap().get(&cur_scope) {
+                        Some(impl_block_defid) => {
+                            println!("impl block defid: {:?}", impl_block_defid);
+                            // get impl block generics
+                            println!("exists? {:?}", self.funcs.impl_block_generics.get(impl_block_defid));
+                            todo!();
+                        }
+                        None => panic!("no generics in impl block either"),
+                    }
                 }
             }
         }

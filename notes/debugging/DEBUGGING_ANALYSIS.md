@@ -857,6 +857,7 @@ find in trait outer scope!
 
 2:11689 = core::result::branch impl#27
 2:11683 = core::result::Try impl#27
+- i guess in result b/c we're implementing the try_trait::Try trait for result?
 
 2:11683 exists in impl_block_generics
 - T and E!
@@ -866,6 +867,11 @@ trying to link fn impl to the impl block T and E
 - added assoc_fn_impls_to_assoc_fn: map from concrete impls to assoc fn decl
     - not actually using yet
 - is the thing we're looking for in assoc_fns or impl_block_gens?
+    - generics in impl_block_generics (defid 2:11683)
+
+    - need to link 2:11683 (impl block) to 2:11689 (branch assoc fn impl)
+
+- resolving agg-adt (from_rvalue)
 
 
 

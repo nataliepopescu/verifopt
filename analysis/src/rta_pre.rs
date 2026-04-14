@@ -1,8 +1,8 @@
 use rustc_hir::def_id::DefId;
 use rustc_middle::ty::TyCtxt;
 
-use crate::core::DebugPass;
 use crate::FuncMap;
+use crate::core::DebugPass;
 
 pub struct RTAMap {
     pub struct_inits: Vec<DefId>,
@@ -35,8 +35,7 @@ impl<'a, 'tcx> RTACollectPass<'a, 'tcx> {
         Self { tcx, funcs, debug }
     }
 
-    fn collect_inits(&self, inits: &mut RTAMap) {
-    }
+    fn collect_inits(&self, inits: &mut RTAMap) {}
 
     pub fn run(&self, inits: &mut RTAMap) {
         self.collect_inits(inits);

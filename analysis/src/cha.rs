@@ -200,10 +200,8 @@ impl<'a, 'tcx> CHAPass<'a, 'tcx> {
 
                     // can assume that if multiple funcvals, they will have the same
                     // type, so just get the self_opt using the first funcval
-                    let mut funcval_vec = self.funcs.funcs.get(&cur_scope).unwrap().clone();
-                    let funcval = funcval_vec.pop().unwrap();
+                    let funcval = self.funcs.all_funcs.get(&cur_scope).unwrap().clone();
                     if self.debug {
-                        println!("funcval_vec: {:#?}", funcval_vec);
                         println!("funcval: {:?}", funcval);
                     }
 

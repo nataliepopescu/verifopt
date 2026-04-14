@@ -21,12 +21,12 @@ mod error;
 mod patch;
 mod wto;
 
-mod func_collect;
 mod cha;
-mod rta_pre;
-mod rta;
+mod func_collect;
 mod interp;
 mod rewrite;
+mod rta;
+mod rta_pre;
 
 // inspiration from
 // - https://github.com/lizhuohua/rust-mir-checker/blob/master/src/bin/mir-checker.rs
@@ -52,8 +52,8 @@ use core::DebugPass;
 use func_collect::{FuncCollectPass, FuncMap};
 use interp::InterpPass;
 use rewrite::RewritePass;
-use rta_pre::{RTAMap, RTACollectPass};
 use rta::RTAPass;
+use rta_pre::{RTACollectPass, RTAMap};
 
 struct VerifoptCallbacks;
 

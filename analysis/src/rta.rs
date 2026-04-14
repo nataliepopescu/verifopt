@@ -4,9 +4,9 @@ use rustc_span::def_id::{CrateNum, DefId, DefIndex};
 use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
-use crate::{FuncMap, RTAMap};
 use crate::core::DebugPass;
 use crate::patch::MirPatch;
+use crate::{FuncMap, RTAMap};
 
 // FIXME get dynamically
 // alloc[7a7c]::boxed::{impl#8}::into_raw
@@ -41,10 +41,15 @@ impl<'a, 'tcx> RTAPass<'a, 'tcx> {
         which_debug: DebugPass,
     ) -> RTAPass<'a, 'tcx> {
         let mut debug = false;
-        if which_debug == DebugPass::Rewrite {
+        if which_debug == DebugPass::RTA {
             debug = true;
         }
-        Self { tcx, funcs, inits, debug }
+        Self {
+            tcx,
+            funcs,
+            inits,
+            debug,
+        }
     }
 
     pub fn run(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
@@ -202,10 +207,8 @@ impl<'a, 'tcx> RTAPass<'a, 'tcx> {
 
                     // can assume that if multiple funcvals, they will have the same
                     // type, so just get the self_opt using the first funcval
-                    let mut funcval_vec = self.funcs.funcs.get(&cur_scope).unwrap().clone();
-                    let funcval = funcval_vec.pop().unwrap();
+                    let funcval = self.funcs.all_funcs.get(&cur_scope).unwrap().clone();
                     if self.debug {
-                        println!("funcval_vec: {:#?}", funcval_vec);
                         println!("funcval: {:?}", funcval);
                     }
 

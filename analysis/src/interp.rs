@@ -8,7 +8,7 @@ use rustc_middle::ty::{GenericArg, GenericArgKind, List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
-use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
+use crate::core::{DebugPass, FuncVal, Merge, VerifoptConverter, VerifoptRval};
 use crate::core::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
@@ -22,7 +22,15 @@ pub struct InterpPass<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, funcs: &'a FuncMap<'tcx>, debug: bool) -> InterpPass<'a, 'tcx> {
+    pub fn new(
+        tcx: TyCtxt<'tcx>,
+        funcs: &'a FuncMap<'tcx>,
+        which_debug: DebugPass,
+    ) -> InterpPass<'a, 'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::Interp {
+            debug = true;
+        }
         Self {
             tcx,
             funcs,
@@ -44,7 +52,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //let ty = locals[Local::from_usize(0)].ty;
         //let mut set = HashSet::default();
         //set.insert(VerifoptRval::IdkType(ty));
-        let main_cmap = ConstraintMap::new(self.debug);
+        let mut cmap_debug = DebugPass::None;
+        if self.debug == true {
+            cmap_debug = DebugPass::Interp;
+        }
+        let main_cmap = ConstraintMap::new(cmap_debug);
 
         //main_cmap.cmap.insert(
         //    MapKey::Place(Place {
@@ -1321,7 +1333,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
-        let mut func_cmap = ConstraintMap::new(self.debug);
+        let mut cmap_debug = DebugPass::None;
+        if self.debug == true {
+            cmap_debug = DebugPass::Interp;
+        }
+        let mut func_cmap = ConstraintMap::new(cmap_debug);
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap

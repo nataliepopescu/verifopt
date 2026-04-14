@@ -17,6 +17,7 @@ use crate::error::Error;
 
 pub type Type = &'static str;
 
+#[derive(Clone, PartialEq)]
 pub enum DebugPass {
     None,
     FuncCollect,

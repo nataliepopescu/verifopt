@@ -10,8 +10,8 @@ use rustc_middle::ty::{
 };
 //use rustc_middle::query::IntoQueryParam;
 
-use crate::core::FuncVal;
 use crate::core::get_params_from_ty;
+use crate::core::{DebugPass, FuncVal};
 
 use std::sync::{Arc, Mutex};
 //use std::panic::{self, AssertUnwindSafe};
@@ -57,7 +57,11 @@ pub struct FuncCollectPass<'tcx> {
 }
 
 impl<'tcx> FuncCollectPass<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, debug: bool) -> FuncCollectPass<'tcx> {
+    pub fn new(tcx: TyCtxt<'tcx>, which_debug: DebugPass) -> FuncCollectPass<'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::FuncCollect {
+            debug = true;
+        }
         Self { tcx, debug }
     }
 

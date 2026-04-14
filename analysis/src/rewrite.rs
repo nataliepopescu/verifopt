@@ -6,7 +6,7 @@ use rustc_span::{BytePos, Span, SyntaxContext};
 
 use crate::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::{VerifoptRval, is_box, resolve_ty};
+use crate::core::{DebugPass, VerifoptRval, is_box, resolve_ty};
 use crate::patch::MirPatch;
 
 // FIXME get dynamically
@@ -39,8 +39,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
         cmap: &'a ConstraintMap<'tcx>,
-        debug: bool,
+        which_debug: DebugPass,
     ) -> RewritePass<'a, 'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::Rewrite {
+            debug = true;
+        }
         Self {
             tcx,
             funcs,

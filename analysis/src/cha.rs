@@ -3,7 +3,7 @@ use rustc_middle::mir::*;
 use rustc_middle::ty::{GenericArg, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
-use crate::core::FuncVal;
+use crate::core::{DebugPass, FuncVal};
 use crate::func_collect::FuncMap;
 
 pub struct CHAPass<'a, 'tcx> {
@@ -13,7 +13,15 @@ pub struct CHAPass<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> CHAPass<'a, 'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, funcs: &'a FuncMap<'tcx>, debug: bool) -> CHAPass<'a, 'tcx> {
+    pub fn new(
+        tcx: TyCtxt<'tcx>,
+        funcs: &'a FuncMap<'tcx>,
+        which_debug: DebugPass,
+    ) -> CHAPass<'a, 'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::Interp {
+            debug = true;
+        }
         Self { tcx, funcs, debug }
     }
 

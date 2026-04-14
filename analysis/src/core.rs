@@ -21,6 +21,8 @@ pub type Type = &'static str;
 pub enum DebugPass {
     None,
     FuncCollect,
+    CHA,
+    RTA,
     Interp,
     Rewrite,
 }

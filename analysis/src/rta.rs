@@ -4,7 +4,7 @@ use rustc_span::def_id::{CrateNum, DefId, DefIndex};
 use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
-use crate::FuncMap;
+use crate::{FuncMap, RTAMap};
 use crate::core::DebugPass;
 use crate::patch::MirPatch;
 
@@ -25,24 +25,26 @@ const VTABLE_TY_DEFID: DefId = DefId {
 //const FIRST_NONSELF_ARG_IDX: usize = 0;
 //const VTABLE_ADDR_IDX: u32 = 2;
 
-pub struct CHAPass<'a, 'tcx> {
+pub struct RTAPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
+    pub inits: &'a RTAMap,
     pub debug: bool,
     // TODO put dynamically-acquired into_raw and eq_fn defids here
 }
 
-impl<'a, 'tcx> CHAPass<'a, 'tcx> {
+impl<'a, 'tcx> RTAPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
+        inits: &'a RTAMap,
         which_debug: DebugPass,
-    ) -> CHAPass<'a, 'tcx> {
+    ) -> RTAPass<'a, 'tcx> {
         let mut debug = false;
-        if which_debug == DebugPass::CHA {
+        if which_debug == DebugPass::Rewrite {
             debug = true;
         }
-        Self { tcx, funcs, debug }
+        Self { tcx, funcs, inits, debug }
     }
 
     pub fn run(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
@@ -570,7 +572,7 @@ impl<'a, 'tcx> CHAPass<'a, 'tcx> {
     }
     */
 
-    fn get_trait_impl_dids_cha(
+    fn get_trait_impl_dids_rta(
         &self,
         cur_scope: DefId,
         dynfunc_defid: &DefId,
@@ -1317,7 +1319,7 @@ impl<'a, 'tcx> CHAPass<'a, 'tcx> {
             println!("traitobj_did: {:?}", traitobj_did);
         }
 
-        let dids = self.get_trait_impl_dids_cha(cur_scope, dynfunc_defid, traitobj_did);
+        let dids = self.get_trait_impl_dids_rta(cur_scope, dynfunc_defid, traitobj_did);
         if self.debug {
             println!("dids: {:?}", dids);
         }

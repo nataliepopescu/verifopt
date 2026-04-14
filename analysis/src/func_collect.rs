@@ -433,6 +433,9 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let vec_to_insert: Vec<FuncVal>;
         match funcs.funcs.get_mut(&def_id) {
             Some(func_vec) => {
+                if self.debug {
+                    println!("WHEN EVER HERE?");
+                }
                 func_vec.push(funcval);
                 vec_to_insert = func_vec.to_vec();
             }
@@ -641,5 +644,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
     pub fn run(&self, funcs: &mut FuncMap<'tcx>) {
         self.collect_funcs(funcs);
+        if self.debug {
+            println!("funcs: {:#?}", funcs.funcs);
+        }
     }
 }

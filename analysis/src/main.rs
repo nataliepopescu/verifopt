@@ -21,8 +21,8 @@ mod error;
 mod patch;
 mod wto;
 
-mod func_collect;
 mod cha;
+mod func_collect;
 mod interp;
 mod rewrite;
 

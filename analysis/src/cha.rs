@@ -570,13 +570,10 @@ impl<'a, 'tcx> CHAPass<'a, 'tcx> {
     }
     */
 
-    // TODO doing duplicate work as in interp, store interp's result somewhere
-    // (memoize for each dyn dispatch call)
     fn get_trait_impl_dids_cha(
         &self,
         cur_scope: DefId,
         dynfunc_defid: &DefId,
-        //traitobj: Local,
         traitobj_did: DefId,
     ) -> Vec<(DefId, DefId)> {
         if self.debug {

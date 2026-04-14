@@ -73,7 +73,7 @@ impl Callbacks for VerifoptCallbacks {
         // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
 
-        let debug = DebugPass::Interp;
+        let debug = DebugPass::Rewrite;
         let style = InterpStyle::CHA;
         //let style = InterpStyle::FlowSensitive;
 
@@ -83,8 +83,14 @@ impl Callbacks for VerifoptCallbacks {
         func_collect.run(&mut funcs);
 
         if style == InterpStyle::CHA {
-            let interp = CHAPass::new(tcx, &funcs, debug);
-            interp.run(entry_func, mir_body);
+            let cha = CHAPass::new(tcx, &funcs, debug);
+            // turn &mir_body _&mut_ mir_body
+            let const_body_ptr: *const Body = &*mir_body;
+            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+            unsafe {
+                cha.run(entry_func, &mut *mut_body_ptr);
+                //println!("body: \n{:#?}", *mut_body_ptr);
+            }
         } else {
             //// init + run Function Signature Collection Pass
             //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig

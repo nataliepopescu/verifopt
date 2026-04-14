@@ -22,6 +22,7 @@ mod patch;
 mod wto;
 
 mod func_collect;
+mod cha;
 mod interp;
 mod rewrite;
 
@@ -43,12 +44,21 @@ use rustc_middle::ty::TyCtxt;
 
 use std::env;
 
+use cha::CHAPass;
 use constraints::ConstraintMap;
+use core::DebugPass;
 use func_collect::{FuncCollectPass, FuncMap};
 use interp::InterpPass;
 use rewrite::RewritePass;
 
 struct VerifoptCallbacks;
+
+#[derive(PartialEq)]
+enum InterpStyle {
+    CHA,
+    //RTA,
+    FlowSensitive,
+}
 
 impl Callbacks for VerifoptCallbacks {
     #[allow(invalid_reference_casting)]
@@ -63,28 +73,36 @@ impl Callbacks for VerifoptCallbacks {
         // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
 
+        //let debug = DebugPass::Interp;
+        let debug_interp = true;
+        let style = InterpStyle::FlowSensitive;
+
         // init + run Function Collection Pass
         let mut funcs = FuncMap::new();
         let func_collect = FuncCollectPass::new(tcx, false);
         func_collect.run(&mut funcs);
 
-        //// init + run Function Signature Collection Pass
-        //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
+        if style == InterpStyle::CHA {
+            let interp = CHAPass::new(tcx, &funcs, debug_interp);
+            interp.run(entry_func, mir_body);
+        } else {
+            //// init + run Function Signature Collection Pass
+            //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
-        //// init + run Interpreter Pass
-        let debug_interp = false;
-        let mut cmap = ConstraintMap::new(debug_interp);
-        let interp = InterpPass::new(tcx, &funcs, debug_interp);
-        let _res = interp.run(&mut cmap, None, entry_func, mir_body);
+            //// init + run Interpreter Pass
+            let mut cmap = ConstraintMap::new(debug_interp);
+            let interp = InterpPass::new(tcx, &funcs, debug_interp);
+            let _res = interp.run(&mut cmap, None, entry_func, mir_body);
 
-        // init + run Rewriter Pass
-        let rewriter = RewritePass::new(tcx, &funcs, &cmap, true);
-        // turn &mir_body _&mut_ mir_body
-        let const_body_ptr: *const Body = &*mir_body;
-        let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
-        unsafe {
-            rewriter.run(entry_func, &mut *mut_body_ptr);
-            //println!("body: \n{:#?}", *mut_body_ptr);
+            // init + run Rewriter Pass
+            let rewriter = RewritePass::new(tcx, &funcs, &cmap, false);
+            // turn &mir_body _&mut_ mir_body
+            let const_body_ptr: *const Body = &*mir_body;
+            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+            unsafe {
+                rewriter.run(entry_func, &mut *mut_body_ptr);
+                //println!("body: \n{:#?}", *mut_body_ptr);
+            }
         }
 
         Compilation::Continue

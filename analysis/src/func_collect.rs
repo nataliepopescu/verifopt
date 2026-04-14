@@ -37,7 +37,7 @@ pub struct FuncMap<'tcx> {
     pub assoc_fns_to_trait: Arc<Mutex<HashMap<DefId, DefId>>>,
     // trait -> structs that implement them
     pub trait_to_struct_impls: HashMap<DefId, Vec<DefId>>,
-    // enum defid -> genereics of that enum
+    // enum defid -> generics of that enum
     pub enum_to_generics: HashMap<DefId, Generics>,
     // struct defid -> generics of that struct
     pub struct_to_generics: HashMap<DefId, Generics>,

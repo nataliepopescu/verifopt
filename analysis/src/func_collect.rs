@@ -37,6 +37,8 @@ pub struct FuncMap<'tcx> {
     pub assoc_fns_to_trait: Arc<Mutex<HashMap<DefId, DefId>>>,
     // trait -> structs that implement them
     pub trait_to_struct_impls: HashMap<DefId, Vec<DefId>>,
+    // enum defid -> genereics of that enum
+    pub enum_to_generics: HashMap<DefId, Generics>,
     // struct defid -> generics of that struct
     pub struct_to_generics: HashMap<DefId, Generics>,
     // struct -> impl blocks
@@ -58,6 +60,7 @@ impl<'tcx> FuncMap<'tcx> {
             assoc_fn_impls_to_assoc_fn: Arc::new(Mutex::new(HashMap::default())),
             assoc_fns_to_trait: Arc::new(Mutex::new(HashMap::default())),
             trait_to_struct_impls: HashMap::default(),
+            enum_to_generics: HashMap::default(),
             struct_to_generics: HashMap::default(),
             struct_to_impls: HashMap::default(),
             impl_blocks_to_fn_impls: HashMap::default(),
@@ -207,6 +210,15 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
         funcs
             .struct_to_generics
+            .insert(def_id, self.tcx.generics_of(def_id).clone());
+    }
+
+    fn handle_enum(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
+        if self.debug {
+            println!("generics: {:#>?}", self.tcx.generics_of(def_id));
+        }
+        funcs
+            .enum_to_generics
             .insert(def_id, self.tcx.generics_of(def_id).clone());
     }
 
@@ -666,6 +678,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 match def_kind {
                     DefKind::Trait => self.handle_trait(funcs, def_id),
                     DefKind::Struct => self.handle_struct(funcs, def_id),
+                    DefKind::Enum => self.handle_enum(funcs, def_id),
                     DefKind::Impl { of_trait: true } => self.handle_trait_impl(funcs, def_id),
                     DefKind::Fn | DefKind::AssocFn => self.handle_fn(funcs, def_id),
                     DefKind::Closure => self.handle_closure(funcs, def_id),

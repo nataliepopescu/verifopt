@@ -430,7 +430,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             ret_did,
             ret_generics,
         );
-        let vec_to_insert: Vec<FuncVal>;
+        //let vec_to_insert: Vec<FuncVal>;
         match funcs.all_funcs.get_mut(&def_id) {
             Some(existing_funcval) => {
                 //if self.debug {
@@ -525,7 +525,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("---ADDING FUNCVAL: {:#?}", funcval);
             }
 
-            let vec_to_insert: Vec<FuncVal>;
+            //let vec_to_insert: Vec<FuncVal>;
             match funcs.all_funcs.get_mut(&def_id) {
                 Some(existing_funcval) => {
                     panic!(

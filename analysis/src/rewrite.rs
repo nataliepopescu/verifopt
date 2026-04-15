@@ -1004,7 +1004,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let empty_proj_slice: &[ProjectionElem<Local, Ty<'_>>] = &[];
         let empty_proj = self.tcx.mk_place_elems(empty_proj_slice);
 
-        let targets = vec![(0u128, bb_neq)].into_iter();
+        let targets = vec![(0u128, bb_eq)].into_iter();
 
         let term = Terminator {
             source_info: self.dummy_source_info(),
@@ -1013,7 +1013,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     local: eq_res_loc,
                     projection: empty_proj,
                 }),
-                targets: SwitchTargets::new(targets, bb_eq),
+                targets: SwitchTargets::new(targets, bb_neq),
             },
         };
 
@@ -1410,6 +1410,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         let mut into_raw_target = None;
         let mut bb_last_variant_speak = None;
+        let mut bb_last_cmp = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
             if self.debug {
                 println!("i: {:?}", i);
@@ -1443,16 +1444,20 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 let variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
                 if self.debug {
                     println!("variant vtable: {:?}", variant_vtable);
+                    println!("eq dest: {:?}", bb_cur_variant_speak);
+                    println!("neq dest: {:?}", bb_last_variant_speak);
                 }
 
                 // comparison & switch (if > 1 variant)
                 let eq_res_bool = self.add_mut_bool_temp(patch);
-                let bb_switch = self.add_switch_block(
-                    patch,
-                    bb_last_variant_speak.unwrap(),
-                    bb_cur_variant_speak,
-                    eq_res_bool,
-                );
+                let bb_neq;
+                if bb_last_cmp.is_none() {
+                    bb_neq = bb_last_variant_speak.unwrap();
+                } else {
+                    bb_neq = bb_last_cmp.unwrap();
+                }
+                let bb_switch =
+                    self.add_switch_block(patch, bb_cur_variant_speak, bb_neq, eq_res_bool);
 
                 let bb_compare = self.add_compare_vtable_block(
                     patch,
@@ -1468,6 +1473,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     Some(vec![boxed_dyn_traitobj1]),
                 );
                 into_raw_target = Some(bb_compare);
+                bb_last_cmp = Some(bb_compare);
             } else if dids.len() == 1 {
                 // shim compare block, which does a necessary type cast
                 let bb_shim = self.add_compare_shim(
@@ -1486,6 +1492,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
 
             bb_last_variant_speak = Some(bb_cur_variant_speak);
+            if self.debug {
+                println!(
+                    "SETTING bb_last_var_speak (next neq_bb): {:?}",
+                    bb_last_variant_speak
+                );
+            }
         }
 
         if into_raw_target.is_none() {

@@ -17,6 +17,16 @@ use crate::error::Error;
 
 pub type Type = &'static str;
 
+#[derive(Clone, PartialEq)]
+pub enum DebugPass {
+    None,
+    FuncCollect,
+    CHA,
+    RTA,
+    Interp,
+    Rewrite,
+}
+
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,

@@ -21,9 +21,12 @@ mod error;
 mod patch;
 mod wto;
 
+mod cha;
 mod func_collect;
 mod interp;
 mod rewrite;
+mod rta;
+mod rta_pre;
 
 // inspiration from
 // - https://github.com/lizhuohua/rust-mir-checker/blob/master/src/bin/mir-checker.rs
@@ -43,12 +46,23 @@ use rustc_middle::ty::TyCtxt;
 
 use std::env;
 
+use cha::CHAPass;
 use constraints::ConstraintMap;
+use core::DebugPass;
 use func_collect::{FuncCollectPass, FuncMap};
 use interp::InterpPass;
 use rewrite::RewritePass;
+use rta::RTAPass;
+use rta_pre::{RTACollectPass, RTAMap};
 
 struct VerifoptCallbacks;
+
+#[derive(PartialEq)]
+pub enum InterpStyle {
+    CHA,
+    RTA,
+    FlowSensitive,
+}
 
 impl Callbacks for VerifoptCallbacks {
     #[allow(invalid_reference_casting)]
@@ -63,28 +77,57 @@ impl Callbacks for VerifoptCallbacks {
         // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
 
+        let debug = DebugPass::Interp;
+        let style = InterpStyle::FlowSensitive;
+
         // init + run Function Collection Pass
         let mut funcs = FuncMap::new();
-        let func_collect = FuncCollectPass::new(tcx, false);
+        let func_collect = FuncCollectPass::new(tcx, debug.clone());
         func_collect.run(&mut funcs);
 
-        //// init + run Function Signature Collection Pass
-        //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
+        if style == InterpStyle::CHA {
+            // rewrite based on types
+            let cha = CHAPass::new(tcx, &funcs, debug);
+            // turn &mir_body _&mut_ mir_body
+            let const_body_ptr: *const Body = &*mir_body;
+            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+            unsafe {
+                cha.run(entry_func, &mut *mut_body_ptr);
+                //println!("body: \n{:#?}", *mut_body_ptr);
+            }
+        } else if style == InterpStyle::RTA {
+            // collect which types are actually instantiated
+            let mut inits = RTAMap::new();
+            let rta_pre = RTACollectPass::new(tcx, &funcs, debug.clone());
+            rta_pre.run(&mut inits);
 
-        //// init + run Interpreter Pass
-        let debug_interp = false;
-        let mut cmap = ConstraintMap::new(debug_interp);
-        let interp = InterpPass::new(tcx, &funcs, debug_interp);
-        let _res = interp.run(&mut cmap, None, entry_func, mir_body);
+            // rewrite
+            let rta = RTAPass::new(tcx, &funcs, &inits, debug);
+            // turn &mir_body _&mut_ mir_body
+            let const_body_ptr: *const Body = &*mir_body;
+            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+            unsafe {
+                rta.run(entry_func, &mut *mut_body_ptr);
+                //println!("body: \n{:#?}", *mut_body_ptr);
+            }
+        } else {
+            //// init + run Function Signature Collection Pass
+            //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
-        // init + run Rewriter Pass
-        let rewriter = RewritePass::new(tcx, &funcs, &cmap, true);
-        // turn &mir_body _&mut_ mir_body
-        let const_body_ptr: *const Body = &*mir_body;
-        let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
-        unsafe {
-            rewriter.run(entry_func, &mut *mut_body_ptr);
-            //println!("body: \n{:#?}", *mut_body_ptr);
+            //// init + run Interpreter Pass
+            let mut cmap = ConstraintMap::new(debug.clone());
+            let interp = InterpPass::new(tcx, &funcs, debug.clone());
+            let _res = interp.run(&mut cmap, None, entry_func, mir_body);
+
+            // init + run Rewriter Pass
+            let rewriter = RewritePass::new(tcx, &funcs, &cmap, debug);
+            // turn &mir_body _&mut_ mir_body
+            let const_body_ptr: *const Body = &*mir_body;
+            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+            unsafe {
+                rewriter.run(entry_func, &mut *mut_body_ptr);
+                //println!("body: \n{:#?}", *mut_body_ptr);
+            }
         }
 
         Compilation::Continue

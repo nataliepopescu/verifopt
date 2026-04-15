@@ -5,8 +5,7 @@ use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
 use crate::FuncMap;
-use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::{DebugPass, VerifoptRval, is_box, resolve_ty};
+use crate::core::DebugPass;
 use crate::patch::MirPatch;
 
 // FIXME get dynamically
@@ -26,31 +25,24 @@ const VTABLE_TY_DEFID: DefId = DefId {
 //const FIRST_NONSELF_ARG_IDX: usize = 0;
 //const VTABLE_ADDR_IDX: u32 = 2;
 
-pub struct RewritePass<'a, 'tcx> {
+pub struct CHAPass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
-    pub cmap: &'a ConstraintMap<'tcx>,
     pub debug: bool,
     // TODO put dynamically-acquired into_raw and eq_fn defids here
 }
 
-impl<'a, 'tcx> RewritePass<'a, 'tcx> {
+impl<'a, 'tcx> CHAPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
-        cmap: &'a ConstraintMap<'tcx>,
         which_debug: DebugPass,
-    ) -> RewritePass<'a, 'tcx> {
+    ) -> CHAPass<'a, 'tcx> {
         let mut debug = false;
-        if which_debug == DebugPass::Rewrite {
+        if which_debug == DebugPass::CHA {
             debug = true;
         }
-        Self {
-            tcx,
-            funcs,
-            cmap,
-            debug,
-        }
+        Self { tcx, funcs, debug }
     }
 
     pub fn run(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
@@ -440,6 +432,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch.patch_terminator(cur_bb, TerminatorKind::Goto { target: new_start });
     }
 
+    /*
     fn resolve_struct(
         &self,
         struct_defid: &DefId,
@@ -573,43 +566,43 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
         matching_impls
     }
+    */
 
-    // TODO doing duplicate work as in interp, store interp's result somewhere
-    // (memoize for each dyn dispatch call)
-    fn get_trait_impl_dids(
+    fn get_trait_impl_dids_cha(
         &self,
         cur_scope: DefId,
         dynfunc_defid: &DefId,
-        traitobj: Local,
+        traitobj_did: DefId,
     ) -> Vec<(DefId, DefId)> {
         if self.debug {
             println!("cur_scope: {:?}", cur_scope);
             println!("dynfunc_defid: {:?}", dynfunc_defid);
         }
-        let structs = self.get_struct_dids(cur_scope, traitobj);
-        if self.debug {
-            println!("GOT structs: {:?}", structs);
-        }
+        match self.funcs.trait_to_struct_impls.get(&traitobj_did) {
+            Some(structs) => {
+                if self.debug {
+                    println!("GOT structs: {:?}", structs);
+                }
 
-        if let Some(impls) = self
-            .funcs
-            .trait_fn_impls
-            .lock()
-            .unwrap()
-            .get(&dynfunc_defid)
-        {
-            if self.debug {
-                println!("impls: {:?}", impls);
+                if let Some(impls) = self
+                    .funcs
+                    .trait_fn_impls
+                    .lock()
+                    .unwrap()
+                    .get(&dynfunc_defid)
+                {
+                    if self.debug {
+                        println!("GOT impls: {:?}", impls);
+                    }
+
+                    return std::iter::zip(structs, impls)
+                        .map(|(&x, &y)| (x, y))
+                        .collect();
+                } else {
+                    panic!("no impltors");
+                }
             }
-
-            let matching_impls = self.get_impl_dids(cur_scope, &structs, impls);
-            if self.debug {
-                println!("matching impls: {:?}", matching_impls);
-            }
-
-            return std::iter::zip(structs, matching_impls).collect();
-        } else {
-            panic!("no impltors");
+            None => panic!("no structs found!"),
         }
     }
 
@@ -1322,7 +1315,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("traitobj_did: {:?}", traitobj_did);
         }
 
-        let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid, traitobj);
+        let dids = self.get_trait_impl_dids_cha(cur_scope, dynfunc_defid, traitobj_did);
         if self.debug {
             println!("dids: {:?}", dids);
         }

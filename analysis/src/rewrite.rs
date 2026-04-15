@@ -1444,20 +1444,18 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 let variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
                 if self.debug {
                     println!("variant vtable: {:?}", variant_vtable);
-                    println!("eq dest: {:?}", bb_cur_variant_speak);
-                    println!("neq dest: {:?}", bb_last_variant_speak);
                 }
 
                 // comparison & switch (if > 1 variant)
                 let eq_res_bool = self.add_mut_bool_temp(patch);
-                let bb_neq;
+                let bb_eq;
                 if bb_last_cmp.is_none() {
-                    bb_neq = bb_last_variant_speak.unwrap();
+                    bb_eq = bb_last_variant_speak.unwrap();
                 } else {
-                    bb_neq = bb_last_cmp.unwrap();
+                    bb_eq = bb_last_cmp.unwrap();
                 }
                 let bb_switch =
-                    self.add_switch_block(patch, bb_cur_variant_speak, bb_neq, eq_res_bool);
+                    self.add_switch_block(patch, bb_eq, bb_cur_variant_speak, eq_res_bool);
 
                 let bb_compare = self.add_compare_vtable_block(
                     patch,

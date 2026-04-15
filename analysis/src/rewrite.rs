@@ -237,7 +237,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 println!("func_defid: {:?}", defid);
                             }
 
-                            let vtable_locs;
+                            let mut vtable_locs = Vec::new();
                             // vis_one_variant_bench
                             //let bench_def_index = 39;
                             // vis_two_variants_bench
@@ -255,7 +255,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                     //vtable_locs = (264, 5);
 
                                     // vis_two_variants_bench
-                                    vtable_locs = (214, 5);
+                                    vtable_locs.push(5);
+                                    vtable_locs.push(214);
 
                                     // vis_one_variant_bench
                                     //vtable_locs = (165, 5);
@@ -264,7 +265,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                     //vtable_locs = (269, 5);
 
                                     // vis_two_variants_bench
-                                    vtable_locs = (219, 5);
+                                    vtable_locs.push(5);
+                                    vtable_locs.push(219);
 
                                     // vis_one_variant_bench
                                     //vtable_locs = (170, 5);
@@ -272,10 +274,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                             } else {
                                 if funcval.self_arg.is_some() {
                                     // increase offset b/c arg list now includes `self`
-                                    vtable_locs = (3, 4);
+                                    vtable_locs.push(3);
+                                    vtable_locs.push(4);
+                                    vtable_locs.push(5);
                                 } else {
                                     // default offset
-                                    vtable_locs = (2, 3);
+                                    vtable_locs.push(2);
+                                    vtable_locs.push(3);
+                                    vtable_locs.push(4);
                                 }
                             }
 
@@ -295,7 +301,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 bb,
                                 data,
                                 num_bbs,
-                                vtable_locs,
+                                vtable_locs.as_slice(),
                             );
 
                             // TODO if multiple patches in the same body?
@@ -951,10 +957,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         // construct Cat::speak call
         let new_args = self.replace_first_arg(&mut args.clone(), concrete_ty_loc);
-        if self.debug {
-            println!("OLD ARGS: {:?}", args);
-            println!("NEW ARGS: {:?}", new_args);
-        }
         let gen_args: &[GenericArg<'tcx>] = &[];
         let gen_args_ref = self.tcx.mk_args(gen_args);
 
@@ -1336,7 +1338,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
-        vtable_locs: (u32, u32),
+        vtable_locs: &[u32],
         //traitobj_vtable: Option<Local>,
     ) {
         if self.debug {
@@ -1366,7 +1368,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("traitobj_did: {:?}", traitobj_did);
         }
 
-        let dids;
+        let mut dids;
         if self.style == Style::CHA {
             dids = self.get_trait_impl_dids_cha(cur_scope, dynfunc_defid, traitobj_did);
         } else if self.style == Style::RTA {
@@ -1377,40 +1379,24 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         if self.debug {
             println!("dids: {:?}", dids);
         }
+        dids.reverse();
 
         let mut traitobj_vtable = None;
-        // FIXME make vec to support 3 or more variants
-        let mut variant_vtable = None;
         let mut traitobj_vtable_ptr = None;
-        let mut variant_vtable_ptr = None;
-        //let mut traitobj_vtable_ref = None;
-        //let mut variant_vtable_ref = None;
         if dids.len() > 1 {
             if self.debug {
                 println!("- multiple variants case");
+                println!("vtable_locs: {:?}", vtable_locs);
             }
 
-            // FIXME get dynamically
-            //if self_arg.is_some() {
-            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
-            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 2));
-            //} else {
-            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX));
-            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
-            //}
-            traitobj_vtable = Some(Local::from_u32(vtable_locs.0));
-            variant_vtable = Some(Local::from_u32(vtable_locs.1));
+            traitobj_vtable = Some(Local::from_u32(vtable_locs[0]));
+            // TODO maybe benchmark this route as an alternative, if it is functional?
+            //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
 
             if self.debug {
                 println!("traitobj vtable: {:?}", traitobj_vtable);
-                println!("variant vtable: {:?}", variant_vtable);
             }
-
-            // TODO maybe benchmark this route as an alternative, if it is functional?
-            //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
-            //variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
-            traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
-            variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
         } else {
             if self.debug {
                 println!("- single variant case");
@@ -1425,6 +1411,12 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let mut into_raw_target = None;
         let mut bb_last_variant_speak = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
+            if self.debug {
+                println!("i: {:?}", i);
+                println!("struct_did: {:?}", struct_did);
+                println!("func_did: {:?}", func_did);
+            }
+
             // add back old goto
             let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
 
@@ -1446,6 +1438,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             );
 
             if i > 0 {
+                // get vtable locations
+                let variant_vtable = Some(Local::from_u32(vtable_locs[vtable_locs.len() - i]));
+                let variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+                if self.debug {
+                    println!("variant vtable: {:?}", variant_vtable);
+                }
+
                 // comparison & switch (if > 1 variant)
                 let eq_res_bool = self.add_mut_bool_temp(patch);
                 let bb_switch = self.add_switch_block(
@@ -1480,7 +1479,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 into_raw_target = Some(bb_shim);
             } else {
                 if self.debug {
-                    println!("i: {:?}", i);
+                    //println!("i: {:?}", i);
+                    println!("i == 0 && dids.len != 1");
                     println!("dids: {:?}", dids);
                 }
             }

@@ -27,6 +27,13 @@ pub enum DebugPass {
     Rewrite,
 }
 
+#[derive(PartialEq)]
+pub enum Style {
+    CHA,
+    RTA,
+    FlowSensitive,
+}
+
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,

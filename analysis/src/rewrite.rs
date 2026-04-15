@@ -4,10 +4,10 @@ use rustc_span::def_id::{CrateNum, DefId, DefIndex};
 use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
-use crate::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::{DebugPass, VerifoptRval, is_box, resolve_ty};
+use crate::core::{DebugPass, Style, VerifoptRval, is_box, resolve_ty};
 use crate::patch::MirPatch;
+use crate::{FuncMap, RTAMap};
 
 // FIXME get dynamically
 // alloc[7a7c]::boxed::{impl#8}::into_raw
@@ -30,6 +30,8 @@ pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
     pub cmap: &'a ConstraintMap<'tcx>,
+    pub inits: &'a RTAMap,
+    pub style: Style,
     pub debug: bool,
     // TODO put dynamically-acquired into_raw and eq_fn defids here
 }
@@ -39,6 +41,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
         cmap: &'a ConstraintMap<'tcx>,
+        inits: &'a RTAMap,
+        style: Style,
         which_debug: DebugPass,
     ) -> RewritePass<'a, 'tcx> {
         let mut debug = false;
@@ -49,6 +53,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             tcx,
             funcs,
             cmap,
+            inits,
+            style,
             debug,
         }
     }
@@ -572,6 +578,44 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
         }
         matching_impls
+    }
+
+    fn get_trait_impl_dids_cha(
+        &self,
+        cur_scope: DefId,
+        dynfunc_defid: &DefId,
+        traitobj_did: DefId,
+    ) -> Vec<(DefId, DefId)> {
+        if self.debug {
+            println!("cur_scope: {:?}", cur_scope);
+            println!("dynfunc_defid: {:?}", dynfunc_defid);
+        }
+        match self.funcs.trait_to_struct_impls.get(&traitobj_did) {
+            Some(structs) => {
+                if self.debug {
+                    println!("GOT structs: {:?}", structs);
+                }
+
+                if let Some(impls) = self
+                    .funcs
+                    .trait_fn_impls
+                    .lock()
+                    .unwrap()
+                    .get(&dynfunc_defid)
+                {
+                    if self.debug {
+                        println!("GOT impls: {:?}", impls);
+                    }
+
+                    return std::iter::zip(structs, impls)
+                        .map(|(&x, &y)| (x, y))
+                        .collect();
+                } else {
+                    panic!("no impltors");
+                }
+            }
+            None => panic!("no structs found!"),
+        }
     }
 
     // TODO doing duplicate work as in interp, store interp's result somewhere
@@ -1322,7 +1366,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("traitobj_did: {:?}", traitobj_did);
         }
 
-        let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid, traitobj);
+        let dids;
+        if self.style == Style::CHA {
+            dids = self.get_trait_impl_dids_cha(cur_scope, dynfunc_defid, traitobj_did);
+        } else if self.style == Style::RTA {
+            todo!();
+        } else {
+            dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid, traitobj);
+        }
         if self.debug {
             println!("dids: {:?}", dids);
         }

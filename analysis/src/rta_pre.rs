@@ -1,6 +1,6 @@
 use rustc_hir::def_id::DefId;
-use rustc_middle::ty::TyCtxt;
 use rustc_middle::mir::Body;
+use rustc_middle::ty::TyCtxt;
 
 use crate::FuncMap;
 use crate::core::DebugPass;
@@ -48,7 +48,10 @@ impl<'a, 'tcx> RTACollectPass<'a, 'tcx> {
 
     fn collect_inits(&self, inits: &mut RTAMap) {
         if self.debug {
-            println!("# Iterating through up to {:?} funcs...\n", self.funcs.all_funcs.len());
+            println!(
+                "# Iterating through up to {:?} funcs...\n",
+                self.funcs.all_funcs.len()
+            );
         }
         let mut ctr = 0;
 

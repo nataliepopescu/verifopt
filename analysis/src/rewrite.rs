@@ -237,76 +237,19 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 println!("func_defid: {:?}", defid);
                             }
 
-                            let mut vtable_locs = Vec::new();
-                            // vis_one_variant_bench
-                            //let bench_def_index = 39;
-                            // vis_two_variants_bench
-                            let bench_def_index = 46;
-                            // no inlining
-                            //let bench_def_index = 0;
-                            if cur_scope.krate.as_u32() == 0
-                                && cur_scope.index.as_u32() == bench_def_index
-                            {
-                                // different dyn animal vtables for warmup vs run block in
-                                // benchmarks (inlined bench())
-                                if *warmup == true {
-                                    *warmup = false;
-                                    // vis_two_variants_bench w prints
-                                    //vtable_locs = (264, 5);
-
-                                    // vis_two_variants_bench
-                                    vtable_locs.push(5);
-                                    vtable_locs.push(214);
-
-                                    // vis_one_variant_bench
-                                    //vtable_locs = (165, 5);
-                                } else {
-                                    // vis_two_variants_bench w prints
-                                    //vtable_locs = (269, 5);
-
-                                    // vis_two_variants_bench
-                                    vtable_locs.push(5);
-                                    vtable_locs.push(219);
-
-                                    // vis_one_variant_bench
-                                    //vtable_locs = (170, 5);
-                                }
-                            } else {
-                                if funcval.self_arg.is_some() {
-                                    // increase offset b/c arg list now includes `self`
-                                    vtable_locs.push(3);
-                                    vtable_locs.push(4);
-                                    vtable_locs.push(5);
-                                } else {
-                                    // default offset
-                                    vtable_locs.push(2);
-                                    vtable_locs.push(3);
-                                    vtable_locs.push(4);
-                                }
-                            }
-
-                            if self.debug {
-                                println!("PRE REPLACEMENT");
-                                println!("warmup: {:?}", warmup);
-                                println!("vtable_locs: {:?}", vtable_locs);
-                            }
-
                             self.replace_dynamic_dispatch(
                                 cur_scope,
                                 &mut patch,
                                 &defid,
                                 ty,
+                                funcval.self_arg,
                                 args,
                                 *destination,
                                 bb,
                                 data,
                                 num_bbs,
-                                vtable_locs.as_slice(),
+                                warmup,
                             );
-
-                            // TODO if multiple patches in the same body?
-                            // find way to declare/apply each patch in an inner scope
-                            // for now assuming only one patch per body
 
                             if self.debug {
                                 println!("POST REPLACEMENT");
@@ -1325,6 +1268,69 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
     }
 
+    fn get_vtable_locs(
+        &self,
+        cur_scope: DefId,
+        self_arg: Option<Place<'tcx>>,
+        dids_len: usize,
+        warmup: &mut bool,
+    ) -> Vec<usize> {
+        let mut vtable_locs = Vec::new();
+        // vis_one_variant_bench
+        //let bench_def_index = 39;
+        // vis_two_variants_bench
+        let bench_def_index = 46;
+        // no inlining
+        //let bench_def_index = 0;
+        if cur_scope.krate.as_u32() == 0 && cur_scope.index.as_u32() == bench_def_index {
+            // different dyn animal vtables for warmup vs run block in
+            // benchmarks (inlined bench())
+            if *warmup == true {
+                *warmup = false;
+                // vis_two_variants_bench w prints
+                //vtable_locs = (264, 5);
+
+                // vis_two_variants_bench
+                vtable_locs.push(5);
+                vtable_locs.push(214);
+
+                // vis_one_variant_bench
+                //vtable_locs = (165, 5);
+            } else {
+                // vis_two_variants_bench w prints
+                //vtable_locs = (269, 5);
+
+                // vis_two_variants_bench
+                vtable_locs.push(5);
+                vtable_locs.push(219);
+
+                // vis_one_variant_bench
+                //vtable_locs = (170, 5);
+            }
+        } else {
+            let first_loc;
+            if self_arg.is_some() {
+                // increase offset b/c arg list now includes `self`
+                first_loc = 3;
+            } else {
+                // default offset
+                first_loc = 2;
+            }
+
+            for i in 0..dids_len {
+                vtable_locs.push(first_loc + i);
+            }
+        }
+
+        if self.debug {
+            println!("self_arg: {:?}", self_arg);
+            println!("warmup: {:?}", warmup);
+            println!("vtable_locs: {:?}", vtable_locs);
+        }
+
+        vtable_locs
+    }
+
     #[allow(unused_assignments)]
     fn replace_dynamic_dispatch(
         &self,
@@ -1332,19 +1338,17 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch: &mut MirPatch<'tcx>,
         dynfunc_defid: &DefId,
         ty: Ty<'tcx>,
-        //self_arg: Option<Place<'tcx>>,
+        self_arg: Option<Place<'tcx>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         term_dst_place: Place<'tcx>,
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
-        vtable_locs: &[u32],
-        //traitobj_vtable: Option<Local>,
+        warmup: &mut bool,
     ) {
         if self.debug {
             println!("\n### STARTING\n");
             println!("cur_scope: {:?}", cur_scope);
-            //println!("self_arg: {:?}", self_arg);
             println!("num_bbs: {:?}", num_bbs);
             println!("cur_bb: {:?}", bb);
             println!("func dest place: {:?}", term_dst_place);
@@ -1378,18 +1382,21 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
         if self.debug {
             println!("dids: {:?}", dids);
+            println!("dids.len(): {:?}", dids.len());
         }
         dids.reverse();
 
         let mut traitobj_vtable = None;
         let mut traitobj_vtable_ptr = None;
+        let vtable_loc_vec = self.get_vtable_locs(cur_scope, self_arg, dids.len(), warmup);
+        let vtable_locs = vtable_loc_vec.as_slice();
         if dids.len() > 1 {
             if self.debug {
                 println!("- multiple variants case");
                 println!("vtable_locs: {:?}", vtable_locs);
             }
 
-            traitobj_vtable = Some(Local::from_u32(vtable_locs[0]));
+            traitobj_vtable = Some(Local::from_usize(vtable_locs[0]));
             // TODO maybe benchmark this route as an alternative, if it is functional?
             //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
             traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
@@ -1440,7 +1447,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
             if i > 0 {
                 // get vtable locations
-                let variant_vtable = Some(Local::from_u32(vtable_locs[vtable_locs.len() - i]));
+                let variant_vtable = Some(Local::from_usize(vtable_locs[vtable_locs.len() - i]));
                 let variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
                 if self.debug {
                     println!("variant vtable: {:?}", variant_vtable);
@@ -1483,7 +1490,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 into_raw_target = Some(bb_shim);
             } else {
                 if self.debug {
-                    //println!("i: {:?}", i);
                     println!("i == 0 && dids.len != 1");
                     println!("dids: {:?}", dids);
                 }

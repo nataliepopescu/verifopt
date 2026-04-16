@@ -170,15 +170,15 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     println!("adt genargs: {:?}", adt_genargs);
                 }
                 let ret_did = Some(def.did());
-                if adt_genargs.len() > 0 {
-                    match adt_genargs[0].kind() {
+                let mut rettype_params : Vec<ParamTy> = vec![];
+                for adt_genarg in adt_genargs.into_iter() {
+                    match adt_genarg.kind() {
                         GenericArgKind::Type(ty) => {
-                            let params_opt = get_params_from_ty(&ty, self.debug);
-                            if self.debug {
-                                println!("RET PARAMS: {:?}", params_opt);
-                            }
-                            if let Some(params_vec) = params_opt {
-                                return (ret_did, Some(params_vec));
+                            match get_params_from_ty(&ty, self.debug) {
+                                None => {}
+                                Some(params) => {
+                                    rettype_params.extend(&params);
+                                }
                             }
                         }
                         _ => {
@@ -187,6 +187,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
                             }
                         }
                     }
+                }
+
+                if rettype_params.len() > 0 {
+                    return (ret_did, Some(rettype_params));
                 }
                 return (ret_did, None);
             }

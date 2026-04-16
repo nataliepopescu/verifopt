@@ -1423,6 +1423,15 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         );
     }
 
+    /// Resolves generic type parameters used by the function parameters
+    /// and adds the constraints to the function's scope 
+    ///
+    /// # Example
+    /// ```
+    /// let a = foo<T = int>(x: T);
+    /// ```
+    /// will result in `T` having `int` added to its constraints in `foo`'s scope
+    ///
     fn resolve_generic_argtys(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -1437,121 +1446,46 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("func genargs: {:?}", func_genargs);
         }
 
-        // filter lifetimes out of genargs
-        let genargs = func_genargs.iter().filter(|genarg| match genarg.kind() {
-            GenericArgKind::Lifetime(_) => false,
-            _ => true,
-        });
-
-        if self.debug {
-            println!("filtered genargs: {:?}", genargs);
+        let mut constraints_map = HashMap::<ParamTy, HashSet<VerifoptRval>>::default();
+        if let Some(param_generics) = funcval.param_generics.clone() {
+            for param in param_generics {
+                match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false) {
+                    Some(_) => {
+                        if self.debug {
+                            println!("\tmapping already exists");
+                        }
+                    }
+                    None => {
+                        if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
+                            if self.debug {
+                                println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
+                            }
+                            constraints_map.entry(param)
+                                .or_insert_with(HashSet::default)
+                                .insert(VerifoptRval::IdkType(genarg_ty));
+                        }
+                    }
+                }
+            }
         }
 
-        // add argtype generic param to callee scope
-        for (param_generic, gen_arg) in
-            std::iter::zip(funcval.param_generics.clone().unwrap(), genargs)
-        {
-            if self.debug {
-                println!(
-                    "IN LOOP; arg resolution: ({:?}, {:?})",
-                    param_generic, gen_arg
-                );
-            }
-
-            if cmap
-                .scoped_get(
-                    Some(funcval.def_id),
-                    &MapKey::Generic(param_generic.name),
-                    false,
-                )
-                .is_none()
-            {
-                if self.debug {
-                    println!("\tproceeding with adding to cmap");
-                }
-                let mut constraints = HashSet::default();
-                let vartype = match gen_arg.kind() {
-                    GenericArgKind::Type(ty) => match ty.kind() {
-                        TyKind::Param(param) => {
-                            if self.debug {
-                                println!("ty param!! use outer scope ty val: {:?}", param);
-                            }
-                            match cmap.scoped_get(
-                                Some(cur_scope),
-                                &MapKey::Generic(param_generic.name),
-                                false,
-                            ) {
-                                // propagate outer_scope value
-                                Some(val) => val,
-                                None => {
-                                    // if no outer_scope value, try to resolve gen_arg itself
-                                    match cmap.scoped_get(
-                                        Some(cur_scope),
-                                        &MapKey::Generic(param.name),
-                                        false,
-                                    ) {
-                                        Some(val) => val,
-                                        None => panic!(
-                                            "cannot resolve {:?} in defid {:?}",
-                                            param_generic.name, cur_scope
-                                        ),
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
-                            VarType::Values(constraints)
-                        }
-                    },
-                    _ => {
-                        constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
-                        VarType::Values(constraints)
+        for (param, constraints) in constraints_map {
+            match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false) {
+                Some(_) => {
+                    if self.debug {
+                        println!("\tmapping already exists");
                     }
-                };
-
-                if self.debug {
-                    println!(
-                        "outer-scope val @ {:?}: {:?}",
-                        param_generic.name,
-                        cmap.scoped_get(
-                            Some(cur_scope),
-                            &MapKey::Generic(param_generic.name),
-                            false
-                        )
-                    );
-                    println!(
-                        "old val @ {:?}: {:?}",
-                        param_generic.name,
-                        cmap.scoped_get(
-                            Some(funcval.def_id),
-                            &MapKey::Generic(param_generic.name),
-                            false
-                        )
-                    );
                 }
-
-                cmap.scoped_add(
-                    Some(funcval.def_id),
-                    MapKey::Generic(param_generic.name),
-                    Box::new(vartype),
-                );
-            } else {
-                if self.debug {
-                    println!("\tmapping already exists; skipping");
-                }
-            }
-
-            if self.debug {
-                println!(
-                    "val @ {:?}: {:?}",
-                    param_generic.name,
-                    cmap.scoped_get(
+                None => {
+                    if self.debug {
+                        println!("\tadding to cmap");
+                    }
+                    cmap.scoped_add(
                         Some(funcval.def_id),
-                        &MapKey::Generic(param_generic.name),
-                        false
-                    )
-                );
+                        MapKey::Generic(param.name),
+                        Box::new(VarType::Values(constraints)),
+                    );
+                }
             }
         }
     }

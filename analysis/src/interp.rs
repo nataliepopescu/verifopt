@@ -1,10 +1,11 @@
 use rustc_data_structures::fx::FxHashSet as HashSet;
+use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_data_structures::packed::Pu128;
 use rustc_hir::def_id::DefId;
 use rustc_index::IndexSlice;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{GenericArg, GenericArgKind, List, TyCtxt, TyKind};
+use rustc_middle::ty::{ConstKind, GenericArg, GenericArgKind, List, ParamTy, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
@@ -1573,8 +1574,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         }
 
         // add rettype generic param to callee scope
-        let mut name_opt = None;
-        let mut constraints = HashSet::default();
+        let mut constraints_map = HashMap::<ParamTy, HashSet<VerifoptRval>>::default();
         if let Some(rettype) = funcval.rettype {
             match rettype.kind() {
                 TyKind::Adt(adt_def, adt_genargs) => {
@@ -1583,46 +1583,56 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("adt_genargs: {:?}", adt_genargs);
                     }
 
-                    if adt_genargs.len() > 0 {
-                        match adt_genargs[0].kind() {
-                            GenericArgKind::Type(ty) => match ty.kind() {
-                                TyKind::Param(param) => {
-                                    if func_genargs.len() > 0 {
-                                        if let Some(genarg_ty) = func_genargs[0].as_type() {
-                                            name_opt = Some(param.name);
-                                            constraints.insert(VerifoptRval::IdkType(genarg_ty));
+                    for adt_genarg in adt_genargs.into_iter() {
+                        match adt_genarg.kind() {
+                            GenericArgKind::Type(ty) => {
+                                match ty.kind() {
+                                    TyKind::Param(param) => {
+                                        if self.debug {
+                                            println!("param: {:?}", param);
+                                        }
+
+                                        // FIXME: Should we double check that we are within bounds?
+                                        // TODO: Pull this out into helper?
+                                        if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
+                                            if self.debug {
+                                                println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
+                                            }
+                                            constraints_map.entry(*param)
+                                                .or_insert_with(HashSet::default)
+                                                .insert(VerifoptRval::IdkType(genarg_ty));
                                         }
                                     }
-                                }
-                                TyKind::Slice(ty) => {
-                                    let params_vec_opt = get_params_from_ty(&ty, self.debug);
-                                    if self.debug {
-                                        println!("params: {:?}", params_vec_opt);
-                                    }
-                                    if let Some(params_vec) = params_vec_opt {
-                                        if func_genargs.len() > 0 {
-                                            if func_genargs.len() != 1 {
-                                                todo!(
-                                                    "unexpected func_genargs len (handle non-1 len)"
-                                                );
-                                            }
-                                            for param in params_vec.iter() {
-                                                if let Some(genarg_ty) = func_genargs[0].as_type() {
-                                                    name_opt = Some(param.name);
-                                                    constraints
+
+                                    TyKind::Slice(ty) => {
+                                        let params_vec_opt = get_params_from_ty(&ty, self.debug);
+                                        if self.debug {
+                                            println!("params: {:?}", params_vec_opt);
+                                        }
+
+                                        if let Some(params_vec) = params_vec_opt {
+                                            for param in params_vec {
+                                                // FIXME: Should we double check that we are within bounds?
+                                                // TODO: Pull this out into helper?
+                                                if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
+                                                    if self.debug {
+                                                        println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
+                                                    }
+                                                    constraints_map.entry(param)
+                                                        .or_insert_with(HashSet::default)
                                                         .insert(VerifoptRval::IdkType(genarg_ty));
                                                 }
                                             }
                                         }
                                     }
-                                }
-                                _ => {
-                                    if self.debug {
-                                        println!("OTHER KIND: {:?}", ty.kind());
+                                    _ => {
+                                        if self.debug {
+                                            println!("OTHER KIND: {:?}", ty.kind());
+                                        }
                                     }
                                 }
-                            },
-                            _ => todo!("first genarg is not a ty: {:?}", adt_genargs[0].kind()),
+                            }
+                            _ => todo!("genarg is not a ty: {:?}", adt_genarg.kind()),
                         }
                     }
                 }
@@ -1631,38 +1641,52 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                         println!("RETTYPE IS A PARAM: {:?}", param);
                     }
 
-                    name_opt = Some(param.name);
-                    constraints.insert(VerifoptRval::IdkType(body_locals[destination.local].ty));
+                    // FIXME: Should we double check that we are within bounds?
+                    // TODO: Pull this out into helper?
+                    if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
+                        if self.debug {
+                            println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
+                        }
+                        constraints_map.entry(*param)
+                            .or_insert_with(HashSet::default)
+                            .insert(VerifoptRval::IdkType(genarg_ty));
+                    }
+
                 }
                 _ => todo!("handle rettype kind: {:?}", rettype.kind()),
             }
-        }
-
-        if let Some(name) = name_opt {
-            match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(name), false) {
-                Some(_) => {
-                    if self.debug {
-                        println!("\tmapping already exists");
-                    }
-                }
-                None => {
-                    if self.debug {
-                        println!("\tadding to cmap");
-                    }
-                    cmap.scoped_add(
-                        Some(funcval.def_id),
-                        MapKey::Generic(name),
-                        Box::new(VarType::Values(constraints)),
-                    );
-                }
-            }
 
             if self.debug {
-                println!(
-                    "val @ {:?}: {:?}",
-                    name,
-                    cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(name), false,)
-                );
+                println!("MAPPED PARAMS: {:?}", constraints_map);
+
+            }
+
+            for (param, constraints) in constraints_map {
+                match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false) {
+                    Some(_) => {
+                        if self.debug {
+                            println!("\tmapping already exists");
+                        }
+                    }
+                    None => {
+                        if self.debug {
+                            println!("\tadding to cmap");
+                        }
+                        cmap.scoped_add(
+                            Some(funcval.def_id),
+                            MapKey::Generic(param.name),
+                            Box::new(VarType::Values(constraints)),
+                        );
+                    }
+                }
+
+                if self.debug {
+                    println!(
+                        "val @ {:?}: {:?}",
+                        param.name,
+                        cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false,)
+                    );
+                }
             }
         }
     }

@@ -941,13 +941,13 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         let mut newplace = *place;
         if place.projection.len() != 0 {
             // not dealing w complicated projections right now, widen to backup_ty
-            if place.projection.len() > 1 {
-                if self.debug {
-                    println!("multiple projections, using backup_ty: {:?}", backup_ty);
-                }
-                ret_constraints.insert(VerifoptRval::IdkType(*backup_ty));
-                return ret_constraints;
-            }
+            //if place.projection.len() > 1 {
+            //    if self.debug {
+            //        println!("multiple projections, using backup_ty: {:?}", backup_ty);
+            //    }
+            //    ret_constraints.insert(VerifoptRval::IdkType(*backup_ty));
+            //    return ret_constraints;
+            //}
 
             match place.projection[0] {
                 PlaceElem::Deref => {

@@ -66,7 +66,7 @@ impl Callbacks for VerifoptCallbacks {
         // get optimized MIR body of entry point function
         let mir_body = tcx.optimized_mir(entry_func);
 
-        let debug = DebugPass::None;
+        let debug = DebugPass::Interp;
         let style = Style::FlowSensitive;
 
         // init + run Function Collection Pass

@@ -805,6 +805,36 @@ maybe the FnOnce redirection is fine but not the Fn one
 - i think we need to find out where the automatic trait impls are
 
 
+### `five_to_two_variants`
+
+`get_animal_small` return constraints look correct
+- IdkStruct(Box, [Frog, Bird])
+
+in main
+- those constraints are put into local10
+- then go on to call all the `get_animal`s for vtable ptrs
+- then `wrap_dyn_call` in bb9
+
+`wrap_dyn_call` args
+- animal = local21 (which is &local10)
+- FuncVal `params` for local1 (first arg, which is animal) == Box<dyn Animal>,
+  which is maybe where we're loosing info
+    - but in `resolve_args` we seem to maintain the (correctly) resolved
+      constraints
+- oh shoot, we might be defaulting to the type param b/c of the projections
+- also check the cast afterwards
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

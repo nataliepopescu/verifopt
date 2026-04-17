@@ -96,6 +96,13 @@ pub fn get_params_from_ty<'tcx>(ty: &Ty<'tcx>, debug: bool) -> Option<Vec<ParamT
                 Some(params)
             }
         }
+        TyKind::RawPtr(ty, _) => {
+            if debug {
+                println!("RAWPTR");
+            }
+            return get_params_from_ty(ty, debug);
+
+        }
         TyKind::FnPtr(bound_sig, _header) => {
             if debug {
                 println!("FNPTR");

@@ -14,6 +14,23 @@ use crate::helpers::is_box;
 
 pub type Type = &'static str;
 
+#[derive(Clone, PartialEq)]
+pub enum DebugPass {
+    None,
+    FuncCollect,
+    CHA,
+    RTA,
+    Interp,
+    Rewrite,
+}
+
+#[derive(PartialEq)]
+pub enum Style {
+    CHA,
+    RTA,
+    FlowSensitive,
+}
+
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,

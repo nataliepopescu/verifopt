@@ -277,6 +277,12 @@ another option: hashing
         - have to create a new hasher every time want clean slate
     - hash struct DefIds
         - what is our discriminant?
+        - this is dynamic, so i think we'd need to generate code that does this
+          hashing at runtime
+        - in which case, now we're adding runtime overhead
+        - so this is actually probably not the best thing to do
+
+
 
 
 ### Modify/Remove Vtable Allocation

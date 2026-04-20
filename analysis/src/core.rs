@@ -565,6 +565,30 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         }
     }
 
+    pub fn genarg_envs_from_rvalue(
+        &self,
+        rvalue: &VerifoptRval<'tcx>
+    ) -> Option<HashSet<Vec<VerifoptRval<'tcx>>>> {
+        let arg_envs = match rvalue {
+            VerifoptRval::Scalar(_) => &None,
+            VerifoptRval::Ptr(_) => &None,
+            VerifoptRval::Ref(_) => &None,
+            VerifoptRval::ConstSlice() => &None,
+            VerifoptRval::IndirectConst(_) => &None,
+            VerifoptRval::IdkStruct(_, arg_envs) => arg_envs,
+            VerifoptRval::IdkStr() => &None,
+            VerifoptRval::IdkType(_) => &None,
+            VerifoptRval::IdkDefId(_, arg_envs) => arg_envs,
+            VerifoptRval::Idk() => &None,
+            VerifoptRval::Undef() => &None,
+        };
+
+        match arg_envs {
+            None => return None,
+            Some(arg_envs) => Some(HashSet::from_iter(arg_envs.clone())),
+        }
+    }
+
     fn rval_from_agg(
         &self,
         cmap: &ConstraintMap<'tcx>,

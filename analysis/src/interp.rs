@@ -1,4 +1,4 @@
-use rustc_data_structures::fx::FxHashSet as HashSet;
+use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 use rustc_data_structures::packed::Pu128;
 use rustc_hir::def_id::DefId;
 use rustc_index::IndexSlice;
@@ -733,9 +733,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
         // get the list of possible static functions to dispatch to, given the constraints
         // available for `self`
-        let mut to_dispatch = Vec::new();
+        let mut to_dispatch = HashMap::default();
         for self_constraint in self_constraint_vec.iter() {
-            to_dispatch.append(&mut self.get_impls(trait_def_id, self_constraint, impls));
+            let assoc_dispatches = self.get_impls(trait_def_id, self_constraint, impls);
+            to_dispatch.insert(self_constraint, assoc_dispatches);
         }
 
         if self.debug {
@@ -744,34 +745,43 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         // call each static function
         let mut res_vec = Vec::new();
-        for func_defid in to_dispatch {
-            if self.debug {
-                println!("LOOPING static dispatches");
-                println!("func_defid: {:?}", func_defid);
-            }
+        for (self_constraint, func_defids) in to_dispatch {
+            for func_defid in func_defids {
+                let self_constraint_genargs = self.converter.genarg_envs_from_rvalue(self_constraint);
 
-            let funcval_opt = self.funcs.all_funcs.get(&func_defid);
-            if funcval_opt.is_none() {
-                panic!("func not found: {:?}", func_defid);
-            }
-            let funcval = funcval_opt.unwrap();
-            if self.debug {
-                println!("funcval: {:?}", funcval);
-            }
-            //if funcval_vec.len() != 1 {
-            //    panic!("unexpected number of functions");
-            //}
+                if self.debug {
+                    println!("LOOPING static dispatches");
+                    println!("func_defid: {:?}", func_defid);
+                    println!("self_constraint_genargs: {:?}", self_constraint_genargs);
+                }
 
-            res_vec.push(self.handle_static_dispatch(
-                cmap,
-                call_stack,
-                cur_scope,
-                body_locals,
-                &funcval,
-                func_genargs,
-                args,
-                destination,
-            ));
+                let funcval_opt = self.funcs.all_funcs.get(&func_defid);
+                if funcval_opt.is_none() {
+                    panic!("func not found: {:?}", func_defid);
+                }
+                let funcval = funcval_opt.unwrap();
+                if self.debug {
+                    println!("funcval: {:?}", funcval);
+                }
+
+                let dyn_genarg_envs = if let Some(self_genargs) = self_constraint_genargs {
+                    self_genargs
+                } else {
+                    // FIXME: Do we want to pass these args? Or some others?
+                    func_genargs.clone()
+                };
+
+                res_vec.push(self.handle_static_dispatch(
+                    cmap,
+                    call_stack,
+                    cur_scope,
+                    body_locals,
+                    &funcval,
+                    &dyn_genarg_envs,
+                    args,
+                    destination,
+                ));
+            }
         }
 
         res_vec

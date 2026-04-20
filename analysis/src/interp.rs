@@ -368,9 +368,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                 // double check that nothing was supposed to be returned
                 if let Some(funcval) = self.funcs.all_funcs.get(&cur_scope) {
-                    //if funcval_vec.len() != 1 {
-                    //    panic!("unexpected len");
-                    //}
                     if let Some(retty) = funcval.rettype
                         && !retty.is_unit()
                     {

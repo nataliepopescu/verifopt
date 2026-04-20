@@ -5,7 +5,8 @@ use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::{DebugPass, Style, VerifoptRval, is_box, resolve_ty};
+use crate::core::{DebugPass, Style, VerifoptRval};
+use crate::helpers::{is_box, resolve_ty};
 use crate::patch::MirPatch;
 use crate::{FuncMap, RTAMap};
 

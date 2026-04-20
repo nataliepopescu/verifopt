@@ -47,6 +47,7 @@ pub(crate) enum MapKey<'tcx> {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConstraintMap<'tcx> {
     pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
+    pub genargs: HashMap<DefId, HashSet<Vec<VerifoptRval<'tcx>>>>,
     pub wtos: HashMap<DefId, BBDeps>,
     pub debug: bool,
 }
@@ -59,6 +60,7 @@ impl<'tcx> ConstraintMap<'tcx> {
         }
         Self {
             cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
+            genargs: HashMap::<DefId, HashSet<Vec<VerifoptRval<'tcx>>>>::default(),
             wtos: HashMap::<DefId, BBDeps>::default(),
             debug,
         }
@@ -172,6 +174,32 @@ impl<'tcx> ConstraintMap<'tcx> {
                 }
             },
             None => panic!("undefined scope: {:?}", scope.unwrap()),
+        }
+    }
+
+    /// Get the current scopes gen arg environment(s)
+    ///
+    /// For instance for `foo<T,E>`, might return `{[i32, MyError], [str, MyError]}`
+    ///
+    /// Panics if the scope is not present
+    pub(crate) fn get_scope_genarg_envs_or_panic(&self, scope: &DefId) -> &HashSet<Vec<VerifoptRval<'tcx>>> {
+        match self.genargs.get(scope) {
+            None => panic!("Attempted to get genargs of nonexistant scope"),
+            Some(v) => v,
+        }
+    }
+
+    /// Add a genarg environment to the specified scope
+    ///
+    /// No-op if the environment is already in the scope
+    pub(crate) fn add_scope_genarg_env(&mut self, scope: &DefId, arg_env: HashSet<Vec<VerifoptRval<'tcx>>>) {
+        match self.genargs.get_mut(scope) {
+            Some(v) => {
+                v.extend(arg_env);
+            },
+            None => {
+                self.genargs.insert(*scope, arg_env);
+            },
         }
     }
 }
@@ -329,6 +357,11 @@ impl<'tcx> Merge<ConstraintMap<'tcx>> for Vec<ConstraintMap<'tcx>> {
                         merged.cmap.insert(key.clone(), val.clone());
                     }
                 }
+            }
+
+            // Union all arg environments scope-wise
+            for (key, val) in cmap.clone().genargs.iter() {
+                merged.genargs.entry(*key).or_default().extend(val.clone());
             }
         }
 

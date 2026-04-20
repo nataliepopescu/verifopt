@@ -1,19 +1,17 @@
 use rustc_data_structures::fx::FxHashSet as HashSet;
-use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_data_structures::packed::Pu128;
 use rustc_hir::def_id::DefId;
 use rustc_index::IndexSlice;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{ConstKind, GenericArg, GenericArgKind, List, ParamTy, TyCtxt, TyKind};
+use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
 use crate::core::{DebugPass, FuncVal, Merge, VerifoptConverter, VerifoptRval};
-use crate::core::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
-use crate::helpers::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
+use crate::helpers::{is_box, is_fn_trait, resolve_ty};
 use crate::wto::BBDeps;
 
 pub struct InterpPass<'a, 'tcx> {
@@ -75,6 +73,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 vec![(Box::new("main functype"), main_cmap)],
             )),
         );
+
+        // Insert base genarg environment for main function
+        cmap.add_scope_genarg_env(&cur_scope, HashSet::from_iter([vec![]]));
 
         // TODO perhaps also setup a general `global` scope (which would replace the
         // current semantics of the `None` scope) once we change the meaning of backptr)
@@ -728,7 +729,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         trait_def_id: &DefId,
         self_constraint_vec: Vec<VerifoptRval<'tcx>>,
         impls: &Vec<DefId>,
-        func_genargs: &[GenericArg<'tcx>],
+        func_genargs: &HashSet<Vec<VerifoptRval<'tcx>>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
@@ -785,7 +786,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         assoc_funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
+        func_genargs: &HashSet<Vec<VerifoptRval<'tcx>>>,
         trait_def_id: &DefId,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
@@ -895,7 +896,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
+        func_genargs: &HashSet<Vec<VerifoptRval<'tcx>>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -906,28 +907,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             );
             println!("args: {:?}", args);
         }
-
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
 
-        if funcval.param_generics.is_some() {
-            if self.debug {
-                println!("\n## RESOLVING GENERICS IN ARGTYS...\n");
-            }
-            self.resolve_generic_argtys(&mut cmap, cur_scope, body_locals, funcval, func_genargs);
+
+        if self.debug {
+            println!("\n## ADDING GENERIC ARGS TO CMAP...\n");
         }
 
-        if funcval.ret_generics.is_some() {
-            if self.debug {
-                println!("\n## RESOLVING GENERICS IN RETTY...\n");
-            }
-            self.resolve_generic_retty(
-                &mut cmap,
-                cur_scope,
-                body_locals,
-                funcval,
-                func_genargs,
-                destination,
-            );
+        cmap.add_scope_genarg_env(&funcval.def_id, func_genargs.clone());
+
+        if self.debug {
+            println!("CMAP GENARGS: {:?}", cmap.genargs.get(&funcval.def_id));
         }
 
         // visit callee
@@ -978,15 +968,14 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             Const::Val(_, ty) => match ty.kind() {
                 TyKind::FnDef(def_id, func_genargs) => match self.funcs.all_funcs.get(def_id) {
                     Some(funcval) => {
-                        //if funcval_vec.len() != 1 {
-                        //    todo!("unexpected number of functions: {:?}", funcval_vec.len());
-                        //}
 
-                        //for funcval in funcval_vec.iter() {
+                        let resolved_genargs = self.converter.resolve_genargs(cmap, &cur_scope, &func_genargs.to_vec());
+
                         if self.debug {
                             println!("defid: {:?}", def_id);
                             println!("funcval: {:?}", funcval);
                             println!("func genargs: {:?}", func_genargs);
+                            println!("resolved genargs: {:?}", resolved_genargs);
                         }
 
                         if funcval.is_intrinsic {
@@ -997,6 +986,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             if let Some(constraints) = self.fallback_to_func_ret(funcval) {
                                 res_vec.push(constraints);
                             }
+
                         } else if funcval.is_closure {
                             if self.debug {
                                 todo!("\n### FUNC IS CLOSURE: {:?}\n", def_id);
@@ -1023,7 +1013,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         cur_scope,
                                         body_locals,
                                         funcval,
-                                        func_genargs.as_slice(),
+                                        &resolved_genargs,
                                         &trait_def_id_clone,
                                         args,
                                         destination,
@@ -1049,6 +1039,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                             def_id
                                                         );
                                                         println!("constraints: {:?}", constraints);
+
                                                     }
 
                                                     res_vec.push(constraints.clone());
@@ -1074,7 +1065,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 }
                                 None => {
                                     std::mem::drop(mutex);
-
                                     if self.debug {
                                         println!("\n### UNDEF FN / RES {:?}\n", def_id);
                                     }
@@ -1093,7 +1083,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             if self.debug {
                                 println!("\n### STATIC DISPATCH TO: {:?}", def_id);
                             }
-
                             let mut cmap_clone = cmap.clone();
                             match self.handle_static_dispatch(
                                 &mut cmap_clone,
@@ -1101,7 +1090,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 cur_scope,
                                 body_locals,
                                 funcval,
-                                func_genargs.as_slice(),
+                                &resolved_genargs,
                                 args,
                                 destination,
                             ) {
@@ -1113,7 +1102,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                             maybe_constraints
                                         );
                                     }
-
                                     cmap_vec.push(cmap_clone);
                                     if let Some(constraints) = maybe_constraints {
                                         if self.debug {
@@ -1138,8 +1126,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 }
                                 err @ Err(_) => return err,
                             }
+
                         }
-                        //}
                     }
                     None => {
                         panic!("no such function: {:?}", def_id);
@@ -1375,22 +1363,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 MapKey::Place(param_name),
                 Box::new(VarType::Values(constraints.clone())),
             );
-
-            match param_type.kind() {
-                TyKind::Param(param) => {
-                    if self.debug {
-                        println!("SETTING GENERIC");
-                        println!("param: {:?}", param);
-                        println!("constraints: {:?}", constraints);
-                    }
-                    // e.g. map T -> Cat
-                    func_cmap.cmap.insert(
-                        MapKey::Generic(param.name),
-                        Box::new(VarType::Values(constraints)),
-                    );
-                }
-                _ => {}
-            }
         }
 
         let key = MapKey::ScopeId(funcval.def_id);
@@ -1435,205 +1407,4 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         );
     }
 
-    /// Resolves generic type parameters used by the function parameters
-    /// and adds the constraints to the function's scope 
-    ///
-    /// # Example
-    /// ```
-    /// let a = foo<T = int>(x: T);
-    /// ```
-    /// will result in `T` having `int` added to its constraints in `foo`'s scope
-    ///
-    fn resolve_generic_argtys(
-        &self,
-        cmap: &mut ConstraintMap<'tcx>,
-        cur_scope: DefId,
-        _body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-        funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
-    ) {
-        if self.debug {
-            println!("funcval.params: {:?}", funcval.params);
-            println!("funcval.param_generics: {:?}", funcval.param_generics);
-            println!("func genargs: {:?}", func_genargs);
-        }
-
-        let mut constraints_map = HashMap::<ParamTy, HashSet<VerifoptRval>>::default();
-        if let Some(param_generics) = funcval.param_generics.clone() {
-            for param in param_generics {
-                match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false) {
-                    Some(_) => {
-                        if self.debug {
-                            println!("\tmapping already exists");
-                        }
-                    }
-                    None => {
-                        if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
-                            if self.debug {
-                                println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
-                            }
-                            constraints_map.entry(param)
-                                .or_insert_with(HashSet::default)
-                                .insert(VerifoptRval::IdkType(genarg_ty));
-                        }
-                    }
-                }
-            }
-        }
-
-        for (param, constraints) in constraints_map {
-            match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false) {
-                Some(_) => {
-                    if self.debug {
-                        println!("\tmapping already exists");
-                    }
-                }
-                None => {
-                    if self.debug {
-                        println!("\tadding to cmap");
-                    }
-                    cmap.scoped_add(
-                        Some(funcval.def_id),
-                        MapKey::Generic(param.name),
-                        Box::new(VarType::Values(constraints)),
-                    );
-                }
-            }
-        }
-    }
-
-    fn resolve_generic_retty(
-        &self,
-        cmap: &mut ConstraintMap<'tcx>,
-        _cur_scope: DefId,
-        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-        funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
-        destination: &Place<'tcx>,
-    ) {
-        if self.debug {
-            println!("funcval.rettype: {:?}", funcval.rettype);
-            println!("funcval.ret_generics: {:?}", funcval.ret_generics);
-            println!("func genargs: {:?}", func_genargs);
-            println!("destination: {:?}", destination);
-            println!("body_locals[dest]: {:?}", body_locals[destination.local]);
-        }
-
-        // add rettype generic param to callee scope
-        let mut constraints_map = HashMap::<ParamTy, HashSet<VerifoptRval>>::default();
-        if let Some(rettype) = funcval.rettype {
-            match rettype.kind() {
-                TyKind::Adt(adt_def, adt_genargs) => {
-                    if self.debug {
-                        println!("RETTYPE IS AN ADT: {:?}", adt_def.did());
-                        println!("adt_genargs: {:?}", adt_genargs);
-                    }
-
-                    for adt_genarg in adt_genargs.into_iter() {
-                        match adt_genarg.kind() {
-                            GenericArgKind::Type(ty) => {
-                                match ty.kind() {
-                                    TyKind::Param(param) => {
-                                        if self.debug {
-                                            println!("param: {:?}", param);
-                                        }
-
-                                        // FIXME: Should we double check that we are within bounds?
-                                        // TODO: Pull this out into helper?
-                                        if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
-                                            if self.debug {
-                                                println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
-                                            }
-                                            constraints_map.entry(*param)
-                                                .or_insert_with(HashSet::default)
-                                                .insert(VerifoptRval::IdkType(genarg_ty));
-                                        }
-                                    }
-
-                                    TyKind::Slice(ty) => {
-                                        let params_vec_opt = get_params_from_ty(&ty, self.debug);
-                                        if self.debug {
-                                            println!("params: {:?}", params_vec_opt);
-                                        }
-
-                                        if let Some(params_vec) = params_vec_opt {
-                                            for param in params_vec {
-                                                // FIXME: Should we double check that we are within bounds?
-                                                // TODO: Pull this out into helper?
-                                                if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
-                                                    if self.debug {
-                                                        println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
-                                                    }
-                                                    constraints_map.entry(param)
-                                                        .or_insert_with(HashSet::default)
-                                                        .insert(VerifoptRval::IdkType(genarg_ty));
-                                                }
-                                            }
-                                        }
-                                    }
-                                    _ => {
-                                        if self.debug {
-                                            println!("OTHER KIND: {:?}", ty.kind());
-                                        }
-                                    }
-                                }
-                            }
-                            _ => todo!("genarg is not a ty: {:?}", adt_genarg.kind()),
-                        }
-                    }
-                }
-                TyKind::Param(param) => {
-                    if self.debug {
-                        println!("RETTYPE IS A PARAM: {:?}", param);
-                    }
-
-                    // FIXME: Should we double check that we are within bounds?
-                    // TODO: Pull this out into helper?
-                    if let Some(genarg_ty) = func_genargs[param.index as usize].as_type() {
-                        if self.debug {
-                            println!("NEW MAPPING: {:?} to {:?}", param.name, genarg_ty);
-                        }
-                        constraints_map.entry(*param)
-                            .or_insert_with(HashSet::default)
-                            .insert(VerifoptRval::IdkType(genarg_ty));
-                    }
-
-                }
-                _ => todo!("handle rettype kind: {:?}", rettype.kind()),
-            }
-
-            if self.debug {
-                println!("MAPPED PARAMS: {:?}", constraints_map);
-
-            }
-
-            for (param, constraints) in constraints_map {
-                match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false) {
-                    Some(_) => {
-                        if self.debug {
-                            println!("\tmapping already exists");
-                        }
-                    }
-                    None => {
-                        if self.debug {
-                            println!("\tadding to cmap");
-                        }
-                        cmap.scoped_add(
-                            Some(funcval.def_id),
-                            MapKey::Generic(param.name),
-                            Box::new(VarType::Values(constraints)),
-                        );
-                    }
-                }
-
-                if self.debug {
-                    println!(
-                        "val @ {:?}: {:?}",
-                        param.name,
-                        cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(param.name), false,)
-                    );
-                }
-            }
-        }
-    }
 }

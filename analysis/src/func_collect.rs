@@ -18,8 +18,8 @@ use rustc_middle::ty::{
 };
 //use rustc_middle::query::IntoQueryParam;
 
-use crate::core::get_params_from_ty;
 use crate::core::{DebugPass, FuncVal};
+use crate::helpers::get_params_from_ty;
 
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
@@ -187,7 +187,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                         }
                         _ => {
                             if self.debug {
-                                println!("genarg is not a ty: {:?}", adt_genargs[0].kind());
+                                println!("genarg is not a ty: {:?}", adt_genarg.kind());
                             }
                         }
                     }

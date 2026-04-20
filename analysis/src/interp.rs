@@ -399,7 +399,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     }
                 }
             }
-            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_) | VerifoptRval::Idk() => {
+            // FIXME: Handle defid generic args?
+            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_, _) | VerifoptRval::Idk() => {
                 // inc counter for the "otherwise" switchint option
                 discr_vals[discr_vals.len() - 1] += 1;
             }
@@ -611,7 +612,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     return Some(vec![idkstruct.clone()]);
                 }
             }
-            idkdid @ VerifoptRval::IdkDefId(_) => Some(vec![idkdid]),
+            idkdid @ VerifoptRval::IdkDefId(_, _) => Some(vec![idkdid]),
             idkty @ VerifoptRval::IdkType(_) => Some(vec![idkty]),
             _ => todo!("handle other types: {:?}", constraint),
         }
@@ -686,7 +687,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("impls: {:?}", impls);
         }
         match *self_constraint {
-            VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did) => {
+            VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did, _) => {
                 self.get_impls_from_constraint_defid(trait_def_id, &did, impls)
             }
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
@@ -930,13 +931,23 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         )
     }
 
-    fn fallback_to_func_ret(&self, funcval: &FuncVal<'tcx>) -> Option<Constraints<'tcx>> {
+    fn fallback_to_func_ret(
+        &self,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: &DefId,
+        funcval: &FuncVal<'tcx>
+    ) -> Option<Constraints<'tcx>> {
         // if funcval has a return type, use that as the "summary" constraint
         let mut constraints = HashSet::default();
         if let Some(ret_did) = funcval.ret_did {
-            constraints.insert(VerifoptRval::IdkDefId(ret_did));
-            return Some(constraints);
-        } else if let Some(rettype) = funcval.rettype {
+            if let Some(ret_genargs) = funcval.ret_genargs.clone() {
+                let resolved_genargs = self.converter.resolve_genargs(cmap, cur_scope, &ret_genargs);
+                return Some(HashSet::from_iter([VerifoptRval::IdkDefId(ret_did, Some(resolved_genargs.into_iter().collect()))]))
+            }
+            return Some(HashSet::from_iter([VerifoptRval::IdkDefId(ret_did, None)]));
+        }
+
+        if let Some(rettype) = funcval.rettype {
             if self.debug {
                 println!("rettype: {:?}", rettype);
             }
@@ -945,7 +956,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             constraints.insert(VerifoptRval::IdkType(rettype));
             return Some(constraints);
         }
-        None
+        return None
     }
 
     fn interp_direct_func_call(
@@ -980,7 +991,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
                             }
 
-                            if let Some(constraints) = self.fallback_to_func_ret(funcval) {
+                            if let Some(constraints) = self.fallback_to_func_ret(cmap, &cur_scope, funcval) {
                                 res_vec.push(constraints);
                             }
 
@@ -1022,7 +1033,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                                     if dyn_results.is_empty() {
                                         if let Some(constraints) =
-                                            self.fallback_to_func_ret(funcval)
+                                            self.fallback_to_func_ret(cmap, &cur_scope, funcval)
                                         {
                                             res_vec.push(constraints);
                                         }
@@ -1050,7 +1061,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                                         println!("no retval, check for widening");
                                                     }
                                                     if let Some(constraints) =
-                                                        self.fallback_to_func_ret(funcval)
+                                                        self.fallback_to_func_ret(cmap, &cur_scope, funcval)
                                                     {
                                                         res_vec.push(constraints);
                                                     }
@@ -1066,7 +1077,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                         println!("\n### UNDEF FN / RES {:?}\n", def_id);
                                     }
 
-                                    match self.fallback_to_func_ret(funcval) {
+                                    match self.fallback_to_func_ret(cmap, &cur_scope, funcval) {
                                         Some(constraints) => res_vec.push(constraints),
                                         None => {
                                             let mut constraints = HashSet::default();
@@ -1279,8 +1290,10 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                     if defids.len() != 1 {
                                         panic!("unexpected defids: {:?}", defids);
                                     }
+
+                                    // FIXME: Handle generic args?
                                     constraints
-                                        .insert(VerifoptRval::IdkDefId(defids.pop().unwrap()));
+                                        .insert(VerifoptRval::IdkDefId(defids.pop().unwrap(), None));
                                 }
                             }
                             // FIXME not always a simple "int" or "uint" const - consts can have

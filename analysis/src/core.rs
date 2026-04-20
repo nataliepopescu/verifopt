@@ -42,6 +42,7 @@ pub struct FuncVal<'tcx> {
     pub rettype: Option<Ty<'tcx>>,
     pub ret_did: Option<DefId>,
     pub ret_generics: Option<Vec<ParamTy>>,
+    pub ret_genargs: Option<Vec<GenericArg<'tcx>>>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
@@ -56,6 +57,7 @@ impl<'tcx> FuncVal<'tcx> {
         rettype: Option<Ty<'tcx>>,
         ret_did: Option<DefId>,
         ret_generics: Option<Vec<ParamTy>>,
+        ret_genargs: Option<Vec<GenericArg<'tcx>>>,
     ) -> FuncVal<'tcx> {
         let params;
         if let Some(arg_types) = arg_types_opt {
@@ -77,6 +79,7 @@ impl<'tcx> FuncVal<'tcx> {
             rettype,
             ret_did,
             ret_generics,
+            ret_genargs,
         }
     }
 }
@@ -93,7 +96,7 @@ pub enum VerifoptRval<'tcx> {
     IdkStr(), //Const<'tcx>),
     // FIXME don't want types
     IdkType(Ty<'tcx>),
-    IdkDefId(DefId),
+    IdkDefId(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
     Idk(),
     Undef(),
 }
@@ -274,7 +277,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     return constraint.clone();
                 }
             }
-            VerifoptRval::IdkDefId(_) => todo!("casting from defid"),
+            VerifoptRval::IdkDefId(_, _) => todo!("casting from defid"),
             VerifoptRval::IdkStr() | VerifoptRval::IdkType(_) | VerifoptRval::Idk() => {
                 let ret = VerifoptRval::IdkType(*dst_ty);
                 if self.debug {
@@ -602,7 +605,8 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("--agg-closure/coroutine");
                 }
-                return HashSet::from_iter([VerifoptRval::IdkDefId(*defid)]);
+                // FIXME: Handle generic args?
+                return HashSet::from_iter([VerifoptRval::IdkDefId(*defid, None)]);
             }
             // FIXME ty == type of pointee, not pointer
             AggregateKind::RawPtr(ty, _) => {

@@ -166,7 +166,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
         None
     }
 
-    fn get_return_info(&self, rettype: &Ty<'tcx>) -> (Option<DefId>, Option<Vec<ParamTy>>) {
+    fn get_return_info(&self, rettype: &Ty<'tcx>
+    ) -> (Option<DefId>, Option<Vec<ParamTy>>, Option<Vec<GenericArg<'tcx>>>) {
         match rettype.kind() {
             TyKind::Adt(def, adt_genargs) => {
                 if self.debug {
@@ -192,19 +193,23 @@ impl<'tcx> FuncCollectPass<'tcx> {
                         }
                     }
                 }
+                let mut rettype_genargs = None;
+                if adt_genargs.len() > 0 {
+                    rettype_genargs = Some(adt_genargs.to_vec());
+                }
 
                 if rettype_params.len() > 0 {
-                    return (ret_did, Some(rettype_params));
+                    return (ret_did, Some(rettype_params), rettype_genargs);
                 }
-                return (ret_did, None);
+                return (ret_did, None, rettype_genargs);
             }
             TyKind::Param(param) => {
                 if self.debug {
                     println!("rettype == param: {:?}", param);
                 }
-                (None, Some(vec![*param]))
+                (None, Some(vec![*param]), None)
             }
-            _ => (None, None),
+            _ => (None, None, None),
         }
     }
 
@@ -472,7 +477,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             println!("sig: {:?}", sig);
             println!("rettype: {:?}", rettype);
         }
-        let (ret_did, ret_generics) = self.get_return_info(&rettype);
+        let (ret_did, ret_generics, ret_genargs) = self.get_return_info(&rettype);
         // TODO ty has an is_never() method which we can use to not execute panic methods
 
         // print out locals/body after all generic param resolution
@@ -497,6 +502,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             Some(rettype),
             ret_did,
             ret_generics,
+            ret_genargs
         );
         //let vec_to_insert: Vec<FuncVal>;
         match funcs.all_funcs.get_mut(&def_id) {
@@ -538,6 +544,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let mut rettype = None;
         let mut ret_did = None;
         let mut ret_generics = None;
+        let mut ret_genargs = None;
         let mir_avail = self.tcx.is_mir_available(def_id);
         if mir_avail {
             let inner_body = self.tcx.optimized_mir(def_id);
@@ -559,7 +566,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
             rettype = self.get_return_type_from_body(inner_body);
             if let Some(inner_rettype) = rettype {
-                (ret_did, ret_generics) = self.get_return_info(&inner_rettype);
+                (ret_did, ret_generics, ret_genargs) = self.get_return_info(&inner_rettype);
             }
         } else {
             if self.debug {
@@ -588,6 +595,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 rettype,
                 ret_did,
                 ret_generics,
+                ret_genargs
             );
 
             if self.debug {

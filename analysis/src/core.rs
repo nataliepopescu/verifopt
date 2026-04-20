@@ -570,7 +570,6 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         aggkind: &Box<AggregateKind<'tcx>>,
         fields: &IndexVec<FieldIdx, Operand<'tcx>>,
     ) -> Constraints<'tcx> {
-        let mut ret_constraints = HashSet::default();
         match &**aggkind {
             AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
                 if self.debug {
@@ -603,14 +602,14 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("--agg-closure/coroutine");
                 }
-                ret_constraints.insert(VerifoptRval::IdkDefId(*defid));
+                return HashSet::from_iter([VerifoptRval::IdkDefId(*defid)]);
             }
             // FIXME ty == type of pointee, not pointer
             AggregateKind::RawPtr(ty, _) => {
                 if self.debug {
                     println!("--agg-rawptr");
                 }
-                ret_constraints.insert(VerifoptRval::IdkType(*ty));
+                return HashSet::from_iter([VerifoptRval::IdkType(*ty)]);
             }
             AggregateKind::Array(ty) => {
                 if self.debug {
@@ -654,8 +653,6 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 }
             }
         }
-
-        ret_constraints
     }
 
     fn rval_from_op(
@@ -665,7 +662,6 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         op: &Operand<'tcx>,
         backup_ty: &Ty<'tcx>,
     ) -> Constraints<'tcx> {
-        let mut constraints = HashSet::default();
         match op {
             Operand::Constant(box co) => match co.const_ {
                 Const::Val(constval, ty) => match constval {
@@ -673,16 +669,16 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         if self.debug {
                             println!("scalar: {:?}", scalar);
                         }
-                        constraints.insert(VerifoptRval::Scalar(scalar));
+                        return HashSet::from_iter([VerifoptRval::Scalar(scalar)]);
                     }
                     ConstValue::Scalar(Scalar::Ptr(_ptr, _size)) => {
-                        constraints.insert(VerifoptRval::Ptr(Box::new(VerifoptRval::Idk())));
+                        return HashSet::from_iter([VerifoptRval::Ptr(Box::new(VerifoptRval::Idk()))]);
                     }
                     ConstValue::ZeroSized => {
                         if self.debug {
                             println!("zerosized");
                         }
-                        constraints.insert(VerifoptRval::IdkType(ty));
+                        return HashSet::from_iter([VerifoptRval::IdkType(ty)]);
                     }
                     ConstValue::Slice { alloc_id, meta } => {
                         if self.debug {
@@ -695,30 +691,29 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                             if self.debug {
                                 println!("got str!");
                             }
-                            constraints.insert(VerifoptRval::IdkStr());
+                            return HashSet::from_iter([VerifoptRval::IdkStr()]);
                         } else {
                             if self.debug {
                                 println!("not str");
                             }
-                            constraints.insert(VerifoptRval::ConstSlice());
+                            return HashSet::from_iter([VerifoptRval::ConstSlice()]);
                         }
                     }
                     ConstValue::Indirect { .. } => {
                         if self.debug {
                             println!("indirect const");
                         }
-                        constraints.insert(VerifoptRval::IndirectConst(ty));
+                        return HashSet::from_iter([VerifoptRval::IndirectConst(ty)]);
                     }
                 },
                 _ => todo!("non-val const"),
             },
             Operand::Copy(place) | Operand::Move(place) => {
-                constraints = self.rval_from_place(cmap, cur_scope, place, backup_ty);
+                return self.rval_from_place(cmap, cur_scope, place, backup_ty);
             }
             _ => todo!("runtime checks"),
         }
 
-        constraints
     }
 
     fn rval_from_place(

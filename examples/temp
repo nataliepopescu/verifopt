@@ -1,0 +1,24 @@
+[
+Values({IdkStruct(DefId(2:45801 ~ core[c945]::ops::control_flow::ControlFlow), Some([
+  [
+  IdkStruct(DefId(2:49389 ~ core[c945]::result::Result), Some([[
+      IdkStruct(DefId(2:38635 ~ core[c945]::convert::Infallible), None), 
+      IdkStruct(DefId(0:38 ~ main[0f6c]::MyError), None)
+    ]])),
+  Ref(IdkType(str)
+  )], 
+  [
+  IdkStruct(DefId(2:49389 ~ core[c945]::result::Result), Some([[
+    IdkStruct(DefId(2:38635 ~ core[c945]::convert::Infallible), None), 
+    IdkStruct(DefId(0:38 ~ main[0f6c]::MyError), None)]])),
+  IdkType(i32)
+  ]]))}),
+
+Values({IdkStruct(DefId(2:45801 ~ core[c945]::ops::control_flow::ControlFlow), Some([
+  [
+  IdkStruct(DefId(2:49389 ~ core[c945]::result::Result), Some([[
+    IdkStruct(DefId(2:38635 ~ core[c945]::convert::Infallible), None),
+    IdkStruct(DefId(0:38 ~ main[0f6c]::MyError), None)]])), 
+  IdkType(i32)
+  ]]))})
+] 

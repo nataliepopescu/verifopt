@@ -8,7 +8,7 @@ use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
-use crate::core::{DebugPass, FuncVal, Merge, VerifoptConverter, VerifoptRval};
+use crate::core::{DebugPass, FuncVal, Merge, VerifoptConverter, VerifoptRval, VerifoptTypeArg};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
 use crate::helpers::{is_box, is_fn_trait, resolve_ty};
@@ -299,7 +299,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                     let mut ret_constraints = HashSet::default();
                     for constraint in constraints.clone().drain() {
-                        if let VerifoptRval::IdkType(ty) = constraint {
+                        if let VerifoptRval::IdkType(ty, _) = constraint {
                             if self.debug {
                                 println!("returning a type!: {:?}", ty);
                             }
@@ -400,7 +400,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
             }
             // FIXME: Handle defid generic args?
-            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_, _) | VerifoptRval::Idk() => {
+            VerifoptRval::IdkType(_, _) | VerifoptRval::IdkDefId(_, _) | VerifoptRval::Idk() => {
                 // inc counter for the "otherwise" switchint option
                 discr_vals[discr_vals.len() - 1] += 1;
             }
@@ -600,7 +600,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                         // FIXME does this need to be in a separate function?
                         // otherwise could save a clone()...
-                        return Some(genarg_constraint_vec.to_vec());
+                        return Some(genarg_constraint_vec.iter().map(|a| self.converter.rval_from_typearg(a)).collect());
                     } else {
                         return None;
                     }
@@ -613,7 +613,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
             }
             idkdid @ VerifoptRval::IdkDefId(_, _) => Some(vec![idkdid]),
-            idkty @ VerifoptRval::IdkType(_) => Some(vec![idkty]),
+            idkty @ VerifoptRval::IdkType(_, _) => Some(vec![idkty]),
             _ => todo!("handle other types: {:?}", constraint),
         }
     }
@@ -692,7 +692,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
             // (later) use the function return type as the retval's "constraint"
-            VerifoptRval::IdkType(ty) => {
+            VerifoptRval::IdkType(ty, _) => {
                 let res_dids = resolve_ty(&ty, self.funcs, self.debug);
 
                 if self.debug {
@@ -727,7 +727,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         trait_def_id: &DefId,
         self_constraint_vec: Vec<VerifoptRval<'tcx>>,
         impls: &Vec<DefId>,
-        func_genargs: &HashSet<Vec<VerifoptRval<'tcx>>>,
+        func_genargs: &HashSet<Vec<VerifoptTypeArg<'tcx>>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
@@ -794,7 +794,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         assoc_funcval: &FuncVal<'tcx>,
-        func_genargs: &HashSet<Vec<VerifoptRval<'tcx>>>,
+        func_genargs: &HashSet<Vec<VerifoptTypeArg<'tcx>>>,
         trait_def_id: &DefId,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
@@ -904,7 +904,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         funcval: &FuncVal<'tcx>,
-        func_genargs: &HashSet<Vec<VerifoptRval<'tcx>>>,
+        func_genargs: &HashSet<Vec<VerifoptTypeArg<'tcx>>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -963,7 +963,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             }
 
             // FIXME resolve generics
-            constraints.insert(VerifoptRval::IdkType(rettype));
+            constraints.insert(VerifoptRval::IdkType(rettype, None));
             return Some(constraints);
         }
         return None
@@ -1321,7 +1321,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 TyKind::Adt(def, _) => {
                                     constraints.insert(VerifoptRval::IdkStruct(def.did(), None))
                                 }
-                                _ => constraints.insert(VerifoptRval::IdkType(ty)),
+                                _ => constraints.insert(VerifoptRval::IdkType(ty, None)),
                             };
                         }
                         ConstValue::Slice { .. } => {
@@ -1342,7 +1342,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                             println!("args: {:?}", uneval.args);
                             println!("ty: {:?}", ty);
                         }
-                        constraints.insert(VerifoptRval::IdkType(ty));
+                        constraints.insert(VerifoptRval::IdkType(ty, None));
                     }
                 }
             }

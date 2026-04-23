@@ -11,7 +11,7 @@ use rustc_span::symbol::Symbol;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::core::{DebugPass, Merge, Type, VerifoptRval};
+use crate::core::{DebugPass, Merge, Type, VerifoptRval, VerifoptTypeArg};
 use crate::error::Error;
 use crate::wto::BBDeps;
 
@@ -47,7 +47,8 @@ pub(crate) enum MapKey<'tcx> {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConstraintMap<'tcx> {
     pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
-    pub genargs: HashMap<DefId, HashSet<Vec<VerifoptRval<'tcx>>>>,
+    // Maps scope-defid to set of all genarg environments
+    pub genargs: HashMap<DefId, HashSet<Vec<VerifoptTypeArg<'tcx>>>>,
     pub wtos: HashMap<DefId, BBDeps>,
     pub debug: bool,
 }
@@ -60,7 +61,7 @@ impl<'tcx> ConstraintMap<'tcx> {
         }
         Self {
             cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
-            genargs: HashMap::<DefId, HashSet<Vec<VerifoptRval<'tcx>>>>::default(),
+            genargs: HashMap::<DefId, HashSet<Vec<VerifoptTypeArg<'tcx>>>>::default(),
             wtos: HashMap::<DefId, BBDeps>::default(),
             debug,
         }
@@ -182,7 +183,7 @@ impl<'tcx> ConstraintMap<'tcx> {
     /// For instance for `foo<T,E>`, might return `{[i32, MyError], [str, MyError]}`
     ///
     /// Panics if the scope is not present
-    pub(crate) fn get_scope_genarg_envs_or_panic(&self, scope: &DefId) -> &HashSet<Vec<VerifoptRval<'tcx>>> {
+    pub(crate) fn get_scope_genarg_envs_or_panic(&self, scope: &DefId) -> &HashSet<Vec<VerifoptTypeArg<'tcx>>> {
         match self.genargs.get(scope) {
             None => panic!("Attempted to get genargs of nonexistant scope"),
             Some(v) => v,
@@ -192,7 +193,7 @@ impl<'tcx> ConstraintMap<'tcx> {
     /// Add a genarg environment to the specified scope
     ///
     /// No-op if the environment is already in the scope
-    pub(crate) fn add_scope_genarg_env(&mut self, scope: &DefId, arg_env: HashSet<Vec<VerifoptRval<'tcx>>>) {
+    pub(crate) fn add_scope_genarg_env(&mut self, scope: &DefId, arg_env: HashSet<Vec<VerifoptTypeArg<'tcx>>>) {
         match self.genargs.get_mut(scope) {
             Some(v) => {
                 v.extend(arg_env);

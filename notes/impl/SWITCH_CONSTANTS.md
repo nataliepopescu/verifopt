@@ -282,8 +282,64 @@ another option: hashing
         - in which case, now we're adding runtime overhead
         - so this is actually probably not the best thing to do
 
+can we add stuff to `alloc_map.to_alloc` ShardedHashMap without actually
+allocating?
 
+or modify GlobalAlloc?
+- already have a TypeId variant i think
+    - any::TypeId;
+    - computed via hash
+    - so sort of has the same problem as hashing?
 
+does GlobalAlloc::TypeId work? (i.e. doesn't incur other dyn dispatch?)
+- look where this is used
+- maybe for the sake of not polluting its existing uses, add a duplicate just to make sure it works in isolation, and then merge with existing GlobalAlloc::TypeId
+
+get_vtable
+- vtables field in cx = &RefCell<FxHashMap<(Ty<'tcx>, Option<ty::ExistentialTraitRef<'tcx>>), Self::Value>>
+- what is value right now?
+
+- well, how is stuff added to vtables?
+    - get alloc id
+    - get globalAlloc
+    - const data?
+    - align
+    - static addr of (the value we later GET)
+        - creates a global variable
+
+- Value == ptr type 
+- might be fine that the type is still Value, as long as we're returning the devirt fat pointer
+- is this doable?
+
+Also would be curious to test the performance of the dynamic dispatch typeid rewrite: even though it’s still dyn dispatch, how much faster does the switc statement of statics make it?
+
+What is an allocation?
+- look how allocation is created for non-vtable constants
+
+Allocation::new()
+- Size = ptr size (I think this is the thin ptr size)
+- Align: same
+- Init: same
+- Params: same
+
+- this is just creating the memory buffer!
+
+creating constants
+- const_alloc_to_llvm
+- vtable -> non static -> allocation must be > 0
+- can we just allocate the typeId? instead of the full vtable
+
+Vtable alloc provider
+- skip loop/vtable entries 
+- Write scalar - which??
+- Possible to get typeid here?
+- What is ‘ty’ in this function? Not possibly concrete no? Oh no wait it is bc we’re creating a vtable for a concrete type
+
+naming is a bit confusing
+- `get_vtable` creates/caches the vtable
+- `load_vtable` accesses it
+
+how is GlobalAlloc::TypeId used?
 
 ### Modify/Remove Vtable Allocation
 
@@ -313,11 +369,83 @@ defined in unsafe extern "C" block
 - still opaque, but we'd be using constants so what is `get_vtable` returned one
   of these instead of a `Value`?
 
-### Value -> ConstantInt
+### Removing vtable alloc
+
+in `vtable_allocation_provider` skip populating the allocation w vtable_entries, and instead just populate it with a single constant
+- wait no this is not what we want to do
+- we essentially want an empty alloc, which there are several comments saying
+  that is what we should not do
+    - why?
+        - "We should never be producing empty LLVM allocations as they're just adding noise to binaries and forcing less optimal codegen"
+    - TypeId seems to be a fake allocation, so using that
+    - and that doesn't seem to work b/c get_vtable expects a ConstAllocation
+      from a GlobalAlloc::Memory type, and no similar function exists for TypeId
+    - can add it?
+    - but then won't be able to construct the ptr in the same way...
+
+const_data_from_alloc
+- > const_alloc_to_llvm
+
+problem:
+- compiler segfaults with this change (in custom build cmd for rayon)
+- possibly b/c im just using a static for the vtable "ptr"
+- but also even if not, the compiler will be using vtables differently from how we will intend them to use
+- is there a way to skip this custom command?
+	- ./x check fails
+	- ./x build succeeds (stage1)
+        - ok but this is great/maybe enough to move forward for now
+	- ./x build --stage 2 fails
+
+just made a zero-sized allocation
+- good for memory/size!
+- but still doesn't solve the problem of what goes in the second part of the
+  fat ptr
+
+"We expect that callers of const_alloc_to_llvm will instead directly codegen a
+pointer or integer for any &ZST where the ZST is a constant (i.e. not a static).
+We should never be producing empty LLVM allocations as they're just adding noise
+to binaries and forcing less optimal codegen."
+- idk how to do this tho, so thats a future step
+
+essentially: we don't actually need to create an LLVM constant, but currently we
+are b/c we (I) think that that sets us up to get the fatptr.1 value that we need
+- but maybe this is incorrect
+- i think this is actually correct
+- b/c fatptr.1 is the ptr to the vtable
+- but the vtable shouldn't exist anymore, so it is a ptr to nothing
+
+- i've been proceeding with this route, but apparently LLVM "hates" empty global
+  allocations
+    - but can't get a ptr value without ptr (that points to a unique global)
+    - so if we don't want empty global allocations, we need to use a different
+      discriminant
+
+### fatptr.1
+
+what is `vtable` variable (in `get_vtable`) when executing with unmod rustc?
+- a ptr to the (empty) LLVM global
+
+lets explore this route a bit more
+
+say we can figure out the empty-global thing. now we're still left with using
+unstable ptrs to discriminate
+
+How are LLVM values or constants created?
+
+Two options for how to get constants at runtime
+1. use the ptr value which is unstable
+- but if we have an empty allocation, all supposedly "unique" global allocs will/can be combined into one
+- so this actually will not work
+2. Point to a constant (so will require a ptr deref)
 
 
+const_alloc_to_llvm (gen const)
+- 
+
+static_addr_of (gen global of const)
 
 
+hashes aren't even equal!!
 
 
 

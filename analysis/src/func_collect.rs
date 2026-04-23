@@ -19,6 +19,7 @@ use std::sync::{Arc, Mutex};
 // omitting TraitStructOpt unless useful
 #[derive(Debug, Clone)]
 pub struct FuncMap<'tcx> {
+    //pub next_id: usize,
     // all fns, trait-related or not
     pub all_funcs: HashMap<DefId, FuncVal<'tcx>>,
     // assoc fn of a trait -> concrete implementations of that assoc fn
@@ -27,6 +28,8 @@ pub struct FuncMap<'tcx> {
     pub assoc_fns_to_trait: Arc<Mutex<HashMap<DefId, DefId>>>,
     // trait -> structs that implement them
     pub trait_to_struct_impls: HashMap<DefId, Vec<DefId>>,
+    // list of all structs that impl traits (have at least one vtable)
+    pub structs_with_vtables: Vec<DefId>, //HashMap<Ty<'tcx>, usize>,
     // struct defid -> generics of that struct
     pub struct_to_generics: HashMap<DefId, Generics>,
     // struct -> impl blocks
@@ -40,10 +43,12 @@ pub struct FuncMap<'tcx> {
 impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
         Self {
+            //next_id: 0,
             all_funcs: HashMap::default(),
             trait_fn_impls: Arc::new(Mutex::new(HashMap::default())),
             assoc_fns_to_trait: Arc::new(Mutex::new(HashMap::default())),
             trait_to_struct_impls: HashMap::default(),
+            structs_with_vtables: Vec::new(), //HashMap::default(),
             struct_to_generics: HashMap::default(),
             struct_to_impls: HashMap::default(),
             impl_blocks_to_fn_impls: HashMap::default(),
@@ -246,7 +251,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
         trait_defid: DefId,
         impl_struct: GenericArg<'tcx>,
     ) {
-        match impl_struct.as_type().unwrap().kind() {
+        let ty = impl_struct.as_type().unwrap();
+        match ty.kind() {
             TyKind::Adt(def, _) => {
                 let struct_defid = def.did();
 
@@ -279,6 +285,10 @@ impl<'tcx> FuncCollectPass<'tcx> {
                             .trait_to_struct_impls
                             .insert(trait_defid, vec![def.did()]);
                     }
+                }
+
+                if !funcs.structs_with_vtables.contains(&struct_defid) {
+                    funcs.structs_with_vtables.push(struct_defid);
                 }
             }
             _ => {
@@ -652,10 +662,19 @@ impl<'tcx> FuncCollectPass<'tcx> {
         }
     }
 
+    fn print_types(&self, funcs: &mut FuncMap<'tcx>) {
+        let mut next_id = 0;
+        for struct_ in funcs.structs_with_vtables.iter() {
+            println!("{:?}-{:?}", struct_, next_id);
+            next_id += 1;
+        }
+    }
+
     pub fn run(&self, funcs: &mut FuncMap<'tcx>) {
         self.collect_funcs(funcs);
         if self.debug {
             println!("all funcs: {:#?}", funcs.all_funcs);
         }
+        self.print_types(funcs);
     }
 }

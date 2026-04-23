@@ -1294,6 +1294,13 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 TyKind::Int(_) | TyKind::Uint(_) | TyKind::Float(_) => {
                                     constraints.insert(VerifoptRval::Scalar(scalar));
                                 }
+                                TyKind::Adt(def, generic_args) => {
+                                    let resolved_gen_args = self.converter.resolve_genargs(cmap, &cur_scope, &generic_args.to_vec());
+                                    if resolved_gen_args.len() == 0 {
+                                        return HashSet::from_iter([VerifoptRval::IdkStruct(def.did(), None)]);
+                                    }
+                                    return HashSet::from_iter([VerifoptRval::IdkStruct(def.did(), Some(resolved_gen_args.into_iter().collect()))]);
+                                }
                                 // consts can have other types!
                                 _ => {
                                     let mut defids = resolve_ty(&ty, self.funcs, self.debug);

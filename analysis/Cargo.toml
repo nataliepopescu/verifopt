@@ -10,3 +10,6 @@ tracing = "0.1.44"
 
 [profile.release]
 debug = 1
+
+[package.metadata.rust-analyzer]
+rustc_private = true

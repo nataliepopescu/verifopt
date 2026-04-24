@@ -14,6 +14,23 @@ use crate::helpers::is_box;
 
 pub type Type = &'static str;
 
+#[derive(Clone, PartialEq)]
+pub enum DebugPass {
+    None,
+    FuncCollect,
+    CHA,
+    RTA,
+    Interp,
+    Rewrite,
+}
+
+#[derive(PartialEq)]
+pub enum Style {
+    CHA,
+    RTA,
+    FlowSensitive,
+}
+
 #[derive(Debug, Clone, Hash)]
 pub struct FuncVal<'tcx> {
     pub def_id: DefId,
@@ -25,6 +42,7 @@ pub struct FuncVal<'tcx> {
     pub rettype: Option<Ty<'tcx>>,
     pub ret_did: Option<DefId>,
     pub ret_generics: Option<Vec<ParamTy>>,
+    pub ret_genargs: Option<Vec<GenericArg<'tcx>>>,
 }
 
 impl<'tcx> FuncVal<'tcx> {
@@ -39,6 +57,7 @@ impl<'tcx> FuncVal<'tcx> {
         rettype: Option<Ty<'tcx>>,
         ret_did: Option<DefId>,
         ret_generics: Option<Vec<ParamTy>>,
+        ret_genargs: Option<Vec<GenericArg<'tcx>>>,
     ) -> FuncVal<'tcx> {
         let params;
         if let Some(arg_types) = arg_types_opt {
@@ -60,6 +79,7 @@ impl<'tcx> FuncVal<'tcx> {
             rettype,
             ret_did,
             ret_generics,
+            ret_genargs,
         }
     }
 }
@@ -71,14 +91,22 @@ pub enum VerifoptRval<'tcx> {
     Ref(Box<VerifoptRval<'tcx>>),
     ConstSlice(),
     IndirectConst(Ty<'tcx>),
-    IdkStruct(DefId, Option<Vec<Vec<VerifoptRval<'tcx>>>>),
+    IdkStruct(DefId, Option<Vec<Vec<VerifoptTypeArg<'tcx>>>>),
     //IdkGeneric(Symbol),
     IdkStr(), //Const<'tcx>),
     // FIXME don't want types
     IdkType(Ty<'tcx>),
-    IdkDefId(DefId),
+    IdkDefId(DefId, Option<Vec<Vec<VerifoptTypeArg<'tcx>>>>),
     Idk(),
     Undef(),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum VerifoptTypeArg<'tcx> {
+    DefId(DefId, Option<Vec<VerifoptTypeArg<'tcx>>>),
+    Type(Ty<'tcx>),
+    Ref(Box<VerifoptTypeArg<'tcx>>),
+    Ptr(Box<VerifoptTypeArg<'tcx>>),
 }
 
 pub struct VerifoptConverter<'a, 'tcx> {
@@ -146,7 +174,11 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("op: {:?}", op);
                 }
                 ret_constraints =
-                    self.rval_from_op(cmap, cur_scope, op, &op.ty(local_decls, self.tcx));
+                    self.rval_from_op(
+                        cmap,
+                        cur_scope,
+                        op,
+                       &self.resolve_gentype(cmap, &cur_scope,  &op.ty(local_decls, self.tcx)));
             }
             Rvalue::RawPtr(kind, place) => {
                 if self.debug {
@@ -158,7 +190,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     cmap,
                     cur_scope,
                     place,
-                    &place.ty(local_decls, self.tcx).ty,
+                    &self.resolve_gentype(cmap, &cur_scope, &place.ty(local_decls, self.tcx).ty),
                 );
                 ret_constraints = self.wrap_inner_constraints_ptr(inner);
             }
@@ -170,7 +202,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     cmap,
                     cur_scope,
                     place,
-                    &place.ty(local_decls, self.tcx).ty,
+                    &self.resolve_gentype(cmap, &cur_scope, &place.ty(local_decls, self.tcx).ty),
                 );
                 ret_constraints = self.wrap_inner_constraints_ref(inner);
             }
@@ -192,7 +224,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("--unop");
                 }
                 ret_constraints.insert(VerifoptRval::IdkType(
-                    unop.ty(self.tcx, op.ty(local_decls, self.tcx)),
+                    unop.ty(self.tcx, op.ty(local_decls, self.tcx))
                 ));
             }
             Rvalue::Discriminant(place) => {
@@ -257,7 +289,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     return constraint.clone();
                 }
             }
-            VerifoptRval::IdkDefId(_) => todo!("casting from defid"),
+            VerifoptRval::IdkDefId(_, _) => todo!("casting from defid"),
             VerifoptRval::IdkStr() | VerifoptRval::IdkType(_) | VerifoptRval::Idk() => {
                 let ret = VerifoptRval::IdkType(*dst_ty);
                 if self.debug {
@@ -383,88 +415,68 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         ret_constraints
     }
 
-    // resolve generic params when constructing VerifoptRval
-    fn handle_gen_param(
+    /// Takes a param and resolves it using `genarg_env`
+    ///
+    /// # Example
+    ///
+    /// `resolve_gen_param_underenv([bool, i32], E/#1)` -> `[i32]`
+    ///
+    /// Returns `None` if `param.index` is out of bounds of `genarg_env`
+    fn resolve_gen_param_under_env(
         &self,
-        cmap: &ConstraintMap<'tcx>,
-        cur_scope: DefId,
-        defid: &DefId,
-        param: &ParamTy,
-    ) -> Vec<VerifoptRval<'tcx>> {
-        if self.debug {
-            println!("cur_scope: {:?}", cur_scope);
-            println!("param.name: {:?}", param.name);
-        }
-
-        match cmap.scoped_get(Some(cur_scope), &MapKey::Generic(param.name), false) {
-            Some(VarType::Values(constraints)) => {
-                if self.debug {
-                    println!("constraints: {:?}", constraints);
-                }
-
-                // turn HashSet constraints into Vec so can store
-                // in HashMap (derive `Hash` trait)
-                let mut constraint_vec = vec![];
-                for constraint in constraints.iter() {
-                    constraint_vec.push(constraint.clone());
-                }
-                return constraint_vec;
+        genarg_env: &Vec<VerifoptTypeArg<'tcx>>,
+        param: &ParamTy
+    ) -> Option<VerifoptTypeArg<'tcx>> {
+        if (param.index as usize) >= genarg_env.len() {
+            if self.debug {
+                println!("Genarg param out of bounds of env!");
             }
-            Some(_) => panic!("unexpected generic mapping (subscope)"),
-            None => {
-                // FIXME also check enum generics
-                if let Some(struct_generics) = self.funcs.struct_to_generics.get(defid) {
-                    if self.debug {
-                        println!("struct generics for {:?}: {:?}", defid, struct_generics);
-                    }
-                    todo!(
-                        "need to add this generic to func scope/during arg res: {:?}",
-                        param.name
-                    );
-                } else {
-                    if self.debug {
-                        println!("defid: {:?}", defid);
-                    }
-                    // get enclosing impl block
-                    match self.funcs.assoc_fns_to_trait.lock().unwrap().get(&cur_scope) {
-                        Some(impl_block_defid) => {
-                            println!("impl block defid: {:?}", impl_block_defid);
-                            // get impl block generics
-                            println!("exists? {:?}", self.funcs.impl_block_generics.get(impl_block_defid));
-                            todo!();
-                        }
-                        None => panic!("no generics in impl block either"),
-                    }
-                }
-            }
+            return None;
         }
+        return Some(genarg_env[param.index as usize].clone());
     }
 
-    fn resolve_genargtype(
+    /// Resolve a type using the in-scope generic arg environment(s)
+    fn resolve_gentype(
         &self,
         cmap: &ConstraintMap<'tcx>,
-        cur_scope: DefId,
-        defid: &DefId,
-        genarg_ty: Ty<'tcx>,
-    ) -> Option<Vec<VerifoptRval<'tcx>>> {
-        match genarg_ty.kind() {
+        cur_scope: &DefId,
+        ty: &Ty<'tcx>,
+    ) -> Constraints<'tcx> {
+        let mut constraints = HashSet::default();
+        for genarg_env in cmap.get_scope_genarg_envs_or_panic(cur_scope) {
+            match self.resolve_gentype_underenv(genarg_env, ty) {
+                None => panic!("None returned for type"),
+                Some(ty) => constraints.insert(self.rval_from_typearg(&ty)),
+            };
+        }
+        return constraints;
+    }
+
+    /// Takes a type and resolves it using `genarg_env`
+    fn resolve_gentype_underenv(
+        &self,
+        genarg_env: &Vec<VerifoptTypeArg<'tcx>>,
+        ty: &Ty<'tcx>
+    ) -> Option<VerifoptTypeArg<'tcx>> {
+        match ty.kind() {
             TyKind::Param(param) => {
-                return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
+                return self.resolve_gen_param_under_env(genarg_env, param);
             }
             TyKind::Adt(def, genargs) => {
                 if self.debug {
                     println!("adt def: {:?}", def);
                     println!("adt genargs: {:?}", genargs);
                 }
-                for inner_genarg in genargs.as_slice().iter() {
-                    if self.debug {
-                        println!("resolving: {:?}", inner_genarg);
-                    }
-                    return self.resolve_genargkind(cmap, cur_scope, defid, *inner_genarg);
+                let genarg_constraints = self.resolve_genargs_underenv(genarg_env, &genargs.to_vec());
+                if genarg_constraints.is_empty() {
+                    return Some(VerifoptTypeArg::DefId(def.did(), None));
                 }
+
+                return Some(VerifoptTypeArg::DefId(def.did(), Some(genarg_constraints.to_vec())));
             }
-            TyKind::Slice(s_ty) => return self.resolve_genargtype(cmap, cur_scope, defid, *s_ty),
-            TyKind::Int(_) | TyKind::Uint(_) => {}
+            TyKind::Slice(s_ty) => return self.resolve_gentype_underenv(genarg_env, s_ty),
+            TyKind::Int(_) | TyKind::Uint(_) | TyKind::Str => return Some(VerifoptTypeArg::Type(*ty)),
             TyKind::Tuple(tylist) => {
                 if self.debug {
                     println!("tuple types: {:?}", tylist);
@@ -479,40 +491,150 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         }
                     }
                 }
+                todo!("tuple todo");
             }
-            TyKind::Ref(_, ty, _) => match ty.kind() {
-                TyKind::Param(param) => {
-                    return Some(self.handle_gen_param(cmap, cur_scope, defid, param));
+            TyKind::Ref(_, ty, _) => {
+                match self.resolve_gentype_underenv(genarg_env, ty) {
+                    None => return None,
+                    Some(v) => return Some(VerifoptTypeArg::Ref(Box::new(v))),
                 }
-                TyKind::Int(_) | TyKind::Uint(_) => {}
-                _ => todo!("other ref tykind: {:?}", ty.kind()),
             },
-            _ => todo!("other tykind: {:?}", genarg_ty.kind()),
+            TyKind::RawPtr(ty, _) => {
+                match self.resolve_gentype_underenv(genarg_env, ty) {
+                    None => return None,
+                    Some(v) => return Some(VerifoptTypeArg::Ptr(Box::new(v))),
+                }
+            }
+            _ => todo!("other tykind: {:?}", ty.kind()),
         }
 
-        return None;
     }
 
-    fn resolve_genargkind(
+    /// Takes a genarg environment and resolves it using
+    /// each genarg environment in `cur_scope`
+    ///
+    /// # Example
+    ///
+    /// `resolve_genargs(cur_scope, [E/#1, R/#0])` -> `{[i32, bool], [str, u32]}`
+    ///
+    /// Under current environments:
+    /// `envs[cur_scope] = {[bool, i32], [u32, str]}`
+    pub fn resolve_genargs(
         &self,
         cmap: &ConstraintMap<'tcx>,
-        cur_scope: DefId,
-        defid: &DefId,
-        genargsref: GenericArg<'tcx>,
-    ) -> Option<Vec<VerifoptRval<'tcx>>> {
-        match genargsref.kind() {
-            GenericArgKind::Type(ty) => return self.resolve_genargtype(cmap, cur_scope, defid, ty),
+        cur_scope: &DefId,
+        genargs: &Vec<GenericArg<'tcx>>,
+    ) -> HashSet<Vec<VerifoptTypeArg<'tcx>>> {
+        if self.debug {
+            println!("## Resolving Gen Args");
+        }
+        let mut constraints = HashSet::default();
+        for genarg_env in cmap.get_scope_genarg_envs_or_panic(cur_scope) {
+            constraints.insert(self.resolve_genargs_underenv(&genarg_env, &genargs));
+        }
+
+        return constraints;
+    }
+
+    /// Takes a genarg environment and resolves it using
+    /// `genarg_env`
+    ///
+    /// # Example
+    ///
+    /// `resolve_genargs_underenv([bool, i32], [E/#1])` -> `[i32]`
+    fn resolve_genargs_underenv(
+        &self,
+        genarg_env: &Vec<VerifoptTypeArg<'tcx>>,
+        genargs: &Vec<GenericArg<'tcx>>,
+    ) -> Vec<VerifoptTypeArg<'tcx>> {
+        let mut resolved_args = vec![];
+        for genarg in genargs {
+            match self.resolve_genarg_underenv(&genarg_env, &genarg) {
+                None => panic!("Failed to resolve genarg in current scope for env {:?}", genarg_env),
+                Some(arg) => resolved_args.push(arg),
+            }
+        }
+
+        if self.debug && !genargs.is_empty() {
+            println!("args: {:?}", genargs);
+            println!("env: {:?}", genarg_env);
+            println!("res: {:?}", resolved_args);
+        }
+        return resolved_args;
+
+    }
+
+    /// Takes a genarg and resolves it using `genarg_env`
+    ///
+    /// # Example
+    ///
+    /// `resolve_genargs_underenv([bool, i32], E/#1)` -> `i32`
+    ///
+    /// Returns `None` if `genarg` is a `Const`, `Lifetime`, or
+    /// `Param` with an index out of bounds of `genarg_env`
+    fn resolve_genarg_underenv(
+        &self,
+        genarg_env: &Vec<VerifoptTypeArg<'tcx>>,
+        genarg: &GenericArg<'tcx>,
+    ) -> Option<VerifoptTypeArg<'tcx>> {
+        match genarg.kind() {
+            GenericArgKind::Type(ty) => return self.resolve_gentype_underenv(genarg_env, &ty),
             GenericArgKind::Const(_) => {
                 if self.debug {
                     println!("const genarg");
                 }
-                return None;
+                todo!("Handle const genericarg");
             }
             GenericArgKind::Lifetime(_) => {
                 if self.debug {
                     println!("lifetime genarg");
                 }
                 return None;
+            }
+        }
+    }
+
+    pub fn genarg_envs_from_rvalue(
+        &self,
+        rvalue: &VerifoptRval<'tcx>
+    ) -> Option<HashSet<Vec<VerifoptTypeArg<'tcx>>>> {
+        let arg_envs = match rvalue {
+            VerifoptRval::Scalar(_) => &None,
+            VerifoptRval::Ptr(_) => &None,
+            VerifoptRval::Ref(_) => &None,
+            VerifoptRval::ConstSlice() => &None,
+            VerifoptRval::IndirectConst(_) => &None,
+            VerifoptRval::IdkStruct(_, arg_envs) => arg_envs,
+            VerifoptRval::IdkStr() => &None,
+            VerifoptRval::IdkType(_) => &None,
+            VerifoptRval::IdkDefId(_, arg_envs) => arg_envs,
+            VerifoptRval::Idk() => &None,
+            VerifoptRval::Undef() => &None,
+        };
+
+        match arg_envs {
+            None => return None,
+            Some(arg_envs) => Some(HashSet::from_iter(arg_envs.clone())),
+        }
+    }
+
+    pub fn rval_from_typearg(
+        &self,
+        typearg: &VerifoptTypeArg<'tcx>
+    ) -> VerifoptRval<'tcx> {
+        match typearg {
+            VerifoptTypeArg::DefId(id, args) => match args {
+                None => return VerifoptRval::IdkDefId(*id, None),
+                Some(args) => return VerifoptRval::IdkDefId(*id, Some(vec![args.clone()])),
+            }
+            VerifoptTypeArg::Type(ty) => {
+                return VerifoptRval::IdkType(*ty);
+            }
+            VerifoptTypeArg::Ref(box ty) => {
+                return VerifoptRval::Ref(Box::new(self.rval_from_typearg(ty)))
+            }
+            VerifoptTypeArg::Ptr(box ty) => {
+                return VerifoptRval::Ptr(Box::new(self.rval_from_typearg(ty)))
             }
         }
     }
@@ -525,7 +647,6 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         aggkind: &Box<AggregateKind<'tcx>>,
         fields: &IndexVec<FieldIdx, Operand<'tcx>>,
     ) -> Constraints<'tcx> {
-        let mut ret_constraints = HashSet::default();
         match &**aggkind {
             AggregateKind::Adt(defid, vidx, genargsref, maybe_usertyannot, maybe_fidx) => {
                 if self.debug {
@@ -545,41 +666,12 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     );
                 }
 
-                if genargsref.is_empty() {
-                    ret_constraints.insert(VerifoptRval::IdkStruct(*defid, None));
-                } else {
-                    let mut genarg_vec = vec![];
-                    for i in 0..genargsref.len() {
-                        if self.debug {
-                            println!("\ngenargsref at ({:?}): {:?}", i, genargsref[i]);
-                        }
-                        match self.resolve_genargkind(cmap, cur_scope, defid, genargsref[i]) {
-                            Some(resolved) => {
-                                if self.debug {
-                                    println!("updating genarg_vec with: {:?}", resolved);
-                                }
-                                genarg_vec.push(resolved);
-                            }
-                            _ => {
-                                if self.debug {
-                                    println!("no generic args to ADT");
-                                }
-                            }
-                        }
-                    }
-
-                    let resolved_genarg_vec = match genarg_vec.len() {
-                        0 => None,
-                        _ => Some(genarg_vec),
-                    };
-                    if self.debug {
-                        println!(
-                            "returningval: defid = {:?}, genargs = {:?}",
-                            defid, resolved_genarg_vec,
-                        );
-                    }
-                    ret_constraints.insert(VerifoptRval::IdkStruct(*defid, resolved_genarg_vec));
+                let genarg_constraints = self.resolve_genargs(cmap, &cur_scope, &genargsref.to_vec());
+                if genarg_constraints.is_empty() {
+                    return HashSet::from_iter([VerifoptRval::IdkStruct(*defid, None)]);
                 }
+
+                return HashSet::from_iter([VerifoptRval::IdkStruct(*defid, Some(genarg_constraints.into_iter().collect()))]);
             }
             AggregateKind::Closure(defid, _)
             | AggregateKind::Coroutine(defid, _)
@@ -587,14 +679,15 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("--agg-closure/coroutine");
                 }
-                ret_constraints.insert(VerifoptRval::IdkDefId(*defid));
+                // FIXME: Handle generic args?
+                return HashSet::from_iter([VerifoptRval::IdkDefId(*defid, None)]);
             }
             // FIXME ty == type of pointee, not pointer
             AggregateKind::RawPtr(ty, _) => {
                 if self.debug {
                     println!("--agg-rawptr");
                 }
-                ret_constraints.insert(VerifoptRval::IdkType(*ty));
+                return HashSet::from_iter([VerifoptRval::IdkType(*ty)]);
             }
             AggregateKind::Array(ty) => {
                 if self.debug {
@@ -611,7 +704,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                             cmap,
                             cur_scope,
                             &op,
-                            &op.ty(local_decls, self.tcx),
+                            &self.resolve_gentype(cmap, &cur_scope, &op.ty(local_decls, self.tcx)),
                         );
                     }
                     None => todo!("array w no fields"),
@@ -631,15 +724,15 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                             cmap,
                             cur_scope,
                             &op,
-                            &op.ty(local_decls, self.tcx),
+                            &self.resolve_gentype(cmap, 
+                                &cur_scope, 
+                                &op.ty(local_decls, self.tcx)),
                         );
                     }
                     None => todo!("tup w no fields"),
                 }
             }
         }
-
-        ret_constraints
     }
 
     fn rval_from_op(
@@ -647,9 +740,8 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         op: &Operand<'tcx>,
-        backup_ty: &Ty<'tcx>,
+        backup_ty: &Constraints<'tcx>,
     ) -> Constraints<'tcx> {
-        let mut constraints = HashSet::default();
         match op {
             Operand::Constant(box co) => match co.const_ {
                 Const::Val(constval, ty) => match constval {
@@ -657,16 +749,16 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                         if self.debug {
                             println!("scalar: {:?}", scalar);
                         }
-                        constraints.insert(VerifoptRval::Scalar(scalar));
+                        return HashSet::from_iter([VerifoptRval::Scalar(scalar)]);
                     }
                     ConstValue::Scalar(Scalar::Ptr(_ptr, _size)) => {
-                        constraints.insert(VerifoptRval::Ptr(Box::new(VerifoptRval::Idk())));
+                        return HashSet::from_iter([VerifoptRval::Ptr(Box::new(VerifoptRval::Idk()))]);
                     }
                     ConstValue::ZeroSized => {
                         if self.debug {
                             println!("zerosized");
                         }
-                        constraints.insert(VerifoptRval::IdkType(ty));
+                        return HashSet::from_iter([VerifoptRval::IdkType(ty)]);
                     }
                     ConstValue::Slice { alloc_id, meta } => {
                         if self.debug {
@@ -679,30 +771,29 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                             if self.debug {
                                 println!("got str!");
                             }
-                            constraints.insert(VerifoptRval::IdkStr());
+                            return HashSet::from_iter([VerifoptRval::IdkStr()]);
                         } else {
                             if self.debug {
                                 println!("not str");
                             }
-                            constraints.insert(VerifoptRval::ConstSlice());
+                            return HashSet::from_iter([VerifoptRval::ConstSlice()]);
                         }
                     }
                     ConstValue::Indirect { .. } => {
                         if self.debug {
                             println!("indirect const");
                         }
-                        constraints.insert(VerifoptRval::IndirectConst(ty));
+                        return HashSet::from_iter([VerifoptRval::IndirectConst(ty)]);
                     }
                 },
                 _ => todo!("non-val const"),
             },
             Operand::Copy(place) | Operand::Move(place) => {
-                constraints = self.rval_from_place(cmap, cur_scope, place, backup_ty);
+                return self.rval_from_place(cmap, cur_scope, place, backup_ty);
             }
             _ => todo!("runtime checks"),
         }
 
-        constraints
     }
 
     fn rval_from_place(
@@ -710,7 +801,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
         cmap: &ConstraintMap<'tcx>,
         cur_scope: DefId,
         place: &Place<'tcx>,
-        backup_ty: &Ty<'tcx>,
+        backup_ty: &Constraints<'tcx>,
     ) -> Constraints<'tcx> {
         if self.debug {
             println!("place.local: {:?}", place.local);
@@ -734,8 +825,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                 if self.debug {
                     println!("multiple projections, using backup_ty: {:?}", backup_ty);
                 }
-                ret_constraints.insert(VerifoptRval::IdkType(*backup_ty));
-                return ret_constraints;
+                return backup_ty.clone();
             }
 
             match place.projection[0] {
@@ -781,7 +871,7 @@ impl<'a, 'tcx> VerifoptConverter<'a, 'tcx> {
                     println!("no val for place {:?} in scope {:?}", newplace, cur_scope);
                     println!("using backup_ty: {:?}", backup_ty);
                 }
-                ret_constraints.insert(VerifoptRval::IdkType(*backup_ty));
+                return backup_ty.clone();
             }
         }
 

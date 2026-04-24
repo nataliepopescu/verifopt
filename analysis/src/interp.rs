@@ -1,17 +1,17 @@
-use rustc_data_structures::fx::FxHashSet as HashSet;
+use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 use rustc_data_structures::packed::Pu128;
 use rustc_hir::def_id::DefId;
 use rustc_index::IndexSlice;
 use rustc_middle::mir::interpret::Scalar;
 use rustc_middle::mir::*;
-use rustc_middle::ty::{GenericArg, GenericArgKind, List, TyCtxt, TyKind};
+use rustc_middle::ty::{List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
-use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
+use crate::core::{DebugPass, FuncVal, Merge, VerifoptConverter, VerifoptRval, VerifoptTypeArg};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
-use crate::helpers::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
+use crate::helpers::{is_box, is_fn_trait, resolve_ty};
 use crate::wto::BBDeps;
 
 pub struct InterpPass<'a, 'tcx> {
@@ -22,7 +22,15 @@ pub struct InterpPass<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, funcs: &'a FuncMap<'tcx>, debug: bool) -> InterpPass<'a, 'tcx> {
+    pub fn new(
+        tcx: TyCtxt<'tcx>,
+        funcs: &'a FuncMap<'tcx>,
+        which_debug: DebugPass,
+    ) -> InterpPass<'a, 'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::Interp {
+            debug = true;
+        }
         Self {
             tcx,
             funcs,
@@ -44,7 +52,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //let ty = locals[Local::from_usize(0)].ty;
         //let mut set = HashSet::default();
         //set.insert(VerifoptRval::IdkType(ty));
-        let main_cmap = ConstraintMap::new(self.debug);
+        let mut cmap_debug = DebugPass::None;
+        if self.debug == true {
+            cmap_debug = DebugPass::Interp;
+        }
+        let main_cmap = ConstraintMap::new(cmap_debug);
 
         //main_cmap.cmap.insert(
         //    MapKey::Place(Place {
@@ -61,6 +73,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 vec![(Box::new("main functype"), main_cmap)],
             )),
         );
+
+        // Insert base genarg environment for main function
+        cmap.add_scope_genarg_env(&cur_scope, HashSet::from_iter([vec![]]));
 
         // TODO perhaps also setup a general `global` scope (which would replace the
         // current semantics of the `None` scope) once we change the meaning of backptr)
@@ -352,11 +367,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
 
                 // double check that nothing was supposed to be returned
-                if let Some(funcval_vec) = self.funcs.funcs.get(&cur_scope) {
-                    if funcval_vec.len() != 1 {
-                        panic!("unexpected len");
-                    }
-                    if let Some(retty) = funcval_vec[0].rettype
+                if let Some(funcval) = self.funcs.all_funcs.get(&cur_scope) {
+                    if let Some(retty) = funcval.rettype
                         && !retty.is_unit()
                     {
                         panic!("should have returned something of type: {:?}", retty);
@@ -387,7 +399,8 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     }
                 }
             }
-            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_) | VerifoptRval::Idk() => {
+            // FIXME: Handle defid generic args?
+            VerifoptRval::IdkType(_) | VerifoptRval::IdkDefId(_, _) | VerifoptRval::Idk() => {
                 // inc counter for the "otherwise" switchint option
                 discr_vals[discr_vals.len() - 1] += 1;
             }
@@ -587,7 +600,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
                         // FIXME does this need to be in a separate function?
                         // otherwise could save a clone()...
-                        return Some(genarg_constraint_vec.to_vec());
+                        return Some(genarg_constraint_vec.iter().map(|a| self.converter.rval_from_typearg(a)).collect());
                     } else {
                         return None;
                     }
@@ -599,7 +612,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                     return Some(vec![idkstruct.clone()]);
                 }
             }
-            idkdid @ VerifoptRval::IdkDefId(_) => Some(vec![idkdid]),
+            idkdid @ VerifoptRval::IdkDefId(_, _) => Some(vec![idkdid]),
             idkty @ VerifoptRval::IdkType(_) => Some(vec![idkty]),
             _ => todo!("handle other types: {:?}", constraint),
         }
@@ -674,7 +687,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             println!("impls: {:?}", impls);
         }
         match *self_constraint {
-            VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did) => {
+            VerifoptRval::IdkStruct(did, _) | VerifoptRval::IdkDefId(did, _) => {
                 self.get_impls_from_constraint_defid(trait_def_id, &did, impls)
             }
             // FIXME cannot get fn_impls from types, so we ignore dispatch and
@@ -714,15 +727,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         trait_def_id: &DefId,
         self_constraint_vec: Vec<VerifoptRval<'tcx>>,
         impls: &Vec<DefId>,
-        func_genargs: &[GenericArg<'tcx>],
+        func_genargs: &HashSet<Vec<VerifoptTypeArg<'tcx>>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Vec<Result<Option<Constraints<'tcx>>, Error>> {
         // get the list of possible static functions to dispatch to, given the constraints
         // available for `self`
-        let mut to_dispatch = Vec::new();
+        let mut to_dispatch = HashMap::default();
         for self_constraint in self_constraint_vec.iter() {
-            to_dispatch.append(&mut self.get_impls(trait_def_id, self_constraint, impls));
+            let assoc_dispatches = self.get_impls(trait_def_id, self_constraint, impls);
+            to_dispatch.insert(self_constraint, assoc_dispatches);
         }
 
         if self.debug {
@@ -731,34 +745,43 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         // call each static function
         let mut res_vec = Vec::new();
-        for func_defid in to_dispatch {
-            if self.debug {
-                println!("LOOPING static dispatches");
-                println!("func_defid: {:?}", func_defid);
-            }
+        for (self_constraint, func_defids) in to_dispatch {
+            for func_defid in func_defids {
+                let self_constraint_genargs = self.converter.genarg_envs_from_rvalue(self_constraint);
 
-            let funcvals = self.funcs.funcs.get(&func_defid);
-            if funcvals.is_none() {
-                panic!("func not found: {:?}", func_defid);
-            }
-            let funcval_vec = funcvals.unwrap();
-            if self.debug {
-                println!("funcval_vec: {:?}", funcval_vec);
-            }
-            if funcval_vec.len() != 1 {
-                panic!("unexpected number of functions");
-            }
+                if self.debug {
+                    println!("LOOPING static dispatches");
+                    println!("func_defid: {:?}", func_defid);
+                    println!("self_constraint_genargs: {:?}", self_constraint_genargs);
+                }
 
-            res_vec.push(self.handle_static_dispatch(
-                cmap,
-                call_stack,
-                cur_scope,
-                body_locals,
-                &funcval_vec[0],
-                func_genargs,
-                args,
-                destination,
-            ));
+                let funcval_opt = self.funcs.all_funcs.get(&func_defid);
+                if funcval_opt.is_none() {
+                    panic!("func not found: {:?}", func_defid);
+                }
+                let funcval = funcval_opt.unwrap();
+                if self.debug {
+                    println!("funcval: {:?}", funcval);
+                }
+
+                let dyn_genarg_envs = if let Some(self_genargs) = self_constraint_genargs {
+                    self_genargs
+                } else {
+                    // FIXME: Do we want to pass these args? Or some others?
+                    func_genargs.clone()
+                };
+
+                res_vec.push(self.handle_static_dispatch(
+                    cmap,
+                    call_stack,
+                    cur_scope,
+                    body_locals,
+                    &funcval,
+                    &dyn_genarg_envs,
+                    args,
+                    destination,
+                ));
+            }
         }
 
         res_vec
@@ -771,7 +794,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         assoc_funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
+        func_genargs: &HashSet<Vec<VerifoptTypeArg<'tcx>>>,
         trait_def_id: &DefId,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
@@ -881,7 +904,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         cur_scope: DefId,
         body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
         funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
+        func_genargs: &HashSet<Vec<VerifoptTypeArg<'tcx>>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         destination: &Place<'tcx>,
     ) -> Result<Option<Constraints<'tcx>>, Error> {
@@ -892,28 +915,17 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             );
             println!("args: {:?}", args);
         }
-
         self.resolve_args(&mut cmap, cur_scope, funcval, args);
 
-        if funcval.param_generics.is_some() {
-            if self.debug {
-                println!("\n## RESOLVING GENERICS IN ARGTYS...\n");
-            }
-            self.resolve_generic_argtys(&mut cmap, cur_scope, body_locals, funcval, func_genargs);
+
+        if self.debug {
+            println!("\n## ADDING GENERIC ARGS TO CMAP...\n");
         }
 
-        if funcval.ret_generics.is_some() {
-            if self.debug {
-                println!("\n## RESOLVING GENERICS IN RETTY...\n");
-            }
-            self.resolve_generic_retty(
-                &mut cmap,
-                cur_scope,
-                body_locals,
-                funcval,
-                func_genargs,
-                destination,
-            );
+        cmap.add_scope_genarg_env(&funcval.def_id, func_genargs.clone());
+
+        if self.debug {
+            println!("CMAP GENARGS: {:?}", cmap.genargs.get(&funcval.def_id));
         }
 
         // visit callee
@@ -929,13 +941,23 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         )
     }
 
-    fn fallback_to_func_ret(&self, funcval: &FuncVal<'tcx>) -> Option<Constraints<'tcx>> {
+    fn fallback_to_func_ret(
+        &self,
+        cmap: &ConstraintMap<'tcx>,
+        cur_scope: &DefId,
+        funcval: &FuncVal<'tcx>
+    ) -> Option<Constraints<'tcx>> {
         // if funcval has a return type, use that as the "summary" constraint
         let mut constraints = HashSet::default();
         if let Some(ret_did) = funcval.ret_did {
-            constraints.insert(VerifoptRval::IdkDefId(ret_did));
-            return Some(constraints);
-        } else if let Some(rettype) = funcval.rettype {
+            if let Some(ret_genargs) = funcval.ret_genargs.clone() {
+                let resolved_genargs = self.converter.resolve_genargs(cmap, cur_scope, &ret_genargs);
+                return Some(HashSet::from_iter([VerifoptRval::IdkDefId(ret_did, Some(resolved_genargs.into_iter().collect()))]))
+            }
+            return Some(HashSet::from_iter([VerifoptRval::IdkDefId(ret_did, None)]));
+        }
+
+        if let Some(rettype) = funcval.rettype {
             if self.debug {
                 println!("rettype: {:?}", rettype);
             }
@@ -944,7 +966,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             constraints.insert(VerifoptRval::IdkType(rettype));
             return Some(constraints);
         }
-        None
+        return None
     }
 
     fn interp_direct_func_call(
@@ -962,174 +984,167 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         match co.const_ {
             Const::Val(_, ty) => match ty.kind() {
-                TyKind::FnDef(def_id, func_genargs) => match self.funcs.funcs.get(def_id) {
-                    Some(funcval_vec) => {
-                        if funcval_vec.len() != 1 {
-                            todo!("unexpected number of functions: {:?}", funcval_vec.len());
+                TyKind::FnDef(def_id, func_genargs) => match self.funcs.all_funcs.get(def_id) {
+                    Some(funcval) => {
+
+                        let resolved_genargs = self.converter.resolve_genargs(cmap, &cur_scope, &func_genargs.to_vec());
+
+                        if self.debug {
+                            println!("defid: {:?}", def_id);
+                            println!("funcval: {:?}", funcval);
+                            println!("func genargs: {:?}", func_genargs);
+                            println!("resolved genargs: {:?}", resolved_genargs);
                         }
 
-                        for funcval in funcval_vec.iter() {
+                        if funcval.is_intrinsic {
                             if self.debug {
-                                println!("defid: {:?}", def_id);
-                                println!("funcval: {:?}", funcval);
-                                println!("func genargs: {:?}", func_genargs);
+                                println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
                             }
 
-                            if funcval.is_intrinsic {
-                                if self.debug {
-                                    println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
-                                }
+                            if let Some(constraints) = self.fallback_to_func_ret(cmap, &cur_scope, funcval) {
+                                res_vec.push(constraints);
+                            }
 
-                                if let Some(constraints) = self.fallback_to_func_ret(funcval) {
-                                    res_vec.push(constraints);
-                                }
-                            } else if funcval.is_closure {
-                                if self.debug {
-                                    todo!("\n### FUNC IS CLOSURE: {:?}\n", def_id);
-                                }
-                                // TODO
-                            } else if !self.tcx.is_mir_available(def_id) {
-                                if self.debug {
-                                    println!("MIR NOT AVAILABLE for {:?}", def_id);
-                                }
+                        } else if funcval.is_closure {
+                            if self.debug {
+                                todo!("\n### FUNC IS CLOSURE: {:?}\n", def_id);
+                            }
+                            // TODO
+                        } else if !self.tcx.is_mir_available(def_id) {
+                            if self.debug {
+                                println!("MIR NOT AVAILABLE for {:?}", def_id);
+                            }
 
-                                let mutex = self.funcs.assoc_fns_to_trait.lock().unwrap();
-                                match mutex.get(def_id) {
-                                    Some(trait_def_id) => {
-                                        let trait_def_id_clone = trait_def_id.clone();
-                                        std::mem::drop(mutex);
+                            let mutex = self.funcs.assoc_fns_to_trait.lock().unwrap();
+                            match mutex.get(def_id) {
+                                Some(trait_def_id) => {
+                                    let trait_def_id_clone = trait_def_id.clone();
+                                    std::mem::drop(mutex);
 
-                                        if self.debug {
-                                            println!("\n### DYN DISPATCH TO {:?}\n", def_id);
+                                    if self.debug {
+                                        println!("\n### DYN DISPATCH TO {:?}\n", def_id);
+                                    }
+
+                                    let dyn_results = self.handle_dyn_dispatch(
+                                        cmap,
+                                        call_stack,
+                                        cur_scope,
+                                        body_locals,
+                                        funcval,
+                                        &resolved_genargs,
+                                        &trait_def_id_clone,
+                                        args,
+                                        destination,
+                                    );
+
+                                    if self.debug {
+                                        println!("dyn_results: {:?}", dyn_results);
+                                    }
+
+                                    if dyn_results.is_empty() {
+                                        if let Some(constraints) =
+                                            self.fallback_to_func_ret(cmap, &cur_scope, funcval)
+                                        {
+                                            res_vec.push(constraints);
                                         }
+                                    } else {
+                                        for dyn_res in dyn_results.iter() {
+                                            match dyn_res {
+                                                Ok(Some(constraints)) => {
+                                                    if self.debug {
+                                                        println!(
+                                                            "\n##### DONE w DYN func {:?}\n",
+                                                            def_id
+                                                        );
+                                                        println!("constraints: {:?}", constraints);
 
-                                        let dyn_results = self.handle_dyn_dispatch(
-                                            cmap,
-                                            call_stack,
-                                            cur_scope,
-                                            body_locals,
-                                            funcval,
-                                            func_genargs.as_slice(),
-                                            &trait_def_id_clone,
-                                            args,
-                                            destination,
-                                        );
-
-                                        if self.debug {
-                                            println!("dyn_results: {:?}", dyn_results);
-                                        }
-
-                                        if dyn_results.is_empty() {
-                                            if let Some(constraints) =
-                                                self.fallback_to_func_ret(funcval)
-                                            {
-                                                res_vec.push(constraints);
-                                            }
-                                        } else {
-                                            for dyn_res in dyn_results.iter() {
-                                                match dyn_res {
-                                                    Ok(Some(constraints)) => {
-                                                        if self.debug {
-                                                            println!(
-                                                                "\n##### DONE w DYN func {:?}\n",
-                                                                def_id
-                                                            );
-                                                            println!(
-                                                                "constraints: {:?}",
-                                                                constraints
-                                                            );
-                                                        }
-
-                                                        res_vec.push(constraints.clone());
                                                     }
-                                                    Ok(None) => {
-                                                        if self.debug {
-                                                            println!(
-                                                                "\n##### DONE w DYN func {:?}\n",
-                                                                def_id
-                                                            );
-                                                            println!(
-                                                                "no retval, check for widening"
-                                                            );
-                                                        }
-                                                        if let Some(constraints) =
-                                                            self.fallback_to_func_ret(funcval)
-                                                        {
-                                                            res_vec.push(constraints);
-                                                        }
-                                                    }
-                                                    e @ Err(_) => panic!("error: {:?}", e),
+
+                                                    res_vec.push(constraints.clone());
                                                 }
-                                            }
-                                        }
-                                    }
-                                    None => {
-                                        std::mem::drop(mutex);
-
-                                        if self.debug {
-                                            println!("\n### UNDEF FN / RES {:?}\n", def_id);
-                                        }
-
-                                        match self.fallback_to_func_ret(funcval) {
-                                            Some(constraints) => res_vec.push(constraints),
-                                            None => {
-                                                let mut constraints = HashSet::default();
-                                                constraints.insert(VerifoptRval::Undef());
-                                                res_vec.push(constraints);
+                                                Ok(None) => {
+                                                    if self.debug {
+                                                        println!(
+                                                            "\n##### DONE w DYN func {:?}\n",
+                                                            def_id
+                                                        );
+                                                        println!("no retval, check for widening");
+                                                    }
+                                                    if let Some(constraints) =
+                                                        self.fallback_to_func_ret(cmap, &cur_scope, funcval)
+                                                    {
+                                                        res_vec.push(constraints);
+                                                    }
+                                                }
+                                                e @ Err(_) => panic!("error: {:?}", e),
                                             }
                                         }
                                     }
                                 }
-                            } else {
-                                if self.debug {
-                                    println!("\n### STATIC DISPATCH TO: {:?}", def_id);
-                                }
+                                None => {
+                                    std::mem::drop(mutex);
+                                    if self.debug {
+                                        println!("\n### UNDEF FN / RES {:?}\n", def_id);
+                                    }
 
-                                let mut cmap_clone = cmap.clone();
-                                match self.handle_static_dispatch(
-                                    &mut cmap_clone,
-                                    call_stack,
-                                    cur_scope,
-                                    body_locals,
-                                    funcval,
-                                    func_genargs.as_slice(),
-                                    args,
-                                    destination,
-                                ) {
-                                    Ok(maybe_constraints) => {
+                                    match self.fallback_to_func_ret(cmap, &cur_scope, funcval) {
+                                        Some(constraints) => res_vec.push(constraints),
+                                        None => {
+                                            let mut constraints = HashSet::default();
+                                            constraints.insert(VerifoptRval::Undef());
+                                            res_vec.push(constraints);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if self.debug {
+                                println!("\n### STATIC DISPATCH TO: {:?}", def_id);
+                            }
+                            let mut cmap_clone = cmap.clone();
+                            match self.handle_static_dispatch(
+                                &mut cmap_clone,
+                                call_stack,
+                                cur_scope,
+                                body_locals,
+                                funcval,
+                                &resolved_genargs,
+                                args,
+                                destination,
+                            ) {
+                                Ok(maybe_constraints) => {
+                                    if self.debug {
+                                        println!("\n##### DONE w func {:?}\n", def_id);
+                                        println!(
+                                            "maybe_constraints from func: {:?}",
+                                            maybe_constraints
+                                        );
+                                    }
+                                    cmap_vec.push(cmap_clone);
+                                    if let Some(constraints) = maybe_constraints {
                                         if self.debug {
-                                            println!("\n##### DONE w func {:?}\n", def_id);
+                                            println!("res_vec {:?}", res_vec);
+                                            println!("adding constraint: {:?}", constraints);
+                                        }
+                                        res_vec.push(constraints);
+                                    } else if let Some(rettype) = funcval.rettype {
+                                        // is `None` actually a None, or was the
+                                        // analysis just unable to interpret something?
+                                        // i.e. if the called function is expected to
+                                        // return something, this is the latter case, and
+                                        // we can conservatively approx the constraints
+                                        // to be the function return type
+                                        if self.debug {
                                             println!(
-                                                "maybe_constraints from func: {:?}",
-                                                maybe_constraints
+                                                "analysis failed, but the return type for func {:?} is: {:?}",
+                                                funcval.def_id, rettype
                                             );
                                         }
-
-                                        cmap_vec.push(cmap_clone);
-                                        if let Some(constraints) = maybe_constraints {
-                                            if self.debug {
-                                                println!("res_vec {:?}", res_vec);
-                                                println!("adding constraint: {:?}", constraints);
-                                            }
-                                            res_vec.push(constraints);
-                                        } else if let Some(rettype) = funcval.rettype {
-                                            // is `None` actually a None, or was the
-                                            // analysis just unable to interpret something?
-                                            // i.e. if the called function is expected to
-                                            // return something, this is the latter case, and
-                                            // we can conservatively approx the constraints
-                                            // to be the function return type
-                                            if self.debug {
-                                                println!(
-                                                    "analysis failed, but the return type for func {:?} is: {:?}",
-                                                    funcval.def_id, rettype
-                                                );
-                                            }
-                                        }
                                     }
-                                    err @ Err(_) => return err,
                                 }
+                                err @ Err(_) => return err,
                             }
+
                         }
                     }
                     None => {
@@ -1279,14 +1294,23 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                                 TyKind::Int(_) | TyKind::Uint(_) | TyKind::Float(_) => {
                                     constraints.insert(VerifoptRval::Scalar(scalar));
                                 }
+                                TyKind::Adt(def, generic_args) => {
+                                    let resolved_gen_args = self.converter.resolve_genargs(cmap, &cur_scope, &generic_args.to_vec());
+                                    if resolved_gen_args.len() == 0 {
+                                        return HashSet::from_iter([VerifoptRval::IdkStruct(def.did(), None)]);
+                                    }
+                                    return HashSet::from_iter([VerifoptRval::IdkStruct(def.did(), Some(resolved_gen_args.into_iter().collect()))]);
+                                }
                                 // consts can have other types!
                                 _ => {
                                     let mut defids = resolve_ty(&ty, self.funcs, self.debug);
                                     if defids.len() != 1 {
                                         panic!("unexpected defids: {:?}", defids);
                                     }
+
+                                    // FIXME: Handle generic args?
                                     constraints
-                                        .insert(VerifoptRval::IdkDefId(defids.pop().unwrap()));
+                                        .insert(VerifoptRval::IdkDefId(defids.pop().unwrap(), None));
                                 }
                             }
                             // FIXME not always a simple "int" or "uint" const - consts can have
@@ -1342,7 +1366,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
-        let mut func_cmap = ConstraintMap::new(self.debug);
+        let mut cmap_debug = DebugPass::None;
+        if self.debug == true {
+            cmap_debug = DebugPass::Interp;
+        }
+        let mut func_cmap = ConstraintMap::new(cmap_debug);
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap
@@ -1362,22 +1390,6 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 MapKey::Place(param_name),
                 Box::new(VarType::Values(constraints.clone())),
             );
-
-            match param_type.kind() {
-                TyKind::Param(param) => {
-                    if self.debug {
-                        println!("SETTING GENERIC");
-                        println!("param: {:?}", param);
-                        println!("constraints: {:?}", constraints);
-                    }
-                    // e.g. map T -> Cat
-                    func_cmap.cmap.insert(
-                        MapKey::Generic(param.name),
-                        Box::new(VarType::Values(constraints)),
-                    );
-                }
-                _ => {}
-            }
         }
 
         let key = MapKey::ScopeId(funcval.def_id);
@@ -1422,248 +1434,4 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         );
     }
 
-    fn resolve_generic_argtys(
-        &self,
-        cmap: &mut ConstraintMap<'tcx>,
-        cur_scope: DefId,
-        _body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-        funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
-    ) {
-        if self.debug {
-            println!("funcval.params: {:?}", funcval.params);
-            println!("funcval.param_generics: {:?}", funcval.param_generics);
-            println!("func genargs: {:?}", func_genargs);
-        }
-
-        // filter lifetimes out of genargs
-        let genargs = func_genargs.iter().filter(|genarg| match genarg.kind() {
-            GenericArgKind::Lifetime(_) => false,
-            _ => true,
-        });
-
-        if self.debug {
-            println!("filtered genargs: {:?}", genargs);
-        }
-
-        // add argtype generic param to callee scope
-        for (param_generic, gen_arg) in
-            std::iter::zip(funcval.param_generics.clone().unwrap(), genargs)
-        {
-            if self.debug {
-                println!(
-                    "IN LOOP; arg resolution: ({:?}, {:?})",
-                    param_generic, gen_arg
-                );
-            }
-
-            if cmap
-                .scoped_get(
-                    Some(funcval.def_id),
-                    &MapKey::Generic(param_generic.name),
-                    false,
-                )
-                .is_none()
-            {
-                if self.debug {
-                    println!("\tproceeding with adding to cmap");
-                }
-                let mut constraints = HashSet::default();
-                let vartype = match gen_arg.kind() {
-                    GenericArgKind::Type(ty) => match ty.kind() {
-                        TyKind::Param(param) => {
-                            if self.debug {
-                                println!("ty param!! use outer scope ty val: {:?}", param);
-                            }
-                            match cmap.scoped_get(
-                                Some(cur_scope),
-                                &MapKey::Generic(param_generic.name),
-                                false,
-                            ) {
-                                // propagate outer_scope value
-                                Some(val) => val,
-                                None => {
-                                    // if no outer_scope value, try to resolve gen_arg itself
-                                    match cmap.scoped_get(
-                                        Some(cur_scope),
-                                        &MapKey::Generic(param.name),
-                                        false,
-                                    ) {
-                                        Some(val) => val,
-                                        None => panic!(
-                                            "cannot resolve {:?} in defid {:?}",
-                                            param_generic.name, cur_scope
-                                        ),
-                                    }
-                                }
-                            }
-                        }
-                        _ => {
-                            constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
-                            VarType::Values(constraints)
-                        }
-                    },
-                    _ => {
-                        constraints.insert(VerifoptRval::IdkType(gen_arg.as_type().unwrap()));
-                        VarType::Values(constraints)
-                    }
-                };
-
-                if self.debug {
-                    println!(
-                        "outer-scope val @ {:?}: {:?}",
-                        param_generic.name,
-                        cmap.scoped_get(
-                            Some(cur_scope),
-                            &MapKey::Generic(param_generic.name),
-                            false
-                        )
-                    );
-                    println!(
-                        "old val @ {:?}: {:?}",
-                        param_generic.name,
-                        cmap.scoped_get(
-                            Some(funcval.def_id),
-                            &MapKey::Generic(param_generic.name),
-                            false
-                        )
-                    );
-                }
-
-                cmap.scoped_add(
-                    Some(funcval.def_id),
-                    MapKey::Generic(param_generic.name),
-                    Box::new(vartype),
-                );
-            } else {
-                if self.debug {
-                    println!("\tmapping already exists; skipping");
-                }
-            }
-
-            if self.debug {
-                println!(
-                    "val @ {:?}: {:?}",
-                    param_generic.name,
-                    cmap.scoped_get(
-                        Some(funcval.def_id),
-                        &MapKey::Generic(param_generic.name),
-                        false
-                    )
-                );
-            }
-        }
-    }
-
-    fn resolve_generic_retty(
-        &self,
-        cmap: &mut ConstraintMap<'tcx>,
-        _cur_scope: DefId,
-        body_locals: &IndexSlice<Local, LocalDecl<'tcx>>,
-        funcval: &FuncVal<'tcx>,
-        func_genargs: &[GenericArg<'tcx>],
-        destination: &Place<'tcx>,
-    ) {
-        if self.debug {
-            println!("funcval.rettype: {:?}", funcval.rettype);
-            println!("funcval.ret_generics: {:?}", funcval.ret_generics);
-            println!("func genargs: {:?}", func_genargs);
-            println!("destination: {:?}", destination);
-            println!("body_locals[dest]: {:?}", body_locals[destination.local]);
-        }
-
-        // add rettype generic param to callee scope
-        let mut name_opt = None;
-        let mut constraints = HashSet::default();
-        if let Some(rettype) = funcval.rettype {
-            match rettype.kind() {
-                TyKind::Adt(adt_def, adt_genargs) => {
-                    if self.debug {
-                        println!("RETTYPE IS AN ADT: {:?}", adt_def.did());
-                        println!("adt_genargs: {:?}", adt_genargs);
-                    }
-
-                    if adt_genargs.len() > 0 {
-                        match adt_genargs[0].kind() {
-                            GenericArgKind::Type(ty) => match ty.kind() {
-                                TyKind::Param(param) => {
-                                    if func_genargs.len() > 0 {
-                                        if let Some(genarg_ty) = func_genargs[0].as_type() {
-                                            name_opt = Some(param.name);
-                                            constraints.insert(VerifoptRval::IdkType(genarg_ty));
-                                        }
-                                    }
-                                }
-                                TyKind::Slice(ty) => {
-                                    let params_vec_opt = get_params_from_ty(&ty, self.debug);
-                                    if self.debug {
-                                        println!("params: {:?}", params_vec_opt);
-                                    }
-                                    if let Some(params_vec) = params_vec_opt {
-                                        if func_genargs.len() > 0 {
-                                            if func_genargs.len() != 1 {
-                                                todo!(
-                                                    "unexpected func_genargs len (handle non-1 len)"
-                                                );
-                                            }
-                                            for param in params_vec.iter() {
-                                                if let Some(genarg_ty) = func_genargs[0].as_type() {
-                                                    name_opt = Some(param.name);
-                                                    constraints
-                                                        .insert(VerifoptRval::IdkType(genarg_ty));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    if self.debug {
-                                        println!("OTHER KIND: {:?}", ty.kind());
-                                    }
-                                }
-                            },
-                            _ => todo!("first genarg is not a ty: {:?}", adt_genargs[0].kind()),
-                        }
-                    }
-                }
-                TyKind::Param(param) => {
-                    if self.debug {
-                        println!("RETTYPE IS A PARAM: {:?}", param);
-                    }
-
-                    name_opt = Some(param.name);
-                    constraints.insert(VerifoptRval::IdkType(body_locals[destination.local].ty));
-                }
-                _ => todo!("handle rettype kind: {:?}", rettype.kind()),
-            }
-        }
-
-        if let Some(name) = name_opt {
-            match cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(name), false) {
-                Some(_) => {
-                    if self.debug {
-                        println!("\tmapping already exists");
-                    }
-                }
-                None => {
-                    if self.debug {
-                        println!("\tadding to cmap");
-                    }
-                    cmap.scoped_add(
-                        Some(funcval.def_id),
-                        MapKey::Generic(name),
-                        Box::new(VarType::Values(constraints)),
-                    );
-                }
-            }
-
-            if self.debug {
-                println!(
-                    "val @ {:?}: {:?}",
-                    name,
-                    cmap.scoped_get(Some(funcval.def_id), &MapKey::Generic(name), false,)
-                );
-            }
-        }
-    }
 }

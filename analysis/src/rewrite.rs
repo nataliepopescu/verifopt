@@ -4,11 +4,11 @@ use rustc_span::def_id::{CrateNum, DefId, DefIndex};
 use rustc_span::source_map::Spanned;
 use rustc_span::{BytePos, Span, SyntaxContext};
 
-use crate::FuncMap;
 use crate::constraints::{ConstraintMap, MapKey, VarType};
-use crate::core::VerifoptRval;
+use crate::core::{DebugPass, Style, VerifoptRval};
 use crate::helpers::{is_box, resolve_ty};
 use crate::patch::MirPatch;
+use crate::{FuncMap, RTAMap};
 
 // FIXME get dynamically
 // alloc[7a7c]::boxed::{impl#8}::into_raw
@@ -31,6 +31,8 @@ pub struct RewritePass<'a, 'tcx> {
     pub tcx: TyCtxt<'tcx>,
     pub funcs: &'a FuncMap<'tcx>,
     pub cmap: &'a ConstraintMap<'tcx>,
+    pub inits: &'a RTAMap,
+    pub style: Style,
     pub debug: bool,
     // TODO put dynamically-acquired into_raw and eq_fn defids here
 }
@@ -40,12 +42,20 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
         cmap: &'a ConstraintMap<'tcx>,
-        debug: bool,
+        inits: &'a RTAMap,
+        style: Style,
+        which_debug: DebugPass,
     ) -> RewritePass<'a, 'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::Rewrite {
+            debug = true;
+        }
         Self {
             tcx,
             funcs,
             cmap,
+            inits,
+            style,
             debug,
         }
     }
@@ -206,10 +216,8 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
                     // can assume that if multiple funcvals, they will have the same
                     // type, so just get the self_opt using the first funcval
-                    let mut funcval_vec = self.funcs.funcs.get(&cur_scope).unwrap().clone();
-                    let funcval = funcval_vec.pop().unwrap();
+                    let funcval = self.funcs.all_funcs.get(&cur_scope).unwrap().clone();
                     if self.debug {
-                        println!("funcval_vec: {:#?}", funcval_vec);
                         println!("funcval: {:?}", funcval);
                     }
 
@@ -231,70 +239,19 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                                 println!("func_defid: {:?}", defid);
                             }
 
-                            let vtable_locs;
-                            // vis_one_variant_bench
-                            //let bench_def_index = 39;
-                            // vis_two_variants_bench
-                            let bench_def_index = 46;
-                            // no inlining
-                            //let bench_def_index = 0;
-                            if cur_scope.krate.as_u32() == 0
-                                && cur_scope.index.as_u32() == bench_def_index
-                            {
-                                // different dyn animal vtables for warmup vs run block in
-                                // benchmarks (inlined bench())
-                                if *warmup == true {
-                                    *warmup = false;
-                                    // vis_two_variants_bench w prints
-                                    //vtable_locs = (264, 5);
-
-                                    // vis_two_variants_bench
-                                    vtable_locs = (214, 5);
-
-                                    // vis_one_variant_bench
-                                    //vtable_locs = (165, 5);
-                                } else {
-                                    // vis_two_variants_bench w prints
-                                    //vtable_locs = (269, 5);
-
-                                    // vis_two_variants_bench
-                                    vtable_locs = (219, 5);
-
-                                    // vis_one_variant_bench
-                                    //vtable_locs = (170, 5);
-                                }
-                            } else {
-                                if funcval.self_arg.is_some() {
-                                    // increase offset b/c arg list now includes `self`
-                                    vtable_locs = (3, 4);
-                                } else {
-                                    // default offset
-                                    vtable_locs = (2, 3);
-                                }
-                            }
-
-                            if self.debug {
-                                println!("PRE REPLACEMENT");
-                                println!("warmup: {:?}", warmup);
-                                println!("vtable_locs: {:?}", vtable_locs);
-                            }
-
                             self.replace_dynamic_dispatch(
                                 cur_scope,
                                 &mut patch,
                                 &defid,
                                 ty,
+                                funcval.self_arg,
                                 args,
                                 *destination,
                                 bb,
                                 data,
                                 num_bbs,
-                                vtable_locs,
+                                warmup,
                             );
-
-                            // TODO if multiple patches in the same body?
-                            // find way to declare/apply each patch in an inner scope
-                            // for now assuming only one patch per body
 
                             if self.debug {
                                 println!("POST REPLACEMENT");
@@ -572,6 +529,44 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
         }
         matching_impls
+    }
+
+    fn get_trait_impl_dids_cha(
+        &self,
+        cur_scope: DefId,
+        dynfunc_defid: &DefId,
+        traitobj_did: DefId,
+    ) -> Vec<(DefId, DefId)> {
+        if self.debug {
+            println!("cur_scope: {:?}", cur_scope);
+            println!("dynfunc_defid: {:?}", dynfunc_defid);
+        }
+        match self.funcs.trait_to_struct_impls.get(&traitobj_did) {
+            Some(structs) => {
+                if self.debug {
+                    println!("GOT structs: {:?}", structs);
+                }
+
+                if let Some(impls) = self
+                    .funcs
+                    .trait_fn_impls
+                    .lock()
+                    .unwrap()
+                    .get(&dynfunc_defid)
+                {
+                    if self.debug {
+                        println!("GOT impls: {:?}", impls);
+                    }
+
+                    return std::iter::zip(structs, impls)
+                        .map(|(&x, &y)| (x, y))
+                        .collect();
+                } else {
+                    panic!("no impltors");
+                }
+            }
+            None => panic!("no structs found!"),
+        }
     }
 
     // TODO doing duplicate work as in interp, store interp's result somewhere
@@ -907,10 +902,6 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         // construct Cat::speak call
         let new_args = self.replace_first_arg(&mut args.clone(), concrete_ty_loc);
-        if self.debug {
-            println!("OLD ARGS: {:?}", args);
-            println!("NEW ARGS: {:?}", new_args);
-        }
         let gen_args: &[GenericArg<'tcx>] = &[];
         let gen_args_ref = self.tcx.mk_args(gen_args);
 
@@ -958,7 +949,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         let empty_proj_slice: &[ProjectionElem<Local, Ty<'_>>] = &[];
         let empty_proj = self.tcx.mk_place_elems(empty_proj_slice);
 
-        let targets = vec![(0u128, bb_neq)].into_iter();
+        let targets = vec![(0u128, bb_eq)].into_iter();
 
         let term = Terminator {
             source_info: self.dummy_source_info(),
@@ -967,7 +958,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     local: eq_res_loc,
                     projection: empty_proj,
                 }),
-                targets: SwitchTargets::new(targets, bb_eq),
+                targets: SwitchTargets::new(targets, bb_neq),
             },
         };
 
@@ -1279,6 +1270,69 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
     }
 
+    fn get_vtable_locs(
+        &self,
+        cur_scope: DefId,
+        self_arg: Option<Place<'tcx>>,
+        dids_len: usize,
+        warmup: &mut bool,
+    ) -> Vec<usize> {
+        let mut vtable_locs = Vec::new();
+        // vis_one_variant_bench
+        //let bench_def_index = 39;
+        // vis_two_variants_bench
+        let bench_def_index = 46;
+        // no inlining
+        //let bench_def_index = 0;
+        if cur_scope.krate.as_u32() == 0 && cur_scope.index.as_u32() == bench_def_index {
+            // different dyn animal vtables for warmup vs run block in
+            // benchmarks (inlined bench())
+            if *warmup == true {
+                *warmup = false;
+                // vis_two_variants_bench w prints
+                //vtable_locs = (264, 5);
+
+                // vis_two_variants_bench
+                vtable_locs.push(5);
+                vtable_locs.push(214);
+
+                // vis_one_variant_bench
+                //vtable_locs = (165, 5);
+            } else {
+                // vis_two_variants_bench w prints
+                //vtable_locs = (269, 5);
+
+                // vis_two_variants_bench
+                vtable_locs.push(5);
+                vtable_locs.push(219);
+
+                // vis_one_variant_bench
+                //vtable_locs = (170, 5);
+            }
+        } else {
+            let first_loc;
+            if self_arg.is_some() {
+                // increase offset b/c arg list now includes `self`
+                first_loc = 3;
+            } else {
+                // default offset
+                first_loc = 2;
+            }
+
+            for i in 0..dids_len {
+                vtable_locs.push(first_loc + i);
+            }
+        }
+
+        if self.debug {
+            println!("self_arg: {:?}", self_arg);
+            println!("warmup: {:?}", warmup);
+            println!("vtable_locs: {:?}", vtable_locs);
+        }
+
+        vtable_locs
+    }
+
     #[allow(unused_assignments)]
     fn replace_dynamic_dispatch(
         &self,
@@ -1286,19 +1340,17 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         patch: &mut MirPatch<'tcx>,
         dynfunc_defid: &DefId,
         ty: Ty<'tcx>,
-        //self_arg: Option<Place<'tcx>>,
+        self_arg: Option<Place<'tcx>>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
         term_dst_place: Place<'tcx>,
         bb: &BasicBlock,
         data: &BasicBlockData<'tcx>,
         num_bbs: usize,
-        vtable_locs: (u32, u32),
-        //traitobj_vtable: Option<Local>,
+        warmup: &mut bool,
     ) {
         if self.debug {
             println!("\n### STARTING\n");
             println!("cur_scope: {:?}", cur_scope);
-            //println!("self_arg: {:?}", self_arg);
             println!("num_bbs: {:?}", num_bbs);
             println!("cur_bb: {:?}", bb);
             println!("func dest place: {:?}", term_dst_place);
@@ -1322,44 +1374,38 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("traitobj_did: {:?}", traitobj_did);
         }
 
-        let dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid, traitobj);
+        let mut dids;
+        if self.style == Style::CHA {
+            dids = self.get_trait_impl_dids_cha(cur_scope, dynfunc_defid, traitobj_did);
+        } else if self.style == Style::RTA {
+            todo!();
+        } else {
+            dids = self.get_trait_impl_dids(cur_scope, dynfunc_defid, traitobj);
+        }
         if self.debug {
             println!("dids: {:?}", dids);
+            println!("dids.len(): {:?}", dids.len());
         }
+        dids.reverse();
 
         let mut traitobj_vtable = None;
-        // FIXME make vec to support 3 or more variants
-        let mut variant_vtable = None;
         let mut traitobj_vtable_ptr = None;
-        let mut variant_vtable_ptr = None;
-        //let mut traitobj_vtable_ref = None;
-        //let mut variant_vtable_ref = None;
+        let vtable_loc_vec = self.get_vtable_locs(cur_scope, self_arg, dids.len(), warmup);
+        let vtable_locs = vtable_loc_vec.as_slice();
         if dids.len() > 1 {
             if self.debug {
                 println!("- multiple variants case");
+                println!("vtable_locs: {:?}", vtable_locs);
             }
 
-            // FIXME get dynamically
-            //if self_arg.is_some() {
-            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
-            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 2));
-            //} else {
-            //    traitobj_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX));
-            //    variant_vtable = Some(Local::from_u32(VTABLE_ADDR_IDX + 1));
-            //}
-            traitobj_vtable = Some(Local::from_u32(vtable_locs.0));
-            variant_vtable = Some(Local::from_u32(vtable_locs.1));
+            traitobj_vtable = Some(Local::from_usize(vtable_locs[0]));
+            // TODO maybe benchmark this route as an alternative, if it is functional?
+            //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+            traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
 
             if self.debug {
                 println!("traitobj vtable: {:?}", traitobj_vtable);
-                println!("variant vtable: {:?}", variant_vtable);
             }
-
-            // TODO maybe benchmark this route as an alternative, if it is functional?
-            //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
-            //variant_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
-            traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
-            variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
         } else {
             if self.debug {
                 println!("- single variant case");
@@ -1373,7 +1419,14 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
         let mut into_raw_target = None;
         let mut bb_last_variant_speak = None;
+        let mut bb_last_cmp = None;
         for (i, (struct_did, func_did)) in dids.iter().enumerate() {
+            if self.debug {
+                println!("i: {:?}", i);
+                println!("struct_did: {:?}", struct_did);
+                println!("func_did: {:?}", func_did);
+            }
+
             // add back old goto
             let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
 
@@ -1395,14 +1448,23 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             );
 
             if i > 0 {
+                // get vtable locations
+                let variant_vtable = Some(Local::from_usize(vtable_locs[vtable_locs.len() - i]));
+                let variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+                if self.debug {
+                    println!("variant vtable: {:?}", variant_vtable);
+                }
+
                 // comparison & switch (if > 1 variant)
                 let eq_res_bool = self.add_mut_bool_temp(patch);
-                let bb_switch = self.add_switch_block(
-                    patch,
-                    bb_last_variant_speak.unwrap(),
-                    bb_cur_variant_speak,
-                    eq_res_bool,
-                );
+                let bb_eq;
+                if bb_last_cmp.is_none() {
+                    bb_eq = bb_last_variant_speak.unwrap();
+                } else {
+                    bb_eq = bb_last_cmp.unwrap();
+                }
+                let bb_switch =
+                    self.add_switch_block(patch, bb_eq, bb_cur_variant_speak, eq_res_bool);
 
                 let bb_compare = self.add_compare_vtable_block(
                     patch,
@@ -1418,6 +1480,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                     Some(vec![boxed_dyn_traitobj1]),
                 );
                 into_raw_target = Some(bb_compare);
+                bb_last_cmp = Some(bb_compare);
             } else if dids.len() == 1 {
                 // shim compare block, which does a necessary type cast
                 let bb_shim = self.add_compare_shim(
@@ -1429,12 +1492,18 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
                 into_raw_target = Some(bb_shim);
             } else {
                 if self.debug {
-                    println!("i: {:?}", i);
+                    println!("i == 0 && dids.len != 1");
                     println!("dids: {:?}", dids);
                 }
             }
 
             bb_last_variant_speak = Some(bb_cur_variant_speak);
+            if self.debug {
+                println!(
+                    "SETTING bb_last_var_speak (next neq_bb): {:?}",
+                    bb_last_variant_speak
+                );
+            }
         }
 
         if into_raw_target.is_none() {

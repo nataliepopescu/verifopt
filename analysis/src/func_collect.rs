@@ -18,8 +18,8 @@ use rustc_middle::ty::{
 };
 //use rustc_middle::query::IntoQueryParam;
 
-use crate::core::FuncVal;
-use crate::helpers::{get_params_from_ty}; //, get_params_from_genarg};
+use crate::core::{DebugPass, FuncVal};
+use crate::helpers::get_params_from_ty;
 
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 pub struct FuncMap<'tcx> {
     // all fns, trait-related or not
-    pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
-    // assoc fn decl (of a trait) -> concrete impl of that assoc fn
+    pub all_funcs: HashMap<DefId, FuncVal<'tcx>>,
+    // assoc fn of a trait -> concrete implementations of that assoc fn
     pub trait_fn_impls: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
     // concrete impl of assoc fn (of a trait) -> assoc fn decl
     pub assoc_fn_impls_to_assoc_fn: Arc<Mutex<HashMap<DefId, DefId>>>,
@@ -55,7 +55,7 @@ pub struct FuncMap<'tcx> {
 impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
         Self {
-            funcs: HashMap::default(),
+            all_funcs: HashMap::default(),
             trait_fn_impls: Arc::new(Mutex::new(HashMap::default())),
             assoc_fn_impls_to_assoc_fn: Arc::new(Mutex::new(HashMap::default())),
             assoc_fns_to_trait: Arc::new(Mutex::new(HashMap::default())),
@@ -75,7 +75,11 @@ pub struct FuncCollectPass<'tcx> {
 }
 
 impl<'tcx> FuncCollectPass<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, debug: bool) -> FuncCollectPass<'tcx> {
+    pub fn new(tcx: TyCtxt<'tcx>, which_debug: DebugPass) -> FuncCollectPass<'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::FuncCollect {
+            debug = true;
+        }
         Self { tcx, debug }
     }
 
@@ -162,7 +166,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
         None
     }
 
-    fn get_return_info(&self, rettype: &Ty<'tcx>) -> (Option<DefId>, Option<Vec<ParamTy>>) {
+    fn get_return_info(&self, rettype: &Ty<'tcx>
+    ) -> (Option<DefId>, Option<Vec<ParamTy>>, Option<Vec<GenericArg<'tcx>>>) {
         match rettype.kind() {
             TyKind::Adt(def, adt_genargs) => {
                 if self.debug {
@@ -170,33 +175,41 @@ impl<'tcx> FuncCollectPass<'tcx> {
                     println!("adt genargs: {:?}", adt_genargs);
                 }
                 let ret_did = Some(def.did());
-                if adt_genargs.len() > 0 {
-                    match adt_genargs[0].kind() {
+                let mut rettype_params : Vec<ParamTy> = vec![];
+                for adt_genarg in adt_genargs.into_iter() {
+                    match adt_genarg.kind() {
                         GenericArgKind::Type(ty) => {
-                            let params_opt = get_params_from_ty(&ty, self.debug);
-                            if self.debug {
-                                println!("RET PARAMS: {:?}", params_opt);
-                            }
-                            if let Some(params_vec) = params_opt {
-                                return (ret_did, Some(params_vec));
+                            match get_params_from_ty(&ty, self.debug) {
+                                None => {}
+                                Some(params) => {
+                                    rettype_params.extend(&params);
+                                }
                             }
                         }
                         _ => {
                             if self.debug {
-                                println!("genarg is not a ty: {:?}", adt_genargs[0].kind());
+                                println!("genarg is not a ty: {:?}", adt_genarg.kind());
                             }
                         }
                     }
                 }
-                return (ret_did, None);
+                let mut rettype_genargs = None;
+                if adt_genargs.len() > 0 {
+                    rettype_genargs = Some(adt_genargs.to_vec());
+                }
+
+                if rettype_params.len() > 0 {
+                    return (ret_did, Some(rettype_params), rettype_genargs);
+                }
+                return (ret_did, None, rettype_genargs);
             }
             TyKind::Param(param) => {
                 if self.debug {
                     println!("rettype == param: {:?}", param);
                 }
-                (None, Some(vec![*param]))
+                (None, Some(vec![*param]), None)
             }
-            _ => (None, None),
+            _ => (None, None, None),
         }
     }
 
@@ -464,7 +477,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
             println!("sig: {:?}", sig);
             println!("rettype: {:?}", rettype);
         }
-        let (ret_did, ret_generics) = self.get_return_info(&rettype);
+        let (ret_did, ret_generics, ret_genargs) = self.get_return_info(&rettype);
         // TODO ty has an is_never() method which we can use to not execute panic methods
 
         // print out locals/body after all generic param resolution
@@ -489,19 +502,28 @@ impl<'tcx> FuncCollectPass<'tcx> {
             Some(rettype),
             ret_did,
             ret_generics,
+            ret_genargs
         );
-        let vec_to_insert: Vec<FuncVal>;
-        match funcs.funcs.get_mut(&def_id) {
-            Some(func_vec) => {
-                func_vec.push(funcval);
-                vec_to_insert = func_vec.to_vec();
+        //let vec_to_insert: Vec<FuncVal>;
+        match funcs.all_funcs.get_mut(&def_id) {
+            Some(existing_funcval) => {
+                //if self.debug {
+                //    println!("WHEN EVER HERE?");
+                //}
+                panic!(
+                    "func w this defid already exists: {:?} {:?}",
+                    def_id, existing_funcval
+                );
+                //func_vec.push(funcval);
+                //vec_to_insert = func_vec.to_vec();
             }
             None => {
-                vec_to_insert = vec![funcval];
+                //vec_to_insert = vec![funcval];
+                funcs.all_funcs.insert(def_id, funcval);
                 // TODO handle nested func decls
             }
         }
-        funcs.funcs.insert(def_id, vec_to_insert);
+        //funcs.all_funcs.insert(def_id, vec_to_insert);
     }
 
     fn handle_closure(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
@@ -522,6 +544,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
         let mut rettype = None;
         let mut ret_did = None;
         let mut ret_generics = None;
+        let mut ret_genargs = None;
         let mir_avail = self.tcx.is_mir_available(def_id);
         if mir_avail {
             let inner_body = self.tcx.optimized_mir(def_id);
@@ -543,7 +566,7 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
             rettype = self.get_return_type_from_body(inner_body);
             if let Some(inner_rettype) = rettype {
-                (ret_did, ret_generics) = self.get_return_info(&inner_rettype);
+                (ret_did, ret_generics, ret_genargs) = self.get_return_info(&inner_rettype);
             }
         } else {
             if self.debug {
@@ -572,24 +595,30 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 rettype,
                 ret_did,
                 ret_generics,
+                ret_genargs
             );
 
             if self.debug {
                 println!("---ADDING FUNCVAL: {:#?}", funcval);
             }
 
-            let vec_to_insert: Vec<FuncVal>;
-            match funcs.funcs.get_mut(&def_id) {
-                Some(func_vec) => {
-                    func_vec.push(funcval);
-                    vec_to_insert = func_vec.to_vec();
+            //let vec_to_insert: Vec<FuncVal>;
+            match funcs.all_funcs.get_mut(&def_id) {
+                Some(existing_funcval) => {
+                    panic!(
+                        "closure w this defid already exists: {:?} {:?}",
+                        def_id, existing_funcval
+                    );
+                    //func_vec.push(funcval);
+                    //vec_to_insert = func_vec.to_vec();
                 }
                 None => {
-                    vec_to_insert = vec![funcval];
+                    //vec_to_insert = vec![funcval];
+                    funcs.all_funcs.insert(def_id, funcval);
                     // TODO handle nested func decls
                 }
             }
-            funcs.funcs.insert(def_id, vec_to_insert);
+            //funcs.all_funcs.insert(def_id, vec_to_insert);
         }
 
         if let Some(inner_body) = body
@@ -673,10 +702,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
     pub fn run(&self, funcs: &mut FuncMap<'tcx>) {
         self.collect_funcs(funcs);
-
         if self.debug {
-            println!("assoc_fns: {:#?}", funcs.assoc_fns_to_trait.lock().unwrap());
-            println!("impl block gens: {:#?}", funcs.impl_block_generics);
+            println!("all funcs: {:#?}", funcs.all_funcs);
         }
     }
 }

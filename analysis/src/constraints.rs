@@ -11,7 +11,7 @@ use rustc_span::symbol::Symbol;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::core::{Merge, Type, VerifoptRval};
+use crate::core::{DebugPass, Merge, Type, VerifoptRval, VerifoptTypeArg};
 use crate::error::Error;
 use crate::wto::BBDeps;
 
@@ -47,14 +47,21 @@ pub(crate) enum MapKey<'tcx> {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ConstraintMap<'tcx> {
     pub cmap: HashMap<MapKey<'tcx>, Box<VarType<'tcx>>>,
+    // Maps scope-defid to set of all genarg environments
+    pub genargs: HashMap<DefId, HashSet<Vec<VerifoptTypeArg<'tcx>>>>,
     pub wtos: HashMap<DefId, BBDeps>,
     pub debug: bool,
 }
 
 impl<'tcx> ConstraintMap<'tcx> {
-    pub(crate) fn new(debug: bool) -> Self {
+    pub(crate) fn new(which_debug: DebugPass) -> Self {
+        let mut debug = false;
+        if which_debug == DebugPass::Interp {
+            debug = true;
+        }
         Self {
             cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
+            genargs: HashMap::<DefId, HashSet<Vec<VerifoptTypeArg<'tcx>>>>::default(),
             wtos: HashMap::<DefId, BBDeps>::default(),
             debug,
         }
@@ -168,6 +175,32 @@ impl<'tcx> ConstraintMap<'tcx> {
                 }
             },
             None => panic!("undefined scope: {:?}", scope.unwrap()),
+        }
+    }
+
+    /// Get the current scopes gen arg environment(s)
+    ///
+    /// For instance for `foo<T,E>`, might return `{[i32, MyError], [str, MyError]}`
+    ///
+    /// Panics if the scope is not present
+    pub(crate) fn get_scope_genarg_envs_or_panic(&self, scope: &DefId) -> &HashSet<Vec<VerifoptTypeArg<'tcx>>> {
+        match self.genargs.get(scope) {
+            None => panic!("Attempted to get genargs of nonexistant scope"),
+            Some(v) => v,
+        }
+    }
+
+    /// Add a genarg environment to the specified scope
+    ///
+    /// No-op if the environment is already in the scope
+    pub(crate) fn add_scope_genarg_env(&mut self, scope: &DefId, arg_env: HashSet<Vec<VerifoptTypeArg<'tcx>>>) {
+        match self.genargs.get_mut(scope) {
+            Some(v) => {
+                v.extend(arg_env);
+            },
+            None => {
+                self.genargs.insert(*scope, arg_env);
+            },
         }
     }
 }
@@ -325,6 +358,11 @@ impl<'tcx> Merge<ConstraintMap<'tcx>> for Vec<ConstraintMap<'tcx>> {
                         merged.cmap.insert(key.clone(), val.clone());
                     }
                 }
+            }
+
+            // Union all arg environments scope-wise
+            for (key, val) in cmap.clone().genargs.iter() {
+                merged.genargs.entry(*key).or_default().extend(val.clone());
             }
         }
 

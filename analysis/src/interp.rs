@@ -8,7 +8,8 @@ use rustc_middle::ty::{GenericArg, GenericArgKind, List, TyCtxt, TyKind};
 use rustc_span::source_map::Spanned;
 
 use crate::constraints::{ConstraintMap, Constraints, MapKey, VarType};
-use crate::core::{FuncVal, Merge, VerifoptConverter, VerifoptRval};
+use crate::core::{DebugPass, FuncVal, Merge, VerifoptConverter, VerifoptRval};
+use crate::core::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
 use crate::error::Error;
 use crate::func_collect::FuncMap;
 use crate::helpers::{get_params_from_ty, is_box, is_fn_trait, resolve_ty};
@@ -22,7 +23,15 @@ pub struct InterpPass<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> InterpPass<'a, 'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, funcs: &'a FuncMap<'tcx>, debug: bool) -> InterpPass<'a, 'tcx> {
+    pub fn new(
+        tcx: TyCtxt<'tcx>,
+        funcs: &'a FuncMap<'tcx>,
+        which_debug: DebugPass,
+    ) -> InterpPass<'a, 'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::Interp {
+            debug = true;
+        }
         Self {
             tcx,
             funcs,
@@ -44,7 +53,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //let ty = locals[Local::from_usize(0)].ty;
         //let mut set = HashSet::default();
         //set.insert(VerifoptRval::IdkType(ty));
-        let main_cmap = ConstraintMap::new(self.debug);
+        let mut cmap_debug = DebugPass::None;
+        if self.debug == true {
+            cmap_debug = DebugPass::Interp;
+        }
+        let main_cmap = ConstraintMap::new(cmap_debug);
 
         //main_cmap.cmap.insert(
         //    MapKey::Place(Place {
@@ -352,11 +365,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 }
 
                 // double check that nothing was supposed to be returned
-                if let Some(funcval_vec) = self.funcs.funcs.get(&cur_scope) {
-                    if funcval_vec.len() != 1 {
-                        panic!("unexpected len");
-                    }
-                    if let Some(retty) = funcval_vec[0].rettype
+                if let Some(funcval) = self.funcs.all_funcs.get(&cur_scope) {
+                    //if funcval_vec.len() != 1 {
+                    //    panic!("unexpected len");
+                    //}
+                    if let Some(retty) = funcval.rettype
                         && !retty.is_unit()
                     {
                         panic!("should have returned something of type: {:?}", retty);
@@ -737,24 +750,24 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
                 println!("func_defid: {:?}", func_defid);
             }
 
-            let funcvals = self.funcs.funcs.get(&func_defid);
-            if funcvals.is_none() {
+            let funcval_opt = self.funcs.all_funcs.get(&func_defid);
+            if funcval_opt.is_none() {
                 panic!("func not found: {:?}", func_defid);
             }
-            let funcval_vec = funcvals.unwrap();
+            let funcval = funcval_opt.unwrap();
             if self.debug {
-                println!("funcval_vec: {:?}", funcval_vec);
+                println!("funcval: {:?}", funcval);
             }
-            if funcval_vec.len() != 1 {
-                panic!("unexpected number of functions");
-            }
+            //if funcval_vec.len() != 1 {
+            //    panic!("unexpected number of functions");
+            //}
 
             res_vec.push(self.handle_static_dispatch(
                 cmap,
                 call_stack,
                 cur_scope,
                 body_locals,
-                &funcval_vec[0],
+                &funcval,
                 func_genargs,
                 args,
                 destination,
@@ -962,175 +975,170 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
 
         match co.const_ {
             Const::Val(_, ty) => match ty.kind() {
-                TyKind::FnDef(def_id, func_genargs) => match self.funcs.funcs.get(def_id) {
-                    Some(funcval_vec) => {
-                        if funcval_vec.len() != 1 {
-                            todo!("unexpected number of functions: {:?}", funcval_vec.len());
+                TyKind::FnDef(def_id, func_genargs) => match self.funcs.all_funcs.get(def_id) {
+                    Some(funcval) => {
+                        //if funcval_vec.len() != 1 {
+                        //    todo!("unexpected number of functions: {:?}", funcval_vec.len());
+                        //}
+
+                        //for funcval in funcval_vec.iter() {
+                        if self.debug {
+                            println!("defid: {:?}", def_id);
+                            println!("funcval: {:?}", funcval);
+                            println!("func genargs: {:?}", func_genargs);
                         }
 
-                        for funcval in funcval_vec.iter() {
+                        if funcval.is_intrinsic {
                             if self.debug {
-                                println!("defid: {:?}", def_id);
-                                println!("funcval: {:?}", funcval);
-                                println!("func genargs: {:?}", func_genargs);
+                                println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
                             }
 
-                            if funcval.is_intrinsic {
-                                if self.debug {
-                                    println!("\n### FUNC IS INTRINSIC {:?}\n", def_id);
-                                }
+                            if let Some(constraints) = self.fallback_to_func_ret(funcval) {
+                                res_vec.push(constraints);
+                            }
+                        } else if funcval.is_closure {
+                            if self.debug {
+                                todo!("\n### FUNC IS CLOSURE: {:?}\n", def_id);
+                            }
+                            // TODO
+                        } else if !self.tcx.is_mir_available(def_id) {
+                            if self.debug {
+                                println!("MIR NOT AVAILABLE for {:?}", def_id);
+                            }
 
-                                if let Some(constraints) = self.fallback_to_func_ret(funcval) {
-                                    res_vec.push(constraints);
-                                }
-                            } else if funcval.is_closure {
-                                if self.debug {
-                                    todo!("\n### FUNC IS CLOSURE: {:?}\n", def_id);
-                                }
-                                // TODO
-                            } else if !self.tcx.is_mir_available(def_id) {
-                                if self.debug {
-                                    println!("MIR NOT AVAILABLE for {:?}", def_id);
-                                }
+                            let mutex = self.funcs.assoc_fns_to_trait.lock().unwrap();
+                            match mutex.get(def_id) {
+                                Some(trait_def_id) => {
+                                    let trait_def_id_clone = trait_def_id.clone();
+                                    std::mem::drop(mutex);
 
-                                let mutex = self.funcs.assoc_fns_to_trait.lock().unwrap();
-                                match mutex.get(def_id) {
-                                    Some(trait_def_id) => {
-                                        let trait_def_id_clone = trait_def_id.clone();
-                                        std::mem::drop(mutex);
+                                    if self.debug {
+                                        println!("\n### DYN DISPATCH TO {:?}\n", def_id);
+                                    }
 
-                                        if self.debug {
-                                            println!("\n### DYN DISPATCH TO {:?}\n", def_id);
+                                    let dyn_results = self.handle_dyn_dispatch(
+                                        cmap,
+                                        call_stack,
+                                        cur_scope,
+                                        body_locals,
+                                        funcval,
+                                        func_genargs.as_slice(),
+                                        &trait_def_id_clone,
+                                        args,
+                                        destination,
+                                    );
+
+                                    if self.debug {
+                                        println!("dyn_results: {:?}", dyn_results);
+                                    }
+
+                                    if dyn_results.is_empty() {
+                                        if let Some(constraints) =
+                                            self.fallback_to_func_ret(funcval)
+                                        {
+                                            res_vec.push(constraints);
                                         }
-
-                                        let dyn_results = self.handle_dyn_dispatch(
-                                            cmap,
-                                            call_stack,
-                                            cur_scope,
-                                            body_locals,
-                                            funcval,
-                                            func_genargs.as_slice(),
-                                            &trait_def_id_clone,
-                                            args,
-                                            destination,
-                                        );
-
-                                        if self.debug {
-                                            println!("dyn_results: {:?}", dyn_results);
-                                        }
-
-                                        if dyn_results.is_empty() {
-                                            if let Some(constraints) =
-                                                self.fallback_to_func_ret(funcval)
-                                            {
-                                                res_vec.push(constraints);
-                                            }
-                                        } else {
-                                            for dyn_res in dyn_results.iter() {
-                                                match dyn_res {
-                                                    Ok(Some(constraints)) => {
-                                                        if self.debug {
-                                                            println!(
-                                                                "\n##### DONE w DYN func {:?}\n",
-                                                                def_id
-                                                            );
-                                                            println!(
-                                                                "constraints: {:?}",
-                                                                constraints
-                                                            );
-                                                        }
-
-                                                        res_vec.push(constraints.clone());
+                                    } else {
+                                        for dyn_res in dyn_results.iter() {
+                                            match dyn_res {
+                                                Ok(Some(constraints)) => {
+                                                    if self.debug {
+                                                        println!(
+                                                            "\n##### DONE w DYN func {:?}\n",
+                                                            def_id
+                                                        );
+                                                        println!("constraints: {:?}", constraints);
                                                     }
-                                                    Ok(None) => {
-                                                        if self.debug {
-                                                            println!(
-                                                                "\n##### DONE w DYN func {:?}\n",
-                                                                def_id
-                                                            );
-                                                            println!(
-                                                                "no retval, check for widening"
-                                                            );
-                                                        }
-                                                        if let Some(constraints) =
-                                                            self.fallback_to_func_ret(funcval)
-                                                        {
-                                                            res_vec.push(constraints);
-                                                        }
-                                                    }
-                                                    e @ Err(_) => panic!("error: {:?}", e),
+
+                                                    res_vec.push(constraints.clone());
                                                 }
-                                            }
-                                        }
-                                    }
-                                    None => {
-                                        std::mem::drop(mutex);
-
-                                        if self.debug {
-                                            println!("\n### UNDEF FN / RES {:?}\n", def_id);
-                                        }
-
-                                        match self.fallback_to_func_ret(funcval) {
-                                            Some(constraints) => res_vec.push(constraints),
-                                            None => {
-                                                let mut constraints = HashSet::default();
-                                                constraints.insert(VerifoptRval::Undef());
-                                                res_vec.push(constraints);
+                                                Ok(None) => {
+                                                    if self.debug {
+                                                        println!(
+                                                            "\n##### DONE w DYN func {:?}\n",
+                                                            def_id
+                                                        );
+                                                        println!("no retval, check for widening");
+                                                    }
+                                                    if let Some(constraints) =
+                                                        self.fallback_to_func_ret(funcval)
+                                                    {
+                                                        res_vec.push(constraints);
+                                                    }
+                                                }
+                                                e @ Err(_) => panic!("error: {:?}", e),
                                             }
                                         }
                                     }
                                 }
-                            } else {
-                                if self.debug {
-                                    println!("\n### STATIC DISPATCH TO: {:?}", def_id);
-                                }
+                                None => {
+                                    std::mem::drop(mutex);
 
-                                let mut cmap_clone = cmap.clone();
-                                match self.handle_static_dispatch(
-                                    &mut cmap_clone,
-                                    call_stack,
-                                    cur_scope,
-                                    body_locals,
-                                    funcval,
-                                    func_genargs.as_slice(),
-                                    args,
-                                    destination,
-                                ) {
-                                    Ok(maybe_constraints) => {
+                                    if self.debug {
+                                        println!("\n### UNDEF FN / RES {:?}\n", def_id);
+                                    }
+
+                                    match self.fallback_to_func_ret(funcval) {
+                                        Some(constraints) => res_vec.push(constraints),
+                                        None => {
+                                            let mut constraints = HashSet::default();
+                                            constraints.insert(VerifoptRval::Undef());
+                                            res_vec.push(constraints);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if self.debug {
+                                println!("\n### STATIC DISPATCH TO: {:?}", def_id);
+                            }
+
+                            let mut cmap_clone = cmap.clone();
+                            match self.handle_static_dispatch(
+                                &mut cmap_clone,
+                                call_stack,
+                                cur_scope,
+                                body_locals,
+                                funcval,
+                                func_genargs.as_slice(),
+                                args,
+                                destination,
+                            ) {
+                                Ok(maybe_constraints) => {
+                                    if self.debug {
+                                        println!("\n##### DONE w func {:?}\n", def_id);
+                                        println!(
+                                            "maybe_constraints from func: {:?}",
+                                            maybe_constraints
+                                        );
+                                    }
+
+                                    cmap_vec.push(cmap_clone);
+                                    if let Some(constraints) = maybe_constraints {
                                         if self.debug {
-                                            println!("\n##### DONE w func {:?}\n", def_id);
+                                            println!("res_vec {:?}", res_vec);
+                                            println!("adding constraint: {:?}", constraints);
+                                        }
+                                        res_vec.push(constraints);
+                                    } else if let Some(rettype) = funcval.rettype {
+                                        // is `None` actually a None, or was the
+                                        // analysis just unable to interpret something?
+                                        // i.e. if the called function is expected to
+                                        // return something, this is the latter case, and
+                                        // we can conservatively approx the constraints
+                                        // to be the function return type
+                                        if self.debug {
                                             println!(
-                                                "maybe_constraints from func: {:?}",
-                                                maybe_constraints
+                                                "analysis failed, but the return type for func {:?} is: {:?}",
+                                                funcval.def_id, rettype
                                             );
                                         }
-
-                                        cmap_vec.push(cmap_clone);
-                                        if let Some(constraints) = maybe_constraints {
-                                            if self.debug {
-                                                println!("res_vec {:?}", res_vec);
-                                                println!("adding constraint: {:?}", constraints);
-                                            }
-                                            res_vec.push(constraints);
-                                        } else if let Some(rettype) = funcval.rettype {
-                                            // is `None` actually a None, or was the
-                                            // analysis just unable to interpret something?
-                                            // i.e. if the called function is expected to
-                                            // return something, this is the latter case, and
-                                            // we can conservatively approx the constraints
-                                            // to be the function return type
-                                            if self.debug {
-                                                println!(
-                                                    "analysis failed, but the return type for func {:?} is: {:?}",
-                                                    funcval.def_id, rettype
-                                                );
-                                            }
-                                        }
                                     }
-                                    err @ Err(_) => return err,
                                 }
+                                err @ Err(_) => return err,
                             }
                         }
+                        //}
                     }
                     None => {
                         panic!("no such function: {:?}", def_id);
@@ -1342,7 +1350,11 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
-        let mut func_cmap = ConstraintMap::new(self.debug);
+        let mut cmap_debug = DebugPass::None;
+        if self.debug == true {
+            cmap_debug = DebugPass::Interp;
+        }
+        let mut func_cmap = ConstraintMap::new(cmap_debug);
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap

@@ -18,8 +18,8 @@ use rustc_middle::ty::{
 };
 //use rustc_middle::query::IntoQueryParam;
 
-use crate::core::FuncVal;
-use crate::helpers::{get_params_from_ty}; //, get_params_from_genarg};
+use crate::core::get_params_from_ty;
+use crate::core::{DebugPass, FuncVal};
 
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Mutex};
@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 pub struct FuncMap<'tcx> {
     // all fns, trait-related or not
-    pub funcs: HashMap<DefId, Vec<FuncVal<'tcx>>>,
-    // assoc fn decl (of a trait) -> concrete impl of that assoc fn
+    pub all_funcs: HashMap<DefId, FuncVal<'tcx>>,
+    // assoc fn of a trait -> concrete implementations of that assoc fn
     pub trait_fn_impls: Arc<Mutex<HashMap<DefId, Vec<DefId>>>>,
     // concrete impl of assoc fn (of a trait) -> assoc fn decl
     pub assoc_fn_impls_to_assoc_fn: Arc<Mutex<HashMap<DefId, DefId>>>,
@@ -55,7 +55,7 @@ pub struct FuncMap<'tcx> {
 impl<'tcx> FuncMap<'tcx> {
     pub fn new() -> Self {
         Self {
-            funcs: HashMap::default(),
+            all_funcs: HashMap::default(),
             trait_fn_impls: Arc::new(Mutex::new(HashMap::default())),
             assoc_fn_impls_to_assoc_fn: Arc::new(Mutex::new(HashMap::default())),
             assoc_fns_to_trait: Arc::new(Mutex::new(HashMap::default())),
@@ -75,7 +75,11 @@ pub struct FuncCollectPass<'tcx> {
 }
 
 impl<'tcx> FuncCollectPass<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, debug: bool) -> FuncCollectPass<'tcx> {
+    pub fn new(tcx: TyCtxt<'tcx>, which_debug: DebugPass) -> FuncCollectPass<'tcx> {
+        let mut debug = false;
+        if which_debug == DebugPass::FuncCollect {
+            debug = true;
+        }
         Self { tcx, debug }
     }
 
@@ -490,18 +494,26 @@ impl<'tcx> FuncCollectPass<'tcx> {
             ret_did,
             ret_generics,
         );
-        let vec_to_insert: Vec<FuncVal>;
-        match funcs.funcs.get_mut(&def_id) {
-            Some(func_vec) => {
-                func_vec.push(funcval);
-                vec_to_insert = func_vec.to_vec();
+        //let vec_to_insert: Vec<FuncVal>;
+        match funcs.all_funcs.get_mut(&def_id) {
+            Some(existing_funcval) => {
+                //if self.debug {
+                //    println!("WHEN EVER HERE?");
+                //}
+                panic!(
+                    "func w this defid already exists: {:?} {:?}",
+                    def_id, existing_funcval
+                );
+                //func_vec.push(funcval);
+                //vec_to_insert = func_vec.to_vec();
             }
             None => {
-                vec_to_insert = vec![funcval];
+                //vec_to_insert = vec![funcval];
+                funcs.all_funcs.insert(def_id, funcval);
                 // TODO handle nested func decls
             }
         }
-        funcs.funcs.insert(def_id, vec_to_insert);
+        //funcs.all_funcs.insert(def_id, vec_to_insert);
     }
 
     fn handle_closure(&self, funcs: &mut FuncMap<'tcx>, def_id: DefId) {
@@ -578,18 +590,23 @@ impl<'tcx> FuncCollectPass<'tcx> {
                 println!("---ADDING FUNCVAL: {:#?}", funcval);
             }
 
-            let vec_to_insert: Vec<FuncVal>;
-            match funcs.funcs.get_mut(&def_id) {
-                Some(func_vec) => {
-                    func_vec.push(funcval);
-                    vec_to_insert = func_vec.to_vec();
+            //let vec_to_insert: Vec<FuncVal>;
+            match funcs.all_funcs.get_mut(&def_id) {
+                Some(existing_funcval) => {
+                    panic!(
+                        "closure w this defid already exists: {:?} {:?}",
+                        def_id, existing_funcval
+                    );
+                    //func_vec.push(funcval);
+                    //vec_to_insert = func_vec.to_vec();
                 }
                 None => {
-                    vec_to_insert = vec![funcval];
+                    //vec_to_insert = vec![funcval];
+                    funcs.all_funcs.insert(def_id, funcval);
                     // TODO handle nested func decls
                 }
             }
-            funcs.funcs.insert(def_id, vec_to_insert);
+            //funcs.all_funcs.insert(def_id, vec_to_insert);
         }
 
         if let Some(inner_body) = body
@@ -673,10 +690,8 @@ impl<'tcx> FuncCollectPass<'tcx> {
 
     pub fn run(&self, funcs: &mut FuncMap<'tcx>) {
         self.collect_funcs(funcs);
-
         if self.debug {
-            println!("assoc_fns: {:#?}", funcs.assoc_fns_to_trait.lock().unwrap());
-            println!("impl block gens: {:#?}", funcs.impl_block_generics);
+            println!("all funcs: {:#?}", funcs.all_funcs);
         }
     }
 }

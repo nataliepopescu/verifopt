@@ -449,6 +449,55 @@ hashes aren't even equal!!
 
 
 
+### Modifying vtable access
+
+rustc_codegen_ssa::meth::load_vtable?
+
+vtables are rarely actually interpreted in rustc
+- rather, ptrs to vtable are constructed/passed around
+- interpreted in LLVM
+
+when functions are loaded, they are loaded from (vtable_ptr + offset)
+- but since we only ever have one thing in vtable_ptr, we can ignore offset
+- however, we don't want to _call_ the loaded thing
+
+when calling virtual func
+- use meth::get_fn call (which wraps get_vtable/load_vtable)
+
+vtable drop glue
+- TODO
+- uses meth::get_optional_fn ?
+
+get_fn / get_option_fn -> get_fn_inner -> load_vtable
+
+
+### typeid mappings
+
+(chat) If you want:
+_ correctness w.r.t. Rust semantics
+_ support for:
+_ trait upcasting
+_ ptr::metadata
+_ reflection-like behavior
+Then you need: (Ty, Trait)
+
+using Ty -> TypeId mapping for now
+- and using the known Trait at callsite
+- but might need to modify at some point
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

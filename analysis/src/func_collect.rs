@@ -683,6 +683,6 @@ impl<'tcx> FuncCollectPass<'tcx> {
         if self.debug {
             println!("all funcs: {:#?}", funcs.all_funcs);
         }
-        self.print_types(funcs);
+        //self.print_types(funcs);
     }
 }

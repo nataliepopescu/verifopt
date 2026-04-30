@@ -33,6 +33,9 @@ during analysis
       resulting values are of the same/compatible types. but because Rust gives
       us this guarantee earlier, analysis can merge states without checking 
       this property
+    - a flow-sensitive analysis also benefits from mutability/borrow checking
+      because mutations are explicit so tracking flow is relatively
+      straightforward
 - lots of information that our analysis can just know/rely on
 
 ## Technique(s)

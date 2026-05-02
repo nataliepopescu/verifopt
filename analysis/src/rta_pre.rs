@@ -30,7 +30,7 @@ impl<'a, 'tcx> RTACollectPass<'a, 'tcx> {
         which_debug: DebugPass,
     ) -> RTACollectPass<'a, 'tcx> {
         let mut debug = false;
-        if which_debug == DebugPass::RTA {
+        if which_debug == DebugPass::Analysis {
             debug = true;
         }
         Self { tcx, funcs, debug }

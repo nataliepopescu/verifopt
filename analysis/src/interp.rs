@@ -28,7 +28,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         which_debug: DebugPass,
     ) -> InterpPass<'a, 'tcx> {
         let mut debug = false;
-        if which_debug == DebugPass::Interp {
+        if which_debug == DebugPass::Analysis {
             debug = true;
         }
         Self {
@@ -54,7 +54,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //set.insert(VerifoptRval::IdkType(ty));
         let mut cmap_debug = DebugPass::None;
         if self.debug == true {
-            cmap_debug = DebugPass::Interp;
+            cmap_debug = DebugPass::Analysis;
         }
         let main_cmap = ConstraintMap::new(cmap_debug);
 
@@ -1330,7 +1330,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     ) {
         let mut cmap_debug = DebugPass::None;
         if self.debug == true {
-            cmap_debug = DebugPass::Interp;
+            cmap_debug = DebugPass::Analysis;
         }
         let mut func_cmap = ConstraintMap::new(cmap_debug);
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();

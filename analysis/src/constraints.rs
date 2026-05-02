@@ -54,7 +54,7 @@ pub(crate) struct ConstraintMap<'tcx> {
 impl<'tcx> ConstraintMap<'tcx> {
     pub(crate) fn new(which_debug: DebugPass) -> Self {
         let mut debug = false;
-        if which_debug == DebugPass::Interp {
+        if which_debug == DebugPass::Analysis {
             debug = true;
         }
         Self {

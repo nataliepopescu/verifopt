@@ -45,7 +45,7 @@ use rustc_middle::ty::TyCtxt;
 use std::env;
 
 use constraints::ConstraintMap;
-use core::{DebugPass, Style};
+use core::{DebugPass, Purpose, Style};
 use func_collect::{FuncCollectPass, FuncMap};
 use interp::InterpPass;
 use rewrite::RewritePass;
@@ -68,6 +68,7 @@ impl Callbacks for VerifoptCallbacks {
 
         let debug = DebugPass::None;
         let style = Style::FlowSensitive;
+        let purpose = Purpose::CountDyn;
 
         // init + run Function Collection Pass
         let mut funcs = FuncMap::new();
@@ -89,14 +90,16 @@ impl Callbacks for VerifoptCallbacks {
             let _res = interp.run(&mut cmap, None, entry_func, mir_body);
         }
 
-        // init + run Rewriter Pass
-        let rewriter = RewritePass::new(tcx, &funcs, &cmap, &inits, style, debug);
-        // turn &mir_body _&mut_ mir_body
-        let const_body_ptr: *const Body = &*mir_body;
-        let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
-        unsafe {
-            rewriter.run(entry_func, &mut *mut_body_ptr);
-            //println!("body: \n{:#?}", *mut_body_ptr);
+        if purpose == Purpose::Rewrite {
+            // init + run Rewriter Pass
+            let rewriter = RewritePass::new(tcx, &funcs, &cmap, &inits, style, debug);
+            // turn &mir_body _&mut_ mir_body
+            let const_body_ptr: *const Body = &*mir_body;
+            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+            unsafe {
+                rewriter.run(entry_func, &mut *mut_body_ptr);
+                //println!("body: \n{:#?}", *mut_body_ptr);
+            }
         }
 
         Compilation::Continue

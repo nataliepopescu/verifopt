@@ -21,10 +21,14 @@ pub type Type = &'static str;
 pub enum DebugPass {
     None,
     FuncCollect,
-    CHA,
-    RTA,
-    Interp,
+    Analysis,
     Rewrite,
+}
+
+#[derive(PartialEq)]
+pub enum Purpose {
+    Rewrite,
+    CountDyn,
 }
 
 #[derive(PartialEq)]

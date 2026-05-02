@@ -57,12 +57,11 @@ pub struct FuncCollectPass<'tcx> {
 }
 
 impl<'tcx> FuncCollectPass<'tcx> {
-    pub fn new(tcx: TyCtxt<'tcx>, which_debug: DebugPass) -> FuncCollectPass<'tcx> {
-        let mut debug = false;
-        if which_debug == DebugPass::FuncCollect {
-            debug = true;
+    pub fn new(tcx: TyCtxt<'tcx>, to_debug: DebugPass) -> FuncCollectPass<'tcx> {
+        Self {
+            tcx,
+            debug: to_debug == DebugPass::FuncCollect,
         }
-        Self { tcx, debug }
     }
 
     fn print_mir(&self, body: &Body<'tcx>) {

@@ -43,19 +43,15 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         cmap: &'a ConstraintMap<'tcx>,
         inits: &'a RTAMap,
         style: Style,
-        which_debug: DebugPass,
+        to_debug: DebugPass,
     ) -> RewritePass<'a, 'tcx> {
-        let mut debug = false;
-        if which_debug == DebugPass::Rewrite {
-            debug = true;
-        }
         Self {
             tcx,
             funcs,
             cmap,
             inits,
             style,
-            debug,
+            debug: to_debug == DebugPass::Rewrite,
         }
     }
 

@@ -27,13 +27,13 @@ impl<'a, 'tcx> RTACollectPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
-        which_debug: DebugPass,
+        to_debug: DebugPass,
     ) -> RTACollectPass<'a, 'tcx> {
-        let mut debug = false;
-        if which_debug == DebugPass::Analysis {
-            debug = true;
+        Self {
+            tcx,
+            funcs,
+            debug: to_debug == DebugPass::Analysis,
         }
-        Self { tcx, funcs, debug }
     }
 
     fn visit_body(&self, _inits: &mut RTAMap, cur_scope: &DefId, _body: &'tcx Body<'tcx>) {

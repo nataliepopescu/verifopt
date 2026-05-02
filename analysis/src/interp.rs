@@ -25,12 +25,9 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'tcx>,
         funcs: &'a FuncMap<'tcx>,
-        which_debug: DebugPass,
+        to_debug: DebugPass,
     ) -> InterpPass<'a, 'tcx> {
-        let mut debug = false;
-        if which_debug == DebugPass::Analysis {
-            debug = true;
-        }
+        let debug = to_debug == DebugPass::Analysis;
         Self {
             tcx,
             funcs,

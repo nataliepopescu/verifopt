@@ -70,27 +70,29 @@ impl Callbacks for VerifoptCallbacks {
         let style = Style::FlowSensitive;
         let purpose = Purpose::CountDyn;
 
-        // init + run Function Collection Pass
-        let mut funcs = FuncMap::new();
-        let func_collect = FuncCollectPass::new(tcx, debug.clone());
-        func_collect.run(&mut funcs);
+        if purpose == Purpose::CountDyn {
+        } else {
+            // init + run Function Collection Pass
+            let mut funcs = FuncMap::new();
+            let func_collect = FuncCollectPass::new(tcx, debug.clone());
+            func_collect.run(&mut funcs);
 
-        let mut cmap = ConstraintMap::new(debug.clone());
-        let mut inits = RTAMap::new();
-        if style == Style::RTA {
-            // collect which types are actually instantiated
-            let rta_pre = RTACollectPass::new(tcx, &funcs, debug.clone());
-            rta_pre.run(&mut inits);
-        } else if style == Style::FlowSensitive {
-            //// init + run Function Signature Collection Pass
-            //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
+            let mut cmap = ConstraintMap::new(debug.clone());
+            let mut inits = RTAMap::new();
+            if style == Style::RTA {
+                // collect which types are actually instantiated
+                let rta_pre = RTACollectPass::new(tcx, &funcs, debug.clone());
+                rta_pre.run(&mut inits);
+            } else if style == Style::FlowSensitive {
+                //// init + run Function Signature Collection Pass
+                //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
-            // init + run Interpreter Pass
-            let interp = InterpPass::new(tcx, &funcs, debug.clone());
-            let _res = interp.run(&mut cmap, None, entry_func, mir_body);
-        }
+                // init + run Interpreter Pass
+                let interp = InterpPass::new(tcx, &funcs, debug.clone());
+                let _res = interp.run(&mut cmap, None, entry_func, mir_body);
+            }
 
-        if purpose == Purpose::Rewrite {
+            //if purpose == Purpose::Rewrite {
             // init + run Rewriter Pass
             let rewriter = RewritePass::new(tcx, &funcs, &cmap, &inits, style, debug);
             // turn &mir_body _&mut_ mir_body

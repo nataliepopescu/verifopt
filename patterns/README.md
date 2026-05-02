@@ -40,8 +40,23 @@ Animal::Bird, Cat, Dog
 
 ### Naive Rustc
 
+can optimize (constant prop) into simple constant op
+
 ### Rupta
+
+seems to be able to resolve things to a single target
+- `a = &mut cat;`
+- dog and bird options removed
+
+imprecision when:
+- at least `let num = 3;`
+    - tracks things for two separate speak() instances
+    - one in use_trait (cat?), other in decl_trait (bird?)
+    - confirmed! is tracking something for Cat::speak() even when statically can
+      know it will never be called (via const prop)!
 
 ### VerifOpt
 
+
+## Inter-proc flow-sensitive stuff
 

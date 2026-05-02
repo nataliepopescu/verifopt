@@ -30,6 +30,7 @@ fn main() {
 
     noop();
     let res = decl_trait::do_thing(a);
+    noop();
     println!("res: {}", res);
 }
 

@@ -77,6 +77,22 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         self.visit_body(cmap, &mut call_stack, prev_scope, cur_scope, body)
     }
 
+    fn get_bb_deps(
+        &self,
+        cmap: &mut ConstraintMap<'tcx>,
+        cur_scope: DefId,
+        body: &'tcx Body<'tcx>,
+    ) -> BBDeps {
+        // if there exists a memoized WTO, use it; otherwise, create and save it
+        if let Some(mem_bb_deps) = cmap.wtos.get(&cur_scope) {
+            mem_bb_deps.clone()
+        } else {
+            let bb_deps = BBDeps::new(body, self.debug);
+            cmap.wtos.insert(cur_scope, bb_deps.clone());
+            bb_deps
+        }
+    }
+
     fn visit_body(
         &self,
         cmap: &mut ConstraintMap<'tcx>,
@@ -94,14 +110,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             //println!("call_stack: {:?}", call_stack);
         }
 
-        // if there exists a memoized WTO, use it; otherwise, create and save it
-        let mut bb_deps;
-        if let Some(mem_bb_deps) = cmap.wtos.get(&cur_scope) {
-            bb_deps = mem_bb_deps.clone();
-        } else {
-            bb_deps = BBDeps::new(body, self.debug);
-            cmap.wtos.insert(cur_scope, bb_deps.clone());
-        }
+        let mut bb_deps = self.get_bb_deps(cmap, cur_scope, body);
 
         let mut last_res = None;
         loop {

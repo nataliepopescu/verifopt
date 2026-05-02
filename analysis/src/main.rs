@@ -21,6 +21,7 @@ mod error;
 mod patch;
 mod wto;
 
+//mod dyn_collect;
 mod func_collect;
 mod interp;
 mod rewrite;
@@ -46,6 +47,7 @@ use std::env;
 
 use constraints::ConstraintMap;
 use core::{DebugPass, Purpose, Style};
+//use dyn_collect::DynCollectPass;
 use func_collect::{FuncCollectPass, FuncMap};
 use interp::InterpPass;
 use rewrite::RewritePass;
@@ -70,39 +72,52 @@ impl Callbacks for VerifoptCallbacks {
         let style = Style::FlowSensitive;
         let purpose = Purpose::CountDyn;
 
-        if purpose == Purpose::CountDyn {
-        } else {
-            // init + run Function Collection Pass
-            let mut funcs = FuncMap::new();
-            let func_collect = FuncCollectPass::new(tcx, debug.clone());
-            func_collect.run(&mut funcs);
+        //if purpose == Purpose::CountDyn {
+        //    let dyn_collect = DynCollectPass::new(tcx, debug.clone());
+        //    let res = dyn_collect.run(entry_func, mir_body);
+        //    println!("DYNS: \n{:#?}", res);
+        //} else {
 
-            let mut cmap = ConstraintMap::new(debug == DebugPass::Analysis);
-            let mut inits = RTAMap::new();
-            if style == Style::RTA {
-                // collect which types are actually instantiated
-                let rta_pre = RTACollectPass::new(tcx, &funcs, debug.clone());
-                rta_pre.run(&mut inits);
-            } else if style == Style::FlowSensitive {
-                //// init + run Function Signature Collection Pass
-                //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
+        // init + run Function Collection Pass
+        let mut funcs = FuncMap::new();
+        let func_collect = FuncCollectPass::new(tcx, debug.clone());
+        func_collect.run(&mut funcs);
 
-                // init + run Interpreter Pass
-                let interp = InterpPass::new(tcx, &funcs, debug.clone());
-                let _res = interp.run(&mut cmap, None, entry_func, mir_body);
-            }
+        let mut cmap = ConstraintMap::new(debug == DebugPass::Analysis);
+        let mut inits = RTAMap::new();
+        if style == Style::RTA {
+            // collect which types are actually instantiated
+            let rta_pre = RTACollectPass::new(tcx, &funcs, debug.clone());
+            rta_pre.run(&mut inits);
+        } else if style == Style::FlowSensitive {
+            //// init + run Function Signature Collection Pass
+            //// https://doc.rust-lang.org/beta/nightly-rustc/rustc_middle/ty/struct.TyCtxt.html#method.fn_sig
 
-            //if purpose == Purpose::Rewrite {
-            // init + run Rewriter Pass
-            let rewriter = RewritePass::new(tcx, &funcs, &cmap, &inits, style, debug);
-            // turn &mir_body _&mut_ mir_body
-            let const_body_ptr: *const Body = &*mir_body;
-            let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
-            unsafe {
-                rewriter.run(entry_func, &mut *mut_body_ptr);
-                //println!("body: \n{:#?}", *mut_body_ptr);
-            }
+            // init + run Interpreter Pass
+            let interp = InterpPass::new(tcx, &funcs, debug.clone());
+            let _res = interp.run(&mut cmap, None, entry_func, mir_body);
         }
+
+        //if purpose == Purpose::Rewrite {
+        // init + run Rewriter Pass
+        let rewriter = RewritePass::new(
+            tcx,
+            &funcs,
+            &cmap,
+            &inits,
+            style,
+            purpose == Purpose::CountDyn,
+            debug,
+        );
+        // turn &mir_body _&mut_ mir_body
+        let const_body_ptr: *const Body = &*mir_body;
+        let mut_body_ptr: *mut Body = const_body_ptr as *mut Body;
+        unsafe {
+            rewriter.run(entry_func, &mut *mut_body_ptr);
+            //println!("body: \n{:#?}", *mut_body_ptr);
+        }
+        //} else {
+        //}
 
         Compilation::Continue
     }

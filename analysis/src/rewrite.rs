@@ -32,6 +32,7 @@ pub struct RewritePass<'a, 'tcx> {
     pub cmap: &'a ConstraintMap<'tcx>,
     pub inits: &'a RTAMap,
     pub style: Style,
+    pub log_dyn: bool,
     pub debug: bool,
     // TODO put dynamically-acquired into_raw and eq_fn defids here
 }
@@ -43,6 +44,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         cmap: &'a ConstraintMap<'tcx>,
         inits: &'a RTAMap,
         style: Style,
+        log_dyn: bool,
         to_debug: DebugPass,
     ) -> RewritePass<'a, 'tcx> {
         Self {
@@ -51,6 +53,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             cmap,
             inits,
             style,
+            log_dyn,
             debug: to_debug == DebugPass::Rewrite,
         }
     }
@@ -96,16 +99,17 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
     }
 
     fn should_rewrite(&self, defid: DefId) -> bool {
-        self.tcx.def_path_debug_str(defid).contains("Animal::speak")
-            || self.tcx.def_path_debug_str(defid).contains("Animal::visit")
-            || self
-                .tcx
-                .def_path_debug_str(defid)
-                .contains("AnimalVisitor::visit_cat")
-            || self
-                .tcx
-                .def_path_debug_str(defid)
-                .contains("AnimalVisitor::visit_dog")
+        true
+        //self.tcx.def_path_debug_str(defid).contains("Animal::speak")
+        //    || self.tcx.def_path_debug_str(defid).contains("Animal::visit")
+        //    || self
+        //        .tcx
+        //        .def_path_debug_str(defid)
+        //        .contains("AnimalVisitor::visit_cat")
+        //    || self
+        //        .tcx
+        //        .def_path_debug_str(defid)
+        //        .contains("AnimalVisitor::visit_dog")
     }
 
     pub fn visit_body(&self, cur_scope: DefId, body: &mut Body<'tcx>) {
@@ -452,6 +456,7 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             }
             VerifoptRval::IdkType(ty) => resolve_ty(ty, self.funcs, self.debug),
             VerifoptRval::Ref(boxed) => self.resolve_first_arg_constraints(&*boxed),
+            VerifoptRval::Ptr(pted) => self.resolve_first_arg_constraints(&*pted),
             _ => todo!("handle more kinds: {:?}", first_arg_constraint),
         }
     }
@@ -598,7 +603,13 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
 
             return std::iter::zip(structs, matching_impls).collect();
         } else {
-            panic!("no impltors");
+            if self.log_dyn {
+                println!("no impltors");
+                return vec![];
+            } else {
+                println!("self log dyn : {:?}", self.log_dyn);
+                panic!("no impltors");
+            }
         }
     }
 
@@ -1350,6 +1361,10 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
             println!("func dest place: {:?}", term_dst_place);
         }
 
+        if self.log_dyn {
+            println!("\nDYNFUNC: {:?}", dynfunc_defid);
+        }
+
         let traitobj = self.get_first_arg_local(args);
         if self.debug {
             println!("first arg local: {:?}", traitobj);
@@ -1382,140 +1397,145 @@ impl<'a, 'tcx> RewritePass<'a, 'tcx> {
         }
         dids.reverse();
 
-        let mut traitobj_vtable = None;
-        let mut traitobj_vtable_ptr = None;
-        let vtable_loc_vec = self.get_vtable_locs(cur_scope, self_arg, dids.len(), warmup);
-        let vtable_locs = vtable_loc_vec.as_slice();
-        if dids.len() > 1 {
-            if self.debug {
-                println!("- multiple variants case");
-                println!("vtable_locs: {:?}", vtable_locs);
+        ///////// Where rewrite logic effectively begins
+
+        if !self.log_dyn {
+            let mut traitobj_vtable = None;
+            let mut traitobj_vtable_ptr = None;
+            let vtable_loc_vec = self.get_vtable_locs(cur_scope, self_arg, dids.len(), warmup);
+            let vtable_locs = vtable_loc_vec.as_slice();
+            if dids.len() > 1 {
+                if self.debug {
+                    println!("- multiple variants case");
+                    println!("vtable_locs: {:?}", vtable_locs);
+                }
+
+                traitobj_vtable = Some(Local::from_usize(vtable_locs[0]));
+                // TODO maybe benchmark this route as an alternative, if it is functional?
+                //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
+                traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+
+                if self.debug {
+                    println!("traitobj vtable: {:?}", traitobj_vtable);
+                }
+            } else {
+                if self.debug {
+                    println!("- single variant case");
+                }
             }
 
-            traitobj_vtable = Some(Local::from_usize(vtable_locs[0]));
-            // TODO maybe benchmark this route as an alternative, if it is functional?
-            //traitobj_vtable_ref = Some(self.add_dynmetadata_ref_temp(patch, traitobj_did));
-            traitobj_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+            // for into_raw -> speak
+            let raw_traitobj1 = self.add_raw_traitobj_temp(patch);
+            let mut_dyn_traitobj = self.add_mut_dyn_traitobj_temp(patch, traitobj_did);
+            let boxed_dyn_traitobj1 = self.add_boxed_dyn_traitobj_temp(patch, traitobj_did);
 
-            if self.debug {
-                println!("traitobj vtable: {:?}", traitobj_vtable);
+            let mut into_raw_target = None;
+            let mut bb_last_variant_speak = None;
+            let mut bb_last_cmp = None;
+            for (i, (struct_did, func_did)) in dids.iter().enumerate() {
+                if self.debug {
+                    println!("i: {:?}", i);
+                    println!("struct_did: {:?}", struct_did);
+                    println!("func_did: {:?}", func_did);
+                }
+
+                // add back old goto
+                let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
+
+                // speak (returns to old_next)
+                let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
+                let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
+                let bb_cur_variant_speak = self.add_speak_block(
+                    patch,
+                    bb_variant_ret,
+                    unwind_action,
+                    raw_traitobj1,
+                    raw_traitobj2,
+                    term_dst_place,
+                    struct_obj,
+                    args,
+                    *struct_did,
+                    *func_did,
+                    None,
+                );
+
+                if i > 0 {
+                    // get vtable locations
+                    let variant_vtable =
+                        Some(Local::from_usize(vtable_locs[vtable_locs.len() - i]));
+                    let variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
+                    if self.debug {
+                        println!("variant vtable: {:?}", variant_vtable);
+                    }
+
+                    // comparison & switch (if > 1 variant)
+                    let eq_res_bool = self.add_mut_bool_temp(patch);
+                    let bb_eq;
+                    if bb_last_cmp.is_none() {
+                        bb_eq = bb_last_variant_speak.unwrap();
+                    } else {
+                        bb_eq = bb_last_cmp.unwrap();
+                    }
+                    let bb_switch =
+                        self.add_switch_block(patch, bb_eq, bb_cur_variant_speak, eq_res_bool);
+
+                    let bb_compare = self.add_compare_vtable_block(
+                        patch,
+                        bb_switch,
+                        raw_traitobj1,
+                        mut_dyn_traitobj,
+                        traitobj_vtable.unwrap(),
+                        traitobj_vtable_ptr.unwrap(),
+                        variant_vtable.unwrap(),
+                        variant_vtable_ptr.unwrap(),
+                        eq_res_bool,
+                        false,
+                        Some(vec![boxed_dyn_traitobj1]),
+                    );
+                    into_raw_target = Some(bb_compare);
+                    bb_last_cmp = Some(bb_compare);
+                } else if dids.len() == 1 {
+                    // shim compare block, which does a necessary type cast
+                    let bb_shim = self.add_compare_shim(
+                        patch,
+                        bb_cur_variant_speak,
+                        raw_traitobj1,
+                        mut_dyn_traitobj,
+                    );
+                    into_raw_target = Some(bb_shim);
+                } else {
+                    if self.debug {
+                        println!("i == 0 && dids.len != 1");
+                        println!("dids: {:?}", dids);
+                    }
+                }
+
+                bb_last_variant_speak = Some(bb_cur_variant_speak);
+                if self.debug {
+                    println!(
+                        "SETTING bb_last_var_speak (next neq_bb): {:?}",
+                        bb_last_variant_speak
+                    );
+                }
             }
-        } else {
-            if self.debug {
-                println!("- single variant case");
-            }
-        }
 
-        // for into_raw -> speak
-        let raw_traitobj1 = self.add_raw_traitobj_temp(patch);
-        let mut_dyn_traitobj = self.add_mut_dyn_traitobj_temp(patch, traitobj_did);
-        let boxed_dyn_traitobj1 = self.add_boxed_dyn_traitobj_temp(patch, traitobj_did);
-
-        let mut into_raw_target = None;
-        let mut bb_last_variant_speak = None;
-        let mut bb_last_cmp = None;
-        for (i, (struct_did, func_did)) in dids.iter().enumerate() {
-            if self.debug {
-                println!("i: {:?}", i);
-                println!("struct_did: {:?}", struct_did);
-                println!("func_did: {:?}", func_did);
+            if into_raw_target.is_none() {
+                panic!("no into_raw_target");
             }
 
-            // add back old goto
-            let bb_variant_ret = self.add_goto_block(patch, bb_old_next);
-
-            // speak (returns to old_next)
-            let raw_traitobj2 = self.add_raw_traitobj_temp(patch);
-            let struct_obj = self.add_concretety_ref_temp(patch, *struct_did);
-            let bb_cur_variant_speak = self.add_speak_block(
+            let bb_into_raw = self.add_into_raw_block(
                 patch,
-                bb_variant_ret,
+                into_raw_target.unwrap(),
                 unwind_action,
-                raw_traitobj1,
-                raw_traitobj2,
-                term_dst_place,
-                struct_obj,
-                args,
-                *struct_did,
-                *func_did,
+                mut_dyn_traitobj,
+                boxed_dyn_traitobj1,
+                traitobj,
+                traitobj_did,
                 None,
             );
 
-            if i > 0 {
-                // get vtable locations
-                let variant_vtable = Some(Local::from_usize(vtable_locs[vtable_locs.len() - i]));
-                let variant_vtable_ptr = Some(self.add_const_ptr_vtable_temp(patch));
-                if self.debug {
-                    println!("variant vtable: {:?}", variant_vtable);
-                }
-
-                // comparison & switch (if > 1 variant)
-                let eq_res_bool = self.add_mut_bool_temp(patch);
-                let bb_eq;
-                if bb_last_cmp.is_none() {
-                    bb_eq = bb_last_variant_speak.unwrap();
-                } else {
-                    bb_eq = bb_last_cmp.unwrap();
-                }
-                let bb_switch =
-                    self.add_switch_block(patch, bb_eq, bb_cur_variant_speak, eq_res_bool);
-
-                let bb_compare = self.add_compare_vtable_block(
-                    patch,
-                    bb_switch,
-                    raw_traitobj1,
-                    mut_dyn_traitobj,
-                    traitobj_vtable.unwrap(),
-                    traitobj_vtable_ptr.unwrap(),
-                    variant_vtable.unwrap(),
-                    variant_vtable_ptr.unwrap(),
-                    eq_res_bool,
-                    false,
-                    Some(vec![boxed_dyn_traitobj1]),
-                );
-                into_raw_target = Some(bb_compare);
-                bb_last_cmp = Some(bb_compare);
-            } else if dids.len() == 1 {
-                // shim compare block, which does a necessary type cast
-                let bb_shim = self.add_compare_shim(
-                    patch,
-                    bb_cur_variant_speak,
-                    raw_traitobj1,
-                    mut_dyn_traitobj,
-                );
-                into_raw_target = Some(bb_shim);
-            } else {
-                if self.debug {
-                    println!("i == 0 && dids.len != 1");
-                    println!("dids: {:?}", dids);
-                }
-            }
-
-            bb_last_variant_speak = Some(bb_cur_variant_speak);
-            if self.debug {
-                println!(
-                    "SETTING bb_last_var_speak (next neq_bb): {:?}",
-                    bb_last_variant_speak
-                );
-            }
+            // mod cur speak block w/ goto new start (into_raw)
+            self.replace_dyndispatch_term_w_goto(patch, *bb, bb_into_raw);
         }
-
-        if into_raw_target.is_none() {
-            panic!("no into_raw_target");
-        }
-
-        let bb_into_raw = self.add_into_raw_block(
-            patch,
-            into_raw_target.unwrap(),
-            unwind_action,
-            mut_dyn_traitobj,
-            boxed_dyn_traitobj1,
-            traitobj,
-            traitobj_did,
-            None,
-        );
-
-        // mod cur speak block w/ goto new start (into_raw)
-        self.replace_dyndispatch_term_w_goto(patch, *bb, bb_into_raw);
     }
 }

@@ -77,7 +77,7 @@ impl Callbacks for VerifoptCallbacks {
             let func_collect = FuncCollectPass::new(tcx, debug.clone());
             func_collect.run(&mut funcs);
 
-            let mut cmap = ConstraintMap::new(debug.clone());
+            let mut cmap = ConstraintMap::new(debug == DebugPass::Analysis);
             let mut inits = RTAMap::new();
             if style == Style::RTA {
                 // collect which types are actually instantiated

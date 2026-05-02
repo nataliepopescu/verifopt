@@ -49,11 +49,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         //let ty = locals[Local::from_usize(0)].ty;
         //let mut set = HashSet::default();
         //set.insert(VerifoptRval::IdkType(ty));
-        let mut cmap_debug = DebugPass::None;
-        if self.debug == true {
-            cmap_debug = DebugPass::Analysis;
-        }
-        let main_cmap = ConstraintMap::new(cmap_debug);
+        let main_cmap = ConstraintMap::new(self.debug);
 
         //main_cmap.cmap.insert(
         //    MapKey::Place(Place {
@@ -1325,11 +1321,7 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
         funcval: &FuncVal<'tcx>,
         args: &Box<[Spanned<Operand<'tcx>>]>,
     ) {
-        let mut cmap_debug = DebugPass::None;
-        if self.debug == true {
-            cmap_debug = DebugPass::Analysis;
-        }
-        let mut func_cmap = ConstraintMap::new(cmap_debug);
+        let mut func_cmap = ConstraintMap::new(self.debug);
         let arg_vec: Vec<Operand<'tcx>> = args.into_iter().map(|x| x.clone().node).collect();
 
         // add arg values into func_cmap

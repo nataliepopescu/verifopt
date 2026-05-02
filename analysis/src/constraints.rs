@@ -11,7 +11,7 @@ use rustc_span::symbol::Symbol;
 
 use rustc_data_structures::fx::{FxHashMap as HashMap, FxHashSet as HashSet};
 
-use crate::core::{DebugPass, Merge, Type, VerifoptRval};
+use crate::core::{Merge, Type, VerifoptRval};
 use crate::error::Error;
 use crate::wto::BBDeps;
 
@@ -52,11 +52,7 @@ pub(crate) struct ConstraintMap<'tcx> {
 }
 
 impl<'tcx> ConstraintMap<'tcx> {
-    pub(crate) fn new(which_debug: DebugPass) -> Self {
-        let mut debug = false;
-        if which_debug == DebugPass::Analysis {
-            debug = true;
-        }
+    pub(crate) fn new(debug: bool) -> Self {
         Self {
             cmap: HashMap::<MapKey<'tcx>, Box<VarType<'tcx>>>::default(),
             wtos: HashMap::<DefId, BBDeps>::default(),

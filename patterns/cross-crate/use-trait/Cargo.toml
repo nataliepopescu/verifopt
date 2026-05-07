@@ -1,0 +1,9 @@
+#cargo-features = ["edition2024"]
+
+[package]
+name = "use-trait"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+decl-trait = { path = "../decl-trait" }

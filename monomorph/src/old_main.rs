@@ -24,7 +24,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn start_verifopt() -> ControlFlow<()> {
+pub fn start_verifopt() -> ControlFlow<()> {
     let crate_name = rustc_public::local_crate().name;
     eprintln!("--- Analyzing crate: {crate_name}");
 
@@ -35,10 +35,11 @@ fn start_verifopt() -> ControlFlow<()> {
 
     let entry_fn = rustc_public::entry_fn().unwrap();
     let entry_instance = Instance::try_from(entry_fn).unwrap();
-    analyze_instance(entry_instance);
+    //analyze_instance(entry_instance);
     ControlFlow::Break(())
 }
 
+/*
 fn analyze_instance(instance: Instance) {
     eprintln!("--- Analyzing instance: {}", instance.name());
     eprintln!("  - Mangled name: {}", instance.mangled_name());
@@ -77,4 +78,5 @@ impl MirVisitor for Visitor {
         }
     }
 }
+*/
 

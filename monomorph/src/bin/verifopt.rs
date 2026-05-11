@@ -92,7 +92,7 @@ fn main() {
         //let mut callbacks = VerifOptCallbacks::new(options);
         //let compiler = rustc_driver::RunCompiler::new(&rustc_command_line_arguments, &mut callbacks);
         //compiler.run()
-        run!(&rustc_command_line_arguments, start_verifopt)
+        run!(&rustc_command_line_arguments, || start_verifopt(options))
     });
 
     let exit_code = match result {

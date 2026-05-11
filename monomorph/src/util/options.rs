@@ -1,9 +1,10 @@
 //! Analysis options.
 
-//use clap::{Arg, Command};
-use clap::Command;
+use clap::{Arg, Command};
 use clap::error::ErrorKind;
 use itertools::Itertools;
+
+use crate::common::VerifOptType;
 
 const VERIFOPT_USAGE: &str = r#"verifopt [OPTIONS] INPUT -- [RUSTC OPTIONS]"#;
 
@@ -21,40 +22,30 @@ fn make_options_parser() -> Command {
     let parser = Command::new("verifopt")
         .no_binary_name(true)
         .override_usage(VERIFOPT_USAGE)
-        .version(version());
+        .version(version())
+        .arg(Arg::new("entry-func-name")
+            .long("entry-func")
+            .value_name("func-name")
+            .help("The name of entry function from which the flow analysis begins."))
+        .arg(Arg::new("entry-func-id")
+            .long("entry-id")
+            .value_name("id")
+            .value_parser(clap::value_parser!(u32))
+            .help("The def_id of entry function from which the flow analysis begins."))
+        .arg(Arg::new("verifopt-type")
+            .long("verifopt-type")
+            .value_name("analysis-type")
+            .value_parser(["flow-sensitive", "fsa"])
+            .default_value("flow-sensitive")
+            .help("The type of analysis.")
+            .long_help("Flow-sensitive analyses is supported now."));
 
-        //.arg(Arg::new("entry-func-name")
-        //    .long("entry-func")
-        //    .takes_value(true)
-        //    .help("The name of entry function from which the flow analysis begins."))
-        //.arg(Arg::new("entry-func-id")
-        //    .long("entry-id")
-        //    .takes_value(true)
-        //    .value_parser(clap::value_parser!(u32))
-        //    .help("The def_id of entry function from which the flow analysis begins."));
-
-        //.arg(Arg::new("pta-type")
-        //    .long("pta-type")
-        //    .takes_value(true)
-        //    .value_parser(["andersen", "ander", "callsite-sensitive", "cs"])
-        //    .default_value("callsite-sensitive")
-        //    .help("The type of pointer analysis.")
-        //    .long_help("Andersen and callsite-sensitive pointer analyses are supported now."))
         //.arg(Arg::new("context-depth")
         //    .long("context-depth")
         //    .takes_value(true)
         //    .value_parser(clap::value_parser!(u32))
         //    .default_value("1")
         //    .help("The context depth limit for a context-sensitive pointer analysis."))
-        //.arg(Arg::new("no-cast-constraint")
-        //    .long("no-cast-constraint")
-        //    .takes_value(false)
-        //    .hide(true)
-        //    .help("Disable the cast optimization that constrains an object cast from a simple pointer type."))
-        //.arg(Arg::new("stack-filtering")
-        //    .long("stack-filtering")
-        //    .takes_value(false)
-        //    .help("Enable stack filtering in pointer analysis."))
         //.arg(Arg::new("dump-stats")
         //    .long("dump-stats")
         //    .takes_value(false)
@@ -71,10 +62,6 @@ fn make_options_parser() -> Command {
         //    .long("dump-mir")
         //    .takes_value(true)
         //    .help("Dump the mir of reachable functions to the output file."))
-        //.arg(Arg::new("unsafe-stats-output")
-        //    .long("dump-unsafe-stats")
-        //    .takes_value(true)
-        //    .help("Dump the statistics of unsafe functions in the analyzed program."))
         //.arg(Arg::new("dyn-calls-output")
         //    .long("dump-dyn-calls")
         //    .takes_value(true)
@@ -82,11 +69,6 @@ fn make_options_parser() -> Command {
         //    .hide(true)
         //    .help("Dump resolved dynamic callsites with their corresponding call targets.")
         //    .long_help("Including both calls on dynamic trait objects and calls via function pointers"))
-        //.arg(Arg::new("type-indices-output")
-        //    .long("dump-type-indices")
-        //    .takes_value(true)
-        //    .hide(true)
-        //    .help("Dump type indices for debugging."))
         //.arg(Arg::new("INPUT")
         //    .multiple(true)
         //    .help("The input file to be analyzed.")
@@ -98,10 +80,7 @@ fn make_options_parser() -> Command {
 pub struct AnalysisOptions {
     pub entry_func: String,
     pub entry_def_id: Option<u32>,
-    //pub verifopt_type: VerifOptType,
-
-    //pub dump_stats: bool,
-    //pub dyn_calls_output: Option<String>,
+    pub verifopt_type: VerifOptType,
 }
 
 impl Default for AnalysisOptions {
@@ -109,6 +88,7 @@ impl Default for AnalysisOptions {
         Self {
             entry_func: String::new(),
             entry_def_id: None,
+            verifopt_type: VerifOptType::FlowSensitive,
         }
     }
 }
@@ -172,13 +152,12 @@ impl AnalysisOptions {
         }
         self.entry_def_id = matches.get_one::<u32>("entry-func-id").cloned();
 
-        //if matches.contains_id("verifopt-type") {
-        //    self.verifopt_type = match matches.get_one::<String>("verifopt-type").unwrap().as_str() {
-        //        "andersen" | "ander" => VerifOptType::Andersen,
-        //        "callsite-sensitive" | "cs" => VerifOptType::CallSiteSensitive,
-        //        _ => unreachable!(),
-        //    }
-        //}
+        if matches.contains_id("verifopt-type") {
+            self.verifopt_type = match matches.get_one::<String>("verifopt-type").unwrap().as_str() {
+                "flow-sensitive" | "fsa" => VerifOptType::FlowSensitive,
+                _ => unreachable!(),
+            }
+        }
 
         //if let Some(depth) = matches.get_one::<u32>("context-depth") {
         //    self.context_depth = *depth;

@@ -1,7 +1,7 @@
 //! Analysis options.
 
-use clap::{Arg, Command};
 use clap::error::ErrorKind;
+use clap::{Arg, Command};
 use itertools::Itertools;
 
 use crate::common::VerifOptType;
@@ -11,7 +11,10 @@ const VERIFOPT_USAGE: &str = r#"verifopt [OPTIONS] INPUT -- [RUSTC OPTIONS]"#;
 /// The version information from Cargo.toml.
 fn version() -> &'static str {
     let version_info = rustc_tools_util::get_version_info!();
-    let version = format!("v{}.{}.{}", version_info.major, version_info.minor, version_info.patch);
+    let version = format!(
+        "v{}.{}.{}",
+        version_info.major, version_info.minor, version_info.patch
+    );
     Box::leak(version.into_boxed_str())
 }
 
@@ -23,56 +26,62 @@ fn make_options_parser() -> Command {
         .no_binary_name(true)
         .override_usage(VERIFOPT_USAGE)
         .version(version())
-        .arg(Arg::new("entry-func-name")
-            .long("entry-func")
-            .value_name("func-name")
-            .help("The name of entry function from which the flow analysis begins."))
-        .arg(Arg::new("entry-func-id")
-            .long("entry-id")
-            .value_name("id")
-            .value_parser(clap::value_parser!(u32))
-            .help("The def_id of entry function from which the flow analysis begins."))
-        .arg(Arg::new("verifopt-type")
-            .long("verifopt-type")
-            .value_name("analysis-type")
-            .value_parser(["flow-sensitive", "fsa"])
-            .default_value("flow-sensitive")
-            .help("The type of analysis.")
-            .long_help("Flow-sensitive analyses is supported now."));
+        .arg(
+            Arg::new("entry-func-name")
+                .long("entry-func")
+                .value_name("func-name")
+                .help("The name of entry function from which the flow analysis begins."),
+        )
+        .arg(
+            Arg::new("entry-func-id")
+                .long("entry-id")
+                .value_name("id")
+                .value_parser(clap::value_parser!(u32))
+                .help("The def_id of entry function from which the flow analysis begins."),
+        )
+        .arg(
+            Arg::new("verifopt-type")
+                .long("verifopt-type")
+                .value_name("analysis-type")
+                .value_parser(["flow-sensitive", "fsa"])
+                .default_value("flow-sensitive")
+                .help("The type of analysis.")
+                .long_help("Flow-sensitive analyses is supported now."),
+        );
 
-        //.arg(Arg::new("context-depth")
-        //    .long("context-depth")
-        //    .takes_value(true)
-        //    .value_parser(clap::value_parser!(u32))
-        //    .default_value("1")
-        //    .help("The context depth limit for a context-sensitive pointer analysis."))
-        //.arg(Arg::new("dump-stats")
-        //    .long("dump-stats")
-        //    .takes_value(false)
-        //    .help("Dump the statistics of the analysis results."))
-        //.arg(Arg::new("call-graph-output")
-        //    .long("dump-call-graph")
-        //    .takes_value(true)
-        //    .help("Dump the call graph in DOT format to the output file."))
-        //.arg(Arg::new("pts-output")
-        //    .long("dump-pts")
-        //    .takes_value(true)
-        //    .help("Dump points-to results to the output file."))
-        //.arg(Arg::new("mir-output")
-        //    .long("dump-mir")
-        //    .takes_value(true)
-        //    .help("Dump the mir of reachable functions to the output file."))
-        //.arg(Arg::new("dyn-calls-output")
-        //    .long("dump-dyn-calls")
-        //    .takes_value(true)
-        //    .hide(true)
-        //    .hide(true)
-        //    .help("Dump resolved dynamic callsites with their corresponding call targets.")
-        //    .long_help("Including both calls on dynamic trait objects and calls via function pointers"))
-        //.arg(Arg::new("INPUT")
-        //    .multiple(true)
-        //    .help("The input file to be analyzed.")
-        //);
+    //.arg(Arg::new("context-depth")
+    //    .long("context-depth")
+    //    .takes_value(true)
+    //    .value_parser(clap::value_parser!(u32))
+    //    .default_value("1")
+    //    .help("The context depth limit for a context-sensitive pointer analysis."))
+    //.arg(Arg::new("dump-stats")
+    //    .long("dump-stats")
+    //    .takes_value(false)
+    //    .help("Dump the statistics of the analysis results."))
+    //.arg(Arg::new("call-graph-output")
+    //    .long("dump-call-graph")
+    //    .takes_value(true)
+    //    .help("Dump the call graph in DOT format to the output file."))
+    //.arg(Arg::new("pts-output")
+    //    .long("dump-pts")
+    //    .takes_value(true)
+    //    .help("Dump points-to results to the output file."))
+    //.arg(Arg::new("mir-output")
+    //    .long("dump-mir")
+    //    .takes_value(true)
+    //    .help("Dump the mir of reachable functions to the output file."))
+    //.arg(Arg::new("dyn-calls-output")
+    //    .long("dump-dyn-calls")
+    //    .takes_value(true)
+    //    .hide(true)
+    //    .hide(true)
+    //    .help("Dump resolved dynamic callsites with their corresponding call targets.")
+    //    .long_help("Including both calls on dynamic trait objects and calls via function pointers"))
+    //.arg(Arg::new("INPUT")
+    //    .multiple(true)
+    //    .help("The input file to be analyzed.")
+    //);
     parser
 }
 
@@ -106,10 +115,9 @@ impl AnalysisOptions {
         let verifopt_args = &args[0..verifopt_args_end];
 
         let matches = if !from_env && rustc_args_start == 0 {
-            // The arguments may not be intended for VerifOpt and may get here via some tool, so do not 
+            // The arguments may not be intended for VerifOpt and may get here via some tool, so do not
             // report errors here, but just assume that the arguments were not meant for VerifOpt.
-            match make_options_parser().try_get_matches_from(verifopt_args.iter())
-            {
+            match make_options_parser().try_get_matches_from(verifopt_args.iter()) {
                 Ok(matches) => {
                     // Looks like these are VerifOpt options after all and there are no rustc options.
                     rustc_args_start = args.len();
@@ -153,7 +161,8 @@ impl AnalysisOptions {
         self.entry_def_id = matches.get_one::<u32>("entry-func-id").cloned();
 
         if matches.contains_id("verifopt-type") {
-            self.verifopt_type = match matches.get_one::<String>("verifopt-type").unwrap().as_str() {
+            self.verifopt_type = match matches.get_one::<String>("verifopt-type").unwrap().as_str()
+            {
                 "flow-sensitive" | "fsa" => VerifOptType::FlowSensitive,
                 _ => unreachable!(),
             }

@@ -6,7 +6,7 @@
 // Modified by <Natalie Popescu>.
 
 //! This provides an implementation for the "cargo verifopt" subcommand.
-//! 
+//!
 //! The subcommand is the same as "cargo build" but with three differences:
 //! 1) It implicitly adds the options "-Z always_encode_mir" to the rustc invocation.
 //! 2) It calls `verifopt` rather than `rustc` for all the targets of the current package.
@@ -37,7 +37,10 @@ Usage:
 const VERIFOPT_BUILD_STD: &str = "VERIFOPT_BUILD_STD";
 
 pub fn main() {
-    if std::env::args().take_while(|a| a != "--").any(|a| a == "--help" || a == "-h") {
+    if std::env::args()
+        .take_while(|a| a != "--")
+        .any(|a| a == "--help" || a == "-h")
+    {
         println!("{}", CARGO_VERIFOPT_HELP);
         return;
     }
@@ -55,12 +58,14 @@ pub fn main() {
         }
         Some(arg) => {
             eprintln!(
-                "`cargo-verifopt` called with invalid first argument: {arg}; please only invoke this binary through `cargo verifopt`" 
+                "`cargo-verifopt` called with invalid first argument: {arg}; please only invoke this binary through `cargo verifopt`"
             );
         }
         _ => {
             eprintln!("current args: {:?}", std::env::args());
-            eprintln!("`cargo-verifopt` called without first argument; please only invoke this binary through `cargo verifopt`");
+            eprintln!(
+                "`cargo-verifopt` called without first argument; please only invoke this binary through `cargo verifopt`"
+            );
         }
     }
 }
@@ -68,7 +73,8 @@ pub fn main() {
 /// Read the toml associated with the current directory and
 /// recursively execute cargo for each applicable package target/workspace member in the toml
 fn call_cargo() {
-    let manifest_path = get_arg_flag_value("--manifest-path").map(|m| Path::new(&m).canonicalize().unwrap());
+    let manifest_path =
+        get_arg_flag_value("--manifest-path").map(|m| Path::new(&m).canonicalize().unwrap());
 
     let mut cmd = cargo_metadata::MetadataCommand::new();
     if let Some(ref manifest_path) = manifest_path {
@@ -116,7 +122,8 @@ fn call_cargo_on_each_package_target(package: &Package) {
 
 fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     // Build a cargo command for target
-    let mut cmd = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")));
+    let mut cmd =
+        Command::new(std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")));
     match kind {
         TargetKind::Bin => {
             cmd.arg("build");
@@ -247,7 +254,8 @@ fn call_verifopt() {
 
 fn call_rustc() {
     // todo: invoke the rust compiler for the appropriate tool chain?
-    let mut cmd = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc")));
+    let mut cmd =
+        Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc")));
     cmd.args(std::env::args().skip(2));
     let exit_status = cmd
         .spawn()

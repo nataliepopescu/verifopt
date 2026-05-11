@@ -22,9 +22,7 @@ impl FuncCollectPass {
         Self {}
     }
 
-    pub fn run(&self, fmap: &mut FuncMap) {
-    }
+    pub fn run(&self, fmap: &mut FuncMap) {}
 
-    fn collect_metadata(&self, fmap: &mut FuncMap) {
-    }
+    fn collect_metadata(&self, fmap: &mut FuncMap) {}
 }

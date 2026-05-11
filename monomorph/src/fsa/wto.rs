@@ -19,10 +19,7 @@ pub struct Postorder<'a> {
 }
 
 impl<'a> Postorder<'a> {
-    pub fn new(
-        blocks: &'a Vec<BasicBlock>,
-        root: usize,
-    ) -> Postorder<'a> {
+    pub fn new(blocks: &'a Vec<BasicBlock>, root: usize) -> Postorder<'a> {
         let mut po = Postorder {
             blocks,
             visited: DenseBitSet::new_empty(blocks.len()),
@@ -46,9 +43,11 @@ impl<'a> Postorder<'a> {
 
     fn traverse_successor(&mut self) {
         // See documentation for loop logic here: https://doc.rust-lang.org/nightly/nightly-rustc/src/rustc_middle/mir/traversal.rs.html#138
-        while let Some(bb) = self.visit_stack.last_mut().and_then(|(_, successors)| {
-            successors.pop()
-        }) {
+        while let Some(bb) = self
+            .visit_stack
+            .last_mut()
+            .and_then(|(_, successors)| successors.pop())
+        {
             // While loop body
             self.visit(bb);
         }
@@ -104,7 +103,8 @@ impl BBDeps {
         let mut ret_found = false;
 
         // Filter out cleanup/unreachable blocks from Reverse Postorder
-        bb_deps.ordering = bb_deps.reverse_postorder()
+        bb_deps.ordering = bb_deps
+            .reverse_postorder()
             .into_iter()
             .map(|bb| (bb, &bb_deps.blocks[bb]))
             //.filter(|(_, bbd): (usize, BasicBlock)| !bbd.is_cleanup)

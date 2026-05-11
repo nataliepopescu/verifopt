@@ -1,4 +1,3 @@
-
 #[derive(Clone, Debug)]
 pub enum VerifOptType {
     FlowSensitive,
@@ -18,4 +17,3 @@ pub struct AnalysisContext<'tcx> {
 //        info!("Getting entry point");
 //        let mut entry_fn_def_id: Option<DefId> = None;
 //}
-

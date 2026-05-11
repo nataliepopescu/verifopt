@@ -1,10 +1,12 @@
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 
-use rustc_public::mir::mono::Instance;
-use rustc_public::mir::{BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Terminator, TerminatorKind};
-use rustc_public::ty::TyKind;
-use rustc_public::ty::RigidTy;
 use rustc_public::DefId;
+use rustc_public::mir::mono::Instance;
+use rustc_public::mir::{
+    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Terminator, TerminatorKind,
+};
+use rustc_public::ty::RigidTy;
+use rustc_public::ty::TyKind;
 
 use log::debug;
 
@@ -18,12 +20,7 @@ impl InterpPass {
         Self {}
     }
 
-    pub fn run(
-        &self,
-        cmap: &mut ConstraintMap,
-        cur_scope: DefId,
-        instance: Instance,
-    ) {
+    pub fn run(&self, cmap: &mut ConstraintMap, cur_scope: DefId, instance: Instance) {
         // Track call stack for debugging
         let mut call_stack = vec![cur_scope];
 
@@ -125,7 +122,7 @@ impl InterpPass {
         call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
         bb: usize,
-        term: &Terminator
+        term: &Terminator,
     ) {
         match &term.kind {
             TerminatorKind::Call {
@@ -144,7 +141,7 @@ impl InterpPass {
                     destination,
                 ),
                 _ => todo!("handle indirect function invocations"),
-            }
+            },
             //TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope),
             //TerminatorKind::SwitchInt { discr, targets } => {
             //    self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
@@ -164,18 +161,18 @@ impl InterpPass {
         args: &Vec<Operand>,
         destination: &Place,
     ) {
-         match co.const_.ty().kind() {
-             TyKind::RigidTy(rigid_ty) => match rigid_ty {
-                 RigidTy::FnDef(defid, genargs) => {
-                     let instance = Instance::resolve(defid, &genargs).unwrap();
-                     debug!("--- CALLING {:?}", defid);
-                     debug!("START BODY");
-                     debug!("{:?}", instance.body());
-                     debug!("END BODY");
-                 }
-                 _ => {}
-             }
-             _ => {}
-         }
+        match co.const_.ty().kind() {
+            TyKind::RigidTy(rigid_ty) => match rigid_ty {
+                RigidTy::FnDef(defid, genargs) => {
+                    let instance = Instance::resolve(defid, &genargs).unwrap();
+                    debug!("--- CALLING {:?}", defid);
+                    debug!("START BODY");
+                    debug!("{:?}", instance.body());
+                    debug!("END BODY");
+                }
+                _ => {}
+            },
+            _ => {}
+        }
     }
 }

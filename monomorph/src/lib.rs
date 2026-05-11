@@ -16,10 +16,10 @@ pub mod common;
 pub mod fsa;
 pub mod util;
 
-use crate::util::options::AnalysisOptions;
+use crate::fsa::constraints::ConstraintMap;
 use crate::fsa::func_collect::{FuncCollectPass, FuncMap};
 use crate::fsa::interp::InterpPass;
-use crate::fsa::constraints::ConstraintMap;
+use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     //eprintln!(" OPTIONS: {:?}", options);
@@ -51,4 +51,3 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
 
     ControlFlow::Continue(())
 }
-

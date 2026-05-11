@@ -9,6 +9,7 @@ extern crate rustc_public;
 //use rustc_public::CrateDef;
 use rustc_public::mir::mono::Instance;
 
+use log::debug;
 use std::ops::ControlFlow;
 
 pub mod common;
@@ -16,6 +17,7 @@ pub mod fsa;
 pub mod util;
 
 use crate::util::options::AnalysisOptions;
+use crate::fsa::func_collect::{FuncCollectPass, FuncMap};
 use crate::fsa::interp::InterpPass;
 use crate::fsa::constraints::ConstraintMap;
 
@@ -33,14 +35,14 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     let entry_fn = rustc_public::entry_fn().unwrap();
     let entry_instance = Instance::try_from(entry_fn).unwrap();
 
-    // Collect function and trait metadata
+    //debug!("trait_impls: {:#?}", rustc_public::all_trait_impls());
 
-    //let mut funcs = FuncMap::new();
+    // Collect function and trait metadata
+    //let mut fmap = FuncMap::new();
     //let func_collect = FuncCollectPass::new();
-    //func_collect.run(&mut funcs);
+    //func_collect.run(&mut fmap);
 
     // Interpret MIR
-    //analyze_instance(entry_instance);
     let mut cmap = ConstraintMap::new();
     let interp = InterpPass::new();
     let _ = interp.run(&mut cmap, entry_fn.0, entry_instance);

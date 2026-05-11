@@ -1,7 +1,7 @@
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 
 use rustc_public::mir::mono::Instance;
-use rustc_public::mir::{BasicBlock, Body, LocalDecl, Operand, Terminator, TerminatorKind};
+use rustc_public::mir::{BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Terminator, TerminatorKind};
 use rustc_public::ty::TyKind;
 use rustc_public::ty::RigidTy;
 use rustc_public::DefId;
@@ -49,7 +49,7 @@ impl InterpPass {
         body: &Body,
     ) {
         debug!("#############################");
-        debug!("\n###### INTERP-ING NEW BODY for func {:?}\n", cur_scope);
+        debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
         debug!("call_stack: {:?}", call_stack);
         debug!("#############################");
 
@@ -63,71 +63,119 @@ impl InterpPass {
         }
 
         // Loop through basic blocks in WTO
-        /*
-        let mut last_res = None;
+        //let mut last_res = None;
         loop {
             if bb_deps.ordering.is_empty() {
                 break;
             }
             let bb = bb_deps.ordering.remove(0);
-            debug!("\n--NEW BB: {:?}", bb);
-            let data = body.basic_blocks.get(bb).unwrap();
-            last_res = self.visit_basic_block_data(
+            debug!("--NEW BB: {:?}", bb);
+            let data = body.blocks.get(bb).unwrap();
+            //last_res =
+            self.visit_basic_block(
                 cmap,
                 call_stack,
                 cur_scope,
                 &mut bb_deps,
-                body.local_decls.as_slice(),
-                &bb,
+                //body.local_decls(), //.as_slice(),
+                bb,
                 data,
             ); //?;
         }
-        */
 
         //Ok(last_res)
     }
 
-    fn visit_basic_block_data(
+    fn visit_basic_block(
         &self,
-        _cmap: &mut ConstraintMap,
-        _call_stack: &mut Vec<DefId>,
+        cmap: &mut ConstraintMap,
+        call_stack: &mut Vec<DefId>,
         cur_scope: DefId,
-        _bb_deps: &mut BBDeps,
-        _body_locals: &[LocalDecl],
+        bb_deps: &mut BBDeps,
+        //_body_locals: &[LocalDecl],
         bb: usize,
-        _data: &BasicBlock,
+        data: &BasicBlock,
     ) {
         debug!("#############");
-        debug!("# visiting BASICBLOCK {:?} for DefId {:?}", bb, cur_scope);
+        debug!("# visiting BASICBLOCK {:?} for {:?}", bb, cur_scope);
         debug!("#############");
+
+        for stmt in data.statements.iter() {
+            debug!("# visiting STATEMENT in BB{:?} for {:?}", bb, cur_scope);
+            //debug!("{:?}", stmt);
+            //self.visit_statement
+        }
+
+        self.visit_terminator(
+            cmap,
+            call_stack,
+            cur_scope,
+            //bb_deps,
+            //body_locals,
+            bb,
+            &data.terminator,
+        );
+
+        bb_deps.mark_visited(bb, cur_scope);
     }
 
     fn visit_terminator(
         &self,
-        _cmap: &mut ConstraintMap,
+        cmap: &mut ConstraintMap,
+        call_stack: &mut Vec<DefId>,
+        cur_scope: DefId,
+        bb: usize,
         term: &Terminator
     ) {
         match &term.kind {
             TerminatorKind::Call {
                 func,
-                args: _,
-                destination: _,
+                args,
+                destination,
                 ..
             } => match func {
-                Operand::Constant(co) => match co.const_.ty().kind() {
-                    TyKind::RigidTy(rigid_ty) => match rigid_ty {
-                        RigidTy::FnDef(defid, genargs) => {
-                            let instance = Instance::resolve(defid, &genargs).unwrap();
-                            println!("\n--- CALLING {:?}", defid);
-                            println!("  - Body: {:#?}", instance.body());
-                        }
-                        _ => {}
-                    }
-                    _ => {}
-                }
-                _ => {}
+                Operand::Constant(co) => self.interp_direct_call(
+                    cmap,
+                    call_stack,
+                    cur_scope,
+                    //body_locals,
+                    co,
+                    args,
+                    destination,
+                ),
+                _ => todo!("handle indirect function invocations"),
             }
+            //TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope),
+            //TerminatorKind::SwitchInt { discr, targets } => {
+            //    self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
+            //}
+            //TerminatorKind::TailCall { .. } => todo!("impl tail calls"),
+            //_ => Ok(None),
             _ => {}
         }
+    }
+
+    fn interp_direct_call(
+        &self,
+        cmap: &mut ConstraintMap,
+        call_stack: &mut Vec<DefId>,
+        cur_scope: DefId,
+        co: &ConstOperand,
+        args: &Vec<Operand>,
+        destination: &Place,
+    ) {
+         match co.const_.ty().kind() {
+             TyKind::RigidTy(rigid_ty) => match rigid_ty {
+                 RigidTy::FnDef(defid, genargs) => {
+                     let instance = Instance::resolve(defid, &genargs).unwrap();
+                     debug!("--- CALLING {:?}", defid);
+                     debug!("START BODY");
+                     debug!("{:?}", instance.body());
+                     debug!("END BODY");
+                 }
+                 _ => {}
+             }
+             _ => {}
+         }
     }
 }

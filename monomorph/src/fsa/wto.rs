@@ -29,9 +29,7 @@ impl<'a> Postorder<'a> {
             visit_stack: Vec::new(),
         };
 
-        debug!("PO: {:?}", po);
         po.visit(root);
-        debug!("PO: {:?}", po);
         po.traverse_successor();
 
         po
@@ -49,7 +47,6 @@ impl<'a> Postorder<'a> {
     fn traverse_successor(&mut self) {
         // See documentation for loop logic here: https://doc.rust-lang.org/nightly/nightly-rustc/src/rustc_middle/mir/traversal.rs.html#138
         while let Some(bb) = self.visit_stack.last_mut().and_then(|(_, successors)| {
-            //iter.next_back()
             successors.pop()
         }) {
             // While loop body
@@ -92,14 +89,12 @@ impl BBDeps {
             visited: Vec::new(),
         };
 
-        debug!("\n%%%%%\n");
+        debug!("%%%%%");
         debug!("total bbs: {:?}", body.blocks.len());
 
         // Get Successor edges
         for (bb, bb_data) in body.blocks.iter().enumerate() {
-            //debug!("getting deps for {:?}", bb);
             bb_deps.get_deps(bb, bb_data);
-            //debug!("- bb_deps.preds: {:?}", bb_deps.preds);
         }
 
         debug!("self.pred: {:?}", bb_deps.preds);
@@ -140,17 +135,19 @@ impl BBDeps {
             panic!("no return block?");
         }
 
+        // add return bb last
         bb_deps.ordering.push(ret_bb);
-        debug!("\nself.ordering: {:?}", bb_deps.ordering);
-        debug!("\n%%%%%");
+        debug!("self.ordering: {:?}", bb_deps.ordering);
+        debug!("%%%%%");
 
         bb_deps
     }
 
     fn reverse_postorder(&self) -> Vec<usize> {
         let mut rpo: Vec<_> = Postorder::new(&self.blocks, START_BLOCK).collect();
-        debug!("rpo: {:?}", rpo);
+        debug!("po: {:?}", rpo);
         rpo.reverse();
+        debug!("rpo: {:?}", rpo);
         rpo
     }
 
@@ -187,7 +184,7 @@ impl BBDeps {
     }
 
     pub fn mark_visited(&mut self, bb: usize, cur_scope: DefId) {
-        debug!("\nDONE VISITING {:?} of {:?}", bb, cur_scope);
+        debug!("DONE VISITING {:?} of {:?}", bb, cur_scope);
         self.visited.push(bb);
     }
 

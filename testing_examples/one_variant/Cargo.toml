@@ -1,7 +1,6 @@
 [package]
-name = "two_variants_rand"
+name = "one_variant"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rand = "0.10.1"

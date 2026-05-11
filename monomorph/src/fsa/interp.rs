@@ -1,12 +1,11 @@
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 
 use rustc_public::DefId;
-use rustc_public::mir::mono::Instance;
+use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
     BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Terminator, TerminatorKind,
 };
-use rustc_public::ty::RigidTy;
-use rustc_public::ty::TyKind;
+use rustc_public::ty::{BoundVariableKind, FnDef, RigidTy, TyKind};
 
 use log::debug;
 
@@ -35,6 +34,10 @@ impl InterpPass {
         instance: Instance,
     ) {
         let body = instance.body().unwrap();
+        debug!("#############################");
+        debug!("START BODY");
+        debug!("{:?}", body);
+        debug!("END BODY");
         self.visit_body(cmap, call_stack, cur_scope, &body);
     }
 
@@ -45,7 +48,6 @@ impl InterpPass {
         cur_scope: DefId,
         body: &Body,
     ) {
-        debug!("#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
         debug!("call_stack: {:?}", call_stack);
         debug!("#############################");
@@ -163,16 +165,52 @@ impl InterpPass {
     ) {
         match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
-                RigidTy::FnDef(defid, genargs) => {
-                    let instance = Instance::resolve(defid, &genargs).unwrap();
-                    debug!("--- CALLING {:?}", defid);
-                    debug!("START BODY");
-                    debug!("{:?}", instance.body());
-                    debug!("END BODY");
+                RigidTy::FnDef(fndef, genargs) => {
+                    let instance = Instance::resolve(fndef, &genargs).unwrap();
+                    debug!("--- CALLING {:?}", fndef);
+                    match instance.kind {
+                        InstanceKind::Item => {
+                            debug!("regular funccall");
+                            if instance.has_body() {
+                                call_stack.push(fndef.0);
+                                self.visit_instance(cmap, call_stack, fndef.0, instance);
+                            } else {
+                                debug!("no body");
+                                self.retty_fallback(fndef);
+                            }
+                        }
+                        InstanceKind::Virtual { .. } => {
+                            todo!("virtual funccall");
+                        }
+                        InstanceKind::Intrinsic => {
+                            debug!("intrinsic funccall");
+                            self.retty_fallback(fndef);
+                        }
+                        InstanceKind::Shim => todo!("shim funccall"),
+                    }
                 }
-                _ => {}
+                other @ _ => todo!("different RigidTy: {:?}", other),
             },
             _ => {}
         }
+    }
+
+    fn retty_fallback(&self, fndef: FnDef) {
+        let sig = fndef.fn_sig();
+        debug!("fn_sig: {:?}", sig);
+
+        if !sig.bound_vars.is_empty() {
+            // Might not be safe to just skip binder
+            debug!("Bound vars - cannot skip binder in intrinsic call resolution");
+            for bound_var in sig.bound_vars.iter() {
+                match bound_var {
+                    BoundVariableKind::Ty(_) => todo!("ty"),
+                    BoundVariableKind::Const => todo!("const"),
+                    BoundVariableKind::Region(_) => {}, //todo!("region"),
+                }
+            }
+        }
+
+        debug!("output: {:?}", sig.value.output());
     }
 }

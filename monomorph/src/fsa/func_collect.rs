@@ -1,6 +1,6 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
-use rustc_public::{CrateDefItems, DefId};
 use rustc_public::ty::{AssocKind, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind};
+use rustc_public::{CrateDefItems, DefId};
 
 use rustc_public::Symbol;
 
@@ -71,9 +71,7 @@ impl FuncCollectPass {
             debug!("trait_defid: {:?}", trait_defid);
 
             // Get Struct DefId
-            let result = std::panic::catch_unwind(|| {
-                self.get_struct_defid(&trait_impl)
-            });
+            let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
             if result.is_err() {
                 debug!("CAUGHT PANIC");
                 continue;
@@ -117,7 +115,8 @@ impl FuncCollectPass {
             match fmap.struct_trait_fns.get_mut(&(struct_defid, trait_defid)) {
                 Some(assoc_fn_vec) => assoc_fn_vec.append(&mut assoc_fn_defids),
                 None => {
-                    fmap.struct_trait_fns.insert((struct_defid, trait_defid), assoc_fn_defids);
+                    fmap.struct_trait_fns
+                        .insert((struct_defid, trait_defid), assoc_fn_defids);
                 }
             }
         }
@@ -129,8 +128,8 @@ impl FuncCollectPass {
         let mut struct_defid = None;
 
         for genarg in &trait_impl.value.args().0 {
-        //for (i, genarg) in trait_impl.value.args().0.clone().into_iter().enumerate() {
-        //    debug!("genarg #{}", i);
+            //for (i, genarg) in trait_impl.value.args().0.clone().into_iter().enumerate() {
+            //    debug!("genarg #{}", i);
             match genarg {
                 GenericArgKind::Lifetime(region) => debug!("lifetime: {:?}", region),
                 GenericArgKind::Type(ty) => {
@@ -148,13 +147,16 @@ impl FuncCollectPass {
                                 match struct_defid {
                                     None => struct_defid = Some(adtdef.0),
                                     Some(existing_struct_defid) => {
-                                        error!("already seen adt {:?} in this trait impls genargs", existing_struct_defid);
+                                        error!(
+                                            "already seen adt {:?} in this trait impls genargs",
+                                            existing_struct_defid
+                                        );
                                     }
                                 }
                             }
                             // TODO
                             _ => warn!("other rigidty kind"),
-                        }
+                        },
                         // TODO
                         _ => warn!("other ty kind"),
                     }

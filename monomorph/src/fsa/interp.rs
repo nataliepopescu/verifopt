@@ -223,7 +223,7 @@ impl<'a> InterpPass<'a> {
                 match bound_var {
                     BoundVariableKind::Ty(_) => todo!("ty"),
                     BoundVariableKind::Const => todo!("const"),
-                    BoundVariableKind::Region(_) => {},
+                    BoundVariableKind::Region(_) => {}
                 }
             }
         }

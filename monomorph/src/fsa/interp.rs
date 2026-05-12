@@ -184,7 +184,7 @@ impl<'a> InterpPass<'a> {
                         }
                         InstanceKind::Virtual { .. } => {
                             debug!("virtual funccall");
-                            self.interp_virtual_call(&fndef, &genargs);
+                            self.interp_virtual_call(cmap, call_stack, cur_scope, &fndef, &genargs);
                         }
                         InstanceKind::Intrinsic => {
                             debug!("intrinsic funccall");
@@ -218,7 +218,14 @@ impl<'a> InterpPass<'a> {
         debug!("output: {:?}", sig.value.output());
     }
 
-    fn interp_virtual_call(&self, fndef: &FnDef, genargs: &GenericArgs) {
+    fn interp_virtual_call(
+        &self,
+        cmap: &mut ConstraintMap,
+        call_stack: &mut Vec<DefId>,
+        cur_scope: DefId,
+        fndef: &FnDef,
+        genargs: &GenericArgs,
+    ) {
         // Steps:
         // - Get trait that this function is associated with
         //   - fmap.assoc_fn_traits (Map<AssocFn, Trait>)
@@ -232,25 +239,45 @@ impl<'a> InterpPass<'a> {
             Some(trait_defid_) => trait_defid_,
             None => panic!("assoc fn {:?} does not point to trait", fndef.0),
         };
+        debug!("trait_defid: {:?}", trait_defid);
 
         // Get concrete type constraints for trait object
         let tyconstraints = match self.fmap.trait_structs.get(&trait_defid) {
             Some(tyconstraints_) => tyconstraints_,
             None => panic!("trait {:?} does not point to any structs", trait_defid),
         };
+        debug!("tyconstraints: {:?}", tyconstraints);
 
         // Get every concrete type constraint's impl of this function
         let mut assoc_fn_impls = Vec::new();
         for &tyconstraint in tyconstraints {
             match self.fmap.struct_assoc_fns.get(&(tyconstraint, fndef.0)) {
-                Some(assoc_fn_impl) => assoc_fn_impls.push(assoc_fn_impl),
+                Some(assoc_fn_impl) => assoc_fn_impls.append(&mut assoc_fn_impl.clone()),
                 None => panic!(
                     "struct/container ({:?}, {:?}) pair does not point to assoc fn",
                     tyconstraint, fndef.0
                 ),
             }
         }
+        debug!("assoc_fn_impls: {:?}", assoc_fn_impls);
 
-        todo!();
+        self.simulate_static_calls(cmap, call_stack, cur_scope, assoc_fn_impls, genargs);
+    }
+
+    fn simulate_static_calls(
+        &self,
+        cmap: &mut ConstraintMap,
+        call_stack: &mut Vec<DefId>,
+        cur_scope: DefId,
+        assoc_fn_impls: Vec<DefId>,
+        genargs: &GenericArgs,
+    ) {
+        for assoc_fn_impl in assoc_fn_impls {
+            let fndef = FnDef(assoc_fn_impl);
+            let instance = Instance::resolve(fndef, &genargs).unwrap();
+            debug!("a converted static instance: {:?}", instance);
+            call_stack.push(assoc_fn_impl);
+            self.visit_instance(cmap, call_stack, assoc_fn_impl, instance);
+        }
     }
 }

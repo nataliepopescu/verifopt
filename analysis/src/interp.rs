@@ -806,6 +806,16 @@ impl<'a, 'tcx> InterpPass<'a, 'tcx> {
             return vec![Ok(None)];
         }
 
+        // dyn dispatch resolution logic: 
+        // - list _all_ concrete impls of this assoc fn
+        // - get trait obj type constraints
+        // - - special handling for boxed types
+        // - get all possible fn impls for each trait obj type constraint
+        // - intersect:
+        // - - concrete impls of assoc fn
+        // - - struct fn impls
+        // - to get all possible assoc fn impls we could call right now
+
         // get the concrete implementations of this (trait's) assoc_fn
         let mutex = self.funcs.trait_fn_impls.lock().unwrap();
         if let Some(impls_) = mutex.get(&assoc_funcval.def_id) {

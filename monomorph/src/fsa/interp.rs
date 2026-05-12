@@ -10,13 +10,16 @@ use rustc_public::ty::{BoundVariableKind, FnDef, RigidTy, TyKind};
 use log::debug;
 
 use crate::fsa::constraints::ConstraintMap;
+use crate::fsa::func_collect::FuncMap;
 use crate::fsa::wto::BBDeps;
 
-pub struct InterpPass;
+pub struct InterpPass<'a> {
+    pub fmap: &'a FuncMap,
+}
 
-impl InterpPass {
-    pub fn new() -> InterpPass {
-        Self {}
+impl<'a> InterpPass<'a> {
+    pub fn new(fmap: &'a FuncMap) -> InterpPass<'a> {
+        Self { fmap }
     }
 
     pub fn run(&self, cmap: &mut ConstraintMap, cur_scope: DefId, instance: Instance) {
@@ -180,6 +183,20 @@ impl InterpPass {
                             }
                         }
                         InstanceKind::Virtual { .. } => {
+                            // High-level steps for resolving dynamic dispatch:
+                            //
+                            // + Get concrete type constraints for trait object
+                            //   - cmap / fmap (CHA / RTA)
+                            //
+                            // + Get trait that this function is associated with?
+                            //   - fmap (Map<AssocFn, Trait>)
+                            //
+                            // + Get every concrete type constraint's impl of this function
+                            //   - fmap (Map<(Struct, Trait), FnImpls>)
+                            //   - struct -> trait assoc fn impls
+                            //
+                            //   - for each type constraint
+                            //      - get assoc fn impl for Trait
                             todo!("virtual funccall");
                         }
                         InstanceKind::Intrinsic => {
@@ -201,12 +218,12 @@ impl InterpPass {
 
         if !sig.bound_vars.is_empty() {
             // Might not be safe to just skip binder
-            debug!("Bound vars - cannot skip binder in intrinsic call resolution");
+            debug!("Bound vars - cannot just skip binder in call resolution");
             for bound_var in sig.bound_vars.iter() {
                 match bound_var {
                     BoundVariableKind::Ty(_) => todo!("ty"),
                     BoundVariableKind::Const => todo!("const"),
-                    BoundVariableKind::Region(_) => {}, //todo!("region"),
+                    BoundVariableKind::Region(_) => {},
                 }
             }
         }

@@ -147,7 +147,7 @@ impl<'a> InterpPass<'a> {
                 ),
                 _ => todo!("handle indirect function invocations"),
             },
-            //TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope),
+            TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope),
             //TerminatorKind::SwitchInt { discr, targets } => {
             //    self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
             //}
@@ -279,5 +279,17 @@ impl<'a> InterpPass<'a> {
             call_stack.push(assoc_fn_impl);
             self.visit_instance(cmap, call_stack, assoc_fn_impl, instance);
         }
+    }
+
+    fn interp_return(
+        &self,
+        cmap: &mut ConstraintMap,
+        call_stack: &mut Vec<DefId>,
+        cur_scope: DefId,
+    ) {
+        debug!("RETURNING...");
+        call_stack.pop();
+
+        // TODO return actual val
     }
 }

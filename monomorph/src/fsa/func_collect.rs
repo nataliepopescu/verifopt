@@ -1,39 +1,20 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
-use rustc_public::ty::{AssocKind, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind};
+use rustc_public::ty::{
+    AssocContainer, AssocKind, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind,
+};
 use rustc_public::{CrateDefItems, DefId};
-
-use rustc_public::Symbol;
 
 use log::{debug, error, info, warn};
 
 pub struct FuncVal {}
 
 pub struct FuncMap {
-    // HAD:
-    // For CHA/RTA
-    // - [x] trait_to_struct_impls
-    // For intersecting trait impls w struct impls
-    // - [ ] struct_to_impls
-    // - [ ] impl_blocks_to_fn_impls
-    // - [ ] trait_fn_impls
-    // For getting a fn's trait
-    // - [x] assoc_fns_to_trait
-
-    // WANT:
-    // - (CHA/RTA) HashMap<Trait, Vec<Struct>> (trait_to_struct_impls)
-    // - HashMap<AssocFn, Trait> (assoc_fns_to_trait)
-    // - HashMap<(Struct, Trait), FnImpls>
-
     // (CHA/RTA) HashMap<Trait, Vec<Struct>>
     pub trait_structs: HashMap<DefId, Vec<DefId>>,
     // HashMap<AssocFn, Trait>
     pub assoc_fn_traits: HashMap<DefId, DefId>,
-    // HashMap<(Struct, Trait), FnImpls>
-    // FIXME use Trait or use Container?
-    // - using Trait will lead to the Value being a Vec (that needs to be iterated through)
-    // - while using Container will lead to the Key pair only pointing to a single DefId (I _believe_)
-    //   - but how do we get the Container when interpreting on-the-fly?
-    pub struct_trait_fns: HashMap<(DefId, DefId), Vec<DefId>>,
+    // HashMap<(Struct, AssocFnDecl), Vec<AssocFnImpl>>
+    pub struct_assoc_fns: HashMap<(DefId, DefId), Vec<DefId>>,
 }
 
 impl FuncMap {
@@ -41,7 +22,7 @@ impl FuncMap {
         Self {
             trait_structs: HashMap::default(),
             assoc_fn_traits: HashMap::default(),
-            struct_trait_fns: HashMap::default(),
+            struct_assoc_fns: HashMap::default(),
         }
     }
 }
@@ -57,7 +38,7 @@ impl FuncCollectPass {
         self.collect_metadata(fmap);
         debug!("fmap.trait_structs: {:?}", fmap.trait_structs);
         debug!("fmap.assoc_fn_traits: {:?}", fmap.assoc_fn_traits);
-        debug!("fmap.struct_trait_fns: {:?}", fmap.struct_trait_fns);
+        debug!("fmap.struct_assoc_fns: {:?}", fmap.struct_assoc_fns);
     }
 
     fn collect_metadata(&self, fmap: &mut FuncMap) {
@@ -102,26 +83,48 @@ impl FuncCollectPass {
             }
 
             // Add back pointers from associated fns to this trait
-            for assoc_fn_defid in &assoc_fn_defids {
-                match fmap.assoc_fn_traits.get(&assoc_fn_defid) {
+            for (_assoc_fn_impl_defid, assoc_fn_decl_defid) in &assoc_fn_defids {
+                match fmap.assoc_fn_traits.get(&assoc_fn_decl_defid) {
                     None => {
-                        fmap.assoc_fn_traits.insert(*assoc_fn_defid, trait_defid);
+                        fmap.assoc_fn_traits
+                            .insert(*assoc_fn_decl_defid, trait_defid);
                     }
-                    Some(_) => panic!("already mapped this assoc fn to a trait"),
+                    Some(existing_trait_defid) => {
+                        if *existing_trait_defid != trait_defid {
+                            panic!(
+                                "already mapped this assoc fn to another trait: \n\texisting: {:?}\n\tcurrent: {:?}",
+                                existing_trait_defid, trait_defid
+                            );
+                        }
+                    }
                 }
             }
 
-            // Add associated fns mapping to this struct/trait pair
-            match fmap.struct_trait_fns.get_mut(&(struct_defid, trait_defid)) {
-                Some(assoc_fn_vec) => assoc_fn_vec.append(&mut assoc_fn_defids),
-                None => {
-                    fmap.struct_trait_fns
-                        .insert((struct_defid, trait_defid), assoc_fn_defids);
+            // Add assoc fn impl mapping to this (struct/assoc fn decl) pair
+            for (assoc_fn_impl_defid, assoc_fn_decl_defid) in &assoc_fn_defids {
+                match fmap
+                    .struct_assoc_fns
+                    .get_mut(&(struct_defid, *assoc_fn_decl_defid))
+                {
+                    Some(existing_impls) => {
+                        // Skip duplicates
+                        if !existing_impls.contains(assoc_fn_impl_defid) {
+                            existing_impls.push(*assoc_fn_impl_defid);
+                        }
+                    }
+                    None => {
+                        fmap.struct_assoc_fns.insert(
+                            (struct_defid, *assoc_fn_decl_defid),
+                            vec![*assoc_fn_impl_defid],
+                        );
+                    }
                 }
             }
         }
     }
 
+    /// Proxies the Self defid for this implementation as the first ADT encountered in the genargs
+    /// [This is probably wrong, needs fixing]
     fn get_struct_defid(&self, trait_impl: &ImplTrait) -> Option<DefId> {
         // FIXME is there a better way to get Self type?
         //debug!("all genargs: {:?}", &trait_impl.value.args().0);
@@ -172,23 +175,36 @@ impl FuncCollectPass {
         struct_defid
     }
 
-    fn get_assoc_fn_defids(&self, impl_def: &ImplDef) -> Vec<DefId> {
+    /// Returns a vector of (concrete_impl_defid, decl_defid), one for each associated fn
+    fn get_assoc_fn_defids(&self, impl_def: &ImplDef) -> Vec<(DefId, DefId)> {
         let mut assoc_fns = Vec::new();
 
         for assoc_item in impl_def.associated_items() {
+            // If this assoc_item is not a function, skip
+            let mut assoc_fn_defid = None;
             match assoc_item.kind {
                 AssocKind::Fn { name: _, has_self } => {
-                    // if has_self is false, cannot be dynamically dispatched
+                    // If has_self is false, cannot be dynamically dispatched, so no need to store
                     if !has_self {
                         debug!("NO SELF");
                         continue;
                     }
-                    assoc_fns.push(assoc_item.def_id.0);
+                    assoc_fn_defid = Some(assoc_item.def_id.0);
                 }
                 // TODO
-                _ => warn!("other assoc kind"),
+                _ => {
+                    warn!("other assoc kind");
+                    continue;
+                }
             }
-            info!("assoc_item container: {:?}", assoc_item.container)
+
+            info!("assoc_item container: {:?}", assoc_item.container);
+            match assoc_item.container {
+                AssocContainer::TraitImpl(assoc_def) => {
+                    assoc_fns.push((assoc_item.def_id.0, assoc_def.0));
+                }
+                _ => warn!("other container kind"),
+            }
         }
 
         assoc_fns

@@ -5,7 +5,7 @@ use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
     BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Terminator, TerminatorKind,
 };
-use rustc_public::ty::{BoundVariableKind, FnDef, RigidTy, TyKind};
+use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
 use log::debug;
 
@@ -183,21 +183,8 @@ impl<'a> InterpPass<'a> {
                             }
                         }
                         InstanceKind::Virtual { .. } => {
-                            // High-level steps for resolving dynamic dispatch:
-                            //
-                            // + Get concrete type constraints for trait object
-                            //   - cmap / fmap (CHA / RTA)
-                            //
-                            // + Get trait that this function is associated with?
-                            //   - fmap (Map<AssocFn, Trait>)
-                            //
-                            // + Get every concrete type constraint's impl of this function
-                            //   - fmap (Map<(Struct, Trait), FnImpls>)
-                            //   - struct -> trait assoc fn impls
-                            //
-                            //   - for each type constraint
-                            //      - get assoc fn impl for Trait
-                            todo!("virtual funccall");
+                            debug!("virtual funccall");
+                            self.interp_virtual_call(&fndef, &genargs);
                         }
                         InstanceKind::Intrinsic => {
                             debug!("intrinsic funccall");
@@ -229,5 +216,41 @@ impl<'a> InterpPass<'a> {
         }
 
         debug!("output: {:?}", sig.value.output());
+    }
+
+    fn interp_virtual_call(&self, fndef: &FnDef, genargs: &GenericArgs) {
+        // Steps:
+        // - Get trait that this function is associated with
+        //   - fmap.assoc_fn_traits (Map<AssocFn, Trait>)
+        // - Get concrete type constraints for trait object
+        //   - cmap / fmap.trait_structs (CHA / RTA)
+        // - Get every concrete type constraint's impl of this function
+        //   - fmap.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
+
+        // Get trait that this function is associated with
+        let trait_defid = match self.fmap.assoc_fn_traits.get(&fndef.0) {
+            Some(trait_defid_) => trait_defid_,
+            None => panic!("assoc fn {:?} does not point to trait", fndef.0),
+        };
+
+        // Get concrete type constraints for trait object
+        let tyconstraints = match self.fmap.trait_structs.get(&trait_defid) {
+            Some(tyconstraints_) => tyconstraints_,
+            None => panic!("trait {:?} does not point to any structs", trait_defid),
+        };
+
+        // Get every concrete type constraint's impl of this function
+        let mut assoc_fn_impls = Vec::new();
+        for &tyconstraint in tyconstraints {
+            match self.fmap.struct_assoc_fns.get(&(tyconstraint, fndef.0)) {
+                Some(assoc_fn_impl) => assoc_fn_impls.push(assoc_fn_impl),
+                None => panic!(
+                    "struct/container ({:?}, {:?}) pair does not point to assoc fn",
+                    tyconstraint, fndef.0
+                ),
+            }
+        }
+
+        todo!();
     }
 }

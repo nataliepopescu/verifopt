@@ -301,7 +301,10 @@ impl<'a> InterpPass<'a> {
         cur_scope: DefId,
         instance_def: InstanceDef,
     ) {
-        debug!("RETURNING from scope {:?} (instance def {:?})...", cur_scope, instance_def);
+        debug!(
+            "RETURNING from scope {:?} (instance def {:?})...",
+            cur_scope, instance_def
+        );
         debug!("callstack PRE POP: {:?}", call_stack);
         let popped = call_stack.pop();
         if popped.unwrap() != (cur_scope, instance_def) {

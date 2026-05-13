@@ -1,8 +1,8 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 
 use rustc_public::DefId;
-use rustc_public::mir::{BasicBlock, Body, Successors, TerminatorKind};
 use rustc_public::mir::mono::InstanceDef;
+use rustc_public::mir::{BasicBlock, Body, Successors, TerminatorKind};
 
 use rustc_index::bit_set::DenseBitSet;
 
@@ -185,7 +185,10 @@ impl BBDeps {
     }
 
     pub fn mark_visited(&mut self, bb: usize, cur_scope: DefId, instance_def: InstanceDef) {
-        debug!("DONE VISITING {:?} of {:?} (instance def {:?})", bb, cur_scope, instance_def);
+        debug!(
+            "DONE VISITING {:?} of {:?} (instance def {:?})",
+            bb, cur_scope, instance_def
+        );
         self.visited.push(bb);
     }
 

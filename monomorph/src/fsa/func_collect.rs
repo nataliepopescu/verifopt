@@ -36,9 +36,6 @@ impl FuncCollectPass {
 
     pub fn run(&self, fmap: &mut FuncMap) {
         self.collect_metadata(fmap);
-        debug!("fmap.trait_structs: {:?}", fmap.trait_structs);
-        debug!("fmap.assoc_fn_traits: {:?}", fmap.assoc_fn_traits);
-        debug!("fmap.struct_assoc_fns: {:?}", fmap.struct_assoc_fns);
     }
 
     fn collect_metadata(&self, fmap: &mut FuncMap) {

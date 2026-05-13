@@ -1,7 +1,7 @@
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 
 use rustc_public::DefId;
-use rustc_public::mir::mono::{Instance, InstanceKind};
+use rustc_public::mir::mono::{Instance, InstanceDef, InstanceKind};
 use rustc_public::mir::{
     BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Terminator, TerminatorKind,
 };
@@ -22,46 +22,50 @@ impl<'a> InterpPass<'a> {
         Self { fmap }
     }
 
-    pub fn run(&self, cmap: &mut ConstraintMap, cur_scope: DefId, instance: Instance) {
-        // Track call stack for debugging
-        let mut call_stack = vec![cur_scope];
+    pub fn run(&self, cmap: &mut ConstraintMap, start_scope: DefId, instance: Instance) {
+        // Track call stack for cur_scope + debugging
+        let mut call_stack = vec![(start_scope, instance.def)];
 
-        self.visit_instance(cmap, &mut call_stack, cur_scope, instance)
+        self.visit_instance(cmap, &mut call_stack, start_scope, instance)
     }
 
     fn visit_instance(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance: Instance,
     ) {
         let body = instance.body().unwrap();
         debug!("#############################");
+        debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
+        debug!("full call_stack: {:?}", call_stack);
+        debug!("instance def: {:?}", instance.def);
         debug!("START BODY");
-        debug!("{:?}", body);
+        debug!("{:#?}", body);
         debug!("END BODY");
-        self.visit_body(cmap, call_stack, cur_scope, &body);
+        debug!("#############################");
+
+        self.visit_body(cmap, call_stack, cur_scope, instance.def, &body);
     }
 
     fn visit_body(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
+        instance_def: InstanceDef,
         body: &Body,
     ) {
-        debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
-        debug!("call_stack: {:?}", call_stack);
-        debug!("#############################");
-
         // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
-        if let Some(mem_bb_deps) = cmap.wtos.get(&cur_scope) {
+        if let Some(mem_bb_deps) = cmap.wtos.get(&(cur_scope, instance_def)) {
             bb_deps = mem_bb_deps.clone();
+            debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
-            cmap.wtos.insert(cur_scope, bb_deps.clone());
+            cmap.wtos.insert((cur_scope, instance_def), bb_deps.clone());
+            debug!("NEW ordering: {:?}", bb_deps.ordering);
         }
 
         // Loop through basic blocks in WTO
@@ -78,6 +82,7 @@ impl<'a> InterpPass<'a> {
                 cmap,
                 call_stack,
                 cur_scope,
+                instance_def,
                 &mut bb_deps,
                 //body.local_decls(), //.as_slice(),
                 bb,
@@ -91,8 +96,9 @@ impl<'a> InterpPass<'a> {
     fn visit_basic_block(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
+        instance_def: InstanceDef,
         bb_deps: &mut BBDeps,
         //_body_locals: &[LocalDecl],
         bb: usize,
@@ -112,20 +118,22 @@ impl<'a> InterpPass<'a> {
             cmap,
             call_stack,
             cur_scope,
+            instance_def,
             //bb_deps,
             //body_locals,
             bb,
             &data.terminator,
         );
 
-        bb_deps.mark_visited(bb, cur_scope);
+        bb_deps.mark_visited(bb, cur_scope, instance_def);
     }
 
     fn visit_terminator(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
+        instance_def: InstanceDef,
         bb: usize,
         term: &Terminator,
     ) {
@@ -140,6 +148,7 @@ impl<'a> InterpPass<'a> {
                     cmap,
                     call_stack,
                     cur_scope,
+                    instance_def,
                     //body_locals,
                     co,
                     args,
@@ -147,7 +156,7 @@ impl<'a> InterpPass<'a> {
                 ),
                 _ => todo!("handle indirect function invocations"),
             },
-            TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope),
+            TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope, instance_def),
             //TerminatorKind::SwitchInt { discr, targets } => {
             //    self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
             //}
@@ -160,8 +169,9 @@ impl<'a> InterpPass<'a> {
     fn interp_direct_call(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
+        instance_def: InstanceDef,
         co: &ConstOperand,
         args: &Vec<Operand>,
         destination: &Place,
@@ -170,12 +180,13 @@ impl<'a> InterpPass<'a> {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => {
                     let instance = Instance::resolve(fndef, &genargs).unwrap();
+                    debug!("instance def: {:?}", instance.def);
                     debug!("--- CALLING {:?}", fndef);
                     match instance.kind {
                         InstanceKind::Item => {
                             debug!("regular funccall");
                             if instance.has_body() {
-                                call_stack.push(fndef.0);
+                                call_stack.push((fndef.0, instance.def));
                                 self.visit_instance(cmap, call_stack, fndef.0, instance);
                             } else {
                                 debug!("no body");
@@ -221,7 +232,7 @@ impl<'a> InterpPass<'a> {
     fn interp_virtual_call(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         fndef: &FnDef,
         genargs: &GenericArgs,
@@ -267,7 +278,7 @@ impl<'a> InterpPass<'a> {
     fn simulate_static_calls(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
@@ -275,20 +286,28 @@ impl<'a> InterpPass<'a> {
         for assoc_fn_impl in assoc_fn_impls {
             let fndef = FnDef(assoc_fn_impl);
             let instance = Instance::resolve(fndef, &genargs).unwrap();
+            debug!("instance def: {:?}", instance.def);
             debug!("a converted static instance: {:?}", instance);
-            call_stack.push(assoc_fn_impl);
-            self.visit_instance(cmap, call_stack, assoc_fn_impl, instance);
+            let mut call_stack_clone = call_stack.clone();
+            call_stack_clone.push((assoc_fn_impl, instance.def));
+            self.visit_instance(cmap, &mut call_stack_clone, assoc_fn_impl, instance);
         }
     }
 
     fn interp_return(
         &self,
         cmap: &mut ConstraintMap,
-        call_stack: &mut Vec<DefId>,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
+        instance_def: InstanceDef,
     ) {
-        debug!("RETURNING...");
-        call_stack.pop();
+        debug!("RETURNING from scope {:?} (instance def {:?})...", cur_scope, instance_def);
+        debug!("callstack PRE POP: {:?}", call_stack);
+        let popped = call_stack.pop();
+        if popped.unwrap() != (cur_scope, instance_def) {
+            panic!("call stack out of sorts");
+        }
+        debug!("callstack POST POP: {:?}", call_stack);
 
         // TODO return actual val
     }

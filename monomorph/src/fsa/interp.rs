@@ -9,7 +9,7 @@ use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
 use log::debug;
 
-use crate::fsa::constraints::InterpStore;
+use crate::fsa::constraints::{InterpStore, MapKey, VarType};
 use crate::fsa::trait_collect::TraitStore;
 use crate::fsa::wto::BBDeps;
 
@@ -22,16 +22,23 @@ impl<'a> InterpPass<'a> {
         Self { tstore }
     }
 
-    pub fn run(&self, cmap: &mut InterpStore, start_scope: DefId, instance: Instance) {
+    pub fn run(&self, istore: &mut InterpStore, start_scope: DefId, instance: Instance) {
         // Track call stack for cur_scope + debugging
         let mut call_stack = vec![(start_scope, instance.def)];
 
-        self.visit_instance(cmap, &mut call_stack, start_scope, instance)
+        // Initialize InterpStore with entry_fn's substore
+        let entry_fn_istore = InterpStore::new();
+        istore.cmap.insert(
+            MapKey::ScopeId(start_scope),
+            Box::new(VarType::SubScope(vec![entry_fn_istore])),
+        );
+
+        self.visit_instance(istore, &mut call_stack, start_scope, instance)
     }
 
     fn visit_instance(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance: Instance,
@@ -46,12 +53,12 @@ impl<'a> InterpPass<'a> {
         debug!("END BODY");
         debug!("#############################");
 
-        self.visit_body(cmap, call_stack, cur_scope, instance.def, &body);
+        self.visit_body(istore, call_stack, cur_scope, instance.def, &body);
     }
 
     fn visit_body(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -59,12 +66,14 @@ impl<'a> InterpPass<'a> {
     ) {
         // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
-        if let Some(mem_bb_deps) = cmap.wtos.get(&(cur_scope, instance_def)) {
+        if let Some(mem_bb_deps) = istore.wtos.get(&(cur_scope, instance_def)) {
             bb_deps = mem_bb_deps.clone();
             debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
-            cmap.wtos.insert((cur_scope, instance_def), bb_deps.clone());
+            istore
+                .wtos
+                .insert((cur_scope, instance_def), bb_deps.clone());
             debug!("NEW ordering: {:?}", bb_deps.ordering);
         }
 
@@ -79,7 +88,7 @@ impl<'a> InterpPass<'a> {
             let data = body.blocks.get(bb).unwrap();
             //last_res =
             self.visit_basic_block(
-                cmap,
+                istore,
                 call_stack,
                 cur_scope,
                 instance_def,
@@ -95,7 +104,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_basic_block(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -115,7 +124,7 @@ impl<'a> InterpPass<'a> {
         }
 
         self.visit_terminator(
-            cmap,
+            istore,
             call_stack,
             cur_scope,
             instance_def,
@@ -130,7 +139,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_terminator(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -145,7 +154,7 @@ impl<'a> InterpPass<'a> {
                 ..
             } => match func {
                 Operand::Constant(co) => self.interp_direct_call(
-                    cmap,
+                    istore,
                     call_stack,
                     cur_scope,
                     instance_def,
@@ -156,9 +165,11 @@ impl<'a> InterpPass<'a> {
                 ),
                 _ => todo!("handle indirect function invocations"),
             },
-            TerminatorKind::Return => self.interp_return(cmap, call_stack, cur_scope, instance_def),
+            TerminatorKind::Return => {
+                self.interp_return(istore, call_stack, cur_scope, instance_def)
+            }
             //TerminatorKind::SwitchInt { discr, targets } => {
-            //    self.interp_switchint(cmap, bb, bb_deps, cur_scope, discr, targets)
+            //    self.interp_switchint(istore, bb, bb_deps, cur_scope, discr, targets)
             //}
             //TerminatorKind::TailCall { .. } => todo!("impl tail calls"),
             //_ => Ok(None),
@@ -168,7 +179,7 @@ impl<'a> InterpPass<'a> {
 
     fn interp_direct_call(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -186,8 +197,14 @@ impl<'a> InterpPass<'a> {
                         InstanceKind::Item => {
                             debug!("regular funccall");
                             if instance.has_body() {
+                                let mut istore_clone = istore.clone();
                                 call_stack.push((fndef.0, instance.def));
-                                self.visit_instance(cmap, call_stack, fndef.0, instance);
+                                self.visit_instance(
+                                    &mut istore_clone,
+                                    call_stack,
+                                    fndef.0,
+                                    instance,
+                                );
                             } else {
                                 debug!("no body");
                                 self.retty_fallback(fndef);
@@ -195,7 +212,9 @@ impl<'a> InterpPass<'a> {
                         }
                         InstanceKind::Virtual { .. } => {
                             debug!("virtual funccall");
-                            self.interp_virtual_call(cmap, call_stack, cur_scope, &fndef, &genargs);
+                            self.interp_virtual_call(
+                                istore, call_stack, cur_scope, &fndef, &genargs,
+                            );
                         }
                         InstanceKind::Intrinsic => {
                             debug!("intrinsic funccall");
@@ -231,7 +250,7 @@ impl<'a> InterpPass<'a> {
 
     fn interp_virtual_call(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         fndef: &FnDef,
@@ -241,7 +260,7 @@ impl<'a> InterpPass<'a> {
         // - Get trait that this function is associated with
         //   - tstore.assoc_fn_traits (Map<AssocFn, Trait>)
         // - Get concrete type constraints for trait object
-        //   - cmap / tstore.trait_structs (CHA / RTA)
+        //   - istore / tstore.trait_structs (CHA / RTA)
         // - Get every concrete type constraint's impl of this function
         //   - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
 
@@ -272,12 +291,12 @@ impl<'a> InterpPass<'a> {
         }
         debug!("assoc_fn_impls: {:?}", assoc_fn_impls);
 
-        self.simulate_static_calls(cmap, call_stack, cur_scope, assoc_fn_impls, genargs);
+        self.simulate_static_calls(istore, call_stack, cur_scope, assoc_fn_impls, genargs);
     }
 
     fn simulate_static_calls(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         assoc_fn_impls: Vec<DefId>,
@@ -290,13 +309,13 @@ impl<'a> InterpPass<'a> {
             debug!("a converted static instance: {:?}", instance);
             let mut call_stack_clone = call_stack.clone();
             call_stack_clone.push((assoc_fn_impl, instance.def));
-            self.visit_instance(cmap, &mut call_stack_clone, assoc_fn_impl, instance);
+            self.visit_instance(istore, &mut call_stack_clone, assoc_fn_impl, instance);
         }
     }
 
     fn interp_return(
         &self,
-        cmap: &mut InterpStore,
+        istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,

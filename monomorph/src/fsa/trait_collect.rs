@@ -6,9 +6,9 @@ use rustc_public::{CrateDefItems, DefId};
 
 use log::{debug, error, info, warn};
 
-pub struct FuncVal {}
+pub struct TraitVal {}
 
-pub struct FuncMap {
+pub struct TraitStore {
     // (CHA/RTA) HashMap<Trait, Vec<Struct>>
     pub trait_structs: HashMap<DefId, Vec<DefId>>,
     // HashMap<AssocFn, Trait>
@@ -17,8 +17,8 @@ pub struct FuncMap {
     pub struct_assoc_fns: HashMap<(DefId, DefId), Vec<DefId>>,
 }
 
-impl FuncMap {
-    pub fn new() -> FuncMap {
+impl TraitStore {
+    pub fn new() -> TraitStore {
         Self {
             trait_structs: HashMap::default(),
             assoc_fn_traits: HashMap::default(),
@@ -27,18 +27,18 @@ impl FuncMap {
     }
 }
 
-pub struct FuncCollectPass;
+pub struct TraitCollectPass;
 
-impl FuncCollectPass {
-    pub fn new() -> FuncCollectPass {
+impl TraitCollectPass {
+    pub fn new() -> TraitCollectPass {
         Self {}
     }
 
-    pub fn run(&self, fmap: &mut FuncMap) {
-        self.collect_metadata(fmap);
+    pub fn run(&self, tstore: &mut TraitStore) {
+        self.collect_metadata(tstore);
     }
 
-    fn collect_metadata(&self, fmap: &mut FuncMap) {
+    fn collect_metadata(&self, tstore: &mut TraitStore) {
         for impl_def in rustc_public::all_trait_impls() {
             debug!("\n###################");
 
@@ -72,18 +72,19 @@ impl FuncCollectPass {
             }
 
             // Add struct to list of structs that impl this trait
-            match fmap.trait_structs.get_mut(&trait_defid) {
+            match tstore.trait_structs.get_mut(&trait_defid) {
                 Some(struct_vec) => struct_vec.push(struct_defid),
                 None => {
-                    fmap.trait_structs.insert(trait_defid, vec![struct_defid]);
+                    tstore.trait_structs.insert(trait_defid, vec![struct_defid]);
                 }
             }
 
             // Add back pointers from associated fns to this trait
             for (_assoc_fn_impl_defid, assoc_fn_decl_defid) in &assoc_fn_defids {
-                match fmap.assoc_fn_traits.get(&assoc_fn_decl_defid) {
+                match tstore.assoc_fn_traits.get(&assoc_fn_decl_defid) {
                     None => {
-                        fmap.assoc_fn_traits
+                        tstore
+                            .assoc_fn_traits
                             .insert(*assoc_fn_decl_defid, trait_defid);
                     }
                     Some(existing_trait_defid) => {
@@ -99,7 +100,7 @@ impl FuncCollectPass {
 
             // Add assoc fn impl mapping to this (struct/assoc fn decl) pair
             for (assoc_fn_impl_defid, assoc_fn_decl_defid) in &assoc_fn_defids {
-                match fmap
+                match tstore
                     .struct_assoc_fns
                     .get_mut(&(struct_defid, *assoc_fn_decl_defid))
                 {
@@ -110,7 +111,7 @@ impl FuncCollectPass {
                         }
                     }
                     None => {
-                        fmap.struct_assoc_fns.insert(
+                        tstore.struct_assoc_fns.insert(
                             (struct_defid, *assoc_fn_decl_defid),
                             vec![*assoc_fn_impl_defid],
                         );

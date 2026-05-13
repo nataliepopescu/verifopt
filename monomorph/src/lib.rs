@@ -16,9 +16,9 @@ pub mod common;
 pub mod fsa;
 pub mod util;
 
-use crate::fsa::constraints::ConstraintMap;
-use crate::fsa::func_collect::{FuncCollectPass, FuncMap};
+use crate::fsa::constraints::InterpStore;
 use crate::fsa::interp::InterpPass;
+use crate::fsa::trait_collect::{TraitCollectPass, TraitStore};
 use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
@@ -27,15 +27,15 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
 
     // Collect function and trait metadata
     debug!("METADATA PASS");
-    let mut fmap = FuncMap::new();
-    let func_collect = FuncCollectPass::new();
-    func_collect.run(&mut fmap);
+    let mut tstore = TraitStore::new();
+    let trait_collect = TraitCollectPass::new();
+    trait_collect.run(&mut tstore);
 
     // Interpret MIR
     debug!("INTERP PASS");
-    let mut cmap = ConstraintMap::new();
-    let interp = InterpPass::new(&fmap);
-    let _ = interp.run(&mut cmap, entry_fn.0, entry_instance);
+    let mut istore = InterpStore::new();
+    let interp = InterpPass::new(&tstore);
+    let _ = interp.run(&mut istore, entry_fn.0, entry_instance);
 
     // Rewrite MIR
 

@@ -9,20 +9,20 @@ use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
 use log::debug;
 
-use crate::fsa::constraints::ConstraintMap;
-use crate::fsa::func_collect::FuncMap;
+use crate::fsa::constraints::InterpStore;
+use crate::fsa::trait_collect::TraitStore;
 use crate::fsa::wto::BBDeps;
 
 pub struct InterpPass<'a> {
-    pub fmap: &'a FuncMap,
+    pub tstore: &'a TraitStore,
 }
 
 impl<'a> InterpPass<'a> {
-    pub fn new(fmap: &'a FuncMap) -> InterpPass<'a> {
-        Self { fmap }
+    pub fn new(tstore: &'a TraitStore) -> InterpPass<'a> {
+        Self { tstore }
     }
 
-    pub fn run(&self, cmap: &mut ConstraintMap, start_scope: DefId, instance: Instance) {
+    pub fn run(&self, cmap: &mut InterpStore, start_scope: DefId, instance: Instance) {
         // Track call stack for cur_scope + debugging
         let mut call_stack = vec![(start_scope, instance.def)];
 
@@ -31,7 +31,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_instance(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance: Instance,
@@ -51,7 +51,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_body(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -95,7 +95,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_basic_block(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -130,7 +130,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_terminator(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -168,7 +168,7 @@ impl<'a> InterpPass<'a> {
 
     fn interp_direct_call(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
@@ -231,7 +231,7 @@ impl<'a> InterpPass<'a> {
 
     fn interp_virtual_call(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         fndef: &FnDef,
@@ -239,21 +239,21 @@ impl<'a> InterpPass<'a> {
     ) {
         // Steps:
         // - Get trait that this function is associated with
-        //   - fmap.assoc_fn_traits (Map<AssocFn, Trait>)
+        //   - tstore.assoc_fn_traits (Map<AssocFn, Trait>)
         // - Get concrete type constraints for trait object
-        //   - cmap / fmap.trait_structs (CHA / RTA)
+        //   - cmap / tstore.trait_structs (CHA / RTA)
         // - Get every concrete type constraint's impl of this function
-        //   - fmap.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
+        //   - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
 
         // Get trait that this function is associated with
-        let trait_defid = match self.fmap.assoc_fn_traits.get(&fndef.0) {
+        let trait_defid = match self.tstore.assoc_fn_traits.get(&fndef.0) {
             Some(trait_defid_) => trait_defid_,
             None => panic!("assoc fn {:?} does not point to trait", fndef.0),
         };
         debug!("trait_defid: {:?}", trait_defid);
 
         // Get concrete type constraints for trait object
-        let tyconstraints = match self.fmap.trait_structs.get(&trait_defid) {
+        let tyconstraints = match self.tstore.trait_structs.get(&trait_defid) {
             Some(tyconstraints_) => tyconstraints_,
             None => panic!("trait {:?} does not point to any structs", trait_defid),
         };
@@ -262,7 +262,7 @@ impl<'a> InterpPass<'a> {
         // Get every concrete type constraint's impl of this function
         let mut assoc_fn_impls = Vec::new();
         for &tyconstraint in tyconstraints {
-            match self.fmap.struct_assoc_fns.get(&(tyconstraint, fndef.0)) {
+            match self.tstore.struct_assoc_fns.get(&(tyconstraint, fndef.0)) {
                 Some(assoc_fn_impl) => assoc_fn_impls.append(&mut assoc_fn_impl.clone()),
                 None => panic!(
                     "struct/container ({:?}, {:?}) pair does not point to assoc fn",
@@ -277,7 +277,7 @@ impl<'a> InterpPass<'a> {
 
     fn simulate_static_calls(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         assoc_fn_impls: Vec<DefId>,
@@ -296,7 +296,7 @@ impl<'a> InterpPass<'a> {
 
     fn interp_return(
         &self,
-        cmap: &mut ConstraintMap,
+        cmap: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,

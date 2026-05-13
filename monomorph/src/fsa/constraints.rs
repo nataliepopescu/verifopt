@@ -5,12 +5,13 @@ use rustc_public::mir::mono::InstanceDef;
 use crate::fsa::wto::BBDeps;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct ConstraintMap {
+pub struct InterpStore {
+    //pub cmap
     pub wtos: HashMap<(DefId, InstanceDef), BBDeps>,
 }
 
-impl ConstraintMap {
-    pub fn new() -> ConstraintMap {
+impl InterpStore {
+    pub fn new() -> InterpStore {
         Self {
             wtos: HashMap::default(),
         }

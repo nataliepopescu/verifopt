@@ -3,7 +3,8 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceDef, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, Local, LocalDecl, Operand, Place, Statement, StatementKind, Terminator, TerminatorKind,
+    BasicBlock, Body, ConstOperand, Local, LocalDecl, Operand, Place, Statement, StatementKind,
+    Terminator, TerminatorKind,
 };
 use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
@@ -23,7 +24,12 @@ impl<'a> InterpPass<'a> {
         Self { tstore }
     }
 
-    pub fn run(&self, istore: &mut InterpStore, start_scope: DefId, instance: Instance) -> Result<Option<Constraints>, Error> {
+    pub fn run(
+        &self,
+        istore: &mut InterpStore,
+        start_scope: DefId,
+        instance: Instance,
+    ) -> Result<Option<Constraints>, Error> {
         // Track call stack for cur_scope + debugging
         let mut call_stack = vec![(start_scope, instance.def)];
 
@@ -120,8 +126,18 @@ impl<'a> InterpPass<'a> {
         let mut last_res = None;
 
         for (i, stmt) in data.statements.iter().enumerate() {
-            debug!("# visiting STATEMENT {:?} in BB{:?} for {:?}", i, bb, cur_scope);
-            self.visit_statement(istore, call_stack, cur_scope, instance_def, body_locals, stmt);
+            debug!(
+                "# visiting STATEMENT {:?} in BB{:?} for {:?}",
+                i, bb, cur_scope
+            );
+            self.visit_statement(
+                istore,
+                call_stack,
+                cur_scope,
+                instance_def,
+                body_locals,
+                stmt,
+            );
         }
 
         debug!("# visiting TERMINATOR in BB{:?} for {:?}", bb, cur_scope);
@@ -224,9 +240,7 @@ impl<'a> InterpPass<'a> {
                     match instance.kind {
                         InstanceKind::Item => {
                             debug!("regular static funccall");
-                            self.interp_static_call(
-                                istore, call_stack, instance, fndef,
-                            )
+                            self.interp_static_call(istore, call_stack, instance, fndef)
                         }
                         InstanceKind::Virtual { .. } => {
                             debug!("virtual funccall");
@@ -257,12 +271,7 @@ impl<'a> InterpPass<'a> {
         if instance.has_body() {
             let mut istore_clone = istore.clone();
             call_stack.push((fndef.0, instance.def));
-            self.visit_instance(
-                &mut istore_clone,
-                call_stack,
-                fndef.0,
-                instance,
-            )
+            self.visit_instance(&mut istore_clone, call_stack, fndef.0, instance)
         } else {
             debug!("no body");
             self.retty_fallback(fndef)
@@ -353,7 +362,12 @@ impl<'a> InterpPass<'a> {
             debug!("a converted static instance: {:?}", instance);
             let mut call_stack_clone = call_stack.clone();
             call_stack_clone.push((assoc_fn_impl, instance.def));
-            static_results.push(self.visit_instance(istore, &mut call_stack_clone, assoc_fn_impl, instance)?);
+            static_results.push(self.visit_instance(
+                istore,
+                &mut call_stack_clone,
+                assoc_fn_impl,
+                instance,
+            )?);
         }
 
         // FIXME merge
@@ -392,7 +406,7 @@ impl<'a> InterpPass<'a> {
                     Ok(Some(retval_constraints))
                 }
                 _ => panic!("should not be returning a scope"),
-            }
+            },
             None => {
                 // TODO Double check that nothing _needs_ to be returned (for interp correctness)
 

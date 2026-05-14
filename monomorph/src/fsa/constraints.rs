@@ -10,17 +10,17 @@ use crate::fsa::wto::BBDeps;
 use log::{debug, error};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) enum MapKey {
+pub enum MapKey {
     // FIXME maybe make this Local(Local<'tcx>) instead of Place, so don't index the map with random projections
     Place(Place),
     ScopeId(DefId),
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-pub(crate) type Constraints = HashSet<VerifoptRval>;
+pub type Constraints = HashSet<VerifoptRval>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum VarType {
+pub enum VarType {
     // TODO add scope backptr in for closures
     // (Option<DefId>, where None == top-level global scope)
     SubScope(Vec<InterpStore>),
@@ -155,7 +155,7 @@ impl InterpStore {
         //cvec.push(*old_val.clone());
         //debug!("cvec: {:?}", cvec);
 
-        let mut merged = old_val.clone();
+        let merged = old_val.clone();
         match (merged.clone(), new_val.clone()) {
             (VarType::Values(_c_merged), VarType::Values(_c_new)) => {
                 // FIXME

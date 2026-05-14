@@ -64,7 +64,7 @@ impl TraitCollectPass {
             debug!("struct_defid: {:?}", struct_defid);
 
             // Get AssocFn DefIds
-            let mut assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
+            let assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
             debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
             if assoc_fn_defids.is_empty() {
                 debug!("NO ASSOC FNS");
@@ -179,7 +179,6 @@ impl TraitCollectPass {
 
         for assoc_item in impl_def.associated_items() {
             // If this assoc_item is not a function, skip
-            let mut assoc_fn_defid = None;
             match assoc_item.kind {
                 AssocKind::Fn { name: _, has_self } => {
                     // If has_self is false, cannot be dynamically dispatched, so no need to store
@@ -187,7 +186,6 @@ impl TraitCollectPass {
                         debug!("NO SELF");
                         continue;
                     }
-                    assoc_fn_defid = Some(assoc_item.def_id.0);
                 }
                 // TODO
                 _ => {

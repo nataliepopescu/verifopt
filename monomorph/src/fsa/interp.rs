@@ -3,14 +3,14 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceDef, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, Local, LocalDecl, Operand, Place, Statement, StatementKind,
+    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Statement, StatementKind,
     Terminator, TerminatorKind,
 };
 use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
 use log::debug;
 
-use crate::fsa::constraints::{Constraints, InterpStore, MapKey, VarType, VerifoptRval};
+use crate::fsa::constraints::{Constraints, InterpStore, MapKey, VarType}; //, VerifoptRval};
 use crate::fsa::error::Error;
 use crate::fsa::trait_collect::TraitStore;
 use crate::fsa::wto::BBDeps;
@@ -123,8 +123,6 @@ impl<'a> InterpPass<'a> {
         debug!("# visiting BASICBLOCK {:?} for {:?}", bb, cur_scope);
         debug!("#############");
 
-        let mut last_res = None;
-
         for (i, stmt) in data.statements.iter().enumerate() {
             debug!(
                 "# visiting STATEMENT {:?} in BB{:?} for {:?}",
@@ -141,7 +139,7 @@ impl<'a> InterpPass<'a> {
         }
 
         debug!("# visiting TERMINATOR in BB{:?} for {:?}", bb, cur_scope);
-        last_res = self.visit_terminator(
+        let res = self.visit_terminator(
             istore,
             call_stack,
             cur_scope,
@@ -154,16 +152,16 @@ impl<'a> InterpPass<'a> {
 
         bb_deps.mark_visited(bb, cur_scope, instance_def);
 
-        Ok(last_res)
+        Ok(res)
     }
 
     fn visit_statement(
         &self,
-        istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
+        _istore: &mut InterpStore,
+        _call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
-        instance_def: InstanceDef,
-        body_locals: &[LocalDecl],
+        _instance_def: InstanceDef,
+        _body_locals: &[LocalDecl],
         stmt: &Statement,
     ) {
         match &stmt.kind {
@@ -188,7 +186,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
-        bb: usize,
+        _bb: usize,
         term: &Terminator,
     ) -> Result<Option<Constraints>, Error> {
         match &term.kind {
@@ -226,10 +224,10 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
-        instance_def: InstanceDef,
+        _instance_def: InstanceDef,
         co: &ConstOperand,
-        args: &Vec<Operand>,
-        destination: &Place,
+        _args: &Vec<Operand>,
+        _destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
         match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
@@ -350,7 +348,7 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &mut InterpStore,
         call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
+        _cur_scope: DefId,
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
     ) -> Result<Option<Constraints>, Error> {

@@ -5,7 +5,7 @@ use rustc_public::mir::Place;
 use rustc_public::mir::mono::InstanceDef;
 use rustc_public::ty::Ty;
 
-use crate::fsa::wto::BBDeps;
+use crate::wto::BBDeps;
 
 use log::{debug, error};
 

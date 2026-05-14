@@ -10,10 +10,10 @@ use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
 use log::debug;
 
-use crate::fsa::constraints::{Constraints, InterpStore, MapKey, VarType}; //, VerifoptRval};
-use crate::fsa::error::Error;
-use crate::fsa::trait_collect::TraitStore;
-use crate::fsa::wto::BBDeps;
+use crate::constraints::{Constraints, InterpStore, MapKey, VarType}; //, VerifoptRval};
+use crate::error::Error;
+use crate::trait_collect::TraitStore;
+use crate::wto::BBDeps;
 
 pub struct InterpPass<'a> {
     pub tstore: &'a TraitStore,

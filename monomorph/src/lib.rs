@@ -13,12 +13,17 @@ use log::debug;
 use std::ops::ControlFlow;
 
 pub mod common;
-pub mod fsa;
+pub mod constraints;
+pub mod error;
+pub mod interp;
+pub mod rewrite;
+pub mod trait_collect;
 pub mod util;
+pub mod wto;
 
-use crate::fsa::constraints::InterpStore;
-use crate::fsa::interp::InterpPass;
-use crate::fsa::trait_collect::{TraitCollectPass, TraitStore};
+use crate::constraints::InterpStore;
+use crate::interp::InterpPass;
+use crate::trait_collect::{TraitCollectPass, TraitStore};
 use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {

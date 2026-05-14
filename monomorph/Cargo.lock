@@ -224,6 +224,7 @@ dependencies = [
  "log",
  "rustc_tools_util",
  "serde_json",
+ "thiserror",
 ]
 
 [[package]]

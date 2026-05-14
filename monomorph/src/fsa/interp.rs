@@ -3,13 +3,14 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceDef, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Terminator, TerminatorKind,
+    BasicBlock, Body, ConstOperand, Local, LocalDecl, Operand, Place, Statement, StatementKind, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
 use log::debug;
 
-use crate::fsa::constraints::{InterpStore, MapKey, VarType};
+use crate::fsa::constraints::{Constraints, InterpStore, MapKey, VarType, VerifoptRval};
+use crate::fsa::error::Error;
 use crate::fsa::trait_collect::TraitStore;
 use crate::fsa::wto::BBDeps;
 
@@ -22,7 +23,7 @@ impl<'a> InterpPass<'a> {
         Self { tstore }
     }
 
-    pub fn run(&self, istore: &mut InterpStore, start_scope: DefId, instance: Instance) {
+    pub fn run(&self, istore: &mut InterpStore, start_scope: DefId, instance: Instance) -> Result<Option<Constraints>, Error> {
         // Track call stack for cur_scope + debugging
         let mut call_stack = vec![(start_scope, instance.def)];
 
@@ -42,7 +43,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance: Instance,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         let body = instance.body().unwrap();
         debug!("#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
@@ -53,7 +54,7 @@ impl<'a> InterpPass<'a> {
         debug!("END BODY");
         debug!("#############################");
 
-        self.visit_body(istore, call_stack, cur_scope, instance.def, &body);
+        self.visit_body(istore, call_stack, cur_scope, instance.def, &body)
     }
 
     fn visit_body(
@@ -63,7 +64,7 @@ impl<'a> InterpPass<'a> {
         cur_scope: DefId,
         instance_def: InstanceDef,
         body: &Body,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
         if let Some(mem_bb_deps) = istore.wtos.get(&(cur_scope, instance_def)) {
@@ -78,7 +79,7 @@ impl<'a> InterpPass<'a> {
         }
 
         // Loop through basic blocks in WTO
-        //let mut last_res = None;
+        let mut last_res = None;
         loop {
             if bb_deps.ordering.is_empty() {
                 break;
@@ -86,20 +87,19 @@ impl<'a> InterpPass<'a> {
             let bb = bb_deps.ordering.remove(0);
             debug!("--NEW BB: {:?}", bb);
             let data = body.blocks.get(bb).unwrap();
-            //last_res =
-            self.visit_basic_block(
+            last_res = self.visit_basic_block(
                 istore,
                 call_stack,
                 cur_scope,
                 instance_def,
                 &mut bb_deps,
-                //body.local_decls(), //.as_slice(),
+                body.locals(),
                 bb,
                 data,
-            ); //?;
+            )?;
         }
 
-        //Ok(last_res)
+        Ok(last_res)
     }
 
     fn visit_basic_block(
@@ -109,21 +109,23 @@ impl<'a> InterpPass<'a> {
         cur_scope: DefId,
         instance_def: InstanceDef,
         bb_deps: &mut BBDeps,
-        //_body_locals: &[LocalDecl],
+        body_locals: &[LocalDecl],
         bb: usize,
         data: &BasicBlock,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         debug!("#############");
         debug!("# visiting BASICBLOCK {:?} for {:?}", bb, cur_scope);
         debug!("#############");
 
-        for stmt in data.statements.iter() {
-            debug!("# visiting STATEMENT in BB{:?} for {:?}", bb, cur_scope);
-            //debug!("{:?}", stmt);
-            //self.visit_statement
+        let mut last_res = None;
+
+        for (i, stmt) in data.statements.iter().enumerate() {
+            debug!("# visiting STATEMENT {:?} in BB{:?} for {:?}", i, bb, cur_scope);
+            self.visit_statement(istore, call_stack, cur_scope, instance_def, body_locals, stmt);
         }
 
-        self.visit_terminator(
+        debug!("# visiting TERMINATOR in BB{:?} for {:?}", bb, cur_scope);
+        last_res = self.visit_terminator(
             istore,
             call_stack,
             cur_scope,
@@ -132,9 +134,36 @@ impl<'a> InterpPass<'a> {
             //body_locals,
             bb,
             &data.terminator,
-        );
+        )?;
 
         bb_deps.mark_visited(bb, cur_scope, instance_def);
+
+        Ok(last_res)
+    }
+
+    fn visit_statement(
+        &self,
+        istore: &mut InterpStore,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
+        cur_scope: DefId,
+        instance_def: InstanceDef,
+        body_locals: &[LocalDecl],
+        stmt: &Statement,
+    ) {
+        match &stmt.kind {
+            // Only interp assignments to track type constraint changes
+            StatementKind::Assign(place, rvalue) => {
+                debug!("start assignment!");
+                debug!("cur_scope: {:?}", cur_scope);
+                debug!("place: {:?}", place);
+                debug!("rval: {:?}", rvalue);
+
+                // TODO
+                // convert Rvalue to VerifoptRval
+                // add resolved constraints to istore
+            }
+            _ => {}
+        }
     }
 
     fn visit_terminator(
@@ -145,7 +174,7 @@ impl<'a> InterpPass<'a> {
         instance_def: InstanceDef,
         bb: usize,
         term: &Terminator,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         match &term.kind {
             TerminatorKind::Call {
                 func,
@@ -172,8 +201,7 @@ impl<'a> InterpPass<'a> {
             //    self.interp_switchint(istore, bb, bb_deps, cur_scope, discr, targets)
             //}
             //TerminatorKind::TailCall { .. } => todo!("impl tail calls"),
-            //_ => Ok(None),
-            _ => {}
+            _ => Ok(None),
         }
     }
 
@@ -186,7 +214,7 @@ impl<'a> InterpPass<'a> {
         co: &ConstOperand,
         args: &Vec<Operand>,
         destination: &Place,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => {
@@ -195,41 +223,53 @@ impl<'a> InterpPass<'a> {
                     debug!("--- CALLING {:?}", fndef);
                     match instance.kind {
                         InstanceKind::Item => {
-                            debug!("regular funccall");
-                            if instance.has_body() {
-                                let mut istore_clone = istore.clone();
-                                call_stack.push((fndef.0, instance.def));
-                                self.visit_instance(
-                                    &mut istore_clone,
-                                    call_stack,
-                                    fndef.0,
-                                    instance,
-                                );
-                            } else {
-                                debug!("no body");
-                                self.retty_fallback(fndef);
-                            }
+                            debug!("regular static funccall");
+                            self.interp_static_call(
+                                istore, call_stack, instance, fndef,
+                            )
                         }
                         InstanceKind::Virtual { .. } => {
                             debug!("virtual funccall");
                             self.interp_virtual_call(
                                 istore, call_stack, cur_scope, &fndef, &genargs,
-                            );
+                            )
                         }
                         InstanceKind::Intrinsic => {
                             debug!("intrinsic funccall");
-                            self.retty_fallback(fndef);
+                            self.retty_fallback(fndef)
                         }
                         InstanceKind::Shim => todo!("shim funccall"),
                     }
                 }
                 other @ _ => todo!("different RigidTy: {:?}", other),
             },
-            _ => {}
+            kind @ _ => todo!("funccall const is another kind: {:?}", kind),
         }
     }
 
-    fn retty_fallback(&self, fndef: FnDef) {
+    fn interp_static_call(
+        &self,
+        istore: &mut InterpStore,
+        call_stack: &mut Vec<(DefId, InstanceDef)>,
+        instance: Instance,
+        fndef: FnDef,
+    ) -> Result<Option<Constraints>, Error> {
+        if instance.has_body() {
+            let mut istore_clone = istore.clone();
+            call_stack.push((fndef.0, instance.def));
+            self.visit_instance(
+                &mut istore_clone,
+                call_stack,
+                fndef.0,
+                instance,
+            )
+        } else {
+            debug!("no body");
+            self.retty_fallback(fndef)
+        }
+    }
+
+    fn retty_fallback(&self, fndef: FnDef) -> Result<Option<Constraints>, Error> {
         let sig = fndef.fn_sig();
         debug!("fn_sig: {:?}", sig);
 
@@ -246,6 +286,9 @@ impl<'a> InterpPass<'a> {
         }
 
         debug!("output: {:?}", sig.value.output());
+
+        // FIXME how to return constraints?
+        Ok(None)
     }
 
     fn interp_virtual_call(
@@ -255,7 +298,7 @@ impl<'a> InterpPass<'a> {
         cur_scope: DefId,
         fndef: &FnDef,
         genargs: &GenericArgs,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         // Steps:
         // - Get trait that this function is associated with
         //   - tstore.assoc_fn_traits (Map<AssocFn, Trait>)
@@ -291,7 +334,7 @@ impl<'a> InterpPass<'a> {
         }
         debug!("assoc_fn_impls: {:?}", assoc_fn_impls);
 
-        self.simulate_static_calls(istore, call_stack, cur_scope, assoc_fn_impls, genargs);
+        self.simulate_static_calls(istore, call_stack, cur_scope, assoc_fn_impls, genargs)
     }
 
     fn simulate_static_calls(
@@ -301,7 +344,8 @@ impl<'a> InterpPass<'a> {
         cur_scope: DefId,
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
+        let mut static_results = Vec::<Option<Constraints>>::new();
         for assoc_fn_impl in assoc_fn_impls {
             let fndef = FnDef(assoc_fn_impl);
             let instance = Instance::resolve(fndef, &genargs).unwrap();
@@ -309,8 +353,11 @@ impl<'a> InterpPass<'a> {
             debug!("a converted static instance: {:?}", instance);
             let mut call_stack_clone = call_stack.clone();
             call_stack_clone.push((assoc_fn_impl, instance.def));
-            self.visit_instance(istore, &mut call_stack_clone, assoc_fn_impl, instance);
+            static_results.push(self.visit_instance(istore, &mut call_stack_clone, assoc_fn_impl, instance)?);
         }
+
+        // FIXME merge
+        Ok(static_results[0].clone())
     }
 
     fn interp_return(
@@ -319,7 +366,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<(DefId, InstanceDef)>,
         cur_scope: DefId,
         instance_def: InstanceDef,
-    ) {
+    ) -> Result<Option<Constraints>, Error> {
         debug!(
             "RETURNING from scope {:?} (instance def {:?})...",
             cur_scope, instance_def
@@ -331,6 +378,26 @@ impl<'a> InterpPass<'a> {
         }
         debug!("callstack POST POP: {:?}", call_stack);
 
-        // TODO return actual val
+        // Get and "return" the constraints at Place(0)
+        match istore.scoped_get(
+            Some(cur_scope),
+            &MapKey::Place(Place {
+                local: 0,
+                projection: Vec::new(),
+            }),
+        ) {
+            Some(retval) => match retval {
+                VarType::Values(retval_constraints) => {
+                    debug!("returning constraints: {:?}", retval_constraints);
+                    Ok(Some(retval_constraints))
+                }
+                _ => panic!("should not be returning a scope"),
+            }
+            None => {
+                // TODO Double check that nothing _needs_ to be returned (for interp correctness)
+
+                Ok(None)
+            }
+        }
     }
 }

@@ -101,7 +101,7 @@ impl InterpStore {
         }
     }
 
-    pub fn scoped_add(&mut self, scope: Option<DefId>, key: MapKey, value: Box<VarType>) {
+    pub fn scoped_update(&mut self, scope: Option<DefId>, key: MapKey, value: Box<VarType>) {
         if scope.is_none() {
             if self.cmap.contains_key(&key) {
                 // FIXME MIR is not SSA

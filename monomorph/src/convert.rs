@@ -1,9 +1,9 @@
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::mir::{Operand, Place, Rvalue};
 
-use crate::trait_collect::TraitStore;
-use crate::constraints::{Constraints, MapKey, MapValue, ScopeId};
 use crate::InterpStore;
+use crate::constraints::{Constraints, MapKey, MapValue, ScopeId};
+use crate::trait_collect::TraitStore;
 
 use log::debug;
 
@@ -28,7 +28,7 @@ impl<'a> RvalConverter<'a> {
                 debug!("USE");
                 debug!("op: {:?}", op);
                 self.convert_op(istore, cur_scope, op)
-            },
+            }
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
@@ -43,22 +43,24 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn convert_place(&self, istore: &InterpStore, cur_scope: ScopeId, place: &Place) -> Constraints {
+    fn convert_place(
+        &self,
+        istore: &InterpStore,
+        cur_scope: ScopeId,
+        place: &Place,
+    ) -> Constraints {
         debug!("CONVERTING PLACE");
         if !place.projection.is_empty() {
             self.convert_projection(place);
         }
 
-        match istore.scoped_get(
-            cur_scope,
-            &MapKey::Place(place.clone()),
-        ) {
+        match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     return constraints;
                 }
                 _ => panic!("value should not be a scope"),
-            }
+            },
             None => todo!("place has not been set, use backup type"),
         }
     }

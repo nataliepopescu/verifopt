@@ -23,7 +23,10 @@ pub struct InterpPass<'a> {
 
 impl<'a> InterpPass<'a> {
     pub fn new(tstore: &'a TraitStore) -> InterpPass<'a> {
-        Self { tstore, converter: RvalConverter::new(tstore) }
+        Self {
+            tstore,
+            converter: RvalConverter::new(tstore),
+        }
     }
 
     pub fn run(
@@ -78,9 +81,7 @@ impl<'a> InterpPass<'a> {
             debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
-            istore
-                .wtos
-                .insert(cur_scope, bb_deps.clone());
+            istore.wtos.insert(cur_scope, bb_deps.clone());
             debug!("NEW ordering: {:?}", bb_deps.ordering);
         }
 
@@ -126,13 +127,7 @@ impl<'a> InterpPass<'a> {
                 "# visiting STATEMENT {:?} in BB{:?} for {:?}",
                 i, bb, cur_scope
             );
-            self.visit_statement(
-                istore,
-                call_stack,
-                cur_scope,
-                body_locals,
-                stmt,
-            );
+            self.visit_statement(istore, call_stack, cur_scope, body_locals, stmt);
         }
 
         debug!("# visiting TERMINATOR in BB{:?} for {:?}", bb, cur_scope);
@@ -208,9 +203,7 @@ impl<'a> InterpPass<'a> {
                 ),
                 _ => todo!("handle indirect function invocations"),
             },
-            TerminatorKind::Return => {
-                self.interp_return(istore, call_stack, cur_scope)
-            }
+            TerminatorKind::Return => self.interp_return(istore, call_stack, cur_scope),
             //TerminatorKind::SwitchInt { discr, targets } => {
             //    self.interp_switchint(istore, bb, bb_deps, cur_scope, discr, targets)
             //}
@@ -379,10 +372,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
     ) -> Result<Option<Constraints>, Error> {
-        debug!(
-            "RETURNING from scope {:?}...",
-            cur_scope
-        );
+        debug!("RETURNING from scope {:?}...", cur_scope);
         //debug!("callstack PRE POP: {:?}", call_stack);
         let popped = call_stack.pop();
         if popped.unwrap() != cur_scope {

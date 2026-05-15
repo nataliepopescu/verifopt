@@ -140,10 +140,8 @@ impl InterpStore {
 
                     // modify scope w new key/val
                     substore.insert(key, new_val);
-                    self.cmap.insert(
-                        MapKey::ScopeId(scope),
-                        Box::new(MapValue::Scope(substores)),
-                    );
+                    self.cmap
+                        .insert(MapKey::ScopeId(scope), Box::new(MapValue::Scope(substores)));
                 }
                 MapValue::Constraints(..) => {
                     panic!("defid is not a scope: {:?}", scope);

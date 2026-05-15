@@ -10,18 +10,20 @@ use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
 
 use log::debug;
 
-use crate::constraints::{Constraints, InterpStore, MapKey, VarType}; //, VerifoptRval};
+use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, ScopeId}; //, VerifoptRval};
+use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 
 pub struct InterpPass<'a> {
     pub tstore: &'a TraitStore,
+    pub converter: RvalConverter<'a>,
 }
 
 impl<'a> InterpPass<'a> {
     pub fn new(tstore: &'a TraitStore) -> InterpPass<'a> {
-        Self { tstore }
+        Self { tstore, converter: RvalConverter::new(tstore) }
     }
 
     pub fn run(
@@ -30,57 +32,55 @@ impl<'a> InterpPass<'a> {
         start_scope: DefId,
         instance: Instance,
     ) -> Result<Option<Constraints>, Error> {
-        // Track call stack for cur_scope + debugging
-        let mut call_stack = vec![(start_scope, instance.def)];
+        let scope_id = (start_scope, instance.def);
+        let mut call_stack = vec![scope_id];
 
         // Initialize InterpStore with entry_fn's substore
         let entry_fn_istore = InterpStore::new();
         istore.cmap.insert(
-            MapKey::ScopeId(start_scope),
-            Box::new(VarType::SubScope(vec![entry_fn_istore])),
+            MapKey::ScopeId(scope_id),
+            Box::new(MapValue::Scope(vec![entry_fn_istore])),
         );
 
-        self.visit_instance(istore, &mut call_stack, start_scope, instance)
+        self.visit_instance(istore, &mut call_stack, scope_id, instance)
     }
 
     fn visit_instance(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
+        call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
         instance: Instance,
     ) -> Result<Option<Constraints>, Error> {
         let body = instance.body().unwrap();
         debug!("#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
-        debug!("full call_stack: {:?}", call_stack);
-        debug!("instance def: {:?}", instance.def);
+        debug!("full call_stack: {:#?}", call_stack);
         debug!("START BODY");
         debug!("{:#?}", body);
         debug!("END BODY");
         debug!("#############################");
 
-        self.visit_body(istore, call_stack, cur_scope, instance.def, &body)
+        self.visit_body(istore, call_stack, cur_scope, &body)
     }
 
     fn visit_body(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
-        instance_def: InstanceDef,
+        call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
         body: &Body,
     ) -> Result<Option<Constraints>, Error> {
         // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
-        if let Some(mem_bb_deps) = istore.wtos.get(&(cur_scope, instance_def)) {
+        if let Some(mem_bb_deps) = istore.wtos.get(&cur_scope) {
             bb_deps = mem_bb_deps.clone();
             debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
             istore
                 .wtos
-                .insert((cur_scope, instance_def), bb_deps.clone());
+                .insert(cur_scope, bb_deps.clone());
             debug!("NEW ordering: {:?}", bb_deps.ordering);
         }
 
@@ -97,7 +97,6 @@ impl<'a> InterpPass<'a> {
                 istore,
                 call_stack,
                 cur_scope,
-                instance_def,
                 &mut bb_deps,
                 body.locals(),
                 bb,
@@ -111,9 +110,8 @@ impl<'a> InterpPass<'a> {
     fn visit_basic_block(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
-        instance_def: InstanceDef,
+        call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
         bb_deps: &mut BBDeps,
         body_locals: &[LocalDecl],
         bb: usize,
@@ -132,7 +130,6 @@ impl<'a> InterpPass<'a> {
                 istore,
                 call_stack,
                 cur_scope,
-                instance_def,
                 body_locals,
                 stmt,
             );
@@ -143,24 +140,22 @@ impl<'a> InterpPass<'a> {
             istore,
             call_stack,
             cur_scope,
-            instance_def,
             //bb_deps,
             //body_locals,
             bb,
             &data.terminator,
         )?;
 
-        bb_deps.mark_visited(bb, cur_scope, instance_def);
+        bb_deps.mark_visited(bb, cur_scope);
 
         Ok(res)
     }
 
     fn visit_statement(
         &self,
-        _istore: &mut InterpStore,
-        _call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
-        _instance_def: InstanceDef,
+        istore: &mut InterpStore,
+        _call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
         _body_locals: &[LocalDecl],
         stmt: &Statement,
     ) {
@@ -172,9 +167,16 @@ impl<'a> InterpPass<'a> {
                 debug!("place: {:?}", place);
                 debug!("rval: {:?}", rvalue);
 
-                // TODO
                 // convert Rvalue to VerifoptRval
+                let constraints = self.converter.convert(istore, cur_scope, rvalue);
+                debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
+
                 // add resolved constraints to istore
+                istore.scoped_update(
+                    cur_scope,
+                    MapKey::Place(place.clone()),
+                    Box::new(MapValue::Constraints(constraints)),
+                );
             }
             _ => {}
         }
@@ -183,9 +185,8 @@ impl<'a> InterpPass<'a> {
     fn visit_terminator(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
-        instance_def: InstanceDef,
+        call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
         _bb: usize,
         term: &Terminator,
     ) -> Result<Option<Constraints>, Error> {
@@ -200,7 +201,6 @@ impl<'a> InterpPass<'a> {
                     istore,
                     call_stack,
                     cur_scope,
-                    instance_def,
                     //body_locals,
                     co,
                     args,
@@ -209,7 +209,7 @@ impl<'a> InterpPass<'a> {
                 _ => todo!("handle indirect function invocations"),
             },
             TerminatorKind::Return => {
-                self.interp_return(istore, call_stack, cur_scope, instance_def)
+                self.interp_return(istore, call_stack, cur_scope)
             }
             //TerminatorKind::SwitchInt { discr, targets } => {
             //    self.interp_switchint(istore, bb, bb_deps, cur_scope, discr, targets)
@@ -222,9 +222,8 @@ impl<'a> InterpPass<'a> {
     fn interp_direct_call(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
-        _instance_def: InstanceDef,
+        call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
         co: &ConstOperand,
         _args: &Vec<Operand>,
         _destination: &Place,
@@ -268,8 +267,9 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         if instance.has_body() {
             let mut istore_clone = istore.clone();
-            call_stack.push((fndef.0, instance.def));
-            self.visit_instance(&mut istore_clone, call_stack, fndef.0, instance)
+            let scope_id = (fndef.0, instance.def);
+            call_stack.push(scope_id);
+            self.visit_instance(&mut istore_clone, call_stack, scope_id, instance)
         } else {
             debug!("no body");
             self.retty_fallback(fndef)
@@ -301,8 +301,8 @@ impl<'a> InterpPass<'a> {
     fn interp_virtual_call(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
+        call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
         fndef: &FnDef,
         genargs: &GenericArgs,
     ) -> Result<Option<Constraints>, Error> {
@@ -347,8 +347,8 @@ impl<'a> InterpPass<'a> {
     fn simulate_static_calls(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        _cur_scope: DefId,
+        call_stack: &mut Vec<ScopeId>,
+        _cur_scope: ScopeId,
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
     ) -> Result<Option<Constraints>, Error> {
@@ -359,11 +359,12 @@ impl<'a> InterpPass<'a> {
             debug!("instance def: {:?}", instance.def);
             debug!("a converted static instance: {:?}", instance);
             let mut call_stack_clone = call_stack.clone();
-            call_stack_clone.push((assoc_fn_impl, instance.def));
+            let scope_id = (assoc_fn_impl, instance.def);
+            call_stack_clone.push(scope_id);
             static_results.push(self.visit_instance(
                 istore,
                 &mut call_stack_clone,
-                assoc_fn_impl,
+                scope_id,
                 instance,
             )?);
         }
@@ -375,31 +376,30 @@ impl<'a> InterpPass<'a> {
     fn interp_return(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
-        cur_scope: DefId,
-        instance_def: InstanceDef,
+        call_stack: &mut Vec<ScopeId>,
+        cur_scope: ScopeId,
     ) -> Result<Option<Constraints>, Error> {
         debug!(
-            "RETURNING from scope {:?} (instance def {:?})...",
-            cur_scope, instance_def
+            "RETURNING from scope {:?}...",
+            cur_scope
         );
-        debug!("callstack PRE POP: {:?}", call_stack);
+        //debug!("callstack PRE POP: {:?}", call_stack);
         let popped = call_stack.pop();
-        if popped.unwrap() != (cur_scope, instance_def) {
+        if popped.unwrap() != cur_scope {
             panic!("call stack out of sorts");
         }
-        debug!("callstack POST POP: {:?}", call_stack);
+        //debug!("callstack POST POP: {:?}", call_stack);
 
         // Get and "return" the constraints at Place(0)
         match istore.scoped_get(
-            Some(cur_scope),
+            cur_scope,
             &MapKey::Place(Place {
                 local: 0,
                 projection: Vec::new(),
             }),
         ) {
             Some(retval) => match retval {
-                VarType::Values(retval_constraints) => {
+                MapValue::Constraints(retval_constraints) => {
                     debug!("returning constraints: {:?}", retval_constraints);
                     Ok(Some(retval_constraints))
                 }

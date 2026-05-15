@@ -7,24 +7,26 @@ use rustc_public::ty::Ty;
 
 use crate::wto::BBDeps;
 
-use log::{debug, error};
+use log::debug;
+
+pub type ScopeId = (DefId, InstanceDef);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
     // FIXME maybe make this Local(Local<'tcx>) instead of Place, so don't index the map with random projections
     Place(Place),
-    ScopeId(DefId),
+    ScopeId(ScopeId),
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
 pub type Constraints = HashSet<VerifoptRval>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum VarType {
+pub enum MapValue {
     // TODO add scope backptr in for closures
     // (Option<DefId>, where None == top-level global scope)
-    SubScope(Vec<InterpStore>),
-    Values(Constraints),
+    Scope(Vec<InterpStore>),
+    Constraints(Constraints),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -46,8 +48,8 @@ pub enum VerifoptRval {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterpStore {
-    pub cmap: HashMap<MapKey, Box<VarType>>,
-    pub wtos: HashMap<(DefId, InstanceDef), BBDeps>,
+    pub cmap: HashMap<MapKey, Box<MapValue>>,
+    pub wtos: HashMap<ScopeId, BBDeps>,
 }
 
 impl InterpStore {
@@ -60,20 +62,25 @@ impl InterpStore {
 
     pub fn scoped_get(
         &self,
-        scope: Option<DefId>,
+        scope: ScopeId,
         key: &MapKey,
         //traverse_backptr: bool,
-    ) -> Option<VarType> {
-        if scope.is_none() {
-            match self.cmap.get(key) {
-                Some(boxed) => return Some(*boxed.clone()),
-                None => return None,
-            }
-        }
+    ) -> Option<MapValue> {
+        debug!("IN SCOPED_GET");
+        debug!("scope: {:?}", scope);
+        debug!("key: {:?}", key);
+        debug!("cmap: {:#?}", self.cmap);
 
-        match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
+        //if scope.is_none() {
+        //    match self.cmap.get(key) {
+        //        Some(boxed) => return Some(*boxed.clone()),
+        //        None => return None,
+        //    }
+        //}
+
+        match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                VarType::SubScope(substores) => {
+                MapValue::Scope(substores) => {
                     if substores.len() != 1 {
                         todo!(
                             "not impl yet (vec of substores w len = {:?})",
@@ -95,26 +102,26 @@ impl InterpStore {
                         //}
                     }
                 }
-                _ => panic!("not a scope: {:?}", scope.unwrap()),
+                _ => panic!("not a scope: {:?}", scope),
             },
-            None => panic!("undefined scope: {:?}", scope.unwrap()),
+            None => panic!("undefined scope: {:?}", scope),
         }
     }
 
-    pub fn scoped_update(&mut self, scope: Option<DefId>, key: MapKey, value: Box<VarType>) {
-        if scope.is_none() {
-            if self.cmap.contains_key(&key) {
-                // FIXME MIR is not SSA
-                error!("symbol already exists: {:?}", key);
-            }
+    pub fn scoped_update(&mut self, scope: ScopeId, key: MapKey, value: Box<MapValue>) {
+        //if scope.is_none() {
+        //    if self.cmap.contains_key(&key) {
+        //        // FIXME MIR is not SSA
+        //        error!("symbol already exists: {:?}", key);
+        //    }
 
-            self.cmap.insert(key, value.clone());
-            return;
-        }
+        //    self.cmap.insert(key, value.clone());
+        //    return;
+        //}
 
-        match self.cmap.get(&MapKey::ScopeId(scope.unwrap())) {
+        match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                VarType::SubScope(mut substores) => {
+                MapValue::Scope(mut substores) => {
                     if substores.len() != 1 {
                         todo!(
                             "not impl yet (vec of substores w len = {:?})",
@@ -134,19 +141,19 @@ impl InterpStore {
                     // modify scope w new key/val
                     substore.insert(key, new_val);
                     self.cmap.insert(
-                        MapKey::ScopeId(scope.unwrap()),
-                        Box::new(VarType::SubScope(substores)),
+                        MapKey::ScopeId(scope),
+                        Box::new(MapValue::Scope(substores)),
                     );
                 }
-                VarType::Values(..) => {
-                    panic!("defid is not a scope: {:?}", scope.unwrap());
+                MapValue::Constraints(..) => {
+                    panic!("defid is not a scope: {:?}", scope);
                 }
             },
-            None => panic!("undefined scope: {:?}", scope.unwrap()),
+            None => panic!("undefined scope: {:?}", scope),
         }
     }
 
-    fn merge_vals(&mut self, old_val: VarType, new_val: VarType) -> VarType {
+    fn merge_vals(&mut self, old_val: MapValue, new_val: MapValue) -> MapValue {
         debug!("old val: {:?}", old_val);
         debug!("new val: {:?}", new_val);
 
@@ -157,7 +164,7 @@ impl InterpStore {
 
         let merged = old_val.clone();
         match (merged.clone(), new_val.clone()) {
-            (VarType::Values(_c_merged), VarType::Values(_c_new)) => {
+            (MapValue::Constraints(_c_merged), MapValue::Constraints(_c_new)) => {
                 // FIXME
                 //if c_merged !=
             }
@@ -173,7 +180,7 @@ impl InterpStore {
                 subscope_cmap.insert(key, Box::new(new_val));
                 self.cmap.insert(
                     MapKey::ScopeId(scope.unwrap()),
-                    Box::new(VarType::SubScope(substores)),
+                    Box::new(MapValue::Scope(substores)),
                 );
             }
             _ => todo!("not impl yet"),

@@ -14,6 +14,7 @@ use std::ops::ControlFlow;
 
 pub mod common;
 pub mod constraints;
+pub mod convert;
 pub mod error;
 pub mod interp;
 pub mod rewrite;

@@ -114,7 +114,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
         bb_deps: &mut BBDeps,
-        body_locals: &[LocalDecl],
+        local_decls: &[LocalDecl],
         bb: usize,
         data: &BasicBlock,
     ) -> Result<Option<Constraints>, Error> {
@@ -127,7 +127,7 @@ impl<'a> InterpPass<'a> {
                 "# visiting STATEMENT {:?} in BB{:?} for {:?}",
                 i, bb, cur_scope
             );
-            self.visit_statement(istore, call_stack, cur_scope, body_locals, stmt);
+            self.visit_statement(istore, call_stack, cur_scope, local_decls, stmt);
         }
 
         debug!("# visiting TERMINATOR in BB{:?} for {:?}", bb, cur_scope);
@@ -136,7 +136,7 @@ impl<'a> InterpPass<'a> {
             call_stack,
             cur_scope,
             //bb_deps,
-            //body_locals,
+            //local_decls,
             bb,
             &data.terminator,
         )?;
@@ -151,7 +151,7 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         _call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
-        _body_locals: &[LocalDecl],
+        local_decls: &[LocalDecl],
         stmt: &Statement,
     ) {
         match &stmt.kind {
@@ -163,7 +163,7 @@ impl<'a> InterpPass<'a> {
                 debug!("rval: {:?}", rvalue);
 
                 // convert Rvalue to VerifoptRval
-                let constraints = self.converter.convert(istore, cur_scope, rvalue);
+                let constraints = self.converter.convert(istore, cur_scope, local_decls, rvalue);
                 debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
 
                 // add resolved constraints to istore
@@ -196,7 +196,7 @@ impl<'a> InterpPass<'a> {
                     istore,
                     call_stack,
                     cur_scope,
-                    //body_locals,
+                    //local_decls,
                     co,
                     args,
                     destination,

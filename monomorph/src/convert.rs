@@ -1,8 +1,10 @@
-//use rustc_data_structures::fx::FxHashSet as HashSet;
-use rustc_public::mir::{Operand, Place, Rvalue};
+use rustc_data_structures::fx::FxHashSet as HashSet;
+use rustc_public::mir::{AggregateKind, CastKind, LocalDecl, Operand, Place, ProjectionElem, Rvalue};
+use rustc_public::ty::{GenericArgKind, Ty};
+use rustc_public::DefId;
 
 use crate::InterpStore;
-use crate::constraints::{Constraints, MapKey, MapValue, ScopeId};
+use crate::constraints::{Constraints, MapKey, MapValue, ScopeId, VerifoptRval};
 use crate::trait_collect::TraitStore;
 
 use log::debug;
@@ -20,6 +22,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
         to_convert: &Rvalue,
     ) -> Constraints {
         debug!("CONVERTING RVALUE");
@@ -27,19 +30,46 @@ impl<'a> RvalConverter<'a> {
             Rvalue::Use(op) => {
                 debug!("USE");
                 debug!("op: {:?}", op);
-                self.convert_op(istore, cur_scope, op)
+                self.convert_op(istore, cur_scope, local_decls, op)
+            }
+            Rvalue::Ref(_region, _borrow_kind, place) => {
+                debug!("REF");
+                let inner = self.convert_place(istore, cur_scope, local_decls, place);
+                self.wrap_in_ref(inner)
+            }
+            Rvalue::Discriminant(place) => {
+                debug!("DISCRIMINANT");
+                self.convert_place(istore, cur_scope, local_decls, place)
+            }
+            Rvalue::CopyForDeref(place) => {
+                debug!("COPY FOR DEREF");
+                self.convert_place(istore, cur_scope, local_decls, place)
+            }
+            Rvalue::Cast(kind, op, ty) => {
+                debug!("CAST");
+                self.convert_cast(istore, cur_scope, kind, op, ty)
+            }
+            Rvalue::Aggregate(kind, fields) => {
+                debug!("AGGREGATE");
+                self.convert_agg(istore, cur_scope, local_decls, kind, fields)
             }
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
 
-    fn convert_op(&self, istore: &InterpStore, cur_scope: ScopeId, op: &Operand) -> Constraints {
+    fn convert_op(&self, istore: &InterpStore, cur_scope: ScopeId, local_decls: &[LocalDecl], op: &Operand) -> Constraints {
         debug!("CONVERTING OP");
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                self.convert_place(istore, cur_scope, place)
+                self.convert_place(istore, cur_scope, local_decls, place)
             }
-            _ => todo!("other op: {:?}", op),
+            Operand::Constant(const_op) => {
+                debug!("const_op: {:#?}", const_op.const_);
+                let mut constraints = HashSet::default();
+                constraints.insert(VerifoptRval::IdkType(const_op.const_.ty()));
+                constraints
+            }
+            _ => todo!("runtime checks"),
         }
     }
 
@@ -47,12 +77,23 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
         place: &Place,
     ) -> Constraints {
         debug!("CONVERTING PLACE");
+
+        // If projection exists, process + return (FIXME this is incomplete)
         if !place.projection.is_empty() {
-            self.convert_projection(place);
+            if let Some(constraints) = self.convert_projection(local_decls, place) {
+                return constraints;
+            }
         }
+
+        let clean_place = Place {
+            local: place.local,
+            projection: Vec::new(),
+        };
+        debug!("clean_place: {:?}", clean_place);
 
         match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
             Some(val) => match val {
@@ -65,7 +106,157 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn convert_projection(&self, _place: &Place) {
-        todo!("handle projections");
+    fn convert_projection(&self, local_decls: &[LocalDecl], place: &Place) -> Option<Constraints> {
+        let mut constraints = HashSet::default();
+
+        if place.projection.len() > 1 {
+            let backup_ty = local_decls[place.local].ty;
+            debug!("multiple projections, using backup_ty: {:?}", backup_ty);
+            constraints.insert(VerifoptRval::IdkType(backup_ty));
+        } else {
+            match place.projection[0] {
+                // FIXME essentially ignoring the deref here
+                ProjectionElem::Deref => return None,
+                ProjectionElem::Field(field_idx, ty) => {
+                    debug!("field_idx: {:?}", field_idx);
+                    debug!("ty: {:?}", ty);
+                    // FIXME
+                    constraints.insert(VerifoptRval::IdkType(ty));
+                }
+                _ => {
+                    constraints.insert(VerifoptRval::Idk());
+                }
+            }
+        }
+
+        Some(constraints)
+    }
+
+    fn wrap_in_ref(&self, inner: Constraints) -> Constraints {
+        let mut outer = HashSet::default();
+        for constraint in inner.clone().drain() {
+            outer.insert(VerifoptRval::Ref(Box::new(constraint)));
+        }
+        outer
+    }
+
+    fn convert_cast(
+        &self,
+        istore: &InterpStore,
+        cur_scope: ScopeId,
+        kind: &CastKind,
+        op: &Operand,
+        ty: &Ty,
+    ) -> Constraints {
+        debug!("kind: {:?}", kind);
+        debug!("op: {:?}", op);
+        debug!("ty: {:?}", ty);
+
+        let mut constraints = HashSet::default();
+        match op {
+            Operand::Constant(const_op) => {
+                constraints.insert(VerifoptRval::IdkType(const_op.const_.ty()));
+            }
+            Operand::Copy(place) | Operand::Move(place) => {
+                match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
+                    Some(val) => match val {
+                        MapValue::Constraints(constraints_) => {
+                            for constraint in constraints_.iter() {
+                                constraints.insert(self.resolve_cast(kind, ty, constraint));
+                            }
+                        }
+                        _ => panic!("trying to cast a scope"),
+                    }
+                    None => panic!("no value to cast"),
+                }
+            }
+            _ => todo!("runtime checks"),
+        }
+
+        constraints
+    }
+
+    fn resolve_cast(
+        &self,
+        kind: &CastKind,
+        dst_ty: &Ty,
+        constraint: &VerifoptRval,
+    ) -> VerifoptRval {
+        match constraint {
+            VerifoptRval::IdkStruct(_defid, _) => constraint.clone(),
+            VerifoptRval::IdkStr() | VerifoptRval::IdkType(_) | VerifoptRval::Idk() => {
+                VerifoptRval::IdkType(*dst_ty)
+            }
+            VerifoptRval::Ptr(inner) => {
+                VerifoptRval::Ptr(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
+            }
+            VerifoptRval::Ref(inner) => {
+                VerifoptRval::Ref(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
+            }
+            VerifoptRval::Scalar(_) => match kind {
+                CastKind::IntToInt
+                | CastKind::FloatToInt
+                | CastKind::FloatToFloat
+                | CastKind::IntToFloat
+                | CastKind::PtrToPtr
+                | CastKind::PointerCoercion(_) => constraint.clone(),
+                _ => todo!("cannot yet cast (scalar): {:?} ({:?})", constraint, kind),
+            },
+            _ => todo!("cannot yet cast: {:?}", constraint),
+        }
+    }
+
+    fn convert_agg(
+        &self,
+        istore: &InterpStore,
+        cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
+        kind: &AggregateKind,
+        fields: &Vec<Operand>,
+    ) -> Constraints {
+        let mut constraints = HashSet::default();
+
+        match kind {
+            AggregateKind::Adt(def, variant_idx, genargs, _, _) => {
+                if genargs.0.is_empty() {
+                    // FIXME DefId -> ScopeId/VerifoptId?
+                    constraints.insert(VerifoptRval::IdkStruct(def.0, None));
+                } else {
+                    debug!("defid: {:?}", def.0);
+                    debug!("genargs: {:?}", genargs);
+
+                    let resolved_genargs = Vec::new();
+                    for genarg in &genargs.0 {
+                        match genarg {
+                            GenericArgKind::Type(ty) => self.resolve_genarg_ty(istore, cur_scope, def.0, ty),
+                            _ => {}
+                        }
+                    }
+
+                    let resolved_genargs = match resolved_genargs.len() {
+                        0 => None,
+                        _ => Some(resolved_genargs),
+                    };
+
+                    constraints.insert(VerifoptRval::IdkStruct(def.0, resolved_genargs));
+                }
+            }
+            _ => todo!("other agg kind: {:?}", kind),
+        }
+
+        constraints
+    }
+
+    fn resolve_genarg_ty(
+        &self,
+        istore: &InterpStore,
+        cur_scope: ScopeId,
+        defid: DefId,
+        genarg_ty: &Ty,
+    ) {
+        debug!("genarg_ty.kind(): {:?}", genarg_ty.kind());
+        //match genarg_ty.kind() {
+        //    TyKind::RigitTy(_) => 
+        //}
     }
 }

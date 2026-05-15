@@ -42,7 +42,7 @@ impl<'a> InterpPass<'a> {
         let entry_fn_istore = InterpStore::new();
         istore.cmap.insert(
             MapKey::ScopeId(scope_id),
-            Box::new(MapValue::Scope(vec![entry_fn_istore])),
+            Box::new(MapValue::Store(vec![entry_fn_istore])),
         );
 
         self.visit_instance(istore, &mut call_stack, scope_id, instance)

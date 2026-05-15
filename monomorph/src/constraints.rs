@@ -25,7 +25,7 @@ pub type Constraints = HashSet<VerifoptRval>;
 pub enum MapValue {
     // TODO add scope backptr in for closures
     // (Option<DefId>, where None == top-level global scope)
-    Scope(Vec<InterpStore>),
+    Store(Vec<InterpStore>),
     Constraints(Constraints),
 }
 
@@ -80,7 +80,7 @@ impl InterpStore {
 
         match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                MapValue::Scope(substores) => {
+                MapValue::Store(substores) => {
                     if substores.len() != 1 {
                         todo!(
                             "not impl yet (vec of substores w len = {:?})",
@@ -121,7 +121,7 @@ impl InterpStore {
 
         match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                MapValue::Scope(mut substores) => {
+                MapValue::Store(mut substores) => {
                     if substores.len() != 1 {
                         todo!(
                             "not impl yet (vec of substores w len = {:?})",
@@ -141,7 +141,7 @@ impl InterpStore {
                     // modify scope w new key/val
                     substore.insert(key, new_val);
                     self.cmap
-                        .insert(MapKey::ScopeId(scope), Box::new(MapValue::Scope(substores)));
+                        .insert(MapKey::ScopeId(scope), Box::new(MapValue::Store(substores)));
                 }
                 MapValue::Constraints(..) => {
                     panic!("defid is not a scope: {:?}", scope);
@@ -178,7 +178,7 @@ impl InterpStore {
                 subscope_cmap.insert(key, Box::new(new_val));
                 self.cmap.insert(
                     MapKey::ScopeId(scope.unwrap()),
-                    Box::new(MapValue::Scope(substores)),
+                    Box::new(MapValue::Store(substores)),
                 );
             }
             _ => todo!("not impl yet"),

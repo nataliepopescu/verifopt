@@ -61,7 +61,7 @@ impl<'a> RvalConverter<'a> {
                 }
                 _ => panic!("value should not be a scope"),
             },
-            None => todo!("place has not been set, use backup type"),
+            None => todo!("place {:?} has not been set, use backup type", place),
         }
     }
 

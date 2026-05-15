@@ -1,16 +1,16 @@
-//use rustc_data_structures::fx::FxHashSet as HashSet;
+use rustc_data_structures::fx::FxHashSet as HashSet;
 
 use rustc_public::DefId;
-use rustc_public::mir::mono::{Instance, InstanceDef, InstanceKind};
+use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
     BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Statement, StatementKind,
     Terminator, TerminatorKind,
 };
-use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, RigidTy, TyKind};
+use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, PolyFnSig, RigidTy, TyKind};
 
 use log::debug;
 
-use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, ScopeId}; //, VerifoptRval};
+use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, ScopeId, VerifoptRval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::trait_collect::TraitStore;
@@ -32,20 +32,20 @@ impl<'a> InterpPass<'a> {
     pub fn run(
         &self,
         istore: &mut InterpStore,
-        start_scope: DefId,
+        start_defid: DefId,
         instance: Instance,
     ) -> Result<Option<Constraints>, Error> {
-        let scope_id = (start_scope, instance.def);
-        let mut call_stack = vec![scope_id];
+        let start_scope = (start_defid, instance.def);
+        let mut call_stack = vec![start_scope];
 
         // Initialize InterpStore with entry_fn's substore
         let entry_fn_istore = InterpStore::new();
         istore.cmap.insert(
-            MapKey::ScopeId(scope_id),
+            MapKey::ScopeId(start_scope),
             Box::new(MapValue::Store(vec![entry_fn_istore])),
         );
 
-        self.visit_instance(istore, &mut call_stack, scope_id, instance)
+        self.visit_instance(istore, &mut call_stack, start_scope, instance)
     }
 
     fn visit_instance(
@@ -218,24 +218,27 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
         co: &ConstOperand,
-        _args: &Vec<Operand>,
-        _destination: &Place,
+        args: &Vec<Operand>,
+        destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        match co.const_.ty().kind() {
+        let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => {
                     let instance = Instance::resolve(fndef, &genargs).unwrap();
                     debug!("instance def: {:?}", instance.def);
                     debug!("--- CALLING {:?}", fndef);
+                    debug!("cur call_stack: {:#?}", call_stack);
                     match instance.kind {
                         InstanceKind::Item => {
                             debug!("regular static funccall");
-                            self.interp_static_call(istore, call_stack, instance, fndef)
+                            self.interp_static_call(
+                                istore, call_stack, cur_scope, instance, fndef, args, &genargs,
+                            )
                         }
                         InstanceKind::Virtual { .. } => {
                             debug!("virtual funccall");
                             self.interp_virtual_call(
-                                istore, call_stack, cur_scope, &fndef, &genargs,
+                                istore, call_stack, cur_scope, &fndef, &genargs, args,
                             )
                         }
                         InstanceKind::Intrinsic => {
@@ -248,31 +251,140 @@ impl<'a> InterpPass<'a> {
                 other @ _ => todo!("different RigidTy: {:?}", other),
             },
             kind @ _ => todo!("funccall const is another kind: {:?}", kind),
+        };
+
+        // TODO set destination value in cmap
+        debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
+        debug!("cur_scope: {:?}", cur_scope);
+        debug!("destination: {:?}", destination);
+        match ret_constraints {
+            Ok(Some(constraints)) => {
+                istore.scoped_update(
+                    cur_scope,
+                    MapKey::Place(destination.clone()),
+                    Box::new(MapValue::Constraints(constraints)),
+                );
+            }
+            Ok(None) => {}
+            _ => panic!("error in constraints"),
         }
+
+        Ok(None)
     }
 
     fn interp_static_call(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<(DefId, InstanceDef)>,
+        call_stack: &mut Vec<ScopeId>,
+        caller_scope: ScopeId,
         instance: Instance,
         fndef: FnDef,
+        args: &Vec<Operand>,
+        genargs: &GenericArgs,
     ) -> Result<Option<Constraints>, Error> {
         if instance.has_body() {
             let mut istore_clone = istore.clone();
-            let scope_id = (fndef.0, instance.def);
-            call_stack.push(scope_id);
-            self.visit_instance(&mut istore_clone, call_stack, scope_id, instance)
+            let callee_scope = (fndef.0, instance.def);
+            call_stack.push(callee_scope);
+            self.resolve_args(
+                &mut istore_clone,
+                caller_scope,
+                callee_scope,
+                fndef,
+                args,
+                genargs,
+            );
+            self.visit_instance(&mut istore_clone, call_stack, callee_scope, instance)
         } else {
             debug!("no body");
             self.retty_fallback(fndef)
         }
     }
 
-    fn retty_fallback(&self, fndef: FnDef) -> Result<Option<Constraints>, Error> {
+    fn resolve_args(
+        &self,
+        istore: &mut InterpStore,
+        caller_scope: ScopeId,
+        callee_scope: ScopeId,
+        fndef: FnDef,
+        args: &Vec<Operand>,
+        genargs: &GenericArgs,
+    ) {
+        debug!("RESOLVING ARGS");
+        let mut new_substore = InterpStore::new();
+        let key = MapKey::ScopeId(callee_scope);
+
         let sig = fndef.fn_sig();
         debug!("fn_sig: {:?}", sig);
+        self.check_sig_boundvars(&sig);
 
+        // Resolve generics + add arg values into new substore
+        self.resolve_args_helper(istore, &mut new_substore, caller_scope, args, genargs);
+
+        // Merge new substore into existing substore(s) at this scopeId
+        match istore.cmap.get(&key) {
+            Some(_) => todo!("merge substores"),
+            None => {}
+        }
+
+        // Add new substore in top-level store
+        istore
+            .cmap
+            .insert(key, Box::new(MapValue::Store(vec![new_substore])));
+    }
+
+    fn resolve_args_helper(
+        &self,
+        istore: &InterpStore,
+        new_substore: &mut InterpStore,
+        caller_scope: ScopeId,
+        args: &Vec<Operand>,
+        genargs: &GenericArgs,
+    ) {
+        //for (i, input_ty) in sig.inputs().into_iter().enumerate() {
+        //    debug!("input position {:?}", i);
+        //    debug!("input ty: {:?}", input_ty);
+        //}
+        for (i, arg) in args.into_iter().enumerate() {
+            debug!("arg position: {:?}", i);
+            debug!("arg: {:?}", arg);
+            let place = Place {
+                local: i + 1,
+                projection: vec![],
+            };
+            let arg_constraints = self.resolve_arg(istore, caller_scope, arg);
+            debug!("arg constraints: {:?}", arg_constraints);
+
+            new_substore.cmap.insert(
+                MapKey::Place(place),
+                Box::new(MapValue::Constraints(arg_constraints)),
+            );
+        }
+        debug!("generic args: {:?}", genargs);
+    }
+
+    fn resolve_arg(
+        &self,
+        istore: &InterpStore,
+        caller_scope: ScopeId,
+        arg: &Operand,
+    ) -> Constraints {
+        match arg {
+            Operand::Copy(place) | Operand::Move(place) => {
+                match istore.scoped_get(caller_scope, &MapKey::Place(place.clone())) {
+                    Some(val) => match val {
+                        MapValue::Constraints(constraints) => return constraints,
+                        _ => panic!("arg is a scope"),
+                    },
+                    None => panic!("place {:?} DNE in cmap", place),
+                }
+            }
+            Operand::Constant(_) => todo!(),
+            _ => todo!("runtime check arg"),
+        }
+    }
+
+    fn check_sig_boundvars(&self, sig: &PolyFnSig) {
         if !sig.bound_vars.is_empty() {
             // Might not be safe to just skip binder
             debug!("Bound vars - cannot just skip binder in call resolution");
@@ -284,11 +396,18 @@ impl<'a> InterpPass<'a> {
                 }
             }
         }
+    }
 
+    fn retty_fallback(&self, fndef: FnDef) -> Result<Option<Constraints>, Error> {
+        let sig = fndef.fn_sig();
+        debug!("fn_sig: {:?}", sig);
+        self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());
 
-        // FIXME how to return constraints?
-        Ok(None)
+        // Return output type as VerifoptRval (widening)
+        let mut ret_constraints = HashSet::default();
+        ret_constraints.insert(VerifoptRval::IdkType(sig.value.output()));
+        Ok(Some(ret_constraints))
     }
 
     fn interp_virtual_call(
@@ -298,6 +417,7 @@ impl<'a> InterpPass<'a> {
         cur_scope: ScopeId,
         fndef: &FnDef,
         genargs: &GenericArgs,
+        args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         // Steps:
         // - Get trait that this function is associated with
@@ -334,16 +454,17 @@ impl<'a> InterpPass<'a> {
         }
         debug!("assoc_fn_impls: {:?}", assoc_fn_impls);
 
-        self.simulate_static_calls(istore, call_stack, cur_scope, assoc_fn_impls, genargs)
+        self.simulate_static_calls(istore, call_stack, cur_scope, assoc_fn_impls, genargs, args)
     }
 
     fn simulate_static_calls(
         &self,
         istore: &mut InterpStore,
         call_stack: &mut Vec<ScopeId>,
-        _cur_scope: ScopeId,
+        cur_scope: ScopeId,
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
+        args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         let mut static_results = Vec::<Option<Constraints>>::new();
         for assoc_fn_impl in assoc_fn_impls {
@@ -352,12 +473,13 @@ impl<'a> InterpPass<'a> {
             debug!("instance def: {:?}", instance.def);
             debug!("a converted static instance: {:?}", instance);
             let mut call_stack_clone = call_stack.clone();
-            let scope_id = (assoc_fn_impl, instance.def);
-            call_stack_clone.push(scope_id);
+            let callee_scope = (assoc_fn_impl, instance.def);
+            call_stack_clone.push(callee_scope);
+            self.resolve_args(istore, cur_scope, callee_scope, fndef, args, &genargs);
             static_results.push(self.visit_instance(
                 istore,
                 &mut call_stack_clone,
-                scope_id,
+                callee_scope,
                 instance,
             )?);
         }

@@ -104,7 +104,7 @@ impl InterpStore {
                 }
                 _ => panic!("not a scope: {:?}", scope),
             },
-            None => panic!("undefined scope: {:?}", scope),
+            None => None,
         }
     }
 

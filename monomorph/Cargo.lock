@@ -225,6 +225,7 @@ dependencies = [
  "rustc_tools_util",
  "serde_json",
  "thiserror",
+ "uniquevec",
 ]
 
 [[package]]
@@ -396,6 +397,12 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "uniquevec"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "242dc79cb924d7656ed53dd79961f232340fb230b36ddfc430ab6bd7db0bb469"
 
 [[package]]
 name = "utf8parse"

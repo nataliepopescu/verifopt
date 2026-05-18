@@ -1,5 +1,3 @@
-use rustc_data_structures::fx::FxHashSet as HashSet;
-
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
@@ -409,8 +407,7 @@ impl<'a> InterpPass<'a> {
         debug!("output: {:?}", sig.value.output());
 
         // Return output type as VORval (widening)
-        let mut ret_constraints = HashSet::default();
-        ret_constraints.insert(VORval::IdkType(sig.value.output()));
+        let ret_constraints = vec![VORval::IdkType(sig.value.output())];
         Ok(Some(ret_constraints))
     }
 

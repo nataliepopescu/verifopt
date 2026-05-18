@@ -1,5 +1,4 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
-use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::DefId;
 use rustc_public::mir::Place;
 use rustc_public::mir::mono::InstanceDef;
@@ -19,7 +18,22 @@ pub enum MapKey {
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-pub type Constraints = HashSet<VORval>;
+pub type Constraints = Vec<VORval>;
+
+pub fn unique_push(vec: &mut Constraints, elem: VORval) -> Option<VORval> {
+    if vec.contains(&elem) {
+        Some(elem)
+    } else {
+        vec.push(elem);
+        None
+    }
+}
+
+pub fn unique_append(vec: &mut Constraints, to_append: Constraints) {
+    for elem in to_append {
+        unique_push(vec, elem);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
@@ -49,6 +63,7 @@ pub enum VORval {
     AddressOf(Box<VORval>),
     Ptr(Box<VORval>),
     Ref(Box<VORval>),
+    Tuple(Vec<VORval>),
     Scalar(u128),
     Uint(),
     //ConstSlice(),

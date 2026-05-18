@@ -1,10 +1,10 @@
-use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::DefId;
 use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Place, Rvalue, UnOp};
 use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
 use crate::constraints::{Constraints, MapKey, MapValue, ScopeId, VOGenarg, VOGenargs, VORval};
+use crate::constraints::{unique_append, unique_push};
 use crate::trait_collect::TraitStore;
 
 use log::debug;
@@ -70,17 +70,17 @@ impl<'a> RvalConverter<'a> {
     }
 
     fn wrap_in_addrof(&self, inner: Constraints) -> Constraints {
-        let mut outer = HashSet::default();
-        for constraint in inner.clone().drain() {
-            outer.insert(VORval::AddressOf(Box::new(constraint)));
+        let mut outer = Vec::new();
+        for constraint in inner {
+            unique_push(&mut outer, VORval::AddressOf(Box::new(constraint)));
         }
         outer
     }
 
     fn wrap_in_ref(&self, inner: Constraints) -> Constraints {
-        let mut outer = HashSet::default();
-        for constraint in inner.clone().drain() {
-            outer.insert(VORval::Ref(Box::new(constraint)));
+        let mut outer = Vec::new();
+        for constraint in inner {
+            unique_push(&mut outer, VORval::Ref(Box::new(constraint)));
         }
         outer
     }
@@ -100,9 +100,7 @@ impl<'a> RvalConverter<'a> {
             }
             Operand::Constant(const_op) => {
                 debug!("const_op: {:#?}", const_op.const_);
-                let mut constraints = HashSet::default();
-                constraints.insert(VORval::IdkType(const_op.const_.ty()));
-                constraints
+                vec![VORval::IdkType(const_op.const_.ty())]
             }
             _ => todo!("runtime checks"),
         }
@@ -152,9 +150,7 @@ impl<'a> RvalConverter<'a> {
                         "place {:?} has not been set, use resolved (backup) type {:?}",
                         place, ty
                     );
-                    let mut constraints = HashSet::default();
-                    constraints.insert(VORval::IdkType(ty));
-                    return constraints;
+                    vec![VORval::IdkType(ty)]
                 }
                 e @ Err(_) => panic!("resolving place ty error: {:?}", e),
             },
@@ -173,10 +169,10 @@ impl<'a> RvalConverter<'a> {
         debug!("op: {:?}", op);
         debug!("ty: {:?}", ty);
 
-        let mut constraints = HashSet::default();
+        let mut constraints = Vec::new();
         match op {
             Operand::Constant(const_op) => {
-                constraints.insert(VORval::IdkType(const_op.const_.ty()));
+                unique_push(&mut constraints, VORval::IdkType(const_op.const_.ty()));
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
@@ -188,8 +184,10 @@ impl<'a> RvalConverter<'a> {
                             );
                             for constraint in constraints_.iter() {
                                 debug!("constraint to convert: {:?}", constraint);
-                                constraints
-                                    .insert(self.convert_constraint_cast(kind, ty, constraint));
+                                unique_push(
+                                    &mut constraints,
+                                    self.convert_constraint_cast(kind, ty, constraint),
+                                );
                             }
                         }
                         _ => panic!("trying to cast a scope"),
@@ -233,11 +231,12 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: ScopeId,
-        _local_decls: &[LocalDecl],
+        local_decls: &[LocalDecl],
         kind: &AggregateKind,
-        _fields: &Vec<Operand>,
+        fields: &Vec<Operand>,
     ) -> Constraints {
-        let mut constraints = HashSet::default();
+        let mut constraints = Vec::new();
+        debug!("fields: {:?}", fields);
 
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
@@ -246,15 +245,28 @@ impl<'a> RvalConverter<'a> {
                     Some(converted_genargs) => {
                         debug!("defid: {:?}", def.0);
                         debug!("converted genargs: {:?}", converted_genargs);
-                        if converted_genargs.list.is_empty() {
-                            panic!("why here? already checked for empty...");
-                        }
-                        constraints.insert(VORval::IdkAdt(def.0, Some(converted_genargs)));
+                        match converted_genargs.list.len() {
+                            0 => unique_push(&mut constraints, VORval::IdkAdt(def.0, None)),
+                            _ => unique_push(
+                                &mut constraints,
+                                VORval::IdkAdt(def.0, Some(converted_genargs)),
+                            ),
+                        };
                     }
                     None => {
-                        constraints.insert(VORval::IdkAdt(def.0, None));
+                        unique_push(&mut constraints, VORval::IdkAdt(def.0, None));
                     }
                 }
+            }
+            AggregateKind::Tuple => {
+                let mut field_constraints = Vec::new();
+                for op in fields {
+                    unique_append(
+                        &mut field_constraints,
+                        self.convert_op(istore, cur_scope, local_decls, op),
+                    );
+                }
+                unique_push(&mut constraints, VORval::Tuple(field_constraints));
             }
             _ => todo!("other agg kind: {:?}", kind),
         }
@@ -276,7 +288,10 @@ impl<'a> RvalConverter<'a> {
         for genarg in &genargs.0 {
             match genarg {
                 GenericArgKind::Type(ty) => {
-                    converted_genargs.push(self.convert_genarg_ty(istore, cur_scope, defid, ty));
+                    unique_push(
+                        &mut converted_genargs,
+                        self.convert_genarg_ty(istore, cur_scope, defid, ty),
+                    );
                 }
                 _ => {}
             }
@@ -313,18 +328,15 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         // Currently just returning an IdkType b/c this is likely a scalar op
         // TODO do we want to step into parts?
-        let mut constraints = HashSet::default();
-        constraints.insert(VORval::IdkType(
-            binop.ty(op1.ty(local_decls).unwrap(), op2.ty(local_decls).unwrap()),
-        ));
-        constraints
+        vec![VORval::IdkType(binop.ty(
+            op1.ty(local_decls).unwrap(),
+            op2.ty(local_decls).unwrap(),
+        ))]
     }
 
     fn convert_unop(&self, local_decls: &[LocalDecl], unop: &UnOp, op: &Operand) -> Constraints {
         // Currently just returning an IdkType b/c this is likely a scalar op
         // TODO do we want to step into parts?
-        let mut constraints = HashSet::default();
-        constraints.insert(VORval::IdkType(unop.ty(op.ty(local_decls).unwrap())));
-        constraints
+        vec![VORval::IdkType(unop.ty(op.ty(local_decls).unwrap()))]
     }
 }

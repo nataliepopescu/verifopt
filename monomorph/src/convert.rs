@@ -55,10 +55,11 @@ impl<'a> RvalConverter<'a> {
                 debug!("AGGREGATE");
                 self.convert_agg(istore, cur_scope, local_decls, kind, fields)
             }
-            //Rvalue::AddressOf(_rawptrkind, place) => {
-            //    debug!("ADDRESS OF");
-            //    self.convert_place(istore, cur_scope, local_decls, place)
-            //}
+            Rvalue::AddressOf(_rawptrkind, place) => {
+                debug!("ADDRESS OF");
+                let inner = self.convert_place(istore, cur_scope, local_decls, place);
+                self.wrap_in_addrof(inner)
+            }
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
@@ -166,6 +167,14 @@ impl<'a> RvalConverter<'a> {
     }
     */
 
+    fn wrap_in_addrof(&self, inner: Constraints) -> Constraints {
+        let mut outer = HashSet::default();
+        for constraint in inner.clone().drain() {
+            outer.insert(VerifoptRval::AddressOf(Box::new(constraint)));
+        }
+        outer
+    }
+
     fn wrap_in_ref(&self, inner: Constraints) -> Constraints {
         let mut outer = HashSet::default();
         for constraint in inner.clone().drain() {
@@ -200,8 +209,9 @@ impl<'a> RvalConverter<'a> {
                                 place, constraints_
                             );
                             for constraint in constraints_.iter() {
-                                debug!("constraint to resolve: {:?}", constraint);
-                                constraints.insert(self.resolve_cast(kind, ty, constraint));
+                                debug!("constraint to convert: {:?}", constraint);
+                                constraints
+                                    .insert(self.convert_constraint_cast(kind, ty, constraint));
                             }
                         }
                         _ => panic!("trying to cast a scope"),
@@ -215,7 +225,7 @@ impl<'a> RvalConverter<'a> {
         constraints
     }
 
-    fn resolve_cast(
+    fn convert_constraint_cast(
         &self,
         kind: &CastKind,
         dst_ty: &Ty,
@@ -224,12 +234,15 @@ impl<'a> RvalConverter<'a> {
         match constraint {
             VerifoptRval::IdkAdt(_defid, _) => constraint.clone(),
             VerifoptRval::IdkType(_) => VerifoptRval::IdkType(*dst_ty),
-            VerifoptRval::Ptr(inner) => {
-                VerifoptRval::Ptr(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
-            }
-            VerifoptRval::Ref(inner) => {
-                VerifoptRval::Ref(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
-            }
+            VerifoptRval::AddressOf(inner) => VerifoptRval::AddressOf(Box::new(
+                self.convert_constraint_cast(kind, dst_ty, &*inner),
+            )),
+            VerifoptRval::Ptr(inner) => VerifoptRval::Ptr(Box::new(
+                self.convert_constraint_cast(kind, dst_ty, &*inner),
+            )),
+            VerifoptRval::Ref(inner) => VerifoptRval::Ref(Box::new(
+                self.convert_constraint_cast(kind, dst_ty, &*inner),
+            )),
             VerifoptRval::Scalar(_) => match kind {
                 CastKind::IntToInt
                 | CastKind::FloatToInt

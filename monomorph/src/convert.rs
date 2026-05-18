@@ -211,7 +211,9 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_constraint_cast(&self, kind: &CastKind, dst_ty: &Ty, constraint: &VORval) -> VORval {
         match constraint {
-            VORval::IdkAdt(_, _) | VORval::Bool() => constraint.clone(),
+            VORval::IdkAdt(_, _) | VORval::Bool() | VORval::Array(_) | VORval::Slice(_) => {
+                constraint.clone()
+            }
             VORval::IdkType(_) => VORval::IdkType(*dst_ty),
             VORval::AddressOf(inner) => VORval::AddressOf(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
@@ -303,6 +305,9 @@ impl<'a> RvalConverter<'a> {
                     &mut constraints,
                     VORval::RawPtr(Box::new(VORval::IdkType(*ty))),
                 );
+            }
+            AggregateKind::Array(ty) => {
+                unique_push(&mut constraints, VORval::Array(*ty));
             }
             _ => todo!("other agg kind: {:?}", kind),
         }

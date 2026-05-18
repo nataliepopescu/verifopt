@@ -68,6 +68,7 @@ pub enum VORval {
     Bool(),
     Uint(),
     Slice(Ty),
+    Array(Ty),
     //ConstSlice(),
     //IndirectConst(Ty),
     //IdkDefId(DefId),

@@ -4,9 +4,7 @@ use rustc_public::mir::{AggregateKind, CastKind, LocalDecl, Operand, Place, Rval
 use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
-use crate::constraints::{
-    Constraints, MapKey, MapValue, ScopeId, VerifoptGenarg, VerifoptGenargs, VerifoptRval,
-};
+use crate::constraints::{Constraints, MapKey, MapValue, ScopeId, VOGenarg, VOGenargs, VORval};
 use crate::trait_collect::TraitStore;
 
 use log::debug;
@@ -60,6 +58,10 @@ impl<'a> RvalConverter<'a> {
                 let inner = self.convert_place(istore, cur_scope, local_decls, place);
                 self.wrap_in_addrof(inner)
             }
+            //Rvalue::BinaryOp(binop, op1, op2) => {
+            //    debug!("BIN OP");
+            //    self.convert_binop(istore, cur_scope, binop, op1, op2)
+            //}
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
@@ -79,7 +81,7 @@ impl<'a> RvalConverter<'a> {
             Operand::Constant(const_op) => {
                 debug!("const_op: {:#?}", const_op.const_);
                 let mut constraints = HashSet::default();
-                constraints.insert(VerifoptRval::IdkType(const_op.const_.ty()));
+                constraints.insert(VORval::IdkType(const_op.const_.ty()));
                 constraints
             }
             _ => todo!("runtime checks"),
@@ -130,7 +132,7 @@ impl<'a> RvalConverter<'a> {
                         place, ty
                     );
                     let mut constraints = HashSet::default();
-                    constraints.insert(VerifoptRval::IdkType(ty));
+                    constraints.insert(VORval::IdkType(ty));
                     return constraints;
                 }
                 e @ Err(_) => panic!("resolving place ty error: {:?}", e),
@@ -146,7 +148,7 @@ impl<'a> RvalConverter<'a> {
         if place.projection.len() > 1 {
             let backup_ty = local_decls[place.local].ty;
             debug!("multiple projections, using backup_ty: {:?}", backup_ty);
-            constraints.insert(VerifoptRval::IdkType(backup_ty));
+            constraints.insert(VORval::IdkType(backup_ty));
         } else {
             match place.projection[0] {
                 // FIXME essentially ignoring the deref here
@@ -155,10 +157,10 @@ impl<'a> RvalConverter<'a> {
                     debug!("field_idx: {:?}", field_idx);
                     debug!("ty: {:?}", ty);
                     // FIXME
-                    constraints.insert(VerifoptRval::IdkType(ty));
+                    constraints.insert(VORval::IdkType(ty));
                 }
                 _ => {
-                    constraints.insert(VerifoptRval::Idk());
+                    constraints.insert(VORval::Idk());
                 }
             }
         }
@@ -170,7 +172,7 @@ impl<'a> RvalConverter<'a> {
     fn wrap_in_addrof(&self, inner: Constraints) -> Constraints {
         let mut outer = HashSet::default();
         for constraint in inner.clone().drain() {
-            outer.insert(VerifoptRval::AddressOf(Box::new(constraint)));
+            outer.insert(VORval::AddressOf(Box::new(constraint)));
         }
         outer
     }
@@ -178,7 +180,7 @@ impl<'a> RvalConverter<'a> {
     fn wrap_in_ref(&self, inner: Constraints) -> Constraints {
         let mut outer = HashSet::default();
         for constraint in inner.clone().drain() {
-            outer.insert(VerifoptRval::Ref(Box::new(constraint)));
+            outer.insert(VORval::Ref(Box::new(constraint)));
         }
         outer
     }
@@ -198,7 +200,7 @@ impl<'a> RvalConverter<'a> {
         let mut constraints = HashSet::default();
         match op {
             Operand::Constant(const_op) => {
-                constraints.insert(VerifoptRval::IdkType(const_op.const_.ty()));
+                constraints.insert(VORval::IdkType(const_op.const_.ty()));
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
@@ -225,25 +227,20 @@ impl<'a> RvalConverter<'a> {
         constraints
     }
 
-    fn convert_constraint_cast(
-        &self,
-        kind: &CastKind,
-        dst_ty: &Ty,
-        constraint: &VerifoptRval,
-    ) -> VerifoptRval {
+    fn convert_constraint_cast(&self, kind: &CastKind, dst_ty: &Ty, constraint: &VORval) -> VORval {
         match constraint {
-            VerifoptRval::IdkAdt(_defid, _) => constraint.clone(),
-            VerifoptRval::IdkType(_) => VerifoptRval::IdkType(*dst_ty),
-            VerifoptRval::AddressOf(inner) => VerifoptRval::AddressOf(Box::new(
+            VORval::IdkAdt(_defid, _) => constraint.clone(),
+            VORval::IdkType(_) => VORval::IdkType(*dst_ty),
+            VORval::AddressOf(inner) => VORval::AddressOf(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
             )),
-            VerifoptRval::Ptr(inner) => VerifoptRval::Ptr(Box::new(
+            VORval::Ptr(inner) => VORval::Ptr(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
             )),
-            VerifoptRval::Ref(inner) => VerifoptRval::Ref(Box::new(
+            VORval::Ref(inner) => VORval::Ref(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
             )),
-            VerifoptRval::Scalar(_) => match kind {
+            VORval::Scalar(_) => match kind {
                 CastKind::IntToInt
                 | CastKind::FloatToInt
                 | CastKind::FloatToFloat
@@ -269,17 +266,17 @@ impl<'a> RvalConverter<'a> {
         match kind {
             AggregateKind::Adt(def, variant_idx, genargs, _, _) => {
                 match self.convert_genargs(istore, cur_scope, def.0, genargs) {
-                    // FIXME DefId -> ScopeId/VerifoptId?
+                    // FIXME DefId -> ScopeId/VOId?
                     Some(converted_genargs) => {
                         debug!("defid: {:?}", def.0);
                         debug!("converted genargs: {:?}", converted_genargs);
                         if converted_genargs.list.is_empty() {
                             panic!("why here? already checked for empty...");
                         }
-                        constraints.insert(VerifoptRval::IdkAdt(def.0, Some(converted_genargs)));
+                        constraints.insert(VORval::IdkAdt(def.0, Some(converted_genargs)));
                     }
                     None => {
-                        constraints.insert(VerifoptRval::IdkAdt(def.0, None));
+                        constraints.insert(VORval::IdkAdt(def.0, None));
                     }
                 }
             }
@@ -295,7 +292,7 @@ impl<'a> RvalConverter<'a> {
         cur_scope: ScopeId,
         defid: DefId,
         genargs: &GenericArgs,
-    ) -> Option<VerifoptGenargs> {
+    ) -> Option<VOGenargs> {
         if genargs.0.is_empty() {
             return None;
         }
@@ -308,7 +305,7 @@ impl<'a> RvalConverter<'a> {
                 _ => {}
             }
         }
-        Some(VerifoptGenargs::new(converted_genargs))
+        Some(VOGenargs::new(converted_genargs))
     }
 
     fn convert_genarg_ty(
@@ -317,11 +314,11 @@ impl<'a> RvalConverter<'a> {
         cur_scope: ScopeId,
         defid: DefId,
         genarg_ty: &Ty,
-    ) -> VerifoptGenarg {
+    ) -> VOGenarg {
         match genarg_ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                RigidTy::Uint(uintty) => VerifoptRval::Uint(),
-                RigidTy::Adt(adtdef, adt_genargs) => VerifoptRval::IdkAdt(
+                RigidTy::Uint(uintty) => VORval::Uint(),
+                RigidTy::Adt(adtdef, adt_genargs) => VORval::IdkAdt(
                     adtdef.0,
                     self.convert_genargs(istore, cur_scope, defid, &adt_genargs),
                 ),
@@ -330,4 +327,15 @@ impl<'a> RvalConverter<'a> {
             other @ _ => panic!("other ty kind: {:?}", other),
         }
     }
+
+    //fn convert_binop(
+    //    &self,
+    //    istore: &InterpStore,
+    //    cur_scope: ScopeId,
+    //    //local_decls: &[LocalDecl],
+    //    binop: &Binop,
+    //    op1: &Operand,
+    //    op2: &Operand,
+    //) -> Constraints {
+    //}
 }

@@ -10,7 +10,7 @@ use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, PolyFnSig, RigidTy
 
 use log::debug;
 
-use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, ScopeId, VerifoptRval};
+use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, ScopeId, VORval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::trait_collect::TraitStore;
@@ -164,7 +164,7 @@ impl<'a> InterpPass<'a> {
                 debug!("dest ty: {:?}", &local_decls[place.local].ty);
                 debug!("rval: {:?}", rvalue);
 
-                // convert Rvalue to VerifoptRval
+                // convert Rvalue to VORval
                 let constraints = self
                     .converter
                     .convert(istore, cur_scope, local_decls, rvalue);
@@ -408,9 +408,9 @@ impl<'a> InterpPass<'a> {
         self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());
 
-        // Return output type as VerifoptRval (widening)
+        // Return output type as VORval (widening)
         let mut ret_constraints = HashSet::default();
-        ret_constraints.insert(VerifoptRval::IdkType(sig.value.output()));
+        ret_constraints.insert(VORval::IdkType(sig.value.output()));
         Ok(Some(ret_constraints))
     }
 

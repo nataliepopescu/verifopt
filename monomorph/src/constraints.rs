@@ -19,7 +19,7 @@ pub enum MapKey {
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-pub type Constraints = HashSet<VerifoptRval>;
+pub type Constraints = HashSet<VORval>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
@@ -29,26 +29,26 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
-pub type VerifoptGenarg = VerifoptRval;
+pub type VOGenarg = VORval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VerifoptGenargs {
-    pub list: Vec<VerifoptGenarg>,
+pub struct VOGenargs {
+    pub list: Vec<VOGenarg>,
 }
 
-impl VerifoptGenargs {
-    pub fn new(list: Vec<VerifoptRval>) -> VerifoptGenargs {
+impl VOGenargs {
+    pub fn new(list: Vec<VORval>) -> VOGenargs {
         Self { list }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum VerifoptRval {
-    IdkAdt(DefId, Option<VerifoptGenargs>),
+pub enum VORval {
+    IdkAdt(DefId, Option<VOGenargs>),
     IdkType(Ty),
-    AddressOf(Box<VerifoptRval>),
-    Ptr(Box<VerifoptRval>),
-    Ref(Box<VerifoptRval>),
+    AddressOf(Box<VORval>),
+    Ptr(Box<VORval>),
+    Ref(Box<VORval>),
     Scalar(u128),
     Uint(),
     //ConstSlice(),

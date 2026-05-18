@@ -183,7 +183,7 @@ impl BBDeps {
     }
 
     pub fn mark_visited(&mut self, bb: usize, cur_scope: ScopeId) {
-        debug!("DONE VISITING {:?} of {:?}", bb, cur_scope);
+        debug!("DONE VISITING BB{:?} of {:?}", bb, cur_scope);
         self.visited.push(bb);
     }
 

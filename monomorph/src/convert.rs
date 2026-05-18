@@ -33,8 +33,8 @@ impl<'a> RvalConverter<'a> {
             }
             Rvalue::Ref(_region, _borrow_kind, place) => {
                 debug!("REF");
-                let inner = self.convert_place(istore, cur_scope, local_decls, place);
-                self.wrap_in_ref(inner)
+                let place_constraints = self.convert_place(istore, cur_scope, local_decls, place);
+                self.wrap_in_ref(place_constraints)
             }
             Rvalue::Discriminant(place) => {
                 debug!("DISCRIMINANT");
@@ -54,16 +54,21 @@ impl<'a> RvalConverter<'a> {
             }
             Rvalue::AddressOf(_rawptrkind, place) => {
                 debug!("ADDRESS OF");
-                let inner = self.convert_place(istore, cur_scope, local_decls, place);
-                self.wrap_in_addrof(inner)
+                let place_constraints = self.convert_place(istore, cur_scope, local_decls, place);
+                self.wrap_in_addrof(place_constraints)
+            }
+            Rvalue::UnaryOp(unop, op) => {
+                debug!("UNOP");
+                self.convert_unop(local_decls, unop, op)
             }
             Rvalue::BinaryOp(binop, op1, op2) => {
                 debug!("BINOP");
                 self.convert_binop(local_decls, binop, op1, op2)
             }
-            Rvalue::UnaryOp(unop, op) => {
-                debug!("UNOP");
-                self.convert_unop(local_decls, unop, op)
+            Rvalue::CheckedBinaryOp(binop, op1, op2) => {
+                debug!("CHECKED BINOP");
+                let binop_constraints = self.convert_binop(local_decls, binop, op1, op2);
+                self.wrap_in_tup_bool(binop_constraints)
             }
             _ => todo!("other rval: {:?}", to_convert),
         }
@@ -81,6 +86,14 @@ impl<'a> RvalConverter<'a> {
         let mut outer = Vec::new();
         for constraint in inner {
             unique_push(&mut outer, VORval::Ref(Box::new(constraint)));
+        }
+        outer
+    }
+
+    fn wrap_in_tup_bool(&self, inner: Constraints) -> Constraints {
+        let mut outer = Vec::new();
+        for constraint in inner {
+            unique_push(&mut outer, VORval::Tuple(vec![constraint, VORval::Bool()]));
         }
         outer
     }
@@ -203,7 +216,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_constraint_cast(&self, kind: &CastKind, dst_ty: &Ty, constraint: &VORval) -> VORval {
         match constraint {
-            VORval::IdkAdt(_defid, _) => constraint.clone(),
+            VORval::IdkAdt(_, _) | VORval::Bool() => constraint.clone(),
             VORval::IdkType(_) => VORval::IdkType(*dst_ty),
             VORval::AddressOf(inner) => VORval::AddressOf(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
@@ -214,6 +227,16 @@ impl<'a> RvalConverter<'a> {
             VORval::Ref(inner) => VORval::Ref(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
             )),
+            VORval::Tuple(inner) => {
+                let mut converted_inner = Vec::new();
+                for inner_elem in inner {
+                    unique_push(
+                        &mut converted_inner,
+                        self.convert_constraint_cast(kind, dst_ty, &*inner_elem),
+                    );
+                }
+                VORval::Tuple(converted_inner)
+            }
             VORval::Scalar(_) => match kind {
                 CastKind::IntToInt
                 | CastKind::FloatToInt

@@ -134,7 +134,7 @@ impl<'a> InterpPass<'a> {
             call_stack,
             cur_scope,
             //bb_deps,
-            //local_decls,
+            local_decls,
             bb,
             &data.terminator,
         )?;
@@ -184,6 +184,7 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
         _bb: usize,
         term: &Terminator,
     ) -> Result<Option<Constraints>, Error> {
@@ -198,7 +199,7 @@ impl<'a> InterpPass<'a> {
                     istore,
                     call_stack,
                     cur_scope,
-                    //local_decls,
+                    local_decls,
                     co,
                     args,
                     destination,
@@ -219,6 +220,7 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
         co: &ConstOperand,
         args: &Vec<Operand>,
         destination: &Place,
@@ -234,13 +236,26 @@ impl<'a> InterpPass<'a> {
                         InstanceKind::Item => {
                             debug!("regular static funccall");
                             self.interp_static_call(
-                                istore, call_stack, cur_scope, instance, fndef, args, &genargs,
+                                istore,
+                                call_stack,
+                                cur_scope,
+                                local_decls,
+                                instance,
+                                fndef,
+                                args,
+                                &genargs,
                             )
                         }
                         InstanceKind::Virtual { .. } => {
                             debug!("virtual funccall");
                             self.interp_virtual_call(
-                                istore, call_stack, cur_scope, &fndef, &genargs, args,
+                                istore,
+                                call_stack,
+                                cur_scope,
+                                local_decls,
+                                &fndef,
+                                &genargs,
+                                args,
                             )
                         }
                         InstanceKind::Intrinsic => {
@@ -279,6 +294,7 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<ScopeId>,
         caller_scope: ScopeId,
+        local_decls: &[LocalDecl],
         instance: Instance,
         fndef: FnDef,
         args: &Vec<Operand>,
@@ -291,6 +307,7 @@ impl<'a> InterpPass<'a> {
             self.resolve_args(
                 &mut istore_clone,
                 caller_scope,
+                local_decls,
                 callee_scope,
                 fndef,
                 args,
@@ -307,6 +324,7 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &mut InterpStore,
         caller_scope: ScopeId,
+        local_decls: &[LocalDecl],
         callee_scope: ScopeId,
         fndef: FnDef,
         args: &Vec<Operand>,
@@ -321,7 +339,14 @@ impl<'a> InterpPass<'a> {
         self.check_sig_boundvars(&sig);
 
         // Resolve generics + add arg values into new substore
-        self.resolve_args_helper(istore, &mut new_substore, caller_scope, args, genargs);
+        self.resolve_args_helper(
+            istore,
+            &mut new_substore,
+            caller_scope,
+            local_decls,
+            args,
+            genargs,
+        );
 
         // Merge new substore into existing substore(s) at this scopeId
         match istore.cmap.get(&key) {
@@ -340,13 +365,10 @@ impl<'a> InterpPass<'a> {
         istore: &InterpStore,
         new_substore: &mut InterpStore,
         caller_scope: ScopeId,
+        local_decls: &[LocalDecl],
         args: &Vec<Operand>,
         genargs: &GenericArgs,
     ) {
-        //for (i, input_ty) in sig.inputs().into_iter().enumerate() {
-        //    debug!("input position {:?}", i);
-        //    debug!("input ty: {:?}", input_ty);
-        //}
         for (i, arg) in args.into_iter().enumerate() {
             debug!("arg position: {:?}", i);
             debug!("arg: {:?}", arg);
@@ -354,7 +376,7 @@ impl<'a> InterpPass<'a> {
                 local: i + 1,
                 projection: vec![],
             };
-            let arg_constraints = self.resolve_arg(istore, caller_scope, arg);
+            let arg_constraints = self.resolve_arg(istore, caller_scope, local_decls, arg);
             debug!("arg constraints: {:?}", arg_constraints);
 
             new_substore.cmap.insert(
@@ -369,19 +391,21 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &InterpStore,
         caller_scope: ScopeId,
+        _local_decls: &[LocalDecl],
         arg: &Operand,
     ) -> Constraints {
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
                 match istore.scoped_get(caller_scope, &MapKey::Place(place.clone())) {
                     Some(val) => match val {
-                        MapValue::Constraints(constraints) => return constraints,
+                        MapValue::Constraints(constraints) => constraints,
                         _ => panic!("arg is a scope"),
                     },
-                    None => panic!("place {:?} DNE in cmap", place),
+                    None => panic!("place {:?} DNE in cmap (use backup ty?)", place),
                 }
             }
-            Operand::Constant(_) => todo!(),
+            // TODO can maybe get a more precise VORval depending on kind
+            Operand::Constant(const_op) => vec![VORval::IdkType(const_op.const_.ty())],
             _ => todo!("runtime check arg"),
         }
     }
@@ -416,6 +440,7 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -455,7 +480,15 @@ impl<'a> InterpPass<'a> {
         }
         debug!("assoc_fn_impls: {:?}", assoc_fn_impls);
 
-        self.simulate_static_calls(istore, call_stack, cur_scope, assoc_fn_impls, genargs, args)
+        self.simulate_static_calls(
+            istore,
+            call_stack,
+            cur_scope,
+            local_decls,
+            assoc_fn_impls,
+            genargs,
+            args,
+        )
     }
 
     fn simulate_static_calls(
@@ -463,6 +496,7 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -476,7 +510,15 @@ impl<'a> InterpPass<'a> {
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (assoc_fn_impl, instance.def);
             call_stack_clone.push(callee_scope);
-            self.resolve_args(istore, cur_scope, callee_scope, fndef, args, &genargs);
+            self.resolve_args(
+                istore,
+                cur_scope,
+                local_decls,
+                callee_scope,
+                fndef,
+                args,
+                &genargs,
+            );
             static_results.push(self.visit_instance(
                 istore,
                 &mut call_stack_clone,

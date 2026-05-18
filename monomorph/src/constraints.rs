@@ -60,18 +60,19 @@ impl VOGenargs {
 pub enum VORval {
     IdkAdt(DefId, Option<VOGenargs>),
     IdkType(Ty),
+    Idk(),
     AddressOf(Box<VORval>),
     Ptr(Box<VORval>),
     Ref(Box<VORval>),
     Tuple(Vec<VORval>),
     Scalar(u128),
+    Bool(),
     Uint(),
     //ConstSlice(),
     //IndirectConst(Ty),
     //IdkDefId(DefId),
     //IdkGeneric(Symbol),
     //IdkStr(), //Const<'tcx>),
-    //Idk(),
     //Undef(),
 }
 

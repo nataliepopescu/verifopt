@@ -59,9 +59,9 @@ impl<'a> InterpPass<'a> {
         debug!("#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
         debug!("full call_stack: {:#?}", call_stack);
-        debug!("START BODY");
-        debug!("{:#?}", body);
-        debug!("END BODY");
+        //debug!("START BODY");
+        //debug!("{:#?}", body);
+        //debug!("END BODY");
         debug!("#############################");
 
         self.visit_body(istore, call_stack, cur_scope, &body)
@@ -159,7 +159,9 @@ impl<'a> InterpPass<'a> {
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!");
                 debug!("cur_scope: {:?}", cur_scope);
+                debug!("stmt: {:?}", &stmt.kind);
                 debug!("place: {:?}", place);
+                debug!("dest ty: {:?}", &local_decls[place.local].ty);
                 debug!("rval: {:?}", rvalue);
 
                 // convert Rvalue to VerifoptRval

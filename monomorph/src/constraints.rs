@@ -29,21 +29,35 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
+pub type VerifoptGenarg = VerifoptRval;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct VerifoptGenargs {
+    pub list: Vec<VerifoptGenarg>,
+}
+
+impl VerifoptGenargs {
+    pub fn new(list: Vec<VerifoptRval>) -> VerifoptGenargs {
+        Self { list }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VerifoptRval {
-    Scalar(u128),
+    IdkAdt(DefId, Option<VerifoptGenargs>),
+    IdkType(Ty),
+    AddressOf(Box<VerifoptRval>),
     Ptr(Box<VerifoptRval>),
     Ref(Box<VerifoptRval>),
-    ConstSlice(),
-    IndirectConst(Ty),
-    IdkStruct(DefId, Option<Vec<Vec<VerifoptRval>>>),
+    Scalar(u128),
+    Uint(),
+    //ConstSlice(),
+    //IndirectConst(Ty),
+    //IdkDefId(DefId),
     //IdkGeneric(Symbol),
-    IdkStr(), //Const<'tcx>),
-    // FIXME don't want types
-    IdkType(Ty),
-    IdkDefId(DefId),
-    Idk(),
-    Undef(),
+    //IdkStr(), //Const<'tcx>),
+    //Idk(),
+    //Undef(),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +83,7 @@ impl InterpStore {
         debug!("IN SCOPED_GET");
         debug!("scope: {:?}", scope);
         debug!("key: {:?}", key);
-        debug!("cmap: {:#?}", self.cmap);
+        //debug!("cmap: {:#?}", self.cmap);
 
         //if scope.is_none() {
         //    match self.cmap.get(key) {

@@ -165,7 +165,9 @@ impl<'a> InterpPass<'a> {
                 debug!("rval: {:?}", rvalue);
 
                 // convert Rvalue to VerifoptRval
-                let constraints = self.converter.convert(istore, cur_scope, local_decls, rvalue);
+                let constraints = self
+                    .converter
+                    .convert(istore, cur_scope, local_decls, rvalue);
                 debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
 
                 // add resolved constraints to istore

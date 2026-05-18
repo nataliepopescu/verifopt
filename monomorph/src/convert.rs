@@ -1,10 +1,12 @@
 use rustc_data_structures::fx::FxHashSet as HashSet;
-use rustc_public::mir::{AggregateKind, CastKind, LocalDecl, Operand, Place, Rvalue};
-use rustc_public::ty::{GenericArgs, GenericArgKind, RigidTy, Ty, TyKind};
 use rustc_public::DefId;
+use rustc_public::mir::{AggregateKind, CastKind, LocalDecl, Operand, Place, Rvalue};
+use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
-use crate::constraints::{Constraints, MapKey, MapValue, ScopeId, VerifoptGenarg, VerifoptGenargs, VerifoptRval};
+use crate::constraints::{
+    Constraints, MapKey, MapValue, ScopeId, VerifoptGenarg, VerifoptGenargs, VerifoptRval,
+};
 use crate::trait_collect::TraitStore;
 
 use log::debug;
@@ -61,7 +63,13 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn convert_op(&self, istore: &InterpStore, cur_scope: ScopeId, local_decls: &[LocalDecl], op: &Operand) -> Constraints {
+    fn convert_op(
+        &self,
+        istore: &InterpStore,
+        cur_scope: ScopeId,
+        local_decls: &[LocalDecl],
+        op: &Operand,
+    ) -> Constraints {
         debug!("CONVERTING OP");
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
@@ -106,20 +114,26 @@ impl<'a> RvalConverter<'a> {
         match istore.scoped_get(cur_scope, &MapKey::Place(clean_place.clone())) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
-                    debug!("found constraints for place {:?}: {:?}", clean_place, constraints);
+                    debug!(
+                        "found constraints for place {:?}: {:?}",
+                        clean_place, constraints
+                    );
                     return constraints;
                 }
                 _ => panic!("value should not be a scope"),
             },
             None => match place.ty(local_decls) {
                 Ok(ty) => {
-                    debug!("place {:?} has not been set, use resolved (backup) type {:?}", place, ty);
+                    debug!(
+                        "place {:?} has not been set, use resolved (backup) type {:?}",
+                        place, ty
+                    );
                     let mut constraints = HashSet::default();
                     constraints.insert(VerifoptRval::IdkType(ty));
                     return constraints;
                 }
                 e @ Err(_) => panic!("resolving place ty error: {:?}", e),
-            }
+            },
         }
     }
 
@@ -181,14 +195,17 @@ impl<'a> RvalConverter<'a> {
                 match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints_) => {
-                            debug!("found constraints for place {:?}: {:?}", place, constraints_);
+                            debug!(
+                                "found constraints for place {:?}: {:?}",
+                                place, constraints_
+                            );
                             for constraint in constraints_.iter() {
                                 debug!("constraint to resolve: {:?}", constraint);
                                 constraints.insert(self.resolve_cast(kind, ty, constraint));
                             }
                         }
                         _ => panic!("trying to cast a scope"),
-                    }
+                    },
                     None => panic!("no value to cast"),
                 }
             }
@@ -206,9 +223,7 @@ impl<'a> RvalConverter<'a> {
     ) -> VerifoptRval {
         match constraint {
             VerifoptRval::IdkAdt(_defid, _) => constraint.clone(),
-            VerifoptRval::IdkType(_) => {
-                VerifoptRval::IdkType(*dst_ty)
-            }
+            VerifoptRval::IdkType(_) => VerifoptRval::IdkType(*dst_ty),
             VerifoptRval::Ptr(inner) => {
                 VerifoptRval::Ptr(Box::new(self.resolve_cast(kind, dst_ty, &*inner)))
             }
@@ -276,7 +291,7 @@ impl<'a> RvalConverter<'a> {
             match genarg {
                 GenericArgKind::Type(ty) => {
                     converted_genargs.push(self.convert_genarg_ty(istore, cur_scope, defid, ty));
-                },
+                }
                 _ => {}
             }
         }
@@ -293,11 +308,12 @@ impl<'a> RvalConverter<'a> {
         match genarg_ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Uint(uintty) => VerifoptRval::Uint(),
-                RigidTy::Adt(adtdef, adt_genargs) => {
-                    VerifoptRval::IdkAdt(adtdef.0, self.convert_genargs(istore, cur_scope, defid, &adt_genargs))
-                }
+                RigidTy::Adt(adtdef, adt_genargs) => VerifoptRval::IdkAdt(
+                    adtdef.0,
+                    self.convert_genargs(istore, cur_scope, defid, &adt_genargs),
+                ),
                 other @ _ => panic!("other rigidty: {:?}", other),
-            }
+            },
             other @ _ => panic!("other ty kind: {:?}", other),
         }
     }

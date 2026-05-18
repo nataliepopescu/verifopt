@@ -1,6 +1,6 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::DefId;
-use rustc_public::mir::Place;
+use rustc_public::mir::Local;
 use rustc_public::mir::mono::InstanceDef;
 use rustc_public::ty::Ty;
 
@@ -12,8 +12,7 @@ pub type ScopeId = (DefId, InstanceDef);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
-    // FIXME maybe make this Local(Local<'tcx>) instead of Place, so don't index the map with random projections
-    Place(Place),
+    Local(Local),
     ScopeId(ScopeId),
 }
 

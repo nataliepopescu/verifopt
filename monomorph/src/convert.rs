@@ -140,18 +140,12 @@ impl<'a> RvalConverter<'a> {
         //    }
         //}
 
-        let clean_place = Place {
-            local: place.local,
-            projection: Vec::new(),
-        };
-        debug!("clean_place: {:?}", clean_place);
-
-        match istore.scoped_get(cur_scope, &MapKey::Place(clean_place.clone())) {
+        match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     debug!(
-                        "found constraints for place {:?}: {:?}",
-                        clean_place, constraints
+                        "found constraints for local {:?}: {:?}",
+                        place.local, constraints
                     );
                     return constraints;
                 }
@@ -189,7 +183,7 @@ impl<'a> RvalConverter<'a> {
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("place: {:?}", place);
-                match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
+                match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints_) => {
                             debug!(

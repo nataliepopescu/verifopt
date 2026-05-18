@@ -171,7 +171,7 @@ impl<'a> InterpPass<'a> {
                 // add resolved constraints to istore
                 istore.scoped_update(
                     cur_scope,
-                    MapKey::Place(place.clone()),
+                    MapKey::Local(place.local),
                     Box::new(MapValue::Constraints(constraints)),
                 );
             }
@@ -278,7 +278,7 @@ impl<'a> InterpPass<'a> {
             Ok(Some(constraints)) => {
                 istore.scoped_update(
                     cur_scope,
-                    MapKey::Place(destination.clone()),
+                    MapKey::Local(destination.local),
                     Box::new(MapValue::Constraints(constraints)),
                 );
             }
@@ -380,7 +380,7 @@ impl<'a> InterpPass<'a> {
             debug!("arg constraints: {:?}", arg_constraints);
 
             new_substore.cmap.insert(
-                MapKey::Place(place),
+                MapKey::Local(place.local),
                 Box::new(MapValue::Constraints(arg_constraints)),
             );
         }
@@ -396,7 +396,7 @@ impl<'a> InterpPass<'a> {
     ) -> Constraints {
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                match istore.scoped_get(caller_scope, &MapKey::Place(place.clone())) {
+                match istore.scoped_get(caller_scope, &MapKey::Local(place.local)) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints) => constraints,
                         _ => panic!("arg is a scope"),
@@ -546,13 +546,7 @@ impl<'a> InterpPass<'a> {
         //debug!("callstack POST POP: {:?}", call_stack);
 
         // Get and "return" the constraints at Place(0)
-        match istore.scoped_get(
-            cur_scope,
-            &MapKey::Place(Place {
-                local: 0,
-                projection: Vec::new(),
-            }),
-        ) {
+        match istore.scoped_get(cur_scope, &MapKey::Local(0)) {
             Some(retval) => match retval {
                 MapValue::Constraints(retval_constraints) => {
                     debug!("returning constraints: {:?}", retval_constraints);

@@ -157,7 +157,7 @@ impl<'a> InterpPass<'a> {
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!");
                 debug!("cur_scope: {:?}", cur_scope);
-                debug!("stmt: {:?}", &stmt.kind);
+                debug!("stmt: {:#?}", &stmt.kind);
                 debug!("place: {:?}", place);
                 debug!("dest ty: {:?}", &local_decls[place.local].ty);
                 debug!("rval: {:?}", rvalue);

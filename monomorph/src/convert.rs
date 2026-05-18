@@ -188,6 +188,7 @@ impl<'a> RvalConverter<'a> {
                 unique_push(&mut constraints, VORval::IdkType(const_op.const_.ty()));
             }
             Operand::Copy(place) | Operand::Move(place) => {
+                debug!("place: {:?}", place);
                 match istore.scoped_get(cur_scope, &MapKey::Place(place.clone())) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints_) => {
@@ -221,7 +222,7 @@ impl<'a> RvalConverter<'a> {
             VORval::AddressOf(inner) => VORval::AddressOf(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
             )),
-            VORval::Ptr(inner) => VORval::Ptr(Box::new(
+            VORval::RawPtr(inner) => VORval::RawPtr(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
             )),
             VORval::Ref(inner) => VORval::Ref(Box::new(
@@ -263,6 +264,7 @@ impl<'a> RvalConverter<'a> {
 
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
+                debug!("ADT agg");
                 match self.convert_genargs(istore, cur_scope, def.0, genargs) {
                     // FIXME DefId -> ScopeId/VOId?
                     Some(converted_genargs) => {
@@ -282,6 +284,7 @@ impl<'a> RvalConverter<'a> {
                 }
             }
             AggregateKind::Tuple => {
+                debug!("tuple agg");
                 let mut field_constraints = Vec::new();
                 for op in fields {
                     unique_append(
@@ -290,6 +293,22 @@ impl<'a> RvalConverter<'a> {
                     );
                 }
                 unique_push(&mut constraints, VORval::Tuple(field_constraints));
+            }
+            AggregateKind::RawPtr(ty, _mut) => {
+                debug!("rawptr agg");
+                debug!("ty: {:?}", ty);
+
+                match fields.len() {
+                    0 => todo!("no fields"),
+                    1 => todo!("thin ptr (1 field)"),
+                    2 => debug!("fat ptr (2 fields)"),
+                    _ => todo!("more than 2 fields"),
+                }
+
+                unique_push(
+                    &mut constraints,
+                    VORval::RawPtr(Box::new(VORval::IdkType(*ty))),
+                );
             }
             _ => todo!("other agg kind: {:?}", kind),
         }
@@ -339,10 +358,14 @@ impl<'a> RvalConverter<'a> {
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {
-                        unique_append(&mut inner, self.convert_genarg_ty(istore, cur_scope, defid, &ty).list);
+                        unique_append(
+                            &mut inner,
+                            self.convert_genarg_ty(istore, cur_scope, defid, &ty).list,
+                        );
                     }
                     VOGenargs::new(inner)
                 }
+                RigidTy::Slice(ty) => VOGenargs::new(vec![VORval::Slice(ty)]),
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),

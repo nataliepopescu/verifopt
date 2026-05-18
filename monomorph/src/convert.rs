@@ -93,7 +93,7 @@ impl<'a> RvalConverter<'a> {
     fn wrap_in_tup_bool(&self, inner: Constraints) -> Constraints {
         let mut outer = Vec::new();
         for constraint in inner {
-            unique_push(&mut outer, VORval::Tuple(vec![constraint, VORval::Bool()]));
+            unique_push(&mut outer, VORval::Tuple(vec![constraint, VORval::Bool]));
         }
         outer
     }
@@ -211,9 +211,12 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_constraint_cast(&self, kind: &CastKind, dst_ty: &Ty, constraint: &VORval) -> VORval {
         match constraint {
-            VORval::IdkAdt(_, _) | VORval::Bool() | VORval::Array(_) | VORval::Slice(_) => {
-                constraint.clone()
-            }
+            VORval::IdkAdt(_, _)
+            | VORval::Bool
+            | VORval::Array(_)
+            | VORval::Slice(_)
+            | VORval::Idk
+            | VORval::Uint => constraint.clone(),
             VORval::IdkType(_) => VORval::IdkType(*dst_ty),
             VORval::AddressOf(inner) => VORval::AddressOf(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
@@ -243,7 +246,6 @@ impl<'a> RvalConverter<'a> {
                 | CastKind::PointerCoercion(_) => constraint.clone(),
                 _ => todo!("cannot yet cast (scalar): {:?} ({:?})", constraint, kind),
             },
-            _ => todo!("cannot yet cast: {:?}", constraint),
         }
     }
 
@@ -349,7 +351,7 @@ impl<'a> RvalConverter<'a> {
     ) -> VOGenargs {
         match genarg_ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                RigidTy::Uint(_uintty) => VOGenargs::new(vec![VORval::Uint()]),
+                RigidTy::Uint(_uintty) => VOGenargs::new(vec![VORval::Uint]),
                 RigidTy::Adt(adtdef, adt_genargs) => VOGenargs::new(vec![VORval::IdkAdt(
                     adtdef.0,
                     self.convert_genargs(istore, cur_scope, defid, &adt_genargs),

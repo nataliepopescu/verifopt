@@ -1,6 +1,6 @@
 use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::DefId;
-use rustc_public::mir::{AggregateKind, CastKind, LocalDecl, Operand, Place, Rvalue};
+use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Place, Rvalue, UnOp};
 use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
@@ -29,7 +29,6 @@ impl<'a> RvalConverter<'a> {
         match to_convert {
             Rvalue::Use(op) => {
                 debug!("USE");
-                debug!("op: {:?}", op);
                 self.convert_op(istore, cur_scope, local_decls, op)
             }
             Rvalue::Ref(_region, _borrow_kind, place) => {
@@ -58,12 +57,32 @@ impl<'a> RvalConverter<'a> {
                 let inner = self.convert_place(istore, cur_scope, local_decls, place);
                 self.wrap_in_addrof(inner)
             }
-            //Rvalue::BinaryOp(binop, op1, op2) => {
-            //    debug!("BIN OP");
-            //    self.convert_binop(istore, cur_scope, binop, op1, op2)
-            //}
+            Rvalue::BinaryOp(binop, op1, op2) => {
+                debug!("BINOP");
+                self.convert_binop(local_decls, binop, op1, op2)
+            }
+            Rvalue::UnaryOp(unop, op) => {
+                debug!("UNOP");
+                self.convert_unop(local_decls, unop, op)
+            }
             _ => todo!("other rval: {:?}", to_convert),
         }
+    }
+
+    fn wrap_in_addrof(&self, inner: Constraints) -> Constraints {
+        let mut outer = HashSet::default();
+        for constraint in inner.clone().drain() {
+            outer.insert(VORval::AddressOf(Box::new(constraint)));
+        }
+        outer
+    }
+
+    fn wrap_in_ref(&self, inner: Constraints) -> Constraints {
+        let mut outer = HashSet::default();
+        for constraint in inner.clone().drain() {
+            outer.insert(VORval::Ref(Box::new(constraint)));
+        }
+        outer
     }
 
     fn convert_op(
@@ -74,6 +93,7 @@ impl<'a> RvalConverter<'a> {
         op: &Operand,
     ) -> Constraints {
         debug!("CONVERTING OP");
+        debug!("op: {:?}", op);
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.convert_place(istore, cur_scope, local_decls, place)
@@ -96,6 +116,7 @@ impl<'a> RvalConverter<'a> {
         place: &Place,
     ) -> Constraints {
         debug!("CONVERTING PLACE");
+        debug!("place: {:?}", place);
         let backup_ty_naive = &local_decls[place.local].ty;
         let resolved_ty = place.ty(local_decls);
         debug!("resolved_ty: \n{:?}", resolved_ty.unwrap());
@@ -138,51 +159,6 @@ impl<'a> RvalConverter<'a> {
                 e @ Err(_) => panic!("resolving place ty error: {:?}", e),
             },
         }
-    }
-
-    /*
-    fn convert_projection(&self, local_decls: &[LocalDecl], place: &Place) -> Option<Constraints> {
-        debug!("CONVERTING PROJECTIONS");
-        let mut constraints = HashSet::default();
-
-        if place.projection.len() > 1 {
-            let backup_ty = local_decls[place.local].ty;
-            debug!("multiple projections, using backup_ty: {:?}", backup_ty);
-            constraints.insert(VORval::IdkType(backup_ty));
-        } else {
-            match place.projection[0] {
-                // FIXME essentially ignoring the deref here
-                ProjectionElem::Deref => return None,
-                ProjectionElem::Field(field_idx, ty) => {
-                    debug!("field_idx: {:?}", field_idx);
-                    debug!("ty: {:?}", ty);
-                    // FIXME
-                    constraints.insert(VORval::IdkType(ty));
-                }
-                _ => {
-                    constraints.insert(VORval::Idk());
-                }
-            }
-        }
-
-        Some(constraints)
-    }
-    */
-
-    fn wrap_in_addrof(&self, inner: Constraints) -> Constraints {
-        let mut outer = HashSet::default();
-        for constraint in inner.clone().drain() {
-            outer.insert(VORval::AddressOf(Box::new(constraint)));
-        }
-        outer
-    }
-
-    fn wrap_in_ref(&self, inner: Constraints) -> Constraints {
-        let mut outer = HashSet::default();
-        for constraint in inner.clone().drain() {
-            outer.insert(VORval::Ref(Box::new(constraint)));
-        }
-        outer
     }
 
     fn convert_cast(
@@ -257,14 +233,14 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: ScopeId,
-        local_decls: &[LocalDecl],
+        _local_decls: &[LocalDecl],
         kind: &AggregateKind,
-        fields: &Vec<Operand>,
+        _fields: &Vec<Operand>,
     ) -> Constraints {
         let mut constraints = HashSet::default();
 
         match kind {
-            AggregateKind::Adt(def, variant_idx, genargs, _, _) => {
+            AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 match self.convert_genargs(istore, cur_scope, def.0, genargs) {
                     // FIXME DefId -> ScopeId/VOId?
                     Some(converted_genargs) => {
@@ -317,7 +293,7 @@ impl<'a> RvalConverter<'a> {
     ) -> VOGenarg {
         match genarg_ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                RigidTy::Uint(uintty) => VORval::Uint(),
+                RigidTy::Uint(_uintty) => VORval::Uint(),
                 RigidTy::Adt(adtdef, adt_genargs) => VORval::IdkAdt(
                     adtdef.0,
                     self.convert_genargs(istore, cur_scope, defid, &adt_genargs),
@@ -328,14 +304,27 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    //fn convert_binop(
-    //    &self,
-    //    istore: &InterpStore,
-    //    cur_scope: ScopeId,
-    //    //local_decls: &[LocalDecl],
-    //    binop: &Binop,
-    //    op1: &Operand,
-    //    op2: &Operand,
-    //) -> Constraints {
-    //}
+    fn convert_binop(
+        &self,
+        local_decls: &[LocalDecl],
+        binop: &BinOp,
+        op1: &Operand,
+        op2: &Operand,
+    ) -> Constraints {
+        // Currently just returning an IdkType b/c this is likely a scalar op
+        // TODO do we want to step into parts?
+        let mut constraints = HashSet::default();
+        constraints.insert(VORval::IdkType(
+            binop.ty(op1.ty(local_decls).unwrap(), op2.ty(local_decls).unwrap()),
+        ));
+        constraints
+    }
+
+    fn convert_unop(&self, local_decls: &[LocalDecl], unop: &UnOp, op: &Operand) -> Constraints {
+        // Currently just returning an IdkType b/c this is likely a scalar op
+        // TODO do we want to step into parts?
+        let mut constraints = HashSet::default();
+        constraints.insert(VORval::IdkType(unop.ty(op.ty(local_decls).unwrap())));
+        constraints
+    }
 }

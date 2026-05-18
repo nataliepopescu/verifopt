@@ -3,7 +3,7 @@ use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Plac
 use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
-use crate::constraints::{Constraints, MapKey, MapValue, ScopeId, VOGenarg, VOGenargs, VORval};
+use crate::constraints::{Constraints, MapKey, MapValue, ScopeId, VOGenargs, VORval};
 use crate::constraints::{unique_append, unique_push};
 use crate::trait_collect::TraitStore;
 
@@ -311,9 +311,9 @@ impl<'a> RvalConverter<'a> {
         for genarg in &genargs.0 {
             match genarg {
                 GenericArgKind::Type(ty) => {
-                    unique_push(
+                    unique_append(
                         &mut converted_genargs,
-                        self.convert_genarg_ty(istore, cur_scope, defid, ty),
+                        self.convert_genarg_ty(istore, cur_scope, defid, ty).list,
                     );
                 }
                 _ => {}
@@ -328,14 +328,21 @@ impl<'a> RvalConverter<'a> {
         cur_scope: ScopeId,
         defid: DefId,
         genarg_ty: &Ty,
-    ) -> VOGenarg {
+    ) -> VOGenargs {
         match genarg_ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                RigidTy::Uint(_uintty) => VORval::Uint(),
-                RigidTy::Adt(adtdef, adt_genargs) => VORval::IdkAdt(
+                RigidTy::Uint(_uintty) => VOGenargs::new(vec![VORval::Uint()]),
+                RigidTy::Adt(adtdef, adt_genargs) => VOGenargs::new(vec![VORval::IdkAdt(
                     adtdef.0,
                     self.convert_genargs(istore, cur_scope, defid, &adt_genargs),
-                ),
+                )]),
+                RigidTy::Tuple(ty_vec) => {
+                    let mut inner = Vec::new();
+                    for ty in ty_vec {
+                        unique_append(&mut inner, self.convert_genarg_ty(istore, cur_scope, defid, &ty).list);
+                    }
+                    VOGenargs::new(inner)
+                }
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),

@@ -1,8 +1,8 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Statement, StatementKind,
-    Terminator, TerminatorKind,
+    BasicBlock, BasicBlockIdx, Body, ConstOperand, LocalDecl, Operand, Place, Statement,
+    StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, PolyFnSig, RigidTy, TyKind};
 
@@ -47,6 +47,32 @@ impl<'a> InterpPass<'a> {
         self.visit_instance(istore, &mut call_stack, start_scope)
     }
 
+    fn print_mir(&self, body: &Body) {
+        debug!("arg count: {:?}", body.arg_locals().len());
+        debug!("----START BODY----");
+
+        let locals = body.locals();
+        let blocks = &body.blocks;
+
+        debug!("num LocalDecls: {:?}", locals.len());
+        debug!("{{");
+        for i in 0..locals.len() {
+            debug!("-local{:?}", i);
+            debug!("{:?}", locals[i]);
+        }
+        debug!("}}");
+
+        debug!("num BasicBlocks: {:?}", blocks.len());
+        debug!("{{");
+        for i in 0..blocks.len() {
+            debug!("-bb{:?}", i);
+            debug!("{:?}", blocks[i]);
+        }
+        debug!("}}");
+
+        debug!("----END BODY----");
+    }
+
     fn visit_instance(
         &self,
         istore: &mut InterpStore,
@@ -57,9 +83,7 @@ impl<'a> InterpPass<'a> {
         debug!("#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
         debug!("call_stack: {:?}", call_stack);
-        //debug!("START BODY");
-        //debug!("{:#?}", body);
-        //debug!("END BODY");
+        self.print_mir(&body);
         debug!("#############################");
 
         self.visit_body(istore, call_stack, cur_scope, &body)
@@ -96,8 +120,8 @@ impl<'a> InterpPass<'a> {
                 istore,
                 call_stack,
                 cur_scope,
-                &mut bb_deps,
                 body.locals(),
+                &mut bb_deps,
                 bb,
                 data,
             )?;
@@ -111,8 +135,8 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
-        bb_deps: &mut BBDeps,
         local_decls: &[LocalDecl],
+        bb_deps: &mut BBDeps,
         bb: usize,
         data: &BasicBlock,
     ) -> Result<Option<Constraints>, Error> {
@@ -133,8 +157,8 @@ impl<'a> InterpPass<'a> {
             istore,
             call_stack,
             cur_scope,
-            //bb_deps,
             local_decls,
+            bb_deps,
             bb,
             &data.terminator,
         )?;
@@ -156,7 +180,7 @@ impl<'a> InterpPass<'a> {
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!");
                 debug!("cur_scope: {:?}", cur_scope);
-                debug!("stmt: {:#?}", &stmt.kind);
+                debug!("stmt: {:?}", &stmt.kind);
                 debug!("place: {:?}", place);
                 debug!("dest ty: {:?}", &local_decls[place.local].ty);
                 debug!("rval: {:?}", rvalue);
@@ -184,7 +208,8 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
         local_decls: &[LocalDecl],
-        _bb: usize,
+        bb_deps: &mut BBDeps,
+        bb: usize,
         term: &Terminator,
     ) -> Result<Option<Constraints>, Error> {
         match &term.kind {
@@ -206,10 +231,9 @@ impl<'a> InterpPass<'a> {
                 _ => todo!("handle indirect function invocations"),
             },
             TerminatorKind::Return => self.interp_return(istore, call_stack, cur_scope),
-            //TerminatorKind::SwitchInt { discr, targets } => {
-            //    self.interp_switchint(istore, bb, bb_deps, cur_scope, discr, targets)
-            //}
-            //TerminatorKind::TailCall { .. } => todo!("impl tail calls"),
+            TerminatorKind::SwitchInt { discr, targets } => {
+                self.interp_switchint(istore, cur_scope, local_decls, bb, bb_deps, discr, targets)
+            }
             _ => Ok(None),
         }
     }
@@ -553,6 +577,132 @@ impl<'a> InterpPass<'a> {
             todo!("merge results");
         }
         Ok(results[0].clone())
+    }
+
+    fn interp_switchint(
+        &self,
+        istore: &mut InterpStore,
+        cur_scope: Instance,
+        local_decls: &[LocalDecl],
+        bb: usize,
+        bb_deps: &mut BBDeps,
+        discr: &Operand,
+        targets: &SwitchTargets,
+    ) -> Result<Option<Constraints>, Error> {
+        debug!("SWITCHINT");
+        debug!("discr: {:?}", discr);
+        debug!("targets: {:?}", targets);
+
+        match discr {
+            Operand::Copy(place) | Operand::Move(place) => {
+                match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
+                    Some(val) => match val {
+                        MapValue::Constraints(constraints) => {
+                            // Create a byte-map for finding statically-impossible successors
+                            let mut discr_vals_uninit =
+                                Box::<[u8]>::new_zeroed_slice(targets.len());
+                            let discr_vals = discr_vals_uninit.write_filled(0);
+
+                            // Check expected type of discriminant
+                            debug!("expected ty: {:?}", place.ty(local_decls));
+
+                            // Populate byte-map with possible branch values, based on constraints
+                            for constraint in constraints {
+                                self.set_bytemap(constraint, targets.branches(), discr_vals);
+                            }
+
+                            self.prune_switchint_targets(
+                                bb,
+                                bb_deps,
+                                &targets.all_targets(),
+                                discr_vals,
+                            );
+                        }
+                        _ => panic!("cannot switch on scope"),
+                    },
+                    None => panic!("local DNE"),
+                }
+            }
+            Operand::Constant(_co) => {}
+            _ => debug!("runtime checks op (ignoring)"),
+        }
+
+        Ok(None)
+    }
+
+    fn set_bytemap(
+        &self,
+        constraint: VORval,
+        branches: impl Iterator<Item = (u128, BasicBlockIdx)>,
+        discr_vals: &mut [u8],
+    ) {
+        match constraint {
+            VORval::Scalar(num) => {
+                // Increment matching branch counters
+                for (i, branch) in branches {
+                    if num == branch.try_into().unwrap() {
+                        discr_vals[usize::try_from(i).unwrap()] += 1;
+                    }
+                }
+            }
+            VORval::IdkType(_) | VORval::Idk => {
+                // Increment "otherwise" branch counter
+                discr_vals[discr_vals.len() - 1] += 1;
+            }
+            VORval::Ref(inner) => self.set_bytemap(*inner, branches, discr_vals),
+            _ => panic!("unexpected switchint discr: {:?}", constraint),
+        }
+    }
+
+    fn prune_switchint_targets(
+        &self,
+        bb: usize,
+        bb_deps: &mut BBDeps,
+        targets: &Successors,
+        discr_vals: &mut [u8],
+    ) {
+        let prunable = self.get_prunable_targets(discr_vals);
+
+        debug!("all targets: {:?}", targets);
+        debug!("prunable: {:?}", prunable);
+
+        if let Some(prune_idxs) = prunable {
+            for prune_idx in prune_idxs {
+                bb_deps.prune(bb, targets[prune_idx]);
+            }
+        }
+    }
+
+    fn get_prunable_targets(&self, discr_vals: &mut [u8]) -> Option<Vec<usize>> {
+        // If the last value (otherwise branch) is > 0, cannot prune anything
+        if discr_vals[discr_vals.len() - 1] > 0 {
+            return None;
+        }
+
+        let mut poss_idxs = Vec::new();
+        let mut imposs_idxs = Vec::new();
+        for i in 0..discr_vals.len() {
+            if discr_vals[i] > 0 {
+                poss_idxs.push(i);
+            } else {
+                imposs_idxs.push(i);
+            }
+        }
+        debug!("possible indices: {:?}", poss_idxs);
+        debug!("impossible indices: {:?}", imposs_idxs);
+
+        // If no possible indices, error?
+        if poss_idxs.is_empty() {
+            panic!("no possible branches");
+        }
+
+        // If some impossible indices, prune
+        if !imposs_idxs.is_empty() {
+            return Some(imposs_idxs);
+        }
+
+        // Some possible branches without any impossible branches -> cannot prune
+        None
     }
 
     fn interp_return(

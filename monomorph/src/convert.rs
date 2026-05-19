@@ -134,21 +134,11 @@ impl<'a> RvalConverter<'a> {
         debug!("resolved_ty: \n{:?}", resolved_ty.unwrap());
         debug!("backup_ty_naive: \n{:?}", backup_ty_naive);
 
-        // If projection exists, process + return (FIXME this is incomplete)
-        //if !place.projection.is_empty() {
-        //    if let Some(constraints) = self.convert_projection(local_decls, place) {
-        //        return constraints;
-        //    }
-        //}
-
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
-                    debug!(
-                        "found constraints for local {:?}: {:?}",
-                        place.local, constraints
-                    );
-                    return constraints;
+                    debug!("found constraints for place {:?}: {:?}", place, constraints);
+                    self.apply_projection(place, constraints)
                 }
                 _ => panic!("value should not be a scope"),
             },
@@ -163,6 +153,18 @@ impl<'a> RvalConverter<'a> {
                 e @ Err(_) => panic!("resolving place ty error: {:?}", e),
             },
         }
+    }
+
+    fn apply_projection(&self, place: &Place, constraints: Constraints) -> Constraints {
+        if place.projection.is_empty() {
+            return constraints;
+        }
+
+        for projection in &place.projection {
+            debug!("projection: {:?}", projection);
+        }
+
+        todo!();
     }
 
     fn convert_cast(

@@ -1,8 +1,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
-use rustc_public::DefId;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
-use rustc_public::ty::Ty;
+use rustc_public::ty::{AdtDef, Ty};
 
 use crate::wto::BBDeps;
 
@@ -55,7 +54,7 @@ impl VOGenargs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VORval {
-    IdkAdt(DefId, Option<VOGenargs>),
+    IdkAdt(AdtDef, Option<VOGenargs>),
     IdkType(Ty),
     Idk,
     AddressOf(Box<VORval>),

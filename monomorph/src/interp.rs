@@ -80,11 +80,11 @@ impl<'a> InterpPass<'a> {
         cur_scope: Instance,
     ) -> Result<Option<Constraints>, Error> {
         let body = cur_scope.body().unwrap();
-        debug!("#############################");
+        debug!("\n\n\n#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
-        debug!("call_stack: {:?}", call_stack);
+        debug!("call_stack: {:#?}", call_stack);
         self.print_mir(&body);
-        debug!("#############################");
+        debug!("#############################\n\n");
 
         self.visit_body(istore, call_stack, cur_scope, &body)
     }
@@ -140,19 +140,22 @@ impl<'a> InterpPass<'a> {
         bb: usize,
         data: &BasicBlock,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("#############");
+        debug!("\n\n#############");
         debug!("# visiting BASICBLOCK {:?} for {:?}", bb, cur_scope);
         debug!("#############");
 
         for (i, stmt) in data.statements.iter().enumerate() {
             debug!(
-                "# visiting STATEMENT {:?} in BB{:?} for {:?}",
+                "\n\n# visiting STATEMENT {:?} in BB{:?} for {:?}",
                 i, bb, cur_scope
             );
             self.visit_statement(istore, cur_scope, local_decls, stmt);
         }
 
-        debug!("# visiting TERMINATOR in BB{:?} for {:?}", bb, cur_scope);
+        debug!(
+            "\n\n# visiting TERMINATOR in BB{:?} for {:?}",
+            bb, cur_scope
+        );
         let res = self.visit_terminator(
             istore,
             call_stack,
@@ -254,7 +257,7 @@ impl<'a> InterpPass<'a> {
                     let instance = Instance::resolve(fndef, &genargs).unwrap();
                     debug!("instance def: {:?}", instance.def);
                     debug!("--- CALLING {:?}", fndef);
-                    debug!("call_stack: {:?}", call_stack);
+                    //debug!("call_stack: {:?}", call_stack);
                     match instance.kind {
                         InstanceKind::Item => {
                             debug!("regular static funccall");
@@ -643,6 +646,12 @@ impl<'a> InterpPass<'a> {
                     if num == branch.try_into().unwrap() {
                         discr_vals[usize::try_from(i).unwrap()] += 1;
                     }
+                }
+            }
+            VORval::Bool => {
+                // Increment all branch counters (since no static bool value)
+                for (i, _branch) in branches {
+                    discr_vals[usize::try_from(i).unwrap()] += 1;
                 }
             }
             VORval::IdkType(_) | VORval::Idk => {

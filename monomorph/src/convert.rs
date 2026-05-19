@@ -1,4 +1,3 @@
-use rustc_public::DefId;
 use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Place, Rvalue, UnOp};
 use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
@@ -6,17 +5,22 @@ use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 use crate::InterpStore;
 use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VORval};
 use crate::constraints::{unique_append, unique_push};
+use crate::projection::ProjectionHandler;
 use crate::trait_collect::TraitStore;
 
 use log::debug;
 
 pub struct RvalConverter<'a> {
     pub tstore: &'a TraitStore,
+    pub projection_handler: ProjectionHandler,
 }
 
 impl<'a> RvalConverter<'a> {
     pub fn new(tstore: &'a TraitStore) -> RvalConverter<'a> {
-        Self { tstore }
+        Self {
+            tstore,
+            projection_handler: ProjectionHandler::new(),
+        }
     }
 
     pub fn convert(
@@ -39,7 +43,7 @@ impl<'a> RvalConverter<'a> {
             }
             Rvalue::Discriminant(place) => {
                 debug!("DISCRIMINANT");
-                self.convert_place(istore, cur_scope, local_decls, place)
+                self.convert_discr(istore, cur_scope, local_decls, place)
             }
             Rvalue::CopyForDeref(place) => {
                 debug!("COPY FOR DEREF");
@@ -130,41 +134,55 @@ impl<'a> RvalConverter<'a> {
         debug!("CONVERTING PLACE");
         debug!("place: {:?}", place);
         let backup_ty_naive = &local_decls[place.local].ty;
-        let resolved_ty = place.ty(local_decls);
-        debug!("resolved_ty: \n{:?}", resolved_ty.unwrap());
+        let resolved_ty = place.ty(local_decls).unwrap();
         debug!("backup_ty_naive: \n{:?}", backup_ty_naive);
+        debug!("resolved_ty: \n{:?}", resolved_ty);
 
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     debug!("found constraints for place {:?}: {:?}", place, constraints);
-                    self.apply_projection(place, constraints)
+                    self.projection_handler.apply_projection(
+                        backup_ty_naive,
+                        &resolved_ty,
+                        constraints,
+                        place,
+                    )
                 }
                 _ => panic!("value should not be a scope"),
             },
-            None => match place.ty(local_decls) {
-                Ok(ty) => {
-                    debug!(
-                        "place {:?} has not been set, use resolved (backup) type {:?}",
-                        place, ty
-                    );
-                    vec![VORval::IdkType(ty)]
-                }
-                e @ Err(_) => panic!("resolving place ty error: {:?}", e),
-            },
+            None => {
+                debug!(
+                    "place {:?} has not been set, use resolved (backup) type {:?}",
+                    place, resolved_ty,
+                );
+                vec![VORval::IdkType(resolved_ty)]
+            } /*
+              match place.ty(local_decls) {
+                  Ok(ty) => {
+                      debug!(
+                          "place {:?} has not been set, use resolved (backup) type {:?}",
+                          place, ty
+                      );
+                      vec![VORval::IdkType(ty)]
+                  }
+                  e @ Err(_) => panic!("resolving place ty error: {:?}", e),
+              },
+              */
         }
     }
 
-    fn apply_projection(&self, place: &Place, constraints: Constraints) -> Constraints {
-        if place.projection.is_empty() {
-            return constraints;
-        }
-
-        for projection in &place.projection {
-            debug!("projection: {:?}", projection);
-        }
-
-        todo!();
+    fn convert_discr(
+        &self,
+        _istore: &InterpStore,
+        _cur_scope: Instance,
+        local_decls: &[LocalDecl],
+        place: &Place,
+    ) -> Constraints {
+        debug!("CONVERTING DISCRIMINANT");
+        let resolved_ty = place.ty(local_decls).unwrap();
+        // FIXME get more fine-grained results
+        vec![VORval::IdkType(resolved_ty)]
     }
 
     fn convert_cast(
@@ -266,21 +284,20 @@ impl<'a> RvalConverter<'a> {
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 debug!("ADT agg");
-                match self.convert_genargs(def.0, genargs) {
-                    // FIXME DefId -> ScopeId/VOId?
+                match self.convert_genargs(genargs) {
                     Some(converted_genargs) => {
-                        debug!("defid: {:?}", def.0);
+                        debug!("def: {:?}", def);
                         debug!("converted genargs: {:?}", converted_genargs);
                         match converted_genargs.list.len() {
-                            0 => unique_push(&mut constraints, VORval::IdkAdt(def.0, None)),
+                            0 => unique_push(&mut constraints, VORval::IdkAdt(*def, None)),
                             _ => unique_push(
                                 &mut constraints,
-                                VORval::IdkAdt(def.0, Some(converted_genargs)),
+                                VORval::IdkAdt(*def, Some(converted_genargs)),
                             ),
                         };
                     }
                     None => {
-                        unique_push(&mut constraints, VORval::IdkAdt(def.0, None));
+                        unique_push(&mut constraints, VORval::IdkAdt(*def, None));
                     }
                 }
             }
@@ -320,7 +337,7 @@ impl<'a> RvalConverter<'a> {
         constraints
     }
 
-    fn convert_genargs(&self, defid: DefId, genargs: &GenericArgs) -> Option<VOGenargs> {
+    fn convert_genargs(&self, genargs: &GenericArgs) -> Option<VOGenargs> {
         if genargs.0.is_empty() {
             return None;
         }
@@ -328,10 +345,7 @@ impl<'a> RvalConverter<'a> {
         for genarg in &genargs.0 {
             match genarg {
                 GenericArgKind::Type(ty) => {
-                    unique_append(
-                        &mut converted_genargs,
-                        self.convert_genarg_ty(defid, ty).list,
-                    );
+                    unique_append(&mut converted_genargs, self.convert_genarg_ty(ty).list);
                 }
                 _ => {}
             }
@@ -339,18 +353,18 @@ impl<'a> RvalConverter<'a> {
         Some(VOGenargs::new(converted_genargs))
     }
 
-    fn convert_genarg_ty(&self, defid: DefId, genarg_ty: &Ty) -> VOGenargs {
+    fn convert_genarg_ty(&self, genarg_ty: &Ty) -> VOGenargs {
         match genarg_ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Uint(_uintty) => VOGenargs::new(vec![VORval::Uint]),
                 RigidTy::Adt(adtdef, adt_genargs) => VOGenargs::new(vec![VORval::IdkAdt(
-                    adtdef.0,
-                    self.convert_genargs(defid, &adt_genargs),
+                    adtdef,
+                    self.convert_genargs(&adt_genargs),
                 )]),
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {
-                        unique_append(&mut inner, self.convert_genarg_ty(defid, &ty).list);
+                        unique_append(&mut inner, self.convert_genarg_ty(&ty).list);
                     }
                     VOGenargs::new(inner)
                 }

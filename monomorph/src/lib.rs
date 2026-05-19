@@ -6,6 +6,7 @@
 extern crate rustc_data_structures;
 extern crate rustc_index;
 extern crate rustc_public;
+extern crate rustc_public_bridge;
 
 //use rustc_public::CrateDef;
 use rustc_public::mir::mono::Instance;
@@ -18,6 +19,7 @@ pub mod constraints;
 pub mod convert;
 pub mod error;
 pub mod interp;
+pub mod projection;
 pub mod rewrite;
 pub mod trait_collect;
 pub mod util;

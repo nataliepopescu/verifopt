@@ -125,7 +125,7 @@ impl<'a> InterpPass<'a> {
                 "# visiting STATEMENT {:?} in BB{:?} for {:?}",
                 i, bb, cur_scope
             );
-            self.visit_statement(istore, call_stack, cur_scope, local_decls, stmt);
+            self.visit_statement(istore, cur_scope, local_decls, stmt);
         }
 
         debug!("# visiting TERMINATOR in BB{:?} for {:?}", bb, cur_scope);
@@ -147,7 +147,6 @@ impl<'a> InterpPass<'a> {
     fn visit_statement(
         &self,
         istore: &mut InterpStore,
-        _call_stack: &mut Vec<ScopeId>,
         cur_scope: ScopeId,
         local_decls: &[LocalDecl],
         stmt: &Statement,
@@ -270,7 +269,7 @@ impl<'a> InterpPass<'a> {
             kind @ _ => todo!("funccall const is another kind: {:?}", kind),
         };
 
-        // TODO set destination value in cmap
+        // Set destination local to value in cmap
         debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
         debug!("cur_scope: {:?}", cur_scope);
         debug!("destination: {:?}", destination);
@@ -501,7 +500,9 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        let mut static_results = Vec::<Option<Constraints>>::new();
+        let mut results = Vec::<Option<Constraints>>::new();
+        let mut istore_vec = Vec::new();
+
         for assoc_fn_impl in assoc_fn_impls {
             let fndef = FnDef(assoc_fn_impl);
             let instance = Instance::resolve(fndef, &genargs).unwrap();
@@ -510,8 +511,10 @@ impl<'a> InterpPass<'a> {
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (assoc_fn_impl, instance.def);
             call_stack_clone.push(callee_scope);
+
+            let mut istore_clone = istore.clone();
             self.resolve_args(
-                istore,
+                &mut istore_clone,
                 cur_scope,
                 local_decls,
                 callee_scope,
@@ -519,16 +522,38 @@ impl<'a> InterpPass<'a> {
                 args,
                 &genargs,
             );
-            static_results.push(self.visit_instance(
-                istore,
+            results.push(self.visit_instance(
+                &mut istore_clone,
                 &mut call_stack_clone,
                 callee_scope,
                 instance,
             )?);
+
+            istore_vec.push(istore_clone);
         }
 
-        // FIXME merge
-        Ok(static_results[0].clone())
+        self.merge_istores_and_set(istore, &mut istore_vec);
+        self.merge_results_and_ret(&mut results)
+    }
+
+    fn merge_istores_and_set(&self, istore: &mut InterpStore, istore_vec: &mut Vec<InterpStore>) {
+        // FIXME merge istore
+        if istore_vec.len() != 1 {
+            todo!("merge istores");
+        } else {
+            *istore = istore_vec[0].clone();
+        }
+    }
+
+    fn merge_results_and_ret(
+        &self,
+        results: &mut Vec<Option<Constraints>>,
+    ) -> Result<Option<Constraints>, Error> {
+        // FIXME merge results
+        if results.len() != 1 {
+            todo!("merge results");
+        }
+        Ok(results[0].clone())
     }
 
     fn interp_return(

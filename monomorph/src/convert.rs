@@ -263,7 +263,7 @@ impl<'a> RvalConverter<'a> {
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 debug!("ADT agg");
-                match self.convert_genargs(istore, cur_scope, def.0, genargs) {
+                match self.convert_genargs(def.0, genargs) {
                     // FIXME DefId -> ScopeId/VOId?
                     Some(converted_genargs) => {
                         debug!("defid: {:?}", def.0);
@@ -317,13 +317,7 @@ impl<'a> RvalConverter<'a> {
         constraints
     }
 
-    fn convert_genargs(
-        &self,
-        istore: &InterpStore,
-        cur_scope: ScopeId,
-        defid: DefId,
-        genargs: &GenericArgs,
-    ) -> Option<VOGenargs> {
+    fn convert_genargs(&self, defid: DefId, genargs: &GenericArgs) -> Option<VOGenargs> {
         if genargs.0.is_empty() {
             return None;
         }
@@ -333,7 +327,7 @@ impl<'a> RvalConverter<'a> {
                 GenericArgKind::Type(ty) => {
                     unique_append(
                         &mut converted_genargs,
-                        self.convert_genarg_ty(istore, cur_scope, defid, ty).list,
+                        self.convert_genarg_ty(defid, ty).list,
                     );
                 }
                 _ => {}
@@ -342,27 +336,18 @@ impl<'a> RvalConverter<'a> {
         Some(VOGenargs::new(converted_genargs))
     }
 
-    fn convert_genarg_ty(
-        &self,
-        istore: &InterpStore,
-        cur_scope: ScopeId,
-        defid: DefId,
-        genarg_ty: &Ty,
-    ) -> VOGenargs {
+    fn convert_genarg_ty(&self, defid: DefId, genarg_ty: &Ty) -> VOGenargs {
         match genarg_ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Uint(_uintty) => VOGenargs::new(vec![VORval::Uint]),
                 RigidTy::Adt(adtdef, adt_genargs) => VOGenargs::new(vec![VORval::IdkAdt(
                     adtdef.0,
-                    self.convert_genargs(istore, cur_scope, defid, &adt_genargs),
+                    self.convert_genargs(defid, &adt_genargs),
                 )]),
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {
-                        unique_append(
-                            &mut inner,
-                            self.convert_genarg_ty(istore, cur_scope, defid, &ty).list,
-                        );
+                        unique_append(&mut inner, self.convert_genarg_ty(defid, &ty).list);
                     }
                     VOGenargs::new(inner)
                 }

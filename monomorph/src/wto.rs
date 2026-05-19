@@ -1,8 +1,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_index::bit_set::DenseBitSet;
+use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{BasicBlock, Body, Successors, TerminatorKind};
-
-use crate::constraints::ScopeId;
 
 use log::debug;
 
@@ -182,7 +181,7 @@ impl BBDeps {
         debug!("self.ordering: {:?}", self.ordering);
     }
 
-    pub fn mark_visited(&mut self, bb: usize, cur_scope: ScopeId) {
+    pub fn mark_visited(&mut self, bb: usize, cur_scope: Instance) {
         debug!("DONE VISITING BB{:?} of {:?}", bb, cur_scope);
         self.visited.push(bb);
     }

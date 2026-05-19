@@ -41,7 +41,7 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     debug!("INTERP PASS");
     let mut istore = InterpStore::new();
     let interp = InterpPass::new(&tstore);
-    let _ = interp.run(&mut istore, entry_fn.0, entry_instance);
+    let _ = interp.run(&mut istore, entry_instance);
 
     // Rewrite MIR
 

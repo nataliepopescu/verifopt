@@ -1,9 +1,10 @@
 use rustc_public::DefId;
+use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Place, Rvalue, UnOp};
 use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
-use crate::constraints::{Constraints, MapKey, MapValue, ScopeId, VOGenargs, VORval};
+use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VORval};
 use crate::constraints::{unique_append, unique_push};
 use crate::trait_collect::TraitStore;
 
@@ -21,7 +22,7 @@ impl<'a> RvalConverter<'a> {
     pub fn convert(
         &self,
         istore: &InterpStore,
-        cur_scope: ScopeId,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         to_convert: &Rvalue,
     ) -> Constraints {
@@ -101,7 +102,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_op(
         &self,
         istore: &InterpStore,
-        cur_scope: ScopeId,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         op: &Operand,
     ) -> Constraints {
@@ -122,7 +123,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_place(
         &self,
         istore: &InterpStore,
-        cur_scope: ScopeId,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         place: &Place,
     ) -> Constraints {
@@ -167,7 +168,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_cast(
         &self,
         istore: &InterpStore,
-        cur_scope: ScopeId,
+        cur_scope: Instance,
         kind: &CastKind,
         op: &Operand,
         ty: &Ty,
@@ -252,7 +253,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_agg(
         &self,
         istore: &InterpStore,
-        cur_scope: ScopeId,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         kind: &AggregateKind,
         fields: &Vec<Operand>,

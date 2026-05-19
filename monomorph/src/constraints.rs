@@ -1,19 +1,17 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::DefId;
 use rustc_public::mir::Local;
-use rustc_public::mir::mono::InstanceDef;
+use rustc_public::mir::mono::Instance;
 use rustc_public::ty::Ty;
 
 use crate::wto::BBDeps;
 
 use log::debug;
 
-pub type ScopeId = (DefId, InstanceDef);
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
     Local(Local),
-    ScopeId(ScopeId),
+    ScopeId(Instance),
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
@@ -80,7 +78,7 @@ pub enum VORval {
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterpStore {
     pub cmap: HashMap<MapKey, Box<MapValue>>,
-    pub wtos: HashMap<ScopeId, BBDeps>,
+    pub wtos: HashMap<Instance, BBDeps>,
 }
 
 impl InterpStore {
@@ -93,7 +91,7 @@ impl InterpStore {
 
     pub fn scoped_get(
         &self,
-        scope: ScopeId,
+        scope: Instance,
         key: &MapKey,
         //traverse_backptr: bool,
     ) -> Option<MapValue> {
@@ -139,7 +137,7 @@ impl InterpStore {
         }
     }
 
-    pub fn scoped_update(&mut self, scope: ScopeId, key: MapKey, value: Box<MapValue>) {
+    pub fn scoped_update(&mut self, scope: Instance, key: MapKey, value: Box<MapValue>) {
         //if scope.is_none() {
         //    if self.cmap.contains_key(&key) {
         //        // FIXME MIR is not SSA

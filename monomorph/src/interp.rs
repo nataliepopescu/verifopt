@@ -8,7 +8,7 @@ use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, PolyFnSig, RigidTy
 
 use log::debug;
 
-use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, ScopeId, VORval};
+use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, VORval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::trait_collect::TraitStore;
@@ -18,6 +18,8 @@ pub struct InterpPass<'a> {
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
 }
+
+/// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
 
 impl<'a> InterpPass<'a> {
     pub fn new(tstore: &'a TraitStore) -> InterpPass<'a> {
@@ -30,10 +32,9 @@ impl<'a> InterpPass<'a> {
     pub fn run(
         &self,
         istore: &mut InterpStore,
-        start_defid: DefId,
-        instance: Instance,
+        start_scope: Instance,
     ) -> Result<Option<Constraints>, Error> {
-        let start_scope = (start_defid, instance.def);
+        //let start_scope = instance;
         let mut call_stack = vec![start_scope];
 
         // Initialize InterpStore with entry_fn's substore
@@ -43,20 +44,19 @@ impl<'a> InterpPass<'a> {
             Box::new(MapValue::Store(vec![entry_fn_istore])),
         );
 
-        self.visit_instance(istore, &mut call_stack, start_scope, instance)
+        self.visit_instance(istore, &mut call_stack, start_scope)
     }
 
     fn visit_instance(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
-        instance: Instance,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
     ) -> Result<Option<Constraints>, Error> {
-        let body = instance.body().unwrap();
+        let body = cur_scope.body().unwrap();
         debug!("#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
-        debug!("full call_stack: {:#?}", call_stack);
+        debug!("call_stack: {:?}", call_stack);
         //debug!("START BODY");
         //debug!("{:#?}", body);
         //debug!("END BODY");
@@ -68,8 +68,8 @@ impl<'a> InterpPass<'a> {
     fn visit_body(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
         body: &Body,
     ) -> Result<Option<Constraints>, Error> {
         // If there exists a memoized WTO, use it; otherwise, create it
@@ -109,8 +109,8 @@ impl<'a> InterpPass<'a> {
     fn visit_basic_block(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
         bb_deps: &mut BBDeps,
         local_decls: &[LocalDecl],
         bb: usize,
@@ -147,7 +147,7 @@ impl<'a> InterpPass<'a> {
     fn visit_statement(
         &self,
         istore: &mut InterpStore,
-        cur_scope: ScopeId,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         stmt: &Statement,
     ) {
@@ -181,8 +181,8 @@ impl<'a> InterpPass<'a> {
     fn visit_terminator(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         _bb: usize,
         term: &Terminator,
@@ -217,8 +217,8 @@ impl<'a> InterpPass<'a> {
     fn interp_direct_call(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         co: &ConstOperand,
         args: &Vec<Operand>,
@@ -230,7 +230,7 @@ impl<'a> InterpPass<'a> {
                     let instance = Instance::resolve(fndef, &genargs).unwrap();
                     debug!("instance def: {:?}", instance.def);
                     debug!("--- CALLING {:?}", fndef);
-                    debug!("cur call_stack: {:#?}", call_stack);
+                    debug!("call_stack: {:?}", call_stack);
                     match instance.kind {
                         InstanceKind::Item => {
                             debug!("regular static funccall");
@@ -291,8 +291,8 @@ impl<'a> InterpPass<'a> {
     fn interp_static_call(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        caller_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        caller_scope: Instance,
         local_decls: &[LocalDecl],
         instance: Instance,
         fndef: FnDef,
@@ -301,18 +301,18 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         if instance.has_body() {
             let mut istore_clone = istore.clone();
-            let callee_scope = (fndef.0, instance.def);
-            call_stack.push(callee_scope);
+            //let callee_scope = instance; //(fndef.0, instance);
+            call_stack.push(instance);
             self.resolve_args(
                 &mut istore_clone,
                 caller_scope,
                 local_decls,
-                callee_scope,
+                instance,
                 fndef,
                 args,
                 genargs,
             );
-            self.visit_instance(&mut istore_clone, call_stack, callee_scope, instance)
+            self.visit_instance(&mut istore_clone, call_stack, instance)
         } else {
             debug!("no body");
             self.retty_fallback(fndef)
@@ -322,9 +322,9 @@ impl<'a> InterpPass<'a> {
     fn resolve_args(
         &self,
         istore: &mut InterpStore,
-        caller_scope: ScopeId,
+        caller_scope: Instance,
         local_decls: &[LocalDecl],
-        callee_scope: ScopeId,
+        callee_scope: Instance,
         fndef: FnDef,
         args: &Vec<Operand>,
         genargs: &GenericArgs,
@@ -363,7 +363,7 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &InterpStore,
         new_substore: &mut InterpStore,
-        caller_scope: ScopeId,
+        caller_scope: Instance,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
         genargs: &GenericArgs,
@@ -389,7 +389,7 @@ impl<'a> InterpPass<'a> {
     fn resolve_arg(
         &self,
         istore: &InterpStore,
-        caller_scope: ScopeId,
+        caller_scope: Instance,
         _local_decls: &[LocalDecl],
         arg: &Operand,
     ) -> Constraints {
@@ -437,8 +437,8 @@ impl<'a> InterpPass<'a> {
     fn interp_virtual_call(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         fndef: &FnDef,
         genargs: &GenericArgs,
@@ -493,8 +493,8 @@ impl<'a> InterpPass<'a> {
     fn simulate_static_calls(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
         local_decls: &[LocalDecl],
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
@@ -509,15 +509,15 @@ impl<'a> InterpPass<'a> {
             debug!("instance def: {:?}", instance.def);
             debug!("a converted static instance: {:?}", instance);
             let mut call_stack_clone = call_stack.clone();
-            let callee_scope = (assoc_fn_impl, instance.def);
-            call_stack_clone.push(callee_scope);
+            //let callee_scope = instance;
+            call_stack_clone.push(instance);
 
             let mut istore_clone = istore.clone();
             self.resolve_args(
                 &mut istore_clone,
                 cur_scope,
                 local_decls,
-                callee_scope,
+                instance,
                 fndef,
                 args,
                 &genargs,
@@ -525,7 +525,6 @@ impl<'a> InterpPass<'a> {
             results.push(self.visit_instance(
                 &mut istore_clone,
                 &mut call_stack_clone,
-                callee_scope,
                 instance,
             )?);
 
@@ -559,8 +558,8 @@ impl<'a> InterpPass<'a> {
     fn interp_return(
         &self,
         istore: &mut InterpStore,
-        call_stack: &mut Vec<ScopeId>,
-        cur_scope: ScopeId,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
     ) -> Result<Option<Constraints>, Error> {
         debug!("RETURNING from scope {:?}...", cur_scope);
         //debug!("callstack PRE POP: {:?}", call_stack);

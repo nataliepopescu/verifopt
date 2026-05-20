@@ -1,5 +1,5 @@
 [package]
-name = "two_variants_rand"
+name = "two_variants"
 version = "0.1.0"
 edition = "2024"
 

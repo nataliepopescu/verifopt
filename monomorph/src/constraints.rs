@@ -40,18 +40,9 @@ pub enum MapValue {
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
 pub type Constraints = Vec<VORval>;
 
+// Alias around VORval to make it semantically easier to tell when we are processing generic arguments
+pub type VOGenargs = Vec<VOGenarg>;
 pub type VOGenarg = VORval;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct VOGenargs {
-    pub list: Vec<VOGenarg>,
-}
-
-impl VOGenargs {
-    pub fn new(list: Vec<VORval>) -> VOGenargs {
-        Self { list }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VORval {

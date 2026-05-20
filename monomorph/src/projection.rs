@@ -106,10 +106,10 @@ impl ProjectionHandler {
                 debug!("genargs: {:?}", genargs);
                 if is_box(&adtdef.0) {
                     let genargs = genargs.clone().unwrap();
-                    if genargs.list.len() > 1 {
+                    if genargs.len() > 1 {
                         error!("more than 1 genarg in box");
                     }
-                    genargs.list[0].clone()
+                    genargs[0].clone()
                 } else {
                     todo!();
                 }

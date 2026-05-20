@@ -288,7 +288,7 @@ impl<'a> RvalConverter<'a> {
                     Some(converted_genargs) => {
                         debug!("def: {:?}", def);
                         debug!("converted genargs: {:?}", converted_genargs);
-                        match converted_genargs.list.len() {
+                        match converted_genargs.len() {
                             0 => unique_push(&mut constraints, VORval::IdkAdt(*def, None)),
                             _ => unique_push(
                                 &mut constraints,
@@ -345,30 +345,29 @@ impl<'a> RvalConverter<'a> {
         for genarg in &genargs.0 {
             match genarg {
                 GenericArgKind::Type(ty) => {
-                    unique_append(&mut converted_genargs, self.convert_genarg_ty(ty).list);
+                    unique_append(&mut converted_genargs, self.convert_ty(ty));
                 }
                 _ => {}
             }
         }
-        Some(VOGenargs::new(converted_genargs))
+        Some(converted_genargs)
     }
 
-    fn convert_genarg_ty(&self, genarg_ty: &Ty) -> VOGenargs {
-        match genarg_ty.kind() {
+    pub fn convert_ty(&self, ty: &Ty) -> Vec<VORval> {
+        match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                RigidTy::Uint(_uintty) => VOGenargs::new(vec![VORval::Uint]),
-                RigidTy::Adt(adtdef, adt_genargs) => VOGenargs::new(vec![VORval::IdkAdt(
-                    adtdef,
-                    self.convert_genargs(&adt_genargs),
-                )]),
+                RigidTy::Uint(_uintty) => vec![VORval::Uint],
+                RigidTy::Adt(adtdef, adt_genargs) => {
+                    vec![VORval::IdkAdt(adtdef, self.convert_genargs(&adt_genargs))]
+                }
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {
-                        unique_append(&mut inner, self.convert_genarg_ty(&ty).list);
+                        unique_append(&mut inner, self.convert_ty(&ty));
                     }
-                    VOGenargs::new(inner)
+                    inner
                 }
-                RigidTy::Slice(ty) => VOGenargs::new(vec![VORval::Slice(ty)]),
+                RigidTy::Slice(ty) => vec![VORval::Slice(ty)],
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),

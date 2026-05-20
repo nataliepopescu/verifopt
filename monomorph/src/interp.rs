@@ -259,7 +259,7 @@ impl<'a> InterpPass<'a> {
                     let instance = Instance::resolve(fndef, &genargs).unwrap();
                     debug!("instance def: {:?}", instance.def);
                     debug!("--- CALLING {:?}", fndef);
-                    //debug!("call_stack: {:?}", call_stack);
+                    debug!("cur_scope: {:?}", cur_scope);
                     match instance.kind {
                         InstanceKind::Item => {
                             debug!("regular static funccall");
@@ -438,6 +438,7 @@ impl<'a> InterpPass<'a> {
                     Ok(val) => vec![VORval::Scalar(val)],
                     _ => vec![VORval::IdkType(const_op.const_.ty())],
                 },
+                ConstantKind::ZeroSized => self.converter.convert_ty(&const_op.const_.ty()),
                 other @ _ => todo!("arg is another constant kind: {:?}", other),
             },
             _ => todo!("runtime check arg"),

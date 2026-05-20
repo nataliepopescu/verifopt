@@ -241,3 +241,22 @@ impl Merge<InterpStore> for Vec<InterpStore> {
         Ok(Some(merged))
     }
 }
+
+impl Merge<Constraints> for Vec<Constraints> {
+    fn merge(&self) -> Result<Option<Constraints>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut merged_constraints = self[0].clone();
+        for constraints in self.iter() {
+            merged_constraints = merge_constraints(&merged_constraints, &constraints);
+        }
+
+        Ok(Some(merged_constraints))
+    }
+}

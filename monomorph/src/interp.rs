@@ -576,11 +576,22 @@ impl<'a> InterpPass<'a> {
         &self,
         results: &mut Vec<Option<Constraints>>,
     ) -> Result<Option<Constraints>, Error> {
-        // FIXME merge results
-        if results.len() != 1 {
-            todo!("merge results");
+        // Filter out None constraints and unwrap all Some options
+        debug!("results PRE filter: {:?}", results);
+        let filtered_results: Vec<Constraints> = results
+            .into_iter()
+            .filter(|option| option.is_none())
+            .map(|x| x.clone().unwrap())
+            .collect();
+        debug!("results POST filter: {:?}", filtered_results);
+
+        match filtered_results.merge() {
+            Ok(Some(merged_constraints)) => {
+                debug!("merged constraints: {:?}", merged_constraints);
+                return Ok(Some(merged_constraints));
+            }
+            Ok(None) => Ok(None),
         }
-        Ok(results[0].clone())
     }
 
     fn interp_switchint(

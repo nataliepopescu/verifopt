@@ -51,7 +51,7 @@ impl<'a> RvalConverter<'a> {
             }
             Rvalue::Cast(kind, op, ty) => {
                 debug!("CAST");
-                self.convert_cast(istore, cur_scope, kind, op, ty)
+                self.convert_cast(istore, cur_scope, local_decls, kind, op, ty)
             }
             Rvalue::Aggregate(kind, fields) => {
                 debug!("AGGREGATE");
@@ -189,6 +189,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: Instance,
+        local_decls: &[LocalDecl],
         kind: &CastKind,
         op: &Operand,
         ty: &Ty,
@@ -203,7 +204,10 @@ impl<'a> RvalConverter<'a> {
                 unique_push(&mut constraints, VORval::IdkType(const_op.const_.ty()));
             }
             Operand::Copy(place) | Operand::Move(place) => {
+                let resolved_ty = place.ty(local_decls).unwrap();
                 debug!("place: {:?}", place);
+                debug!("resolved_ty for place: {:?}", resolved_ty);
+
                 match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints_) => {
@@ -264,7 +268,8 @@ impl<'a> RvalConverter<'a> {
                 | CastKind::FloatToFloat
                 | CastKind::IntToFloat
                 | CastKind::PtrToPtr
-                | CastKind::PointerCoercion(_) => constraint.clone(),
+                | CastKind::PointerCoercion(_)
+                | CastKind::Transmute => constraint.clone(),
                 _ => todo!("cannot yet cast (scalar): {:?} ({:?})", constraint, kind),
             },
         }

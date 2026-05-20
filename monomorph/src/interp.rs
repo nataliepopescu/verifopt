@@ -190,7 +190,7 @@ impl<'a> InterpPass<'a> {
                 debug!("dest ty: {:?}", &local_decls[place.local].ty);
                 debug!("rval: {:?}", rvalue);
 
-                // convert Rvalue to VORval
+                // convert MIR Rvalue to VORval
                 let constraints = self
                     .converter
                     .convert(istore, cur_scope, local_decls, rvalue);

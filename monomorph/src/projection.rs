@@ -143,6 +143,7 @@ impl ProjectionHandler {
             VORval::Tuple(inner_vec) => inner_vec[*fidx].clone(),
             // FIXME widening to type, but can maybe retain info
             VORval::IdkAdt(_def, _genargs) => VORval::IdkType(*ty),
+            VORval::Scalar(_) => constraint.clone(),
             _ => todo!(),
         }
     }

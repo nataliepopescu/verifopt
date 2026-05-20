@@ -1,7 +1,7 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, BasicBlockIdx, Body, ConstOperand, LocalDecl, Operand, Place, Statement,
+    BasicBlock, BasicBlockIdx, Body, ConstOperand, Local, LocalDecl, Operand, Place, Statement,
     StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, PolyFnSig, RigidTy, TyKind};
@@ -475,46 +475,138 @@ impl<'a> InterpPass<'a> {
         // - Get trait that this function is associated with
         //   - tstore.assoc_fn_traits (Map<AssocFn, Trait>)
         // - Get concrete type constraints for trait object
-        //   - istore / tstore.trait_structs (CHA / RTA)
+        //   - istore (FSA) / tstore (CHA / RTA)
         // - Get every concrete type constraint's impl of this function
         //   - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
 
-        // Get trait that this function is associated with
-        let trait_defid = match self.tstore.assoc_fn_traits.get(&fndef.0) {
-            Some(trait_defid_) => trait_defid_,
-            None => panic!("assoc fn {:?} does not point to trait", fndef.0),
-        };
+        debug!("DYNAMIC DISPATCH");
+        debug!("args: {:?}", args);
+
+        let trait_defid = self.get_trait_defid(&fndef.0);
         debug!("trait_defid: {:?}", trait_defid);
 
-        // Get concrete type constraints for trait object
-        let tyconstraints = match self.tstore.trait_structs.get(&trait_defid) {
-            Some(tyconstraints_) => tyconstraints_,
-            None => panic!("trait {:?} does not point to any structs", trait_defid),
-        };
-        debug!("tyconstraints: {:?}", tyconstraints);
+        let assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
+        debug!("------- assoc_fn_impls_cha: {:?}", assoc_fn_impls_cha);
 
-        // Get every concrete type constraint's impl of this function
-        let mut assoc_fn_impls = Vec::new();
-        for &tyconstraint in tyconstraints {
-            match self.tstore.struct_assoc_fns.get(&(tyconstraint, fndef.0)) {
-                Some(assoc_fn_impl) => assoc_fn_impls.append(&mut assoc_fn_impl.clone()),
-                None => panic!(
-                    "struct/container ({:?}, {:?}) pair does not point to assoc fn",
-                    tyconstraint, fndef.0
-                ),
-            }
+        let assoc_fn_impls_fsa = self.get_impls_fsa(istore, cur_scope, &fndef.0, args);
+        debug!("------- assoc_fn_impls_fsa: {:?}", assoc_fn_impls_fsa);
+
+        if assoc_fn_impls_cha != assoc_fn_impls_fsa {
+            debug!("SET OF IMPLS DIFFER");
+        } else {
+            debug!("SET OF IMPLS SAME");
         }
-        debug!("assoc_fn_impls: {:?}", assoc_fn_impls);
 
         self.simulate_static_calls(
             istore,
             call_stack,
             cur_scope,
             local_decls,
-            assoc_fn_impls,
+            //assoc_fn_impls_cha,
+            assoc_fn_impls_fsa,
             genargs,
             args,
         )
+    }
+
+    fn get_trait_defid(&self, assoc_fn_defid: &DefId) -> DefId {
+        // Get trait that this function is associated with
+        match self.tstore.assoc_fn_traits.get(assoc_fn_defid) {
+            Some(trait_defid) => *trait_defid,
+            None => panic!("assoc fn {:?} does not point to trait", assoc_fn_defid),
+        }
+    }
+
+    fn get_impls_from_defids(
+        &self,
+        assoc_fn_defid: &DefId,
+        constraint_defids: &Vec<DefId>,
+    ) -> Vec<DefId> {
+        // Get every concrete type constraint's impl of this function
+        let mut assoc_fn_impls = Vec::new();
+        for defid in constraint_defids {
+            match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
+                Some(assoc_fn_impl) => assoc_fn_impls.append(&mut assoc_fn_impl.clone()),
+                None => panic!(
+                    "struct/container ({:?}, {:?}) pair does not point to assoc fn",
+                    defid, assoc_fn_defid
+                ),
+            }
+        }
+        assoc_fn_impls
+    }
+
+    fn get_impls_cha(&self, assoc_fn_defid: &DefId, trait_defid: &DefId) -> Vec<DefId> {
+        debug!("GETTING CHA IMPLS");
+        let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
+        self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
+    }
+
+    fn get_cha_tyconstraint_defids(&self, trait_defid: &DefId) -> Vec<DefId> {
+        // Get concrete type constraints for trait object
+        match self.tstore.trait_structs.get(trait_defid) {
+            Some(tyconstraints) => tyconstraints.to_vec(),
+            None => panic!("trait {:?} does not point to any structs", trait_defid),
+        }
+    }
+
+    fn get_impls_fsa(
+        &self,
+        istore: &InterpStore,
+        cur_scope: Instance,
+        assoc_fn_defid: &DefId,
+        args: &Vec<Operand>,
+    ) -> Vec<DefId> {
+        debug!("GETTING FSA IMPLS");
+        let local = self.get_traitobj_local(args);
+        let tyconstraints = self.get_fsa_tyconstraints(istore, cur_scope, local);
+        let constraint_defids = self.get_fsa_constraint_defids(&tyconstraints);
+        self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
+    }
+
+    fn get_traitobj_local(&self, args: &Vec<Operand>) -> Local {
+        match &args[0] {
+            Operand::Copy(place) | Operand::Move(place) => {
+                if !place.projection.is_empty() {
+                    panic!("traitobj place has projections");
+                }
+
+                place.local
+            }
+            _ => panic!("unexpected operand: {:?}", args[0]),
+        }
+    }
+
+    fn get_fsa_tyconstraints(
+        &self,
+        istore: &InterpStore,
+        cur_scope: Instance,
+        local: Local,
+    ) -> Constraints {
+        // Get concrete type constraints for trait object
+        match istore.scoped_get(cur_scope, &MapKey::Local(local)) {
+            Some(val) => match val {
+                MapValue::Constraints(tyconstraints) => tyconstraints,
+                MapValue::Store(_) => panic!("local {:?} refers to a scope", local),
+            },
+            None => panic!("local {:?} has no constraints", local),
+        }
+    }
+
+    fn get_fsa_constraint_defids(&self, tyconstraints: &Constraints) -> Vec<DefId> {
+        let mut defids = Vec::new();
+        for vorval in tyconstraints {
+            defids.push(self.resolve_defid(vorval));
+        }
+        defids
+    }
+
+    fn resolve_defid(&self, vorval: &VORval) -> DefId {
+        match vorval {
+            VORval::IdkAdt(adtdef, _) => adtdef.0,
+            VORval::RawPtr(inner) | VORval::Ref(inner) => self.resolve_defid(inner),
+            _ => panic!("other vorval: {:?}", vorval),
+        }
     }
 
     fn simulate_static_calls(

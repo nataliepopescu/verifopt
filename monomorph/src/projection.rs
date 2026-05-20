@@ -9,7 +9,9 @@ use crate::constraints::{Constraints, VORval};
 use log::{debug, error};
 
 fn is_box(defid: &DefId) -> bool {
-    if defid.to_index() == 18965 {
+    let idx = defid.to_index();
+    // FIXME why multiple defids for box?
+    if idx == 18965 || idx == 18969 {
         return true;
     }
     false

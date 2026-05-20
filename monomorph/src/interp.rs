@@ -8,7 +8,7 @@ use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, PolyFnSig, RigidTy
 
 use log::debug;
 
-use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, VORval};
+use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VORval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::trait_collect::TraitStore;
@@ -41,7 +41,7 @@ impl<'a> InterpPass<'a> {
         let entry_fn_istore = InterpStore::new();
         istore.cmap.insert(
             MapKey::ScopeId(start_scope),
-            Box::new(MapValue::Store(vec![entry_fn_istore])),
+            Box::new(MapValue::Store(entry_fn_istore)),
         );
 
         self.visit_instance(istore, &mut call_stack, start_scope)
@@ -383,7 +383,7 @@ impl<'a> InterpPass<'a> {
         // Add new substore in top-level store
         istore
             .cmap
-            .insert(key, Box::new(MapValue::Store(vec![new_substore])));
+            .insert(key, Box::new(MapValue::Store(new_substore)));
     }
 
     fn resolve_args_helper(
@@ -563,11 +563,12 @@ impl<'a> InterpPass<'a> {
     }
 
     fn merge_istores_and_set(&self, istore: &mut InterpStore, istore_vec: &mut Vec<InterpStore>) {
-        // FIXME merge istore
-        if istore_vec.len() != 1 {
-            todo!("merge istores");
-        } else {
-            *istore = istore_vec[0].clone();
+        match istore_vec.merge() {
+            Ok(Some(merged_istore)) => {
+                debug!("merged istore: {:?}", merged_istore);
+                *istore = merged_istore;
+            }
+            Ok(None) => panic!("istores empty?"),
         }
     }
 

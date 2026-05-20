@@ -3,18 +3,10 @@ use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{AdtDef, Ty};
 
+use crate::error::Error;
 use crate::wto::BBDeps;
 
 use log::debug;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum MapKey {
-    Local(Local),
-    ScopeId(Instance),
-}
-
-// Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-pub type Constraints = Vec<VORval>;
 
 pub fn unique_push(vec: &mut Constraints, elem: VORval) -> Option<VORval> {
     if vec.contains(&elem) {
@@ -31,13 +23,22 @@ pub fn unique_append(vec: &mut Constraints, to_append: Constraints) {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    Local(Local),
+    ScopeId(Instance),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
     // TODO add scope backptr in for closures
     // (Option<DefId>, where None == top-level global scope)
-    Store(Vec<InterpStore>),
+    Store(InterpStore),
     Constraints(Constraints),
 }
+
+// Set of positive constraints; negative constraints are resolved immediately by removing them from the set
+pub type Constraints = Vec<VORval>;
 
 pub type VOGenarg = VORval;
 
@@ -66,12 +67,6 @@ pub enum VORval {
     Uint,
     Slice(Ty),
     Array(Ty),
-    //ConstSlice(),
-    //IndirectConst(Ty),
-    //IdkDefId(DefId),
-    //IdkGeneric(Symbol),
-    //IdkStr(), //Const<'tcx>),
-    //Undef(),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,18 +103,18 @@ impl InterpStore {
 
         match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                MapValue::Store(substores) => {
-                    if substores.len() != 1 {
-                        todo!(
-                            "not impl yet (vec of substores w len = {:?})",
-                            substores.len()
-                        );
-                    }
+                MapValue::Store(store) => {
+                    //if substores.len() != 1 {
+                    //    todo!(
+                    //        "not impl yet (vec of substores w len = {:?})",
+                    //        substores.len()
+                    //    );
+                    //}
 
                     // Is key in inner_cmap? if not:
                     // - Is nested func: return None
                     // - Is closure: follow backptr to enclosing scope
-                    match substores[0].cmap.get(key) {
+                    match store.cmap.get(key) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => None,
                         // FIXME closures should not recurse past enclosing function
@@ -149,27 +144,26 @@ impl InterpStore {
 
         match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                MapValue::Store(mut substores) => {
-                    if substores.len() != 1 {
-                        todo!(
-                            "not impl yet (vec of substores w len = {:?})",
-                            substores.len()
-                        );
-                    }
+                MapValue::Store(mut store) => {
+                    //if substores.len() != 1 {
+                    //    todo!(
+                    //        "not impl yet (vec of substores w len = {:?})",
+                    //        substores.len()
+                    //    );
+                    //}
                     let mut new_val = value.clone();
-                    let substore = &mut substores[0].cmap;
-                    let old_val = substore.get(&key);
+                    let old_val = store.cmap.get(&key);
                     match old_val {
                         Some(old_val_) => {
-                            new_val = Box::new(self.merge_vals(*old_val_.clone(), *value));
+                            new_val = Box::new(merge_mapvals(old_val_, &value));
                         }
                         None => {}
                     }
 
                     // modify scope w new key/val
-                    substore.insert(key, new_val);
+                    store.cmap.insert(key, new_val);
                     self.cmap
-                        .insert(MapKey::ScopeId(scope), Box::new(MapValue::Store(substores)));
+                        .insert(MapKey::ScopeId(scope), Box::new(MapValue::Store(store)));
                 }
                 MapValue::Constraints(..) => {
                     panic!("defid is not a scope: {:?}", scope);
@@ -178,39 +172,72 @@ impl InterpStore {
             None => panic!("undefined scope: {:?}", scope),
         }
     }
+}
 
-    fn merge_vals(&mut self, old_val: MapValue, new_val: MapValue) -> MapValue {
-        debug!("old val: {:?}", old_val);
-        debug!("new val: {:?}", new_val);
+fn merge_stores(cur_store: &InterpStore, new_store: &InterpStore) -> InterpStore {
+    let merged = cur_store.clone();
+    if merged != *new_store {
+        todo!("merge different stores");
+    }
+    merged
+}
 
-        //let mut cvec = vec![];
-        //cvec.push(*value);
-        //cvec.push(*old_val.clone());
-        //debug!("cvec: {:?}", cvec);
+fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
+    let mut merged = cur_constraints.clone();
+    if merged != *new_constraints {
+        unique_append(&mut merged, new_constraints.to_vec());
+    }
+    merged
+}
 
-        let merged = old_val.clone();
-        match (merged.clone(), new_val.clone()) {
-            (MapValue::Constraints(_c_merged), MapValue::Constraints(_c_new)) => {
-                // FIXME
-                //if c_merged !=
-            }
-            _ => todo!("merge scopes"),
+fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
+    match (cur_val.clone(), new_val.clone()) {
+        (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
+            MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
+        }
+        (MapValue::Store(cur_store), MapValue::Store(new_store)) => {
+            MapValue::Store(merge_stores(&cur_store, &new_store))
+        }
+        _ => panic!("incomparable MapValue types"),
+    }
+}
+
+pub trait Merge<T> {
+    fn merge(&self) -> Result<Option<T>, Error>;
+}
+
+impl Merge<InterpStore> for Vec<InterpStore> {
+    fn merge(&self) -> Result<Option<InterpStore>, Error> {
+        debug!("interp stores to merge: {:?}", self);
+
+        if self.is_empty() {
+            return Ok(None);
         }
 
-        merged
-
-        // FIXME don't need merge if only ever comparing two values
-        /*
-        match cvec.merge() {
-            Ok(Some(new_val)) => {
-                subscope_cmap.insert(key, Box::new(new_val));
-                self.cmap.insert(
-                    MapKey::ScopeId(scope.unwrap()),
-                    Box::new(MapValue::Store(substores)),
-                );
-            }
-            _ => todo!("not impl yet"),
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
         }
-        */
+
+        let mut merged = self[0].clone();
+        let mut first = true;
+        for store in self.iter() {
+            if first {
+                first = false;
+                continue;
+            }
+            for (key, val) in store.clone().cmap.iter() {
+                match merged.cmap.get_mut(key) {
+                    Some(merged_val) => {
+                        let new_merged_val = merge_mapvals(merged_val, val);
+                        merged.cmap.insert(key.clone(), Box::new(new_merged_val));
+                    }
+                    None => {
+                        merged.cmap.insert(key.clone(), val.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(Some(merged))
     }
 }

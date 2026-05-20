@@ -13,12 +13,14 @@ use log::debug;
 use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VORval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
+use crate::logger::VOLogger;
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 
 pub struct InterpPass<'a> {
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
+    pub logger: VOLogger,
 }
 
 /// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
@@ -28,6 +30,7 @@ impl<'a> InterpPass<'a> {
         Self {
             tstore,
             converter: RvalConverter::new(tstore),
+            logger: VOLogger::new(),
         }
     }
 
@@ -502,6 +505,8 @@ impl<'a> InterpPass<'a> {
 
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!("SET OF IMPLS DIFFER");
+            // Log to a different stream
+            self.logger.log(&assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         } else {
             debug!("SET OF IMPLS SAME");
         }

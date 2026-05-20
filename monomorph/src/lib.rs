@@ -19,6 +19,7 @@ pub mod constraints;
 pub mod convert;
 pub mod error;
 pub mod interp;
+pub mod logger;
 pub mod projection;
 pub mod rewrite;
 pub mod trait_collect;

@@ -1,10 +1,12 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, BasicBlockIdx, Body, ConstOperand, Local, LocalDecl, Operand, Place, Statement,
-    StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
+    BasicBlock, Body, ConstOperand, Local, LocalDecl, Operand, Place, Statement, StatementKind,
+    Successors, SwitchTargets, Terminator, TerminatorKind,
 };
-use rustc_public::ty::{BoundVariableKind, FnDef, GenericArgs, PolyFnSig, RigidTy, TyKind};
+use rustc_public::ty::{
+    BoundVariableKind, ConstantKind, FnDef, GenericArgs, PolyFnSig, RigidTy, TyKind,
+};
 
 use log::debug;
 
@@ -431,7 +433,13 @@ impl<'a> InterpPass<'a> {
                 }
             }
             // TODO can maybe get a more precise VORval depending on kind
-            Operand::Constant(const_op) => vec![VORval::IdkType(const_op.const_.ty())],
+            Operand::Constant(const_op) => match const_op.const_.kind() {
+                ConstantKind::Allocated(alloc) => match alloc.read_uint() {
+                    Ok(val) => vec![VORval::Scalar(val)],
+                    _ => vec![VORval::IdkType(const_op.const_.ty())],
+                },
+                other @ _ => todo!("arg is another constant kind: {:?}", other),
+            },
             _ => todo!("runtime check arg"),
         }
     }
@@ -709,14 +717,17 @@ impl<'a> InterpPass<'a> {
                             let mut discr_vals_uninit =
                                 Box::<[u8]>::new_zeroed_slice(targets.len());
                             let discr_vals = discr_vals_uninit.write_filled(0);
+                            debug!("PRE discr_vals: {:?}", discr_vals);
 
                             // Check expected type of discriminant
                             debug!("expected ty: {:?}", place.ty(local_decls));
 
                             // Populate byte-map with possible branch values, based on constraints
                             for constraint in constraints {
-                                self.set_bytemap(constraint, targets.branches(), discr_vals);
+                                debug!("setting bytemap for constraint: {:?}", constraint);
+                                self.set_bytemap(constraint, targets, discr_vals);
                             }
+                            debug!("POST discr_vals: {:?}", discr_vals);
 
                             self.prune_switchint_targets(
                                 bb,
@@ -740,21 +751,23 @@ impl<'a> InterpPass<'a> {
     fn set_bytemap(
         &self,
         constraint: VORval,
-        branches: impl Iterator<Item = (u128, BasicBlockIdx)>,
+        //branches: impl Iterator<Item = (u128, BasicBlockIdx)>,
+        targets: &SwitchTargets,
         discr_vals: &mut [u8],
     ) {
         match constraint {
             VORval::Scalar(num) => {
+                debug!("scalar discr val: {:?}", num);
                 // Increment matching branch counters
-                for (i, branch) in branches {
-                    if num == branch.try_into().unwrap() {
+                for (i, (val, _bb)) in targets.branches().enumerate() {
+                    if num == val {
                         discr_vals[usize::try_from(i).unwrap()] += 1;
                     }
                 }
             }
             VORval::Bool => {
                 // Increment all branch counters (since no static bool value)
-                for (i, _branch) in branches {
+                for (i, _) in targets.branches().enumerate() {
                     discr_vals[usize::try_from(i).unwrap()] += 1;
                 }
             }
@@ -762,7 +775,7 @@ impl<'a> InterpPass<'a> {
                 // Increment "otherwise" branch counter
                 discr_vals[discr_vals.len() - 1] += 1;
             }
-            VORval::Ref(inner) => self.set_bytemap(*inner, branches, discr_vals),
+            VORval::Ref(inner) => self.set_bytemap(*inner, targets, discr_vals),
             _ => panic!("unexpected switchint discr: {:?}", constraint),
         }
     }

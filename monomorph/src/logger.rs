@@ -18,8 +18,21 @@ impl VOLogger {
         Self { file }
     }
 
-    pub fn log(&mut self, term_span: &Span, assoc_fn_impls_cha: &Vec<DefId>, assoc_fn_impls_fsa: &Vec<DefId>) -> Result<(), std::io::Error> {
-        write!(&mut self.file, "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}", term_span, assoc_fn_impls_cha.len(), assoc_fn_impls_cha, assoc_fn_impls_fsa.len(), assoc_fn_impls_fsa)?;
+    pub fn log(
+        &mut self,
+        term_span: &Span,
+        assoc_fn_impls_cha: &Vec<DefId>,
+        assoc_fn_impls_fsa: &Vec<DefId>,
+    ) -> Result<(), std::io::Error> {
+        write!(
+            &mut self.file,
+            "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}",
+            term_span,
+            assoc_fn_impls_cha.len(),
+            assoc_fn_impls_cha,
+            assoc_fn_impls_fsa.len(),
+            assoc_fn_impls_fsa
+        )?;
         Ok(())
     }
 }

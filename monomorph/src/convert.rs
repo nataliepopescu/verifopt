@@ -385,7 +385,7 @@ impl<'a> RvalConverter<'a> {
                         for bound_var in poly_fn_sig.bound_vars {
                             match bound_var {
                                 BoundVariableKind::Ty(_) => todo!(),
-                                _ => {},
+                                _ => {}
                             }
                         }
                     }

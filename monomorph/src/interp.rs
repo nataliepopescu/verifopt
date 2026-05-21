@@ -243,13 +243,46 @@ impl<'a> InterpPass<'a> {
                     args,
                     destination,
                 ),
-                _ => todo!("handle indirect function invocations"),
+                Operand::Copy(place) | Operand::Move(place) => self.interp_indirect_call(
+                    logger,
+                    &term.span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    //local_decls,
+                    place,
+                    args,
+                    destination,
+                ),
+                _ => todo!("calling runtime check operand?"),
             },
             TerminatorKind::Return => self.interp_return(istore, call_stack, cur_scope),
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(istore, cur_scope, local_decls, bb, bb_deps, discr, targets)
             }
             _ => Ok(None),
+        }
+    }
+
+    fn interp_indirect_call(
+        &self,
+        _logger: &mut VOLogger,
+        _term_span: &Span,
+        istore: &mut InterpStore,
+        _call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
+        place: &Place,
+        _args: &Vec<Operand>,
+        _destination: &Place,
+    ) -> Result<Option<Constraints>, Error> {
+        debug!("place: {:?}", place);
+
+        match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
+            Some(val) => {
+                debug!("found val!: {:?}", val);
+                todo!("handle indirect function invocations");
+            }
+            None => panic!("fnptr value not found in cmap"),
         }
     }
 

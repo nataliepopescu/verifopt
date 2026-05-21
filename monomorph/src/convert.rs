@@ -1,6 +1,6 @@
 use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Place, Rvalue, UnOp};
-use rustc_public::ty::{GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
+use rustc_public::ty::{BoundVariableKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
 use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VORval};
@@ -272,6 +272,7 @@ impl<'a> RvalConverter<'a> {
                 | CastKind::Transmute => constraint.clone(),
                 _ => todo!("cannot yet cast (scalar): {:?} ({:?})", constraint, kind),
             },
+            _ => todo!(),
         }
     }
 
@@ -361,9 +362,11 @@ impl<'a> RvalConverter<'a> {
     pub fn convert_ty(&self, ty: &Ty) -> Vec<VORval> {
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
+                RigidTy::Bool => vec![VORval::Bool],
+                RigidTy::Int(_intty) => vec![VORval::Int],
                 RigidTy::Uint(_uintty) => vec![VORval::Uint],
-                RigidTy::Adt(adtdef, adt_genargs) => {
-                    vec![VORval::IdkAdt(adtdef, self.convert_genargs(&adt_genargs))]
+                RigidTy::Adt(def, genargs) => {
+                    vec![VORval::IdkAdt(def, self.convert_genargs(&genargs))]
                 }
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
@@ -373,6 +376,26 @@ impl<'a> RvalConverter<'a> {
                     inner
                 }
                 RigidTy::Slice(ty) => vec![VORval::Slice(ty)],
+                RigidTy::Closure(def, genargs) => {
+                    vec![VORval::Closure(def, self.convert_genargs(&genargs))]
+                }
+                RigidTy::FnPtr(poly_fn_sig) => {
+                    debug!("poly_fn_sig: {:?}", poly_fn_sig);
+                    if !poly_fn_sig.bound_vars.is_empty() {
+                        for bound_var in poly_fn_sig.bound_vars {
+                            match bound_var {
+                                BoundVariableKind::Ty(_) => todo!(),
+                                _ => {},
+                            }
+                        }
+                    }
+                    let mut inputs_output_vorvals = Vec::new();
+                    for io in poly_fn_sig.value.inputs_and_output {
+                        inputs_output_vorvals.push(self.convert_ty(&io));
+                    }
+                    vec![VORval::FnPtr(inputs_output_vorvals)]
+                }
+                RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),

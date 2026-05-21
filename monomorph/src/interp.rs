@@ -5,22 +5,21 @@ use rustc_public::mir::{
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
-    BoundVariableKind, ConstantKind, FnDef, GenericArgs, PolyFnSig, RigidTy, TyKind,
+    BoundVariableKind, ConstantKind, FnDef, GenericArgs, PolyFnSig, RigidTy, Span, TyKind,
 };
 
 use log::debug;
 
+use crate::VOLogger;
 use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VORval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
-use crate::logger::VOLogger;
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 
 pub struct InterpPass<'a> {
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
-    pub logger: VOLogger,
 }
 
 /// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
@@ -30,12 +29,12 @@ impl<'a> InterpPass<'a> {
         Self {
             tstore,
             converter: RvalConverter::new(tstore),
-            logger: VOLogger::new(),
         }
     }
 
     pub fn run(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         start_scope: Instance,
     ) -> Result<Option<Constraints>, Error> {
@@ -49,7 +48,7 @@ impl<'a> InterpPass<'a> {
             Box::new(MapValue::Store(entry_fn_istore)),
         );
 
-        self.visit_instance(istore, &mut call_stack, start_scope)
+        self.visit_instance(logger, istore, &mut call_stack, start_scope)
     }
 
     fn print_mir(&self, body: &Body) {
@@ -80,6 +79,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_instance(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
@@ -91,11 +91,12 @@ impl<'a> InterpPass<'a> {
         self.print_mir(&body);
         debug!("#############################\n\n");
 
-        self.visit_body(istore, call_stack, cur_scope, &body)
+        self.visit_body(logger, istore, call_stack, cur_scope, &body)
     }
 
     fn visit_body(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
@@ -122,6 +123,7 @@ impl<'a> InterpPass<'a> {
             debug!("--NEW BB: {:?}", bb);
             let data = body.blocks.get(bb).unwrap();
             last_res = self.visit_basic_block(
+                logger,
                 istore,
                 call_stack,
                 cur_scope,
@@ -137,6 +139,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_basic_block(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
@@ -162,6 +165,7 @@ impl<'a> InterpPass<'a> {
             bb, cur_scope
         );
         let res = self.visit_terminator(
+            logger,
             istore,
             call_stack,
             cur_scope,
@@ -212,6 +216,7 @@ impl<'a> InterpPass<'a> {
 
     fn visit_terminator(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
@@ -228,6 +233,8 @@ impl<'a> InterpPass<'a> {
                 ..
             } => match func {
                 Operand::Constant(co) => self.interp_direct_call(
+                    logger,
+                    &term.span,
                     istore,
                     call_stack,
                     cur_scope,
@@ -248,6 +255,8 @@ impl<'a> InterpPass<'a> {
 
     fn interp_direct_call(
         &self,
+        logger: &mut VOLogger,
+        term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
@@ -267,6 +276,7 @@ impl<'a> InterpPass<'a> {
                         InstanceKind::Item => {
                             debug!("regular static funccall");
                             self.interp_static_call(
+                                logger,
                                 istore,
                                 call_stack,
                                 cur_scope,
@@ -280,6 +290,8 @@ impl<'a> InterpPass<'a> {
                         InstanceKind::Virtual { .. } => {
                             debug!("virtual funccall");
                             self.interp_virtual_call(
+                                logger,
+                                term_span,
                                 istore,
                                 call_stack,
                                 cur_scope,
@@ -322,6 +334,7 @@ impl<'a> InterpPass<'a> {
 
     fn interp_static_call(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         caller_scope: Instance,
@@ -344,7 +357,7 @@ impl<'a> InterpPass<'a> {
                 args,
                 genargs,
             );
-            self.visit_instance(&mut istore_clone, call_stack, instance)
+            self.visit_instance(logger, &mut istore_clone, call_stack, instance)
         } else {
             debug!("no body");
             self.retty_fallback(fndef)
@@ -475,6 +488,8 @@ impl<'a> InterpPass<'a> {
 
     fn interp_virtual_call(
         &self,
+        logger: &mut VOLogger,
+        term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
@@ -505,13 +520,17 @@ impl<'a> InterpPass<'a> {
 
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!("SET OF IMPLS DIFFER");
-            // Log to a different stream
-            self.logger.log(&assoc_fn_impls_cha, &assoc_fn_impls_fsa);
+            // Log this dynamic dispatch!
+            match logger.log(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa) {
+                e @ Err(_) => panic!("logging error: {:?}", e),
+                _ => {}
+            }
         } else {
             debug!("SET OF IMPLS SAME");
         }
 
         self.simulate_static_calls(
+            logger,
             istore,
             call_stack,
             cur_scope,
@@ -625,6 +644,7 @@ impl<'a> InterpPass<'a> {
 
     fn simulate_static_calls(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
@@ -656,6 +676,7 @@ impl<'a> InterpPass<'a> {
                 &genargs,
             );
             results.push(self.visit_instance(
+                logger,
                 &mut istore_clone,
                 &mut call_stack_clone,
                 instance,
@@ -727,10 +748,10 @@ impl<'a> InterpPass<'a> {
 
                             // Check expected type of discriminant
                             debug!("expected ty: {:?}", place.ty(local_decls));
+                            debug!("constraints: {:?}", constraints);
 
                             // Populate byte-map with possible branch values, based on constraints
                             for constraint in constraints {
-                                debug!("setting bytemap for constraint: {:?}", constraint);
                                 self.set_bytemap(constraint, targets, discr_vals);
                             }
                             debug!("POST discr_vals: {:?}", discr_vals);
@@ -761,14 +782,20 @@ impl<'a> InterpPass<'a> {
         targets: &SwitchTargets,
         discr_vals: &mut [u8],
     ) {
+        debug!("setting bytemap for constraint: {:?}", constraint);
         match constraint {
             VORval::Scalar(num) => {
                 debug!("scalar discr val: {:?}", num);
                 // Increment matching branch counters
+                let mut set = false;
                 for (i, (val, _bb)) in targets.branches().enumerate() {
                     if num == val {
                         discr_vals[usize::try_from(i).unwrap()] += 1;
+                        set = true;
                     }
+                }
+                if !set {
+                    discr_vals[discr_vals.len() - 1] += 1;
                 }
             }
             VORval::Bool => {

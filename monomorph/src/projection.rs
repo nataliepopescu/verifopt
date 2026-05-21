@@ -114,7 +114,8 @@ impl ProjectionHandler {
                     todo!("trying to deref an adt: {:?}", adtdef);
                 }
             }
-            _ => todo!(),
+            VORval::Scalar(_) => constraint.clone(),
+            _ => todo!("deref constraint: {:?}", constraint),
         }
     }
 

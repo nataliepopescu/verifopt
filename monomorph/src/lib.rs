@@ -28,10 +28,15 @@ pub mod wto;
 
 use crate::constraints::InterpStore;
 use crate::interp::InterpPass;
+use crate::logger::VOLogger;
 use crate::trait_collect::{TraitCollectPass, TraitStore};
 use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
+    // TODO make log filename a cmdline option
+    let filename = "tool_effectiveness_log";
+    let mut logger = VOLogger::new(filename);
+
     let entry_fn = rustc_public::entry_fn().unwrap();
     let entry_instance = Instance::try_from(entry_fn).unwrap();
 
@@ -45,7 +50,7 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     debug!("INTERP PASS");
     let mut istore = InterpStore::new();
     let interp = InterpPass::new(&tstore);
-    let _ = interp.run(&mut istore, entry_instance);
+    let _ = interp.run(&mut logger, &mut istore, entry_instance);
 
     // Rewrite MIR
 

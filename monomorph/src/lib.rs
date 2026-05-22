@@ -22,6 +22,7 @@ pub mod interp;
 pub mod logger;
 pub mod projection;
 pub mod rewrite;
+pub mod sig_collect;
 pub mod trait_collect;
 pub mod util;
 pub mod wto;
@@ -29,6 +30,7 @@ pub mod wto;
 use crate::constraints::InterpStore;
 use crate::interp::InterpPass;
 use crate::logger::VOLogger;
+use crate::sig_collect::{SigCollectPass, SigStore};
 use crate::trait_collect::{TraitCollectPass, TraitStore};
 use crate::util::options::AnalysisOptions;
 
@@ -40,19 +42,25 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     let entry_fn = rustc_public::entry_fn().unwrap();
     let entry_instance = Instance::try_from(entry_fn).unwrap();
 
-    // Collect function and trait metadata
-    debug!("METADATA PASS");
+    // Collect function signatures for indirect calls
+    debug!("FUNC SIG PASS");
+    let mut sigstore = SigStore::new();
+    let sig_collect = SigCollectPass::new();
+    sig_collect.run(&mut sigstore);
+
+    // Collect trait metadata
+    debug!("TRAIT PASS");
     let mut tstore = TraitStore::new();
     let trait_collect = TraitCollectPass::new();
     trait_collect.run(&mut tstore);
 
-    // Interpret MIR
+    // Abstractly Interpret MIR
     debug!("INTERP PASS");
     let mut istore = InterpStore::new();
-    let interp = InterpPass::new(&tstore);
+    let interp = InterpPass::new(&sigstore, &tstore);
     let _ = interp.run(&mut logger, &mut istore, entry_instance);
 
-    // Rewrite MIR
+    // TODO Rewrite MIR
 
     ControlFlow::Continue(())
 }

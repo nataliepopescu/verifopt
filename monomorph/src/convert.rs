@@ -6,19 +6,17 @@ use crate::InterpStore;
 use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VORval};
 use crate::constraints::{unique_append, unique_push};
 use crate::projection::ProjectionHandler;
-use crate::trait_collect::TraitStore;
 
 use log::debug;
 
-pub struct RvalConverter<'a> {
-    pub tstore: &'a TraitStore,
+pub struct RvalConverter {
+    //pub tstore: &'a TraitStore,
     pub projection_handler: ProjectionHandler,
 }
 
-impl<'a> RvalConverter<'a> {
-    pub fn new(tstore: &'a TraitStore) -> RvalConverter<'a> {
+impl RvalConverter {
+    pub fn new() -> RvalConverter {
         Self {
-            tstore,
             projection_handler: ProjectionHandler::new(),
         }
     }
@@ -351,7 +349,7 @@ impl<'a> RvalConverter<'a> {
         for genarg in &genargs.0 {
             match genarg {
                 GenericArgKind::Type(ty) => {
-                    unique_append(&mut converted_genargs, self.convert_ty(ty));
+                    unique_push(&mut converted_genargs, self.convert_ty(ty));
                 }
                 _ => {}
             }
@@ -359,25 +357,23 @@ impl<'a> RvalConverter<'a> {
         Some(converted_genargs)
     }
 
-    pub fn convert_ty(&self, ty: &Ty) -> Vec<VORval> {
+    pub fn convert_ty(&self, ty: &Ty) -> VORval {
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                RigidTy::Bool => vec![VORval::Bool],
-                RigidTy::Int(_intty) => vec![VORval::Int],
-                RigidTy::Uint(_uintty) => vec![VORval::Uint],
-                RigidTy::Adt(def, genargs) => {
-                    vec![VORval::IdkAdt(def, self.convert_genargs(&genargs))]
-                }
+                RigidTy::Bool => VORval::Bool,
+                RigidTy::Int(_intty) => VORval::Int,
+                RigidTy::Uint(_uintty) => VORval::Uint,
+                RigidTy::Adt(def, genargs) => VORval::IdkAdt(def, self.convert_genargs(&genargs)),
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {
-                        unique_append(&mut inner, self.convert_ty(&ty));
+                        unique_push(&mut inner, self.convert_ty(&ty));
                     }
-                    inner
+                    VORval::Tuple(inner)
                 }
-                RigidTy::Slice(ty) => vec![VORval::Slice(ty)],
+                RigidTy::Slice(ty) => VORval::Slice(ty),
                 RigidTy::Closure(def, genargs) => {
-                    vec![VORval::Closure(def, self.convert_genargs(&genargs))]
+                    VORval::Closure(def, self.convert_genargs(&genargs))
                 }
                 RigidTy::FnPtr(poly_fn_sig) => {
                     debug!("poly_fn_sig: {:?}", poly_fn_sig);
@@ -393,9 +389,12 @@ impl<'a> RvalConverter<'a> {
                     for io in poly_fn_sig.value.inputs_and_output {
                         inputs_output_vorvals.push(self.convert_ty(&io));
                     }
-                    vec![VORval::FnPtr(inputs_output_vorvals)]
+                    VORval::FnPtr(inputs_output_vorvals)
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
+                //RigidTy::Dynamic(traitref, _region) => {
+                //    todo!();
+                //}
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),

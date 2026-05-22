@@ -46,9 +46,9 @@ pub type VOGenarg = VORval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VORval {
-    IdkAdt(AdtDef, Option<VOGenargs>),
-    IdkType(Ty),
     Idk,
+    IdkType(Ty),
+    IdkAdt(AdtDef, Option<VOGenargs>),
     AddressOf(Box<VORval>),
     RawPtr(Box<VORval>),
     Ref(Box<VORval>),
@@ -60,7 +60,7 @@ pub enum VORval {
     Slice(Ty),
     Array(Ty),
     Closure(ClosureDef, Option<VOGenargs>),
-    FnPtr(Vec<Vec<VORval>>),
+    FnPtr(Vec<VORval>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

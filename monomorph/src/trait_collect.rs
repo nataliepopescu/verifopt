@@ -35,10 +35,10 @@ impl TraitCollectPass {
     }
 
     pub fn run(&self, tstore: &mut TraitStore) {
-        self.collect_metadata(tstore);
+        self.collect_trait_mappings(tstore);
     }
 
-    fn collect_metadata(&self, tstore: &mut TraitStore) {
+    fn collect_trait_mappings(&self, tstore: &mut TraitStore) {
         for impl_def in rustc_public::all_trait_impls() {
             debug!("\n###################");
 

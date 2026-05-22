@@ -14,21 +14,24 @@ use crate::VOLogger;
 use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VORval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
+use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 
 pub struct InterpPass<'a> {
+    pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
-    pub converter: RvalConverter<'a>,
+    pub converter: RvalConverter,
 }
 
 /// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
 
 impl<'a> InterpPass<'a> {
-    pub fn new(tstore: &'a TraitStore) -> InterpPass<'a> {
+    pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
+            sigstore,
             tstore,
-            converter: RvalConverter::new(tstore),
+            converter: RvalConverter::new(),
         }
     }
 
@@ -275,14 +278,54 @@ impl<'a> InterpPass<'a> {
         _args: &Vec<Operand>,
         _destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("place: {:?}", place);
-
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
-            Some(val) => {
-                debug!("found val!: {:?}", val);
-                todo!("handle indirect function invocations");
-            }
+            Some(val) => match val {
+                MapValue::Constraints(constraints) => {
+                    let mut fns = Vec::new();
+                    for constraint in &constraints {
+                        fns.push(self.interp_constraint_as_fn_ptr(&constraint));
+                    }
+                    debug!("found constraints!: {:?}", constraints);
+                }
+                _ => panic!("trying to indirectly call a scope - invalid"),
+            },
             None => panic!("fnptr value not found in cmap"),
+        }
+        todo!("handle indirect function invocations");
+    }
+
+    fn interp_constraint_as_fn_ptr(&self, constraint: &VORval) {
+        match constraint {
+            VORval::IdkType(ty) => match ty.kind() {
+                TyKind::RigidTy(rigid_ty) => match rigid_ty {
+                    RigidTy::FnPtr(sig) => {
+                        debug!("sig!: {:?}", sig);
+                        if !sig.bound_vars.is_empty() {
+                            for bound_var in &sig.bound_vars {
+                                match bound_var {
+                                    BoundVariableKind::Ty(_) => todo!(),
+                                    _ => {}
+                                }
+                            }
+                        }
+
+                        let sigval = SigVal::new(&self.converter, &sig.skip_binder());
+                        match self.sigstore.sigs.get(&sigval) {
+                            Some(fn_vec) => {
+                                debug!("got fn_vec!: {:?}", fn_vec);
+                                todo!("FN PTR");
+                            }
+                            None => {
+                                debug!("sigval: {:?}", sigval);
+                                panic!("no fns to call");
+                            }
+                        }
+                    }
+                    _ => panic!("other rigidty (not a fn ptr!)"),
+                },
+                _ => todo!("other tykind"),
+            },
+            _ => todo!("other vorval: {:?}", constraint),
         }
     }
 
@@ -487,7 +530,7 @@ impl<'a> InterpPass<'a> {
                     Ok(val) => vec![VORval::Scalar(val)],
                     _ => vec![VORval::IdkType(const_op.const_.ty())],
                 },
-                ConstantKind::ZeroSized => self.converter.convert_ty(&const_op.const_.ty()),
+                ConstantKind::ZeroSized => vec![self.converter.convert_ty(&const_op.const_.ty())],
                 other @ _ => todo!("arg is another constant kind: {:?}", other),
             },
             _ => todo!("runtime check arg"),

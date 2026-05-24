@@ -11,6 +11,7 @@ use rustc_public::ty::{
 use log::debug;
 
 use crate::VOLogger;
+use crate::constraints::unique_append;
 use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VORval};
 use crate::convert::RvalConverter;
 use crate::error::Error;
@@ -54,7 +55,11 @@ impl<'a> InterpPass<'a> {
         self.visit_instance(logger, istore, &mut call_stack, start_scope)
     }
 
-    fn print_mir(&self, body: &Body) {
+    fn log_scope(&self, scope: Instance) {
+        debug!("CUR SCOPE: {:?}", scope.name());
+    }
+
+    fn log_mir(&self, body: &Body) {
         debug!("arg count: {:?}", body.arg_locals().len());
         debug!("----START BODY----");
 
@@ -91,7 +96,7 @@ impl<'a> InterpPass<'a> {
         debug!("\n\n\n#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope);
         debug!("call_stack: {:#?}", call_stack);
-        self.print_mir(&body);
+        self.log_mir(&body);
         debug!("#############################\n\n");
 
         self.visit_body(logger, istore, call_stack, cur_scope, &body)
@@ -194,7 +199,7 @@ impl<'a> InterpPass<'a> {
             // Only interp assignments to track type constraint changes
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!");
-                debug!("cur_scope: {:?}", cur_scope);
+                self.log_scope(cur_scope);
                 debug!("stmt: {:?}", &stmt.kind);
                 debug!("place: {:?}", place);
                 debug!("dest ty: {:?}", &local_decls[place.local].ty);
@@ -252,7 +257,7 @@ impl<'a> InterpPass<'a> {
                     istore,
                     call_stack,
                     cur_scope,
-                    //local_decls,
+                    local_decls,
                     place,
                     args,
                     destination,
@@ -269,35 +274,86 @@ impl<'a> InterpPass<'a> {
 
     fn interp_indirect_call(
         &self,
-        _logger: &mut VOLogger,
-        _term_span: &Span,
+        logger: &mut VOLogger,
+        term_span: &Span,
         istore: &mut InterpStore,
-        _call_stack: &mut Vec<Instance>,
+        call_stack: &mut Vec<Instance>,
         cur_scope: Instance,
+        local_decls: &[LocalDecl],
         place: &Place,
-        _args: &Vec<Operand>,
-        _destination: &Place,
+        args: &Vec<Operand>,
+        destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
+        let mut ret_constraints = Vec::new();
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
-                    let mut fns = Vec::new();
-                    for constraint in &constraints {
-                        fns.push(self.interp_constraint_as_fn_ptr(&constraint));
-                    }
                     debug!("found constraints!: {:?}", constraints);
+                    for constraint in &constraints {
+                        match self.interp_constraint_as_fn(
+                            logger,
+                            term_span,
+                            istore,
+                            call_stack,
+                            cur_scope,
+                            local_decls,
+                            &constraint,
+                            args,
+                        ) {
+                            Ok(Some(constraints)) => {
+                                unique_append(&mut ret_constraints, constraints)
+                            }
+                            Ok(None) => {}
+                            e @ Err(_) => panic!("interping constraint as fn, got error: {:?}", e),
+                        }
+                    }
                 }
                 _ => panic!("trying to indirectly call a scope - invalid"),
             },
             None => panic!("fnptr value not found in cmap"),
         }
-        todo!("handle indirect function invocations");
+
+        // Set destination local to value in cmap
+        debug!(
+            "RET FROM INDIRECT FUNC CALL ret_constraints: {:?}",
+            ret_constraints
+        );
+        self.log_scope(cur_scope);
+        debug!("destination: {:?}", destination);
+        istore.scoped_update(
+            cur_scope,
+            MapKey::Local(destination.local),
+            Box::new(MapValue::Constraints(ret_constraints)),
+        );
+
+        Ok(None)
     }
 
-    fn interp_constraint_as_fn_ptr(&self, constraint: &VORval) {
+    fn interp_constraint_as_fn(
+        &self,
+        logger: &mut VOLogger,
+        term_span: &Span,
+        istore: &mut InterpStore,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
+        local_decls: &[LocalDecl],
+        constraint: &VORval,
+        args: &Vec<Operand>,
+    ) -> Result<Option<Constraints>, Error> {
         match constraint {
             VORval::IdkType(ty) => match ty.kind() {
                 TyKind::RigidTy(rigid_ty) => match rigid_ty {
+                    RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
+                        logger,
+                        term_span,
+                        istore,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        fndef,
+                        &genargs,
+                        args,
+                    ),
                     RigidTy::FnPtr(sig) => {
                         debug!("sig!: {:?}", sig);
                         if !sig.bound_vars.is_empty() {
@@ -317,11 +373,11 @@ impl<'a> InterpPass<'a> {
                             }
                             None => {
                                 debug!("sigval: {:?}", sigval);
-                                panic!("no fns to call");
+                                panic!("no candidate fns to call");
                             }
                         }
                     }
-                    _ => panic!("other rigidty (not a fn ptr!)"),
+                    other @ _ => panic!("other rigidty (not a fn ptr!): {:?}", other),
                 },
                 _ => todo!("other tykind"),
             },
@@ -343,47 +399,17 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
-                RigidTy::FnDef(fndef, genargs) => {
-                    let instance = Instance::resolve(fndef, &genargs).unwrap();
-                    debug!("instance def: {:?}", instance.def);
-                    debug!("--- CALLING {:?}", fndef);
-                    debug!("cur_scope: {:?}", cur_scope);
-                    match instance.kind {
-                        InstanceKind::Item => {
-                            debug!("regular static funccall");
-                            self.interp_static_call(
-                                logger,
-                                istore,
-                                call_stack,
-                                cur_scope,
-                                local_decls,
-                                instance,
-                                fndef,
-                                args,
-                                &genargs,
-                            )
-                        }
-                        InstanceKind::Virtual { .. } => {
-                            debug!("virtual funccall");
-                            self.interp_virtual_call(
-                                logger,
-                                term_span,
-                                istore,
-                                call_stack,
-                                cur_scope,
-                                local_decls,
-                                &fndef,
-                                &genargs,
-                                args,
-                            )
-                        }
-                        InstanceKind::Intrinsic => {
-                            debug!("intrinsic funccall");
-                            self.retty_fallback(fndef)
-                        }
-                        InstanceKind::Shim => todo!("shim funccall"),
-                    }
-                }
+                RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
+                    logger,
+                    term_span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    fndef,
+                    &genargs,
+                    args,
+                ),
                 other @ _ => todo!("different RigidTy: {:?}", other),
             },
             kind @ _ => todo!("funccall const is another kind: {:?}", kind),
@@ -391,7 +417,7 @@ impl<'a> InterpPass<'a> {
 
         // Set destination local to value in cmap
         debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
-        debug!("cur_scope: {:?}", cur_scope);
+        self.log_scope(cur_scope);
         debug!("destination: {:?}", destination);
         match ret_constraints {
             Ok(Some(constraints)) => {
@@ -406,6 +432,60 @@ impl<'a> InterpPass<'a> {
         }
 
         Ok(None)
+    }
+
+    /// Interpret a function call from a FnDef object
+    fn interp_fn_def(
+        &self,
+        logger: &mut VOLogger,
+        term_span: &Span,
+        istore: &mut InterpStore,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
+        local_decls: &[LocalDecl],
+        fndef: FnDef,
+        genargs: &GenericArgs,
+        args: &Vec<Operand>,
+    ) -> Result<Option<Constraints>, Error> {
+        let instance = Instance::resolve(fndef, genargs).unwrap();
+        debug!("instance def: {:?}", instance.def);
+        debug!("--- CALLING {:?}", fndef);
+        self.log_scope(cur_scope);
+        match instance.kind {
+            InstanceKind::Item => {
+                debug!("regular static funccall");
+                self.interp_static_call(
+                    logger,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    instance,
+                    fndef,
+                    args,
+                    &genargs,
+                )
+            }
+            InstanceKind::Virtual { .. } => {
+                debug!("virtual funccall");
+                self.interp_virtual_call(
+                    logger,
+                    term_span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    &fndef,
+                    &genargs,
+                    args,
+                )
+            }
+            InstanceKind::Intrinsic => {
+                debug!("intrinsic funccall");
+                self.retty_fallback(fndef)
+            }
+            InstanceKind::Shim => todo!("shim funccall"),
+        }
     }
 
     fn interp_static_call(

@@ -1,7 +1,8 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::DefId;
-use rustc_public::ty::{BoundVariableKind, FnDef, FnSig, RigidTy, Ty, TyKind};
+use rustc_public::mir::mono::Instance;
+use rustc_public::ty::{BoundVariableKind, FnDef, FnSig, ForeignItemKind, Ty};
 
 use log::debug;
 
@@ -23,6 +24,7 @@ impl SigVal {
         //let output = converter.convert_ty(&sig.output());
         let inputs = sig.inputs().to_vec();
         let output = sig.output();
+        debug!("NUM INPUTS: {:?}", inputs.len());
         Self { inputs, output }
     }
 }
@@ -52,36 +54,51 @@ impl SigCollectPass {
     }
 
     pub fn run(&self, sigstore: &mut SigStore) {
+        self.test_mono();
         self.collect_function_sigs(sigstore);
     }
 
-    fn collect_function_sigs(&self, sigstore: &mut SigStore) {
-        for item in rustc_public::all_local_items() {
-            debug!("local item: {:?}", item);
-            match item.ty().kind() {
-                TyKind::RigidTy(rigid_ty) => match rigid_ty {
-                    RigidTy::FnDef(fndef, genargs) => {
-                        if !genargs.0.is_empty() {
-                            todo!();
-                        }
-                        self.process_fn(sigstore, &fndef);
-                    }
-                    _ => todo!(),
-                },
-                _ => todo!(),
-            }
+    fn test_mono(&self) {
+        let instances: Vec<Instance> = rustc_public::all_local_items()
+            .into_iter()
+            .filter_map(|item| Instance::try_from(item).ok())
+            .collect();
+        for instance in instances {
+            debug!("\nmono?: {:?}\n{:?}", instance.name(), instance);
         }
-        for krate in rustc_public::external_crates() {
+    }
+
+    fn collect_function_sigs(&self, sigstore: &mut SigStore) {
+        let mut all_crates = rustc_public::external_crates().clone();
+        all_crates.insert(0, rustc_public::local_crate());
+        for krate in all_crates {
             debug!("krate: {:?}", krate);
+
+            // Non-crate-local FnDefs
             for fndef in krate.fn_defs() {
-                self.process_fn(sigstore, &fndef);
+                debug!("\n\n");
+                self.process_fndef(sigstore, &fndef);
+            }
+
+            // Foreign FnDefs
+            for foreign_mod in krate.foreign_modules() {
+                for foreign_item in foreign_mod.module().items() {
+                    match foreign_item.kind() {
+                        ForeignItemKind::Fn(fndef) => {
+                            debug!("\n\n");
+                            debug!("FOREIGN!");
+                            self.process_fndef(sigstore, &fndef);
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }
 
-    fn process_fn(&self, sigstore: &mut SigStore, fndef: &FnDef) {
+    fn process_fndef(&self, sigstore: &mut SigStore, fndef: &FnDef) {
         let sig = fndef.fn_sig();
-        debug!("\n\nfndef: {:?}", fndef);
+        debug!("fndef: {:?}", fndef);
         if !sig.bound_vars.is_empty() {
             for bound_var in &sig.bound_vars {
                 match bound_var {

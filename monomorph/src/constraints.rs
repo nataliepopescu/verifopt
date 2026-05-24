@@ -84,7 +84,7 @@ impl InterpStore {
         //traverse_backptr: bool,
     ) -> Option<MapValue> {
         debug!("IN SCOPED_GET");
-        debug!("scope: {:?}", scope);
+        debug!("scope: {:?}", scope.name());
         debug!("key: {:?}", key);
         //debug!("cmap: {:#?}", self.cmap);
 

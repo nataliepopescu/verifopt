@@ -359,10 +359,42 @@ impl<'a> InterpPass<'a> {
                         debug!("sig!: {:?}", sig);
                         let sigval = SigVal::new(&self.converter, &sig);
                         match self.sigstore.sigs.get(&sigval) {
-                            Some(fn_vec) => {
-                                debug!("got fn_vec!: {:?}", fn_vec);
-                                debug!("num candidate fns: {:?}", fn_vec.len());
-                                todo!("FN PTR");
+                            Some(fndef_vec) => {
+                                debug!("got fndef_vec!: {:?}", fndef_vec);
+                                debug!("num candidate fns: {:?}", fndef_vec.len());
+
+                                // Don't want to pollute our results too much, so if we have too
+                                // many possible fns to call, just fallback to retty
+                                if fndef_vec.len() > 5 {
+                                    debug!("TOO MANY CANDIDATES - falling back to retty");
+                                    self.retty_fallback(sig)
+                                // Otherwise, interpret the candidate functions
+                                } else {
+                                    debug!("INTERPRETING CANDIDATES");
+                                    let mut ret_constraints = Vec::new();
+                                    for fndef in fndef_vec {
+                                        debug!("TRY FUNC: {:?}", fndef);
+                                        // FIXME no genargs??
+                                        let genargs = GenericArgs(vec![]);
+                                        match self.interp_fn_def(
+                                            logger,
+                                            term_span,
+                                            istore,
+                                            call_stack,
+                                            cur_scope,
+                                            local_decls,
+                                            *fndef,
+                                            &genargs,
+                                            args,
+                                        ) {
+                                            Ok(Some(constraints)) => unique_append(&mut ret_constraints, constraints),
+                                            Ok(None) => {}
+                                            e @ Err(_) => panic!("got error: {:?}", e),
+                                        }
+                                    }
+                                    debug!("ret_constraints: {:?}", ret_constraints);
+                                    todo!("FN PTR (interp'd candidates)");
+                                }
                             }
                             None => {
                                 debug!("sigval: {:?}", sigval);
@@ -474,12 +506,23 @@ impl<'a> InterpPass<'a> {
                     args,
                 )
             }
+            InstanceKind::Shim => {
+                debug!("shim funccall");
+                self.interp_static_call(
+                    logger,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    instance,
+                    fndef,
+                    args,
+                    &genargs,
+                )
+            }
             InstanceKind::Intrinsic => {
                 debug!("intrinsic funccall");
                 self.retty_fallback(fndef.fn_sig())
-            }
-            InstanceKind::Shim => {
-                todo!("shim funccall");
             }
         }
     }

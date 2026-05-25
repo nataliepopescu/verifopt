@@ -33,7 +33,7 @@ impl TestFnPtr {
 */
 
 pub struct TestFnPtr<T: 'static> {
-    inner: fn(Option<T>) -> T,
+    inner: fn(T) -> T,
 }
 
 impl<T: 'static> TestFnPtr<T> {

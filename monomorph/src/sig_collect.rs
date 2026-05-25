@@ -60,7 +60,7 @@ impl SigVal {
 
 // If have inputs/outputs, will probably have generics that get resolved later
 pub struct SigStore {
-    pub sigs: HashMap<SigVal, Vec<DefId>>,
+    pub sigs: HashMap<SigVal, Vec<FnDef>>,
 }
 
 impl SigStore {
@@ -135,12 +135,12 @@ impl SigCollectPass {
         debug!("sigval: {:?}", sigval);
         match sigstore.sigs.get_mut(&sigval) {
             Some(fn_vec) => {
-                if !fn_vec.contains(&fndef.0) {
-                    fn_vec.push(fndef.0);
+                if !fn_vec.contains(&fndef) {
+                    fn_vec.push(*fndef);
                 }
             }
             None => {
-                sigstore.sigs.insert(sigval, vec![fndef.0]);
+                sigstore.sigs.insert(sigval, vec![*fndef]);
             }
         }
     }

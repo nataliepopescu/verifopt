@@ -284,6 +284,7 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
+        debug!("INTERPING INDIRECT CALL");
         let mut ret_constraints = Vec::new();
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
             Some(val) => match val {
@@ -356,19 +357,11 @@ impl<'a> InterpPass<'a> {
                     ),
                     RigidTy::FnPtr(sig) => {
                         debug!("sig!: {:?}", sig);
-                        if !sig.bound_vars.is_empty() {
-                            for bound_var in &sig.bound_vars {
-                                match bound_var {
-                                    BoundVariableKind::Ty(_) => todo!(),
-                                    _ => {}
-                                }
-                            }
-                        }
-
-                        let sigval = SigVal::new(&self.converter, &sig.skip_binder());
+                        let sigval = SigVal::new(&self.converter, &sig);
                         match self.sigstore.sigs.get(&sigval) {
                             Some(fn_vec) => {
                                 debug!("got fn_vec!: {:?}", fn_vec);
+                                debug!("num candidate fns: {:?}", fn_vec.len());
                                 todo!("FN PTR");
                             }
                             None => {

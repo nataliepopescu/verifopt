@@ -2,7 +2,7 @@ use rustc_data_structures::fx::FxHashMap as HashMap;
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::DefId;
 use rustc_public::mir::mono::Instance;
-use rustc_public::ty::{BoundVariableKind, FnDef, FnSig, ForeignItemKind, Ty};
+use rustc_public::ty::{BoundRegionKind, BoundTyKind, BoundVariableKind, FnDef, PolyFnSig, ForeignItemKind, Ty};
 
 use log::debug;
 
@@ -13,19 +13,41 @@ use crate::convert::RvalConverter;
 pub struct SigVal {
     inputs: Vec<Ty>,
     output: Ty,
+    bound_tys: Vec<(DefId, String)>,
+    bound_regions: Vec<(DefId, String)>,
 }
 
 impl SigVal {
-    pub fn new(_converter: &RvalConverter, sig: &FnSig) -> SigVal {
-        //let mut inputs = Vec::new();
-        //for input in sig.inputs() {
-        //    inputs.push(converter.convert_ty(input));
-        //}
-        //let output = converter.convert_ty(&sig.output());
-        let inputs = sig.inputs().to_vec();
-        let output = sig.output();
+    pub fn new(_converter: &RvalConverter, sig: &PolyFnSig) -> SigVal {
+        let mut bound_tys = Vec::new();
+        let mut bound_regions = Vec::new();
+        if !sig.bound_vars.is_empty() {
+            for bound_var in &sig.bound_vars {
+                match bound_var {
+                    BoundVariableKind::Ty(ty) => match ty {
+                        BoundTyKind::Param(def, s) => bound_tys.push((def.0, s.clone())),
+                        _ => {}
+                    }
+                    BoundVariableKind::Region(region) => match region {
+                        BoundRegionKind::BrNamed(def, s) => bound_regions.push((def.0, s.clone())),
+                        _ => {}
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let sigval = sig.clone().skip_binder();
+        let inputs = sigval.inputs().to_vec();
+        let output = sigval.output();
+
         debug!("NUM INPUTS: {:?}", inputs.len());
-        Self { inputs, output }
+        debug!("INPUTS: {:?}", inputs);
+        debug!("OUTPUT: {:?}", output);
+        debug!("BOUND_TYS: {:?}", bound_tys);
+        debug!("BOUND_REGIONS: {:?}", bound_regions);
+
+        Self { inputs, output, bound_tys, bound_regions }
     }
 }
 
@@ -54,18 +76,19 @@ impl SigCollectPass {
     }
 
     pub fn run(&self, sigstore: &mut SigStore) {
-        self.test_mono();
+        //self.test();
         self.collect_function_sigs(sigstore);
     }
 
-    fn test_mono(&self) {
-        let instances: Vec<Instance> = rustc_public::all_local_items()
-            .into_iter()
-            .filter_map(|item| Instance::try_from(item).ok())
-            .collect();
-        for instance in instances {
-            debug!("\nmono?: {:?}\n{:?}", instance.name(), instance);
+    fn test(&self) {
+        let krates: Vec<_> = rustc_public::all_local_items();
+            //.into_iter()
+            //.filter_map(|item| Instance::try_from(item).ok())
+            //.collect();
+        for krate in krates {
+            debug!("\nkrate?: {:?}", krate); //instance.name(), instance);
         }
+        panic!("done")
     }
 
     fn collect_function_sigs(&self, sigstore: &mut SigStore) {
@@ -99,16 +122,7 @@ impl SigCollectPass {
     fn process_fndef(&self, sigstore: &mut SigStore, fndef: &FnDef) {
         let sig = fndef.fn_sig();
         debug!("fndef: {:?}", fndef);
-        if !sig.bound_vars.is_empty() {
-            for bound_var in &sig.bound_vars {
-                match bound_var {
-                    BoundVariableKind::Ty(_) => todo!(),
-                    _ => {}
-                }
-            }
-        }
-
-        let sigval = SigVal::new(&self.converter, &sig.skip_binder());
+        let sigval = SigVal::new(&self.converter, &sig);
         debug!("sigval: {:?}", sigval);
         match sigstore.sigs.get_mut(&sigval) {
             Some(fn_vec) => {

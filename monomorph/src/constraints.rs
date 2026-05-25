@@ -1,7 +1,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
-use rustc_public::ty::{AdtDef, ClosureDef, Ty};
+use rustc_public::ty::{AdtDef, ClosureDef, FnDef, Ty};
 
 use crate::error::Error;
 use crate::wto::BBDeps;
@@ -60,6 +60,7 @@ pub enum VORval {
     Slice(Ty),
     Array(Ty),
     Closure(ClosureDef, Option<VOGenargs>),
+    FnDef(FnDef, Option<VOGenargs>),
     FnPtr(Vec<VORval>),
 }
 

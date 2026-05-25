@@ -288,22 +288,10 @@ impl RvalConverter {
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 debug!("ADT agg");
-                match self.convert_genargs(genargs) {
-                    Some(converted_genargs) => {
-                        debug!("def: {:?}", def);
-                        debug!("converted genargs: {:?}", converted_genargs);
-                        match converted_genargs.len() {
-                            0 => unique_push(&mut constraints, VORval::IdkAdt(*def, None)),
-                            _ => unique_push(
-                                &mut constraints,
-                                VORval::IdkAdt(*def, Some(converted_genargs)),
-                            ),
-                        };
-                    }
-                    None => {
-                        unique_push(&mut constraints, VORval::IdkAdt(*def, None));
-                    }
-                }
+                unique_push(
+                    &mut constraints,
+                    VORval::IdkAdt(*def, self.convert_genargs(genargs)),
+                );
             }
             AggregateKind::Tuple => {
                 debug!("tuple agg");
@@ -333,7 +321,15 @@ impl RvalConverter {
                 );
             }
             AggregateKind::Array(ty) => {
+                debug!("array agg");
                 unique_push(&mut constraints, VORval::Array(*ty));
+            }
+            AggregateKind::Closure(def, genargs) => {
+                debug!("closure agg");
+                unique_push(
+                    &mut constraints,
+                    VORval::Closure(*def, self.convert_genargs(genargs)),
+                );
             }
             _ => todo!("other agg kind: {:?}", kind),
         }
@@ -354,7 +350,12 @@ impl RvalConverter {
                 _ => {}
             }
         }
-        Some(converted_genargs)
+
+        if converted_genargs.is_empty() {
+            None
+        } else {
+            Some(converted_genargs)
+        }
     }
 
     pub fn convert_ty(&self, ty: &Ty) -> VORval {
@@ -375,6 +376,7 @@ impl RvalConverter {
                 RigidTy::Closure(def, genargs) => {
                     VORval::Closure(def, self.convert_genargs(&genargs))
                 }
+                RigidTy::FnDef(def, genargs) => VORval::FnDef(def, self.convert_genargs(&genargs)),
                 RigidTy::FnPtr(poly_fn_sig) => {
                     debug!("poly_fn_sig: {:?}", poly_fn_sig);
                     if !poly_fn_sig.bound_vars.is_empty() {

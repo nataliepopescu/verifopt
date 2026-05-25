@@ -366,7 +366,8 @@ impl<'a> InterpPass<'a> {
                             }
                             None => {
                                 debug!("sigval: {:?}", sigval);
-                                panic!("no candidate fns to call");
+                                debug!("no candidate fns to call, using retty fallback");
+                                self.retty_fallback(sig)
                             }
                         }
                     }
@@ -475,9 +476,11 @@ impl<'a> InterpPass<'a> {
             }
             InstanceKind::Intrinsic => {
                 debug!("intrinsic funccall");
-                self.retty_fallback(fndef)
+                self.retty_fallback(fndef.fn_sig())
             }
-            InstanceKind::Shim => todo!("shim funccall"),
+            InstanceKind::Shim => {
+                todo!("shim funccall");
+            }
         }
     }
 
@@ -509,7 +512,7 @@ impl<'a> InterpPass<'a> {
             self.visit_instance(logger, &mut istore_clone, call_stack, instance)
         } else {
             debug!("no body");
-            self.retty_fallback(fndef)
+            self.retty_fallback(fndef.fn_sig())
         }
     }
 
@@ -624,8 +627,8 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn retty_fallback(&self, fndef: FnDef) -> Result<Option<Constraints>, Error> {
-        let sig = fndef.fn_sig();
+    fn retty_fallback(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
+        //let sig = fndef.fn_sig();
         debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());

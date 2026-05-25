@@ -1,8 +1,10 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::DefId;
-use rustc_public::mir::mono::Instance;
-use rustc_public::ty::{BoundRegionKind, BoundTyKind, BoundVariableKind, FnDef, PolyFnSig, ForeignItemKind, Ty};
+//use rustc_public::mir::mono::Instance;
+use rustc_public::ty::{
+    BoundRegionKind, BoundTyKind, BoundVariableKind, FnDef, ForeignItemKind, PolyFnSig, Ty,
+};
 
 use log::debug;
 
@@ -27,11 +29,11 @@ impl SigVal {
                     BoundVariableKind::Ty(ty) => match ty {
                         BoundTyKind::Param(def, s) => bound_tys.push((def.0, s.clone())),
                         _ => {}
-                    }
+                    },
                     BoundVariableKind::Region(region) => match region {
                         BoundRegionKind::BrNamed(def, s) => bound_regions.push((def.0, s.clone())),
                         _ => {}
-                    }
+                    },
                     _ => {}
                 }
             }
@@ -47,7 +49,12 @@ impl SigVal {
         debug!("BOUND_TYS: {:?}", bound_tys);
         debug!("BOUND_REGIONS: {:?}", bound_regions);
 
-        Self { inputs, output, bound_tys, bound_regions }
+        Self {
+            inputs,
+            output,
+            bound_tys,
+            bound_regions,
+        }
     }
 }
 
@@ -80,6 +87,7 @@ impl SigCollectPass {
         self.collect_function_sigs(sigstore);
     }
 
+    /*
     fn test(&self) {
         let krates: Vec<_> = rustc_public::all_local_items();
             //.into_iter()
@@ -90,6 +98,7 @@ impl SigCollectPass {
         }
         panic!("done")
     }
+    */
 
     fn collect_function_sigs(&self, sigstore: &mut SigStore) {
         let mut all_crates = rustc_public::external_crates().clone();

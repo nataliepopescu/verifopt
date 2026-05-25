@@ -115,6 +115,7 @@ impl ProjectionHandler {
                 }
             }
             VORval::Scalar(_) => constraint.clone(),
+            VORval::Tuple(_) => constraint.clone(),
             _ => todo!("deref constraint: {:?}", constraint),
         }
     }
@@ -141,11 +142,21 @@ impl ProjectionHandler {
 
     fn apply_field(&self, constraint: &VORval, fidx: &FieldIdx, ty: &Ty) -> VORval {
         match constraint {
-            VORval::Tuple(inner_vec) => inner_vec[*fidx].clone(),
+            VORval::Tuple(inner_vec) => {
+                debug!("applying field to tuple");
+                debug!("fidx: {:?}", fidx);
+                debug!("inner_vec: {:?}", inner_vec);
+                if *fidx >= inner_vec.len() {
+                    inner_vec[inner_vec.len() - 1].clone()
+                } else {
+                    inner_vec[*fidx].clone()
+                }
+            }
             // FIXME widening to type, but can maybe retain info
             VORval::IdkAdt(_def, _genargs) => VORval::IdkType(*ty),
             VORval::Scalar(_) => constraint.clone(),
-            _ => todo!(),
+            VORval::Closure(_def, _genargs) => constraint.clone(),
+            _ => todo!("apply field to constraint {:?}", constraint),
         }
     }
 }

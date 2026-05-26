@@ -924,7 +924,7 @@ impl<'a> InterpPass<'a> {
 
     fn resolve_defid(&self, vorval: &VORval) -> DefId {
         match vorval {
-            VORval::IdkAdt(adtdef, _) => adtdef.0,
+            VORval::Adt(adtdef, _) => adtdef.0,
             VORval::RawPtr(inner) | VORval::Ref(inner) => self.resolve_defid(inner),
             _ => panic!("other vorval: {:?}", vorval),
         }

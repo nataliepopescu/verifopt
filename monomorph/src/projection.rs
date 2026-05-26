@@ -102,7 +102,7 @@ impl ProjectionHandler {
         match constraint {
             VORval::AddressOf(inner) | VORval::Ref(inner) | VORval::RawPtr(inner) => *inner.clone(),
             VORval::Scalar(_) | VORval::Tuple(_) | VORval::Closure(_, _) => constraint.clone(),
-            VORval::IdkAdt(adtdef, genargs) => {
+            VORval::Adt(adtdef, genargs) => {
                 debug!("adtdef: {:?}", adtdef);
                 debug!("genargs: {:?}", genargs);
                 if is_box(&adtdef.0) {
@@ -121,7 +121,7 @@ impl ProjectionHandler {
 
     fn apply_downcast(&self, constraint: &VORval, vidx: VariantIdx) -> VORval {
         match constraint {
-            VORval::IdkAdt(def, genargs) => {
+            VORval::Adt(def, genargs) => {
                 debug!("def: {:?}", def);
                 debug!("genargs: {:?}", genargs);
                 debug!("vidx: {:?}", vidx);
@@ -152,7 +152,7 @@ impl ProjectionHandler {
                 }
             }
             // FIXME widening to type, but can maybe retain info
-            VORval::IdkAdt(_def, _genargs) => VORval::IdkType(*ty),
+            VORval::Adt(_def, _genargs) => VORval::IdkType(*ty),
             VORval::Scalar(_) => constraint.clone(),
             VORval::Closure(_def, _genargs) => constraint.clone(),
             _ => todo!("apply field to constraint {:?}", constraint),

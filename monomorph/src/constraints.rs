@@ -57,7 +57,7 @@ pub type VOGenarg = VORval;
 pub enum VORval {
     Idk,
     IdkType(Ty),
-    IdkAdt(AdtDef, Option<VOGenargs>),
+    Adt(AdtDef, Option<VOGenargs>),
     AddressOf(Box<VORval>),
     RawPtr(Box<VORval>),
     Ref(Box<VORval>),

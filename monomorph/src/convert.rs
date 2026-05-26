@@ -234,7 +234,7 @@ impl RvalConverter {
 
     fn convert_constraint_cast(&self, kind: &CastKind, dst_ty: &Ty, constraint: &VORval) -> VORval {
         match constraint {
-            VORval::IdkAdt(_, _)
+            VORval::Adt(_, _)
             | VORval::Bool
             | VORval::Array(_)
             | VORval::Slice(_)
@@ -290,7 +290,7 @@ impl RvalConverter {
                 debug!("ADT agg");
                 unique_push(
                     &mut constraints,
-                    VORval::IdkAdt(*def, self.convert_genargs(genargs)),
+                    VORval::Adt(*def, self.convert_genargs(genargs)),
                 );
             }
             AggregateKind::Tuple => {
@@ -364,7 +364,7 @@ impl RvalConverter {
                 RigidTy::Bool => VORval::Bool,
                 RigidTy::Int(_intty) => VORval::Int,
                 RigidTy::Uint(_uintty) => VORval::Uint,
-                RigidTy::Adt(def, genargs) => VORval::IdkAdt(def, self.convert_genargs(&genargs)),
+                RigidTy::Adt(def, genargs) => VORval::Adt(def, self.convert_genargs(&genargs)),
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {

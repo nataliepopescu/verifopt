@@ -1,7 +1,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
-use rustc_public::ty::{AdtDef, ClosureDef, FnDef, Ty};
+use rustc_public::ty::{AdtDef, ClosureDef, FnDef, GenericArgs, Ty};
 
 use crate::common::log_scope;
 use crate::error::Error;
@@ -46,11 +46,13 @@ pub type Constraints = Vec<VORval>;
 pub type VOGenargs = Vec<VOGenarg>;
 pub type VOGenarg = VORval;
 
+// Preserving these int types for closure kind encoding
 //#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-//pub enum ClosureKind {
-//    Fn,
-//    FnMut,
-//    FnOnce,
+//pub enum IntTy {
+//    I8,
+//    I16,
+//    I32,
+//    Other
 //}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -64,11 +66,12 @@ pub enum VORval {
     Tuple(Vec<VORval>),
     Scalar(u128),
     Bool,
-    Int,
+    Int, //(IntTy),
     Uint,
     Slice(Ty),
     Array(Ty),
-    Closure(ClosureDef, Option<VOGenargs>), //, ClosureKind),
+    //Closure(ClosureDef, Option<VOGenargs>), //, ClosureKind),
+    Closure(ClosureDef, GenericArgs), //, ClosureKind),
     FnDef(FnDef, Option<VOGenargs>),
     FnPtr(Vec<VORval>),
 }

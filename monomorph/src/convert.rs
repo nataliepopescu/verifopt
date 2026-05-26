@@ -3,6 +3,7 @@ use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Plac
 use rustc_public::ty::{BoundVariableKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
+//use crate::constraints::IntTy as VOIntTy;
 use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VORval};
 use crate::constraints::{unique_append, unique_push};
 use crate::projection::ProjectionHandler;
@@ -328,7 +329,7 @@ impl RvalConverter {
                 debug!("closure agg");
                 unique_push(
                     &mut constraints,
-                    VORval::Closure(*def, self.convert_genargs(genargs)),
+                    VORval::Closure(*def, genargs.clone()), //self.convert_genargs(genargs)),
                 );
             }
             _ => todo!("other agg kind: {:?}", kind),
@@ -363,6 +364,12 @@ impl RvalConverter {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool => VORval::Bool,
                 RigidTy::Int(_intty) => VORval::Int,
+                //match intty {
+                //    IntTy::I8 => VORval::Int(VOIntTy::I8),
+                //    IntTy::I16 => VORval::Int(VOIntTy::I16),
+                //    IntTy::I32 => VORval::Int(VOIntTy::I32),
+                //    _ => VORval::Int(VOIntTy::Other),
+                //}
                 RigidTy::Uint(_uintty) => VORval::Uint,
                 RigidTy::Adt(def, genargs) => VORval::Adt(def, self.convert_genargs(&genargs)),
                 RigidTy::Tuple(ty_vec) => {
@@ -374,7 +381,7 @@ impl RvalConverter {
                 }
                 RigidTy::Slice(ty) => VORval::Slice(ty),
                 RigidTy::Closure(def, genargs) => {
-                    VORval::Closure(def, self.convert_genargs(&genargs))
+                    VORval::Closure(def, genargs) //self.convert_genargs(&genargs))
                 }
                 RigidTy::FnDef(def, genargs) => VORval::FnDef(def, self.convert_genargs(&genargs)),
                 RigidTy::FnPtr(poly_fn_sig) => {

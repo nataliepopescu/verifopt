@@ -367,8 +367,17 @@ impl<'a> InterpPass<'a> {
                 },
                 _ => todo!("other tykind"),
             },
-            //VORval::Closure(cdef, genargs) => {
-            //}
+            VORval::Closure(cdef, genargs) => self.interp_closure(
+                logger,
+                term_span,
+                istore,
+                call_stack,
+                cur_scope,
+                local_decls,
+                *cdef,
+                &genargs,
+                args,
+            ),
             _ => todo!("other vorval: {:?}", constraint),
         }
     }
@@ -449,12 +458,9 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         debug!("cdef: {:?}", cdef);
         debug!("args: {:?}", args);
-
-        // Get closure kind from genargs
-        debug!("genargs: {:?}", genargs);
         let closure_kind = self.get_closure_kind(&genargs);
+        debug!("genargs: {:?}", genargs);
         debug!("CLOSURE KIND: {:?}", closure_kind);
-
         if let Some(body) = cdef.body() {
             debug!("RESOLVING CLOSURE INSTANCE");
             let instance = Instance::resolve_closure(cdef, &genargs, closure_kind).unwrap();
@@ -470,7 +476,7 @@ impl<'a> InterpPass<'a> {
                 local_decls,
                 instance,
                 args,
-                &genargs,
+                //&genargs,
                 true,
             );
             self.visit_instance(logger, &mut istore_clone, call_stack, instance)
@@ -571,7 +577,7 @@ impl<'a> InterpPass<'a> {
                     instance,
                     fndef,
                     args,
-                    &genargs,
+                    //&genargs,
                 )
             }
             InstanceKind::Virtual { .. } => {
@@ -599,7 +605,7 @@ impl<'a> InterpPass<'a> {
                     instance,
                     fndef,
                     args,
-                    &genargs,
+                    //&genargs,
                 )
             }
             InstanceKind::Intrinsic => {
@@ -619,7 +625,7 @@ impl<'a> InterpPass<'a> {
         instance: Instance,
         fndef: FnDef,
         args: &Vec<Operand>,
-        genargs: &GenericArgs,
+        //genargs: &GenericArgs,
     ) -> Result<Option<Constraints>, Error> {
         debug!("INTERP STATIC CALL");
         if instance.has_body() {
@@ -632,7 +638,7 @@ impl<'a> InterpPass<'a> {
                 local_decls,
                 instance,
                 args,
-                genargs,
+                //genargs,
                 false,
             );
             self.visit_instance(logger, &mut istore_clone, call_stack, instance)
@@ -650,7 +656,7 @@ impl<'a> InterpPass<'a> {
         callee_scope: Instance,
         //fndef: FnDef,
         args: &Vec<Operand>,
-        genargs: &GenericArgs,
+        //genargs: &GenericArgs,
         is_closure: bool,
     ) {
         debug!("RESOLVING ARGS");
@@ -669,7 +675,7 @@ impl<'a> InterpPass<'a> {
             caller_scope,
             local_decls,
             args,
-            genargs,
+            //genargs,
             is_closure,
         );
 
@@ -693,7 +699,7 @@ impl<'a> InterpPass<'a> {
         caller_scope: Instance,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
-        genargs: &GenericArgs,
+        //genargs: &GenericArgs,
         is_closure: bool,
     ) {
         for (i, arg) in args.into_iter().enumerate() {
@@ -712,7 +718,7 @@ impl<'a> InterpPass<'a> {
                 Box::new(MapValue::Constraints(arg_constraints)),
             );
         }
-        debug!("generic args: {:?}", genargs);
+        //debug!("generic args: {:?}", genargs);
     }
 
     fn resolve_arg(
@@ -960,7 +966,7 @@ impl<'a> InterpPass<'a> {
                 local_decls,
                 instance,
                 args,
-                &genargs,
+                //&genargs,
                 false,
             );
             results.push(self.visit_instance(

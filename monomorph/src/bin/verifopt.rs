@@ -20,6 +20,7 @@ use rustc_public::run;
 
 use log::*;
 use std::env;
+use std::io::Write;
 
 use monomorph::start_verifopt;
 use monomorph::util;
@@ -34,10 +35,17 @@ fn main() {
         rustc_driver::init_rustc_env_logger(&early_dcx);
     }
     if env::var("VERIFOPT_LOG").is_ok() {
-        let e = env_logger::Env::new()
-            .filter("VERIFOPT_LOG")
-            .write_style("VERIFOPT_LOG_STYLE");
-        env_logger::init_from_env(e);
+        env_logger::Builder::new()
+            .format(|buf, record| {
+                //writeln!(buf, "{}: {}", record.level(), record.args())
+                writeln!(buf, "{}", record.args())
+            })
+            .parse_env(
+                env_logger::Env::new()
+                    .filter("VERIFOPT_LOG")
+                    .write_style("VERIFOPT_LOG_STYLE"),
+            )
+            .init();
     }
 
     // Get any options specified via the VERIFOPT_FLAGS environment variable

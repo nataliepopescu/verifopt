@@ -1,10 +1,10 @@
-use rustc_public::mir::mono::Instance;
+//use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{AggregateKind, BinOp, CastKind, LocalDecl, Operand, Place, Rvalue, UnOp};
 use rustc_public::ty::{BoundVariableKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
 //use crate::constraints::IntTy as VOIntTy;
-use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VORval};
+use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VOID, VORval};
 use crate::constraints::{unique_append, unique_push};
 use crate::projection::ProjectionHandler;
 

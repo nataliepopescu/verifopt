@@ -3,8 +3,8 @@ use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{AdtDef, ClosureDef, FnDef, Ty};
 
+use crate::common::log_scope;
 use crate::error::Error;
-use crate::interp::log_scope;
 use crate::wto::BBDeps;
 
 use log::debug;
@@ -30,11 +30,12 @@ pub enum MapKey {
     ScopeId(Instance),
 }
 
+// FIXME make Option<Instance>, where None => items in top-level, global scope (at the very least, fn main)
+pub type EnclosingScope = Option<Instance>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
-    // TODO add scope backptr in for closures
-    // (Option<DefId>, where None == top-level global scope)
-    Store(InterpStore),
+    Store(InterpStore, EnclosingScope),
     Constraints(Constraints),
 }
 
@@ -86,12 +87,7 @@ impl InterpStore {
         }
     }
 
-    pub fn scoped_get(
-        &self,
-        scope: Instance,
-        key: &MapKey,
-        //traverse_backptr: bool,
-    ) -> Option<MapValue> {
+    pub fn scoped_get(&self, scope: Instance, key: &MapKey, is_closure: bool) -> Option<MapValue> {
         debug!("IN SCOPED_GET");
         log_scope(scope);
         debug!("key: {:?}", key);
@@ -106,26 +102,22 @@ impl InterpStore {
 
         match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                MapValue::Store(store) => {
-                    //if substores.len() != 1 {
-                    //    todo!(
-                    //        "not impl yet (vec of substores w len = {:?})",
-                    //        substores.len()
-                    //    );
-                    //}
-
+                MapValue::Store(store, enclosing_scope) => {
                     // Is key in inner_cmap? if not:
                     // - Is nested func: return None
                     // - Is closure: follow backptr to enclosing scope
                     match store.cmap.get(key) {
                         Some(boxed) => Some(*boxed.clone()),
-                        None => None,
-                        // FIXME closures should not recurse past enclosing function
-                        //if traverse_backptr {
-                        //    self.scoped_get(backptr, var, traverse_backptr)
-                        //} else {
-                        //    None
-                        //}
+                        None => {
+                            debug!("is_closure?: {:?}", is_closure);
+                            debug!("enclosing_scope: {:?}", enclosing_scope);
+                            if is_closure && enclosing_scope.is_some() {
+                                // Check enclosing scope for missing key(s)
+                                self.scoped_get(enclosing_scope.unwrap(), key, false)
+                            } else {
+                                None
+                            }
+                        }
                     }
                 }
                 _ => panic!("not a scope: {:?}", scope),
@@ -147,13 +139,7 @@ impl InterpStore {
 
         match self.cmap.get(&MapKey::ScopeId(scope)) {
             Some(vartype) => match *vartype.clone() {
-                MapValue::Store(mut store) => {
-                    //if substores.len() != 1 {
-                    //    todo!(
-                    //        "not impl yet (vec of substores w len = {:?})",
-                    //        substores.len()
-                    //    );
-                    //}
+                MapValue::Store(mut store, enclosing_scope) => {
                     let mut new_val = value.clone();
                     let old_val = store.cmap.get(&key);
                     match old_val {
@@ -165,8 +151,10 @@ impl InterpStore {
 
                     // modify scope w new key/val
                     store.cmap.insert(key, new_val);
-                    self.cmap
-                        .insert(MapKey::ScopeId(scope), Box::new(MapValue::Store(store)));
+                    self.cmap.insert(
+                        MapKey::ScopeId(scope),
+                        Box::new(MapValue::Store(store, enclosing_scope)),
+                    );
                 }
                 MapValue::Constraints(..) => {
                     panic!("defid is not a scope: {:?}", scope);
@@ -198,8 +186,11 @@ fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
         (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
             MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
         }
-        (MapValue::Store(cur_store), MapValue::Store(new_store)) => {
-            MapValue::Store(merge_stores(&cur_store, &new_store))
+        (MapValue::Store(cur_store, cur_store_es), MapValue::Store(new_store, new_store_es)) => {
+            if cur_store_es != new_store_es {
+                todo!("enclosing scopes differ");
+            }
+            MapValue::Store(merge_stores(&cur_store, &new_store), cur_store_es)
         }
         _ => panic!("incomparable MapValue types"),
     }

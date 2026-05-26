@@ -1,3 +1,51 @@
+use log::debug;
+
+use rustc_public::mir::Body;
+use rustc_public::mir::mono::Instance;
+
+pub fn log_scope(scope: Instance) {
+    debug!("CUR SCOPE: {:?}\n{:?}", scope.name(), scope);
+}
+
+pub fn log_mir(body: &Body) {
+    debug!("----START BODY----");
+    debug!("arg count: {:?}", body.arg_locals().len());
+    debug!("locals count: {:?}", body.locals().len());
+    debug!("blocks count: {:?}", &body.blocks.len());
+    debug!("{:#?}", body);
+    debug!("----END BODY----");
+
+    /*
+    let locals = body.locals();
+    let blocks = &body.blocks;
+
+    debug!("num LocalDecls: {:?}", locals.len());
+    debug!("{{");
+    for i in 0..locals.len() {
+        debug!("-local{:?}", i);
+        debug!("{:?}", locals[i]);
+    }
+    debug!("}}");
+
+    debug!("num BasicBlocks: {:?}", blocks.len());
+    debug!("{{");
+    for i in 0..blocks.len() {
+        debug!("-bb{:?}", i);
+        debug!("{:?}", blocks[i]);
+        //for j in 0..blocks[i].statements.len() {
+        //    debug!("--stmt{:?}", j);
+        //    match panic::catch_unwind(|| {
+        //        debug!("{:?}", blocks[i].statements[j]);
+        //    }) {
+        //        Ok(stmt) => debug!("{:?}", stmt),
+        //        _ => debug!("SKIPPING (error)"),
+        //    }
+        //}
+    }
+    debug!("}}");
+    */
+}
+
 #[derive(Clone, Debug)]
 pub enum VerifOptType {
     FlowSensitive,

@@ -136,7 +136,7 @@ impl RvalConverter {
         debug!("backup_ty_naive: \n{:?}", backup_ty_naive);
         debug!("resolved_ty: \n{:?}", resolved_ty);
 
-        match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
+        match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     debug!("found constraints for place {:?}: {:?}", place, constraints);
@@ -206,7 +206,7 @@ impl RvalConverter {
                 debug!("place: {:?}", place);
                 debug!("resolved_ty for place: {:?}", resolved_ty);
 
-                match istore.scoped_get(cur_scope, &MapKey::Local(place.local)) {
+                match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints_) => {
                             debug!(

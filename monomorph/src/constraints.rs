@@ -25,7 +25,7 @@ pub fn unique_append(vec: &mut Constraints, to_append: Constraints) {
 }
 
 /// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
-pub type VOID = Instance;
+pub type VOID = (Instance, GenericArgs);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
@@ -92,9 +92,9 @@ impl InterpStore {
         }
     }
 
-    pub fn scoped_get(&self, scope: VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
+    pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
         debug!("IN SCOPED_GET");
-        log_scope(scope);
+        log_scope(&scope);
         debug!("key: {:?}", key);
         //debug!("cmap: {:#?}", self.cmap);
 
@@ -105,7 +105,7 @@ impl InterpStore {
         //    }
         //}
 
-        match self.cmap.get(&MapKey::ScopeId(scope)) {
+        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scope) => {
                     // Is key in inner_cmap? if not:
@@ -118,7 +118,7 @@ impl InterpStore {
                             debug!("enclosing_scope: {:?}", enclosing_scope);
                             if is_closure && enclosing_scope.is_some() {
                                 // Check enclosing scopes for missing key(s)
-                                self.scoped_get(enclosing_scope.unwrap(), key, false)
+                                self.scoped_get(&enclosing_scope.unwrap(), key, false)
                             } else {
                                 None
                             }
@@ -131,7 +131,7 @@ impl InterpStore {
         }
     }
 
-    pub fn scoped_update(&mut self, scope: VOID, key: MapKey, value: Box<MapValue>) {
+    pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
         //if scope.is_none() {
         //    if self.cmap.contains_key(&key) {
         //        // FIXME MIR is not SSA
@@ -142,7 +142,7 @@ impl InterpStore {
         //    return;
         //}
 
-        match self.cmap.get(&MapKey::ScopeId(scope)) {
+        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {
                     let mut new_val = value.clone();
@@ -157,7 +157,7 @@ impl InterpStore {
                     // modify scope w new key/val
                     store.cmap.insert(key, new_val);
                     self.cmap.insert(
-                        MapKey::ScopeId(scope),
+                        MapKey::ScopeId(scope.clone()),
                         Box::new(MapValue::Store(store, enclosing_scope)),
                     );
                 }

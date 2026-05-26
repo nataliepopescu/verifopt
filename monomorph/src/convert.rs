@@ -25,7 +25,7 @@ impl RvalConverter {
     pub fn convert(
         &self,
         istore: &InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         to_convert: &Rvalue,
     ) -> Constraints {
@@ -105,7 +105,7 @@ impl RvalConverter {
     fn convert_op(
         &self,
         istore: &InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         op: &Operand,
     ) -> Constraints {
@@ -126,7 +126,7 @@ impl RvalConverter {
     fn convert_place(
         &self,
         istore: &InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         place: &Place,
     ) -> Constraints {
@@ -174,7 +174,7 @@ impl RvalConverter {
     fn convert_discr(
         &self,
         _istore: &InterpStore,
-        _cur_scope: VOID,
+        _cur_scope: &VOID,
         local_decls: &[LocalDecl],
         place: &Place,
     ) -> Constraints {
@@ -187,7 +187,7 @@ impl RvalConverter {
     fn convert_cast(
         &self,
         istore: &InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         kind: &CastKind,
         op: &Operand,
@@ -278,7 +278,7 @@ impl RvalConverter {
     fn convert_agg(
         &self,
         istore: &InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         kind: &AggregateKind,
         fields: &Vec<Operand>,

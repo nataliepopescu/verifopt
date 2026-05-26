@@ -40,19 +40,19 @@ impl<'a> InterpPass<'a> {
         &self,
         logger: &mut VOLogger,
         istore: &mut InterpStore,
-        start_scope: VOID,
+        start_instance: Instance,
     ) -> Result<Option<Constraints>, Error> {
-        //let start_scope = instance;
-        let mut call_stack = vec![start_scope];
+        let start_scope = (start_instance, GenericArgs(vec![]));
+        let mut call_stack = vec![start_scope.clone()];
 
         // Initialize InterpStore with entry_fn's substore
         let entry_fn_istore = InterpStore::new();
         istore.cmap.insert(
-            MapKey::ScopeId(start_scope), //, vec![].into()),
+            MapKey::ScopeId(start_scope.clone()),
             Box::new(MapValue::Store(entry_fn_istore, None)),
         );
 
-        self.visit_instance(logger, istore, &mut call_stack, start_scope)
+        self.visit_instance(logger, istore, &mut call_stack, &start_scope)
     }
 
     fn visit_instance(
@@ -60,11 +60,14 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
-        let body = cur_scope.body().unwrap();
+        let body = cur_scope.0.body().unwrap();
         debug!("\n\n\n#############################");
-        debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope.name());
+        debug!(
+            "###### INTERP-ING NEW BODY for func {:?}",
+            cur_scope.0.name()
+        );
         debug!("call_stack: {:#?}", call_stack);
         //log_mir(&body);
         debug!("#############################\n\n");
@@ -77,17 +80,17 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         body: &Body,
     ) -> Result<Option<Constraints>, Error> {
         // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
-        if let Some(mem_bb_deps) = istore.wtos.get(&cur_scope) {
+        if let Some(mem_bb_deps) = istore.wtos.get(cur_scope) {
             bb_deps = mem_bb_deps.clone();
             debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
-            istore.wtos.insert(cur_scope, bb_deps.clone());
+            istore.wtos.insert(cur_scope.clone(), bb_deps.clone());
             debug!("NEW ordering: {:?}", bb_deps.ordering);
         }
 
@@ -122,7 +125,7 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         bb_deps: &mut BBDeps,
         num_bbs: usize,
@@ -134,7 +137,7 @@ impl<'a> InterpPass<'a> {
             "# visiting BASICBLOCK {:?}/{:?} for {:?}",
             bb,
             num_bbs - 1,
-            cur_scope.name()
+            cur_scope.0.name()
         );
         debug!("#############");
 
@@ -145,7 +148,7 @@ impl<'a> InterpPass<'a> {
                 i,
                 num_stmts - 1,
                 bb,
-                cur_scope.name()
+                cur_scope.0.name()
             );
             self.visit_statement(istore, cur_scope, local_decls, stmt);
         }
@@ -153,7 +156,7 @@ impl<'a> InterpPass<'a> {
         debug!(
             "\n\n# visiting TERMINATOR in BB{:?} for {:?}",
             bb,
-            cur_scope.name()
+            cur_scope.0.name()
         );
 
         let res = self.visit_terminator(
@@ -175,7 +178,7 @@ impl<'a> InterpPass<'a> {
     fn visit_statement(
         &self,
         istore: &mut InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         stmt: &Statement,
     ) {
@@ -211,7 +214,7 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         bb_deps: &mut BBDeps,
         bb: usize,
@@ -263,7 +266,7 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         place: &Place,
         args: &Vec<Operand>,
@@ -321,7 +324,7 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         constraint: &VORval,
         args: &Vec<Operand>,
@@ -386,7 +389,7 @@ impl<'a> InterpPass<'a> {
         _term_span: &Span,
         _istore: &mut InterpStore,
         _call_stack: &mut Vec<VOID>,
-        _cur_scope: VOID,
+        _cur_scope: &VOID,
         _local_decls: &[LocalDecl],
         sig: PolyFnSig,
         _args: &Vec<Operand>,
@@ -448,7 +451,7 @@ impl<'a> InterpPass<'a> {
         _term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         cdef: ClosureDef,
         genargs: &GenericArgs,
@@ -467,17 +470,18 @@ impl<'a> InterpPass<'a> {
             log_mir(&body);
 
             let mut istore_clone = istore.clone();
-            call_stack.push(instance);
+            let new_scope = (instance, genargs.clone());
+            call_stack.push(new_scope.clone());
             self.resolve_args(
                 &mut istore_clone,
                 cur_scope,
                 local_decls,
-                instance,
+                &new_scope,
                 args,
-                //&genargs,
+                &genargs,
                 true,
             );
-            self.visit_instance(logger, &mut istore_clone, call_stack, instance)
+            self.visit_instance(logger, &mut istore_clone, call_stack, &new_scope)
         } else {
             todo!();
         }
@@ -503,7 +507,7 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         co: &ConstOperand,
         args: &Vec<Operand>,
@@ -553,13 +557,14 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         fndef: FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         let instance = Instance::resolve(fndef, genargs).unwrap();
+        let new_scope = (instance, genargs.clone());
         debug!("instance def: {:?}", instance.def);
         debug!("--- CALLING {:?}", fndef);
         log_scope(cur_scope);
@@ -572,10 +577,10 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
-                    instance,
+                    &new_scope,
                     fndef,
                     args,
-                    //&genargs,
+                    &genargs,
                 )
             }
             InstanceKind::Virtual { .. } => {
@@ -600,10 +605,10 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
-                    instance,
+                    &new_scope,
                     fndef,
                     args,
-                    //&genargs,
+                    &genargs,
                 )
             }
             InstanceKind::Intrinsic => {
@@ -618,28 +623,27 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        caller_scope: VOID,
+        caller_scope: &VOID,
         local_decls: &[LocalDecl],
-        instance: VOID,
+        cur_scope: &VOID,
         fndef: FnDef,
         args: &Vec<Operand>,
-        //genargs: &GenericArgs,
+        genargs: &GenericArgs,
     ) -> Result<Option<Constraints>, Error> {
         debug!("INTERP STATIC CALL");
-        if instance.has_body() {
+        if cur_scope.0.has_body() {
             let mut istore_clone = istore.clone();
-            //let callee_scope = instance; //(fndef.0, instance);
-            call_stack.push(instance);
+            call_stack.push(cur_scope.clone());
             self.resolve_args(
                 &mut istore_clone,
                 caller_scope,
                 local_decls,
-                instance,
+                cur_scope,
                 args,
-                //genargs,
+                genargs,
                 false,
             );
-            self.visit_instance(logger, &mut istore_clone, call_stack, instance)
+            self.visit_instance(logger, &mut istore_clone, call_stack, cur_scope)
         } else {
             debug!("no body");
             self.retty_fallback(fndef.fn_sig())
@@ -649,18 +653,18 @@ impl<'a> InterpPass<'a> {
     fn resolve_args(
         &self,
         istore: &mut InterpStore,
-        caller_scope: VOID,
+        caller_scope: &VOID,
         local_decls: &[LocalDecl],
-        callee_scope: VOID,
+        callee_scope: &VOID,
         //fndef: FnDef,
         args: &Vec<Operand>,
-        //genargs: &GenericArgs,
+        _genargs: &GenericArgs,
         is_closure: bool,
     ) {
         debug!("RESOLVING ARGS");
         debug!("IS TARGET FN CLOSURE?: {}", is_closure);
         let mut new_substore = InterpStore::new();
-        let key = MapKey::ScopeId(callee_scope); //, *genargs);
+        let key = MapKey::ScopeId(callee_scope.clone());
 
         //let sig = fndef.fn_sig();
         //debug!("fn_sig: {:?}", sig);
@@ -681,10 +685,15 @@ impl<'a> InterpPass<'a> {
         let store;
         match istore.cmap.get(&key) {
             Some(box MapValue::Store(old_substore, old_es)) => {
-                store = merge_stores(old_substore, old_es, &new_substore, &Some(caller_scope));
+                store = merge_stores(
+                    old_substore,
+                    old_es,
+                    &new_substore,
+                    &Some(caller_scope.clone()),
+                );
             }
             Some(_) => panic!("got constraint, expected store"),
-            None => store = (new_substore, Some(caller_scope)),
+            None => store = (new_substore, Some(caller_scope.clone())),
         }
 
         // Add new substore in top-level store
@@ -697,7 +706,7 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &InterpStore,
         new_substore: &mut InterpStore,
-        caller_scope: VOID,
+        caller_scope: &VOID,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
         //genargs: &GenericArgs,
@@ -725,7 +734,7 @@ impl<'a> InterpPass<'a> {
     fn resolve_arg(
         &self,
         istore: &InterpStore,
-        caller_scope: VOID,
+        caller_scope: &VOID,
         _local_decls: &[LocalDecl],
         arg: &Operand,
         is_closure: bool,
@@ -787,7 +796,7 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         fndef: &FnDef,
         genargs: &GenericArgs,
@@ -881,7 +890,7 @@ impl<'a> InterpPass<'a> {
     fn get_impls_fsa(
         &self,
         istore: &InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
     ) -> Vec<DefId> {
@@ -908,7 +917,7 @@ impl<'a> InterpPass<'a> {
     fn get_fsa_tyconstraints(
         &self,
         istore: &InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local: Local,
     ) -> Constraints {
         // Get concrete type constraints for trait object
@@ -942,7 +951,7 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         assoc_fn_impls: Vec<DefId>,
         genargs: &GenericArgs,
@@ -957,24 +966,24 @@ impl<'a> InterpPass<'a> {
             debug!("instance def: {:?}", instance.def);
             debug!("a converted static instance: {:?}", instance);
             let mut call_stack_clone = call_stack.clone();
-            //let callee_scope = instance;
-            call_stack_clone.push(instance);
+            let callee_scope = (instance, genargs.clone());
+            call_stack_clone.push(callee_scope.clone());
 
             let mut istore_clone = istore.clone();
             self.resolve_args(
                 &mut istore_clone,
                 cur_scope,
                 local_decls,
-                instance,
+                &callee_scope,
                 args,
-                //&genargs,
+                &genargs,
                 false,
             );
             results.push(self.visit_instance(
                 logger,
                 &mut istore_clone,
                 &mut call_stack_clone,
-                instance,
+                &callee_scope,
             )?);
 
             istore_vec.push(istore_clone);
@@ -1019,7 +1028,7 @@ impl<'a> InterpPass<'a> {
     fn interp_switchint(
         &self,
         istore: &mut InterpStore,
-        cur_scope: VOID,
+        cur_scope: &VOID,
         local_decls: &[LocalDecl],
         bb: usize,
         bb_deps: &mut BBDeps,
@@ -1163,12 +1172,12 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: VOID,
+        cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
         debug!("RETURNING from scope {:?}...", cur_scope);
         //debug!("callstack PRE POP: {:?}", call_stack);
         let popped = call_stack.pop();
-        if popped.unwrap() != cur_scope {
+        if popped.unwrap() != *cur_scope {
             panic!("call stack out of sorts");
         }
         //debug!("callstack POST POP: {:?}", call_stack);

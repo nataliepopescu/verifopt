@@ -5,8 +5,8 @@ use rustc_public::mir::Body;
 
 use crate::constraints::VOID;
 
-pub fn log_scope(scope: VOID) {
-    debug!("CUR SCOPE: {:?}\n{:?}", scope.name(), scope);
+pub fn log_scope(scope: &VOID) {
+    debug!("CUR SCOPE: {:?}\n{:?}", scope.0.name(), scope);
 }
 
 pub fn log_mir(body: &Body) {

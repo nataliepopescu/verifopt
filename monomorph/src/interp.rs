@@ -5,8 +5,8 @@ use rustc_public::mir::{
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
-    BoundVariableKind, ClosureKind, ConstantKind, FnDef, GenericArgs, IntTy, PolyFnSig, RigidTy,
-    Span, TyKind,
+    BoundVariableKind, ClosureDef, ClosureKind, ConstantKind, FnDef, GenericArgs, IntTy, PolyFnSig,
+    RigidTy, Span, TyKind,
 };
 
 use log::debug;
@@ -67,7 +67,6 @@ impl<'a> InterpPass<'a> {
         let body = cur_scope.body().unwrap();
         debug!("\n\n\n#############################");
         debug!("###### INTERP-ING NEW BODY for func {:?}", cur_scope.name());
-        debug!("\t{:?}\n", cur_scope);
         debug!("call_stack: {:#?}", call_stack);
         //log_mir(&body);
         debug!("#############################\n\n");
@@ -139,7 +138,6 @@ impl<'a> InterpPass<'a> {
             num_bbs - 1,
             cur_scope.name()
         );
-        debug!("\t{:?}\n", cur_scope);
         debug!("#############");
 
         let num_stmts = data.statements.len();
@@ -151,7 +149,6 @@ impl<'a> InterpPass<'a> {
                 bb,
                 cur_scope.name()
             );
-            debug!("\t{:?\n}", cur_scope);
             self.visit_statement(istore, cur_scope, local_decls, stmt);
         }
 
@@ -160,7 +157,6 @@ impl<'a> InterpPass<'a> {
             bb,
             cur_scope.name()
         );
-        debug!("\t{:?}\n", cur_scope);
 
         let res = self.visit_terminator(
             logger,
@@ -346,90 +342,27 @@ impl<'a> InterpPass<'a> {
                         &genargs,
                         args,
                     ),
-                    RigidTy::FnPtr(sig) => {
-                        debug!("sig!: {:?}", sig);
-                        let sigval = SigVal::new(&self.converter, &sig);
-                        match self.sigstore.sigs.get(&sigval) {
-                            Some(fndef_vec) => {
-                                debug!("got fndef_vec!: {:?}", fndef_vec);
-                                debug!("num candidate fns: {:?}", fndef_vec.len());
-
-                                // Don't want to pollute our results too much, so if we have too
-                                // many possible fns to call, just fallback to retty
-                                if fndef_vec.len() > 5 {
-                                    debug!("TOO MANY CANDIDATES - falling back to retty");
-                                    self.retty_fallback(sig)
-                                // Otherwise, interpret the candidate functions
-                                } else {
-                                    debug!("INTERPRET CANDIDATES");
-                                    todo!();
-                                    /*
-                                    let mut ret_constraints = Vec::new();
-                                    for fndef in fndef_vec {
-                                        debug!("TRY FUNC: {:?}", fndef);
-                                        // FIXME no genargs??
-                                        let genargs = GenericArgs(vec![]);
-                                        match self.interp_fn_ptr(
-                                            logger,
-                                            term_span,
-                                            istore,
-                                            call_stack,
-                                            cur_scope,
-                                            local_decls,
-                                            *fndef,
-                                            &genargs,
-                                            args,
-                                        ) {
-                                            Ok(Some(constraints)) => unique_append(&mut ret_constraints, constraints),
-                                            Ok(None) => {}
-                                            e @ Err(_) => panic!("got error: {:?}", e),
-                                        }
-                                    }
-                                    debug!("ret_constraints: {:?}", ret_constraints);
-                                    todo!("FN PTR (interp'd candidates)");
-                                    */
-                                }
-                            }
-                            None => {
-                                debug!("sigval: {:?}", sigval);
-                                debug!("no candidate fns to call, using retty fallback");
-                                self.retty_fallback(sig)
-                            }
-                        }
-                    }
-                    RigidTy::Closure(cdef, genargs) => {
-                        debug!("cdef: {:?}", cdef);
-                        debug!("args: {:?}", args);
-
-                        // Get closure kind from genargs
-                        debug!("genargs: {:?}", genargs);
-                        let closure_kind = self.get_closure_kind(&genargs);
-                        debug!("CLOSURE KIND: {:?}", closure_kind);
-
-                        if let Some(body) = cdef.body() {
-                            debug!("RESOLVING CLOSURE INSTANCE");
-                            let instance =
-                                Instance::resolve_closure(cdef, &genargs, closure_kind).unwrap();
-                            debug!("instance: {:?}", instance);
-                            debug!("closure body..");
-                            log_mir(&body);
-
-                            let mut istore_clone = istore.clone();
-                            call_stack.push(instance);
-                            self.resolve_args(
-                                &mut istore_clone,
-                                cur_scope,
-                                local_decls,
-                                instance,
-                                args,
-                                &genargs,
-                                true,
-                            );
-                            self.visit_instance(logger, &mut istore_clone, call_stack, instance)
-                        } else {
-                            todo!();
-                        }
-                    }
+                    RigidTy::FnPtr(sig) => self.interp_fn_ptr(
+                        logger,
+                        term_span,
+                        istore,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        sig,
+                        args,
+                    ),
+                    RigidTy::Closure(cdef, genargs) => self.interp_closure(
+                        logger,
+                        term_span,
+                        istore,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        cdef,
+                        &genargs,
+                        args,
+                    ),
                     other @ _ => panic!("other rigidty (not a fn ptr!): {:?}", other),
                 },
                 _ => todo!("other tykind"),
@@ -437,6 +370,112 @@ impl<'a> InterpPass<'a> {
             //VORval::Closure(cdef, genargs) => {
             //}
             _ => todo!("other vorval: {:?}", constraint),
+        }
+    }
+
+    fn interp_fn_ptr(
+        &self,
+        _logger: &mut VOLogger,
+        _term_span: &Span,
+        _istore: &mut InterpStore,
+        _call_stack: &mut Vec<Instance>,
+        _cur_scope: Instance,
+        _local_decls: &[LocalDecl],
+        sig: PolyFnSig,
+        _args: &Vec<Operand>,
+    ) -> Result<Option<Constraints>, Error> {
+        debug!("sig!: {:?}", sig);
+        let sigval = SigVal::new(&self.converter, &sig);
+        match self.sigstore.sigs.get(&sigval) {
+            Some(fndef_vec) => {
+                debug!("got fndef_vec!: {:?}", fndef_vec);
+                debug!("num candidate fns: {:?}", fndef_vec.len());
+
+                // Don't want to pollute our results too much, so if we have too
+                // many possible fns to call, just fallback to retty
+                if fndef_vec.len() > 5 {
+                    debug!("TOO MANY CANDIDATES - falling back to retty");
+                    self.retty_fallback(sig)
+                // Otherwise, interpret the candidate functions
+                } else {
+                    debug!("INTERPRET CANDIDATES");
+                    todo!();
+                    /*
+                    let mut ret_constraints = Vec::new();
+                    for fndef in fndef_vec {
+                        debug!("TRY FUNC: {:?}", fndef);
+                        // FIXME no genargs??
+                        let genargs = GenericArgs(vec![]);
+                        match self.interp_fn_ptr(
+                            logger,
+                            term_span,
+                            istore,
+                            call_stack,
+                            cur_scope,
+                            local_decls,
+                            *fndef,
+                            &genargs,
+                            args,
+                        ) {
+                            Ok(Some(constraints)) => unique_append(&mut ret_constraints, constraints),
+                            Ok(None) => {}
+                            e @ Err(_) => panic!("got error: {:?}", e),
+                        }
+                    }
+                    debug!("ret_constraints: {:?}", ret_constraints);
+                    todo!("FN PTR (interp'd candidates)");
+                    */
+                }
+            }
+            None => {
+                debug!("sigval: {:?}", sigval);
+                debug!("no candidate fns to call, using retty fallback");
+                self.retty_fallback(sig)
+            }
+        }
+    }
+
+    fn interp_closure(
+        &self,
+        logger: &mut VOLogger,
+        _term_span: &Span,
+        istore: &mut InterpStore,
+        call_stack: &mut Vec<Instance>,
+        cur_scope: Instance,
+        local_decls: &[LocalDecl],
+        cdef: ClosureDef,
+        genargs: &GenericArgs,
+        args: &Vec<Operand>,
+    ) -> Result<Option<Constraints>, Error> {
+        debug!("cdef: {:?}", cdef);
+        debug!("args: {:?}", args);
+
+        // Get closure kind from genargs
+        debug!("genargs: {:?}", genargs);
+        let closure_kind = self.get_closure_kind(&genargs);
+        debug!("CLOSURE KIND: {:?}", closure_kind);
+
+        if let Some(body) = cdef.body() {
+            debug!("RESOLVING CLOSURE INSTANCE");
+            let instance = Instance::resolve_closure(cdef, &genargs, closure_kind).unwrap();
+            debug!("instance: {:?}", instance);
+            debug!("closure body..");
+            log_mir(&body);
+
+            let mut istore_clone = istore.clone();
+            call_stack.push(instance);
+            self.resolve_args(
+                &mut istore_clone,
+                cur_scope,
+                local_decls,
+                instance,
+                args,
+                &genargs,
+                true,
+            );
+            self.visit_instance(logger, &mut istore_clone, call_stack, instance)
+        } else {
+            todo!();
         }
     }
 
@@ -453,29 +492,6 @@ impl<'a> InterpPass<'a> {
             other @ _ => panic!("first genarg is unexpected: {:?}", other),
         }
     }
-
-    /*
-    fn interp_fn_ptr(
-        &self,
-        _logger: &mut VOLogger,
-        _term_span: &Span,
-        _istore: &mut InterpStore,
-        _call_stack: &mut Vec<Instance>,
-        cur_scope: Instance,
-        _local_decls: &[LocalDecl],
-        fndef: FnDef,
-        genargs: &GenericArgs,
-        _args: &Vec<Operand>,
-    ) -> Result<Option<Constraints>, Error> {
-        let def_instance = Instance::resolve(fndef, genargs).unwrap();
-        let instance = Instance::resolve_for_fn_ptr(fndef, genargs).unwrap();
-        debug!("FNPTR instance : {:?}", instance);
-        debug!("FNDEF instance : {:?}", def_instance);
-        debug!("--- CALLING {:?}", fndef);
-        log_scope(cur_scope);
-        todo!();
-    }
-    */
 
     fn interp_direct_call(
         &self,

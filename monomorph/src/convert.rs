@@ -394,6 +394,7 @@ impl RvalConverter {
                     VORval::FnPtr(inputs_output_vorvals)
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
+                RigidTy::RawPtr(ty, _mut) => VORval::RawPtr(Box::new(self.convert_ty(&ty))),
                 //RigidTy::Dynamic(traitref, _region) => {
                 //    todo!();
                 //}

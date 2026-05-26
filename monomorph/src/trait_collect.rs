@@ -35,7 +35,9 @@ impl TraitCollectPass {
     }
 
     pub fn run(&self, tstore: &mut TraitStore) {
+        debug!("TRAIT PASS");
         self.collect_trait_mappings(tstore);
+        debug!("DONE TRAIT PASS");
     }
 
     fn collect_trait_mappings(&self, tstore: &mut TraitStore) {

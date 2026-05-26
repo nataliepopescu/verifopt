@@ -4,6 +4,7 @@ use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{AdtDef, ClosureDef, FnDef, Ty};
 
 use crate::error::Error;
+use crate::interp::log_scope;
 use crate::wto::BBDeps;
 
 use log::debug;
@@ -44,6 +45,13 @@ pub type Constraints = Vec<VORval>;
 pub type VOGenargs = Vec<VOGenarg>;
 pub type VOGenarg = VORval;
 
+//#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+//pub enum ClosureKind {
+//    Fn,
+//    FnMut,
+//    FnOnce,
+//}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VORval {
     Idk,
@@ -59,7 +67,7 @@ pub enum VORval {
     Uint,
     Slice(Ty),
     Array(Ty),
-    Closure(ClosureDef, Option<VOGenargs>),
+    Closure(ClosureDef, Option<VOGenargs>), //, ClosureKind),
     FnDef(FnDef, Option<VOGenargs>),
     FnPtr(Vec<VORval>),
 }
@@ -85,7 +93,7 @@ impl InterpStore {
         //traverse_backptr: bool,
     ) -> Option<MapValue> {
         debug!("IN SCOPED_GET");
-        debug!("scope: {:?}", scope.name());
+        log_scope(scope);
         debug!("key: {:?}", key);
         //debug!("cmap: {:#?}", self.cmap);
 

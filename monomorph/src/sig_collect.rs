@@ -2,14 +2,55 @@ use rustc_data_structures::fx::FxHashMap as HashMap;
 //use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_public::DefId;
 //use rustc_public::mir::mono::Instance;
+use rustc_public::mir::Body;
 use rustc_public::ty::{
     BoundRegionKind, BoundTyKind, BoundVariableKind, FnDef, ForeignItemKind, PolyFnSig, Ty,
 };
 
 use log::debug;
+use std::panic;
 
 //use crate::constraints::VORval;
 use crate::convert::RvalConverter;
+
+pub fn log_mir(body: &Body) {
+    debug!("----START BODY----");
+    debug!("arg count: {:?}", body.arg_locals().len());
+    debug!("locals count: {:?}", body.locals().len());
+    debug!("blocks count: {:?}", &body.blocks.len());
+    debug!("{:#?}", body);
+    debug!("----END BODY----");
+
+    /*
+    let locals = body.locals();
+    let blocks = &body.blocks;
+
+    debug!("num LocalDecls: {:?}", locals.len());
+    debug!("{{");
+    for i in 0..locals.len() {
+        debug!("-local{:?}", i);
+        debug!("{:?}", locals[i]);
+    }
+    debug!("}}");
+
+    debug!("num BasicBlocks: {:?}", blocks.len());
+    debug!("{{");
+    for i in 0..blocks.len() {
+        debug!("-bb{:?}", i);
+        debug!("{:?}", blocks[i]);
+        //for j in 0..blocks[i].statements.len() {
+        //    debug!("--stmt{:?}", j);
+        //    match panic::catch_unwind(|| {
+        //        debug!("{:?}", blocks[i].statements[j]);
+        //    }) {
+        //        Ok(stmt) => debug!("{:?}", stmt),
+        //        _ => debug!("SKIPPING (error)"),
+        //    }
+        //}
+    }
+    debug!("}}");
+    */
+}
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct SigVal {
@@ -83,8 +124,10 @@ impl SigCollectPass {
     }
 
     pub fn run(&self, sigstore: &mut SigStore) {
+        debug!("FUNC SIG PASS");
         //self.test();
         self.collect_function_sigs(sigstore);
+        debug!("DONE FUNC SIG PASS");
     }
 
     /*
@@ -103,12 +146,15 @@ impl SigCollectPass {
     fn collect_function_sigs(&self, sigstore: &mut SigStore) {
         let mut all_crates = rustc_public::external_crates().clone();
         all_crates.insert(0, rustc_public::local_crate());
-        for krate in all_crates {
+        let len = all_crates.len();
+        for (i, krate) in all_crates.into_iter().enumerate() {
+            debug!("krate# {:?}/{:?}", i + 1, len);
             debug!("krate: {:?}", krate);
 
             // Non-crate-local FnDefs
             for fndef in krate.fn_defs() {
                 debug!("\n\n");
+                debug!("NOT FOREIGN");
                 self.process_fndef(sigstore, &fndef);
             }
 
@@ -118,7 +164,7 @@ impl SigCollectPass {
                     match foreign_item.kind() {
                         ForeignItemKind::Fn(fndef) => {
                             debug!("\n\n");
-                            debug!("FOREIGN!");
+                            debug!("FOREIGN");
                             self.process_fndef(sigstore, &fndef);
                         }
                         _ => {}
@@ -142,6 +188,19 @@ impl SigCollectPass {
             None => {
                 sigstore.sigs.insert(sigval, vec![*fndef]);
             }
+        }
+
+        // FIXME false -> true if want to print func bodies
+        if fndef.has_body() && false {
+            debug!("HAS BODY");
+            match panic::catch_unwind(|| fndef.body()) {
+                Ok(body) => {
+                    log_mir(&body.unwrap());
+                }
+                _ => debug!("ERROR GETTING BODY"),
+            }
+        } else {
+            debug!("NO BODY");
         }
     }
 }

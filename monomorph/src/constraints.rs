@@ -24,14 +24,16 @@ pub fn unique_append(vec: &mut Constraints, to_append: Constraints) {
     }
 }
 
+/// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
+pub type VOID = Instance;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
     Local(Local),
-    ScopeId(Instance),
+    ScopeId(VOID),
 }
 
-// FIXME make Option<Instance>, where None => items in top-level, global scope (at the very least, fn main)
-pub type EnclosingScope = Option<Instance>;
+pub type EnclosingScope = Option<VOID>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
@@ -79,7 +81,7 @@ pub enum VORval {
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterpStore {
     pub cmap: HashMap<MapKey, Box<MapValue>>,
-    pub wtos: HashMap<Instance, BBDeps>,
+    pub wtos: HashMap<VOID, BBDeps>,
 }
 
 impl InterpStore {
@@ -90,7 +92,7 @@ impl InterpStore {
         }
     }
 
-    pub fn scoped_get(&self, scope: Instance, key: &MapKey, is_closure: bool) -> Option<MapValue> {
+    pub fn scoped_get(&self, scope: VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
         debug!("IN SCOPED_GET");
         log_scope(scope);
         debug!("key: {:?}", key);
@@ -115,7 +117,7 @@ impl InterpStore {
                             debug!("is_closure?: {:?}", is_closure);
                             debug!("enclosing_scope: {:?}", enclosing_scope);
                             if is_closure && enclosing_scope.is_some() {
-                                // Check enclosing scope for missing key(s)
+                                // Check enclosing scopes for missing key(s)
                                 self.scoped_get(enclosing_scope.unwrap(), key, false)
                             } else {
                                 None
@@ -129,7 +131,7 @@ impl InterpStore {
         }
     }
 
-    pub fn scoped_update(&mut self, scope: Instance, key: MapKey, value: Box<MapValue>) {
+    pub fn scoped_update(&mut self, scope: VOID, key: MapKey, value: Box<MapValue>) {
         //if scope.is_none() {
         //    if self.cmap.contains_key(&key) {
         //        // FIXME MIR is not SSA
@@ -168,12 +170,23 @@ impl InterpStore {
     }
 }
 
-fn merge_stores(cur_store: &InterpStore, new_store: &InterpStore) -> InterpStore {
-    let merged = cur_store.clone();
-    if merged != *new_store {
+pub fn merge_stores(
+    cur_store: &InterpStore,
+    cur_store_es: &EnclosingScope,
+    new_store: &InterpStore,
+    new_store_es: &EnclosingScope,
+) -> (InterpStore, EnclosingScope) {
+    let merged_es = cur_store_es.clone();
+    if cur_store_es != new_store_es {
+        debug!("existing es: {:?}", cur_store_es);
+        debug!("new es: {:?}", new_store_es);
+        todo!("enclosing scopes differ");
+    }
+    let merged_store = cur_store.clone();
+    if merged_store != *new_store {
         todo!("merge different stores");
     }
-    merged
+    (merged_store, merged_es)
 }
 
 fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
@@ -190,10 +203,8 @@ fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
             MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
         }
         (MapValue::Store(cur_store, cur_store_es), MapValue::Store(new_store, new_store_es)) => {
-            if cur_store_es != new_store_es {
-                todo!("enclosing scopes differ");
-            }
-            MapValue::Store(merge_stores(&cur_store, &new_store), cur_store_es)
+            let (store, es) = merge_stores(&cur_store, &cur_store_es, &new_store, &new_store_es);
+            MapValue::Store(store, es)
         }
         _ => panic!("incomparable MapValue types"),
     }

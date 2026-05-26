@@ -1,9 +1,11 @@
 use log::debug;
 
 use rustc_public::mir::Body;
-use rustc_public::mir::mono::Instance;
+//use rustc_public::mir::mono::Instance;
 
-pub fn log_scope(scope: Instance) {
+use crate::constraints::VOID;
+
+pub fn log_scope(scope: VOID) {
     debug!("CUR SCOPE: {:?}\n{:?}", scope.name(), scope);
 }
 

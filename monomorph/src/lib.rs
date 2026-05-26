@@ -1,5 +1,6 @@
 #![feature(rustc_private)]
 #![feature(maybe_uninit_fill)]
+#![feature(box_patterns)]
 
 //extern crate rustc_hir;
 //extern crate rustc_middle;

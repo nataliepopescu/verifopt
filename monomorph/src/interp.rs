@@ -469,11 +469,13 @@ impl<'a> InterpPass<'a> {
             debug!("closure body..");
             log_mir(&body);
 
-            let mut istore_clone = istore.clone();
+            // FIXME may not need to clone if only one thing to interpret?
+            //let mut istore_clone = istore.clone();
             let new_scope = (instance, genargs.clone());
             call_stack.push(new_scope.clone());
             self.resolve_args(
-                &mut istore_clone,
+                //&mut istore_clone,
+                istore,
                 cur_scope,
                 local_decls,
                 &new_scope,
@@ -481,9 +483,10 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 true,
             );
-            self.visit_instance(logger, &mut istore_clone, call_stack, &new_scope)
+            //self.visit_instance(logger, &mut istore_clone, call_stack, &new_scope)
+            self.visit_instance(logger, istore, call_stack, &new_scope)
         } else {
-            todo!();
+            todo!("closure has no body");
         }
     }
 
@@ -632,10 +635,11 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         debug!("INTERP STATIC CALL");
         if cur_scope.0.has_body() {
-            let mut istore_clone = istore.clone();
+            //let mut istore_clone = istore.clone();
             call_stack.push(cur_scope.clone());
             self.resolve_args(
-                &mut istore_clone,
+                //&mut istore_clone,
+                istore,
                 caller_scope,
                 local_decls,
                 cur_scope,
@@ -643,7 +647,8 @@ impl<'a> InterpPass<'a> {
                 genargs,
                 false,
             );
-            self.visit_instance(logger, &mut istore_clone, call_stack, cur_scope)
+            //self.visit_instance(logger, &mut istore_clone, call_stack, cur_scope)
+            self.visit_instance(logger, istore, call_stack, cur_scope)
         } else {
             debug!("no body");
             self.retty_fallback(fndef.fn_sig())
@@ -714,7 +719,7 @@ impl<'a> InterpPass<'a> {
     ) {
         //debug!("generic args: {:?}", genargs);
         for (i, arg) in args.into_iter().enumerate() {
-            debug!("arg position: {:?}", i);
+            debug!("\narg position: {:?}", i);
             debug!("arg: {:?}", arg);
             let place = Place {
                 local: i + 1,
@@ -722,7 +727,7 @@ impl<'a> InterpPass<'a> {
             };
             let arg_constraints =
                 self.resolve_arg(istore, caller_scope, local_decls, arg, is_closure);
-            debug!("arg constraints: {:?}", arg_constraints);
+            debug!("arg constraints: {:?}\n", arg_constraints);
 
             new_substore.cmap.insert(
                 MapKey::Local(place.local),
@@ -965,11 +970,12 @@ impl<'a> InterpPass<'a> {
             let instance = Instance::resolve(fndef, &genargs).unwrap();
             debug!("instance def: {:?}", instance.def);
             debug!("a converted static instance: {:?}", instance);
+
+            let mut istore_clone = istore.clone();
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (instance, genargs.clone());
             call_stack_clone.push(callee_scope.clone());
 
-            let mut istore_clone = istore.clone();
             self.resolve_args(
                 &mut istore_clone,
                 cur_scope,
@@ -1175,12 +1181,10 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
         debug!("RETURNING from scope {:?}...", cur_scope);
-        //debug!("callstack PRE POP: {:?}", call_stack);
         let popped = call_stack.pop();
         if popped.unwrap() != *cur_scope {
             panic!("call stack out of sorts");
         }
-        //debug!("callstack POST POP: {:?}", call_stack);
 
         // Get and "return" the constraints at Place(0)
         match istore.scoped_get(cur_scope, &MapKey::Local(0), false) {

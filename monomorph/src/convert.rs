@@ -140,7 +140,11 @@ impl RvalConverter {
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
-                    debug!("found constraints for place {:?}: {:?}", place, constraints);
+                    debug!(
+                        "found constraints for local {:?}: {:?}",
+                        place.local, constraints
+                    );
+                    debug!("now applying projection(s)");
                     self.projection_handler.apply_projection(
                         backup_ty_naive,
                         &resolved_ty,
@@ -261,14 +265,18 @@ impl RvalConverter {
                 }
                 VORval::Tuple(converted_inner)
             }
-            VORval::Scalar(_) => match kind {
+            VORval::Scalar(val) => match kind {
                 CastKind::IntToInt
                 | CastKind::FloatToInt
                 | CastKind::FloatToFloat
                 | CastKind::IntToFloat
                 | CastKind::PtrToPtr
                 | CastKind::PointerCoercion(_)
-                | CastKind::Transmute => constraint.clone(),
+                | CastKind::Transmute => {
+                    debug!("CASTING SCALAR ({})", val);
+                    debug!("KIND: {:?}", kind);
+                    constraint.clone()
+                }
                 _ => todo!("cannot yet cast (scalar): {:?} ({:?})", constraint, kind),
             },
             _ => todo!(),

@@ -84,11 +84,10 @@ impl ProjectionHandler {
         constraint: &VORval,
         projection: &ProjectionElem,
     ) -> VORval {
-        debug!("APPLYING SINGLE PROJECTION TO VORVAL");
+        debug!("APPLYING SINGLE PROJECTION TO VORVAL: {:?}", projection);
+        debug!("constraint: {:?}", constraint);
         debug!("backup_ty_naive: \n{:?}", backup_ty_naive);
         debug!("resolved_ty: \n{:?}", resolved_ty);
-        debug!("constraint: {:?}", constraint);
-        debug!("projection: {:?}", projection);
 
         match projection {
             ProjectionElem::Deref => self.apply_deref(constraint),

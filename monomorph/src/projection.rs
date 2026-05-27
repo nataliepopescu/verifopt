@@ -99,8 +99,9 @@ impl ProjectionHandler {
 
     fn apply_deref(&self, constraint: &VORval) -> VORval {
         match constraint {
-            VORval::AddressOf(inner) | VORval::Ref(inner) | VORval::RawPtr(inner) => *inner.clone(),
-            VORval::Scalar(_) | VORval::Tuple(_) | VORval::Closure(_, _) => constraint.clone(),
+            VORval::Str | VORval::Scalar(_) | VORval::Tuple(_) | VORval::Closure(_, _) => {
+                constraint.clone()
+            }
             VORval::Adt(adtdef, genargs) => {
                 debug!("adtdef: {:?}", adtdef);
                 debug!("genargs: {:?}", genargs);
@@ -111,9 +112,11 @@ impl ProjectionHandler {
                     }
                     genargs[0].clone()
                 } else {
-                    todo!("trying to deref an adt: {:?}", adtdef);
+                    constraint.clone()
+                    //todo!("trying to deref an adt: {:?}", adtdef);
                 }
             }
+            VORval::AddressOf(inner) | VORval::Ref(inner) | VORval::RawPtr(inner) => *inner.clone(),
             _ => todo!("deref constraint: {:?}", constraint),
         }
     }

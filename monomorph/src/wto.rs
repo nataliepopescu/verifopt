@@ -1,7 +1,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_index::bit_set::DenseBitSet;
 //use rustc_public::mir::mono::Instance;
-use rustc_public::mir::{BasicBlock, Body, Successors, TerminatorKind};
+use rustc_public::mir::{BasicBlock, Body, Successors, TerminatorKind, UnwindAction};
 
 use log::debug;
 
@@ -107,9 +107,22 @@ impl BBDeps {
             .reverse_postorder()
             .into_iter()
             .map(|bb| (bb, &bb_deps.blocks[bb]))
-            //.filter(|(_, bbd): (usize, BasicBlock)| !bbd.is_cleanup)
             .filter(|(bbi, bbd): &(usize, &BasicBlock)| {
                 match bbd.terminator.kind {
+                    TerminatorKind::Call {
+                        func: _,
+                        args: _,
+                        destination: _,
+                        target: _,
+                        unwind,
+                    } => {
+                        if let UnwindAction::Unreachable = unwind {
+                            return false;
+                        }
+                        if let UnwindAction::Cleanup(_) = unwind {
+                            return false;
+                        }
+                    }
                     TerminatorKind::Unreachable => return false,
                     TerminatorKind::Resume => return false,
                     TerminatorKind::Abort => return false,

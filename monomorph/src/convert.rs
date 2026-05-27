@@ -117,7 +117,7 @@ impl RvalConverter {
             }
             Operand::Constant(const_op) => {
                 debug!("const_op: {:#?}", const_op.const_);
-                vec![VORval::IdkType(const_op.const_.ty())]
+                vec![self.convert_ty(&const_op.const_.ty())]
             }
             _ => todo!("runtime checks"),
         }
@@ -159,7 +159,7 @@ impl RvalConverter {
                     "place {:?} has not been set, use resolved (backup) type {:?}",
                     place, resolved_ty,
                 );
-                vec![VORval::IdkType(resolved_ty)]
+                vec![self.convert_ty(&resolved_ty)]
             } /*
               match place.ty(local_decls) {
                   Ok(ty) => {
@@ -185,7 +185,7 @@ impl RvalConverter {
         debug!("CONVERTING DISCRIMINANT");
         let resolved_ty = place.ty(local_decls).unwrap();
         // FIXME get more fine-grained results
-        vec![VORval::IdkType(resolved_ty)]
+        vec![self.convert_ty(&resolved_ty)]
     }
 
     fn convert_cast(
@@ -204,12 +204,12 @@ impl RvalConverter {
         let mut constraints = Vec::new();
         match op {
             Operand::Constant(const_op) => {
-                unique_push(&mut constraints, VORval::IdkType(const_op.const_.ty()));
+                unique_push(&mut constraints, self.convert_ty(&const_op.const_.ty()));
             }
             Operand::Copy(place) | Operand::Move(place) => {
-                let resolved_ty = place.ty(local_decls).unwrap();
-                debug!("place: {:?}", place);
-                debug!("resolved_ty for place: {:?}", resolved_ty);
+                let resolved_src_ty = place.ty(local_decls).unwrap();
+                debug!("src place: {:?}", place);
+                debug!("resolved_ty for src place: {:?}", resolved_src_ty);
 
                 match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
                     Some(val) => match val {
@@ -238,13 +238,39 @@ impl RvalConverter {
     }
 
     fn convert_constraint_cast(&self, kind: &CastKind, dst_ty: &Ty, constraint: &VORval) -> VORval {
+        match kind {
+            CastKind::IntToInt => return constraint.clone(),
+            CastKind::IntToFloat | CastKind::FloatToInt | CastKind::FloatToFloat => {
+                todo!("float casts")
+            }
+            CastKind::Transmute => {
+                debug!("TRANSMUTE CAST");
+                debug!("dst_ty: {:?}", dst_ty);
+                // FIXME how to convert without losing important constraints
+                self.convert_ty(dst_ty)
+            }
+            CastKind::PtrToPtr => {
+                debug!("PTRTOPTR CAST");
+                debug!("dst_ty: {:?}", dst_ty);
+                // FIXME how to convert without losing important constraints
+                self.convert_ty(dst_ty)
+            }
+            _ => todo!("castkind: {:?}", kind),
+        }
+
+        /*
         match constraint {
             VORval::Adt(_, _)
             | VORval::Bool
-            | VORval::Array(_)
-            | VORval::Slice(_)
             | VORval::Idk
             | VORval::Uint => constraint.clone(),
+            VORval::Array(inner_ty)
+            | VORval::Slice(inner_ty) => {
+                debug!("casting array/slice!");
+                debug!("kind: {:?}", kind);
+                debug!("inner_ty: {:?}", inner_ty);
+                constraint.clone()
+            }
             VORval::IdkType(_) => VORval::IdkType(*dst_ty),
             VORval::AddressOf(inner) => VORval::AddressOf(Box::new(
                 self.convert_constraint_cast(kind, dst_ty, &*inner),
@@ -281,6 +307,7 @@ impl RvalConverter {
             },
             _ => todo!(),
         }
+        */
     }
 
     fn convert_agg(
@@ -326,7 +353,7 @@ impl RvalConverter {
 
                 unique_push(
                     &mut constraints,
-                    VORval::RawPtr(Box::new(VORval::IdkType(*ty))),
+                    VORval::RawPtr(Box::new(self.convert_ty(ty))),
                 );
             }
             AggregateKind::Array(ty) => {
@@ -410,9 +437,8 @@ impl RvalConverter {
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
                 RigidTy::RawPtr(ty, _mut) => VORval::RawPtr(Box::new(self.convert_ty(&ty))),
-                //RigidTy::Dynamic(traitref, _region) => {
-                //    todo!();
-                //}
+                RigidTy::Str => VORval::Str,
+                RigidTy::Never => VORval::Never,
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),
@@ -428,15 +454,12 @@ impl RvalConverter {
     ) -> Constraints {
         // Currently just returning an IdkType b/c this is likely a scalar op
         // TODO do we want to step into parts?
-        vec![VORval::IdkType(binop.ty(
-            op1.ty(local_decls).unwrap(),
-            op2.ty(local_decls).unwrap(),
-        ))]
+        vec![self.convert_ty(&binop.ty(op1.ty(local_decls).unwrap(), op2.ty(local_decls).unwrap()))]
     }
 
     fn convert_unop(&self, local_decls: &[LocalDecl], unop: &UnOp, op: &Operand) -> Constraints {
         // Currently just returning an IdkType b/c this is likely a scalar op
         // TODO do we want to step into parts?
-        vec![VORval::IdkType(unop.ty(op.ty(local_decls).unwrap()))]
+        vec![self.convert_ty(&unop.ty(op.ty(local_decls).unwrap()))]
     }
 }

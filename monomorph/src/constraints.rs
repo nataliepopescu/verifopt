@@ -59,23 +59,29 @@ pub type VOGenarg = VORval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VORval {
-    Idk,
-    IdkType(Ty),
+    // primitive data types
+    Bool,
+    Int,
+    Uint,
+    Str,
+    Scalar(u128),
+    // more complex data types
+    Slice(Ty),
+    Array(Ty),
+    Tuple(Vec<VORval>),
     Adt(AdtDef, Option<VOGenargs>),
+    Never,
+    // pointer types
     AddressOf(Box<VORval>),
     RawPtr(Box<VORval>),
     Ref(Box<VORval>),
-    Tuple(Vec<VORval>),
-    Scalar(u128),
-    Bool,
-    Int, //(IntTy),
-    Uint,
-    Slice(Ty),
-    Array(Ty),
-    //Closure(ClosureDef, Option<VOGenargs>), //, ClosureKind),
-    Closure(ClosureDef, GenericArgs), //, ClosureKind),
+    // function types
+    Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, Option<VOGenargs>),
     FnPtr(Vec<VORval>),
+    // fallback types
+    IdkType(Ty),
+    Idk,
 }
 
 #[derive(Debug, Clone, PartialEq)]

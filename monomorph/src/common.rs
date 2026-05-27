@@ -6,7 +6,15 @@ use rustc_public::mir::Body;
 use crate::constraints::VOID;
 
 pub fn log_scope(scope: &VOID) {
-    debug!("CUR SCOPE: {:?}\n{:?}", scope.0.name(), scope);
+    debug!("CUR SCOPE: {:?}", scope.0.name()); //, scope);
+}
+
+pub fn log_call_stack(call_stack: &Vec<VOID>) {
+    debug!("CALL STACK\n[");
+    for instance in call_stack {
+        debug!("\t{:?},", instance.0.name());
+    }
+    debug!("]");
 }
 
 pub fn log_mir(body: &Body) {

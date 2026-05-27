@@ -12,7 +12,7 @@ use rustc_public::ty::{
 use log::debug;
 
 use crate::VOLogger;
-use crate::common::{log_mir, log_scope};
+use crate::common::{log_call_stack, log_mir, log_scope};
 use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VOID, VORval};
 use crate::constraints::{merge_stores, unique_append};
 use crate::convert::RvalConverter;
@@ -33,6 +33,16 @@ impl<'a> InterpPass<'a> {
             sigstore,
             tstore,
             converter: RvalConverter::new(),
+        }
+    }
+
+    fn check_call_stack(&self, call_stack: &Vec<VOID>, cur_scope: &VOID) {
+        let last_item = call_stack[call_stack.len() - 1].clone();
+        if *cur_scope != last_item {
+            debug!("cur_scope: {:?}", cur_scope.0.name());
+            debug!("last call_stack item: {:?}", last_item);
+            log_call_stack(call_stack);
+            panic!("call stack out of sorts (cur_scope does not match last call_stack elem)");
         }
     }
 
@@ -68,9 +78,11 @@ impl<'a> InterpPass<'a> {
             "###### INTERP-ING NEW BODY for func {:?}",
             cur_scope.0.name()
         );
-        debug!("call_stack: {:#?}", call_stack);
-        //log_mir(&body);
+        log_call_stack(call_stack);
+        log_mir(&body);
         debug!("#############################\n\n");
+
+        self.check_call_stack(call_stack, cur_scope);
 
         self.visit_body(logger, istore, call_stack, cur_scope, &body)
     }
@@ -132,14 +144,16 @@ impl<'a> InterpPass<'a> {
         bb: usize,
         data: &BasicBlock,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("\n\n#############");
+        debug!("\n\n##########");
         debug!(
             "# visiting BASICBLOCK {:?}/{:?} for {:?}",
             bb,
             num_bbs - 1,
             cur_scope.0.name()
         );
-        debug!("#############");
+        debug!("##########");
+
+        self.check_call_stack(call_stack, cur_scope);
 
         let num_stmts = data.statements.len();
         for (i, stmt) in data.statements.iter().enumerate() {
@@ -188,8 +202,8 @@ impl<'a> InterpPass<'a> {
                 debug!("start assignment!");
                 log_scope(cur_scope);
                 debug!("stmt: {:?}", &stmt.kind);
+                debug!("dest ty: {:?}", place.ty(local_decls).unwrap());
                 debug!("place: {:?}", place);
-                debug!("dest ty: {:?}", &local_decls[place.local].ty);
                 debug!("rval: {:?}", rvalue);
 
                 // convert MIR Rvalue to VORval
@@ -256,7 +270,8 @@ impl<'a> InterpPass<'a> {
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(istore, cur_scope, local_decls, bb, bb_deps, discr, targets)
             }
-            _ => Ok(None),
+            TerminatorKind::Drop { .. } => Ok(None),
+            _ => todo!("other term kind"),
         }
     }
 
@@ -368,6 +383,8 @@ impl<'a> InterpPass<'a> {
                 },
                 _ => todo!("other tykind"),
             },
+            VORval::FnDef(..) => todo!("fndef vorval: {:?}", constraint),
+            VORval::FnPtr(_) => todo!("fnptr vorval: {:?}", constraint),
             VORval::Closure(cdef, genargs) => self.interp_closure(
                 logger,
                 term_span,
@@ -379,7 +396,7 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
-            _ => todo!("other vorval: {:?}", constraint),
+            _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
     }
 
@@ -650,7 +667,7 @@ impl<'a> InterpPass<'a> {
             //self.visit_instance(logger, &mut istore_clone, call_stack, cur_scope)
             self.visit_instance(logger, istore, call_stack, cur_scope)
         } else {
-            debug!("no body");
+            debug!("no body, so not visiting/not updating call stack");
             self.retty_fallback(fndef.fn_sig())
         }
     }
@@ -761,7 +778,7 @@ impl<'a> InterpPass<'a> {
             Operand::Constant(const_op) => match const_op.const_.kind() {
                 ConstantKind::Allocated(alloc) => match alloc.read_uint() {
                     Ok(val) => vec![VORval::Scalar(val)],
-                    _ => vec![VORval::IdkType(const_op.const_.ty())],
+                    _ => vec![self.converter.convert_ty(&const_op.const_.ty())],
                 },
                 ConstantKind::ZeroSized => vec![self.converter.convert_ty(&const_op.const_.ty())],
                 other @ _ => todo!("arg is another constant kind: {:?}", other),
@@ -791,7 +808,7 @@ impl<'a> InterpPass<'a> {
         debug!("output: {:?}", sig.value.output());
 
         // Return output type as VORval (widening)
-        let ret_constraints = vec![VORval::IdkType(sig.value.output())];
+        let ret_constraints = vec![self.converter.convert_ty(&sig.value.output())];
         Ok(Some(ret_constraints))
     }
 
@@ -1119,6 +1136,10 @@ impl<'a> InterpPass<'a> {
                 discr_vals[discr_vals.len() - 1] += 1;
             }
             VORval::Ref(inner) => self.set_bytemap(*inner, targets, discr_vals),
+            VORval::Int | VORval::Uint => {
+                // Increment "otherwise" branch counter
+                discr_vals[discr_vals.len() - 1] += 1;
+            }
             _ => panic!("unexpected switchint discr: {:?}", constraint),
         }
     }
@@ -1180,17 +1201,25 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("RETURNING from scope {:?}...", cur_scope);
         let popped = call_stack.pop();
-        if popped.unwrap() != *cur_scope {
+        if popped.clone().unwrap() != *cur_scope {
+            debug!("\npopped: {:?}", popped.unwrap().0.name());
+            debug!("cur_scope: {:?}", cur_scope.0.name());
+            log_call_stack(call_stack);
             panic!("call stack out of sorts");
         }
+
+        debug!("\n\n\n#############################");
+        debug!("RETURNING from scope {:?}...", cur_scope.0.name());
+        log_call_stack(call_stack);
+        debug!("#############################\n\n");
 
         // Get and "return" the constraints at Place(0)
         match istore.scoped_get(cur_scope, &MapKey::Local(0), false) {
             Some(retval) => match retval {
                 MapValue::Constraints(retval_constraints) => {
-                    debug!("returning constraints: {:?}", retval_constraints);
+                    debug!("\n###### RETURNING constraints:");
+                    debug!("\t{:?}\n\n", retval_constraints);
                     Ok(Some(retval_constraints))
                 }
                 _ => panic!("should not be returning a scope"),

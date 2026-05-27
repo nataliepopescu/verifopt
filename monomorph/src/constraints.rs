@@ -9,7 +9,7 @@ use crate::wto::BBDeps;
 
 use log::debug;
 
-pub fn unique_push(vec: &mut Constraints, elem: VORval) -> Option<VORval> {
+pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
         Some(elem)
     } else {
@@ -18,7 +18,7 @@ pub fn unique_push(vec: &mut Constraints, elem: VORval) -> Option<VORval> {
     }
 }
 
-pub fn unique_append(vec: &mut Constraints, to_append: Constraints) {
+pub fn unique_append<T: PartialEq>(vec: &mut Vec<T>, to_append: Vec<T>) {
     for elem in to_append {
         unique_push(vec, elem);
     }
@@ -33,11 +33,11 @@ pub enum MapKey {
     ScopeId(VOID),
 }
 
-pub type EnclosingScope = Option<VOID>;
+pub type EnclosingScopes = Option<Vec<VOID>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
-    Store(InterpStore, EnclosingScope),
+    Store(InterpStore, EnclosingScopes),
     Constraints(Constraints),
 }
 
@@ -107,7 +107,7 @@ impl InterpStore {
 
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
-                MapValue::Store(store, enclosing_scope) => {
+                MapValue::Store(store, enclosing_scopes) => {
                     // Is key in inner_cmap? if not:
                     // - Is nested func: return None
                     // - Is closure: follow backptr to enclosing scope
@@ -115,10 +115,22 @@ impl InterpStore {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
                             debug!("is_closure?: {:?}", is_closure);
-                            debug!("enclosing_scope: {:?}", enclosing_scope);
-                            if is_closure && enclosing_scope.is_some() {
+                            debug!("enclosing_scope: {:?}", enclosing_scopes);
+                            if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
-                                self.scoped_get(&enclosing_scope.unwrap(), key, false)
+                                let mut all_constraints = Vec::new();
+                                for enclosing_scope in enclosing_scopes.unwrap() {
+                                    match self.scoped_get(&enclosing_scope, key, false) {
+                                        Some(val) => match val {
+                                            MapValue::Constraints(constraints) => {
+                                                unique_append(&mut all_constraints, constraints)
+                                            }
+                                            _ => panic!("got scope"),
+                                        },
+                                        None => {}
+                                    }
+                                }
+                                Some(MapValue::Constraints(all_constraints))
                             } else {
                                 None
                             }
@@ -172,21 +184,37 @@ impl InterpStore {
 
 pub fn merge_stores(
     cur_store: &InterpStore,
-    cur_store_es: &EnclosingScope,
+    cur_es: &EnclosingScopes,
     new_store: &InterpStore,
-    new_store_es: &EnclosingScope,
-) -> (InterpStore, EnclosingScope) {
-    let merged_es = cur_store_es.clone();
-    if cur_store_es != new_store_es {
-        debug!("existing es: {:?}", cur_store_es);
-        debug!("new es: {:?}", new_store_es);
-        todo!("enclosing scopes differ");
-    }
-    let merged_store = cur_store.clone();
-    if merged_store != *new_store {
-        todo!("merge different stores");
-    }
+    new_es: &EnclosingScopes,
+) -> (InterpStore, EnclosingScopes) {
+    let merged_es = match (cur_es, new_es) {
+        (Some(cur_es_vec), Some(new_es_vec)) => {
+            let mut merged_es_vec = cur_es_vec.clone();
+            unique_append(&mut merged_es_vec, new_es_vec.to_vec());
+            Some(merged_es_vec)
+        }
+        (Some(cur_es_vec), None) => Some(cur_es_vec.to_vec()),
+        (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
+        (None, None) => None,
+    };
+
+    let merged_store = if *cur_store != *new_store {
+        merge_stores_helper(cur_store, new_store)
+    } else {
+        cur_store.clone()
+    };
+
     (merged_store, merged_es)
+}
+
+fn merge_stores_helper(cur_store: &InterpStore, new_store: &InterpStore) -> InterpStore {
+    let vec = vec![cur_store.clone(), new_store.clone()];
+    match vec.merge() {
+        Ok(Some(merged)) => merged,
+        Ok(None) => panic!("no stores to merge?"),
+        e @ _ => panic!("error merging stores: {:?}", e),
+    }
 }
 
 fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
@@ -202,8 +230,8 @@ fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
         (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
             MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
         }
-        (MapValue::Store(cur_store, cur_store_es), MapValue::Store(new_store, new_store_es)) => {
-            let (store, es) = merge_stores(&cur_store, &cur_store_es, &new_store, &new_store_es);
+        (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
+            let (store, es) = merge_stores(&cur_store, &cur_es, &new_store, &new_es);
             MapValue::Store(store, es)
         }
         _ => panic!("incomparable MapValue types"),

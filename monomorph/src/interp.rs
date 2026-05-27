@@ -694,11 +694,11 @@ impl<'a> InterpPass<'a> {
                     old_substore,
                     old_es,
                     &new_substore,
-                    &Some(caller_scope.clone()),
+                    &Some(vec![caller_scope.clone()]),
                 );
             }
             Some(_) => panic!("got constraint, expected store"),
-            None => store = (new_substore, Some(caller_scope.clone())),
+            None => store = (new_substore, Some(vec![caller_scope.clone()])),
         }
 
         // Add new substore in top-level store

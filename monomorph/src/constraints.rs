@@ -121,23 +121,26 @@ impl InterpStore {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
                             debug!("is_closure?: {:?}", is_closure);
-                            debug!("enclosing_scope: {:?}", enclosing_scopes);
+                            //debug!("enclosing_scope: {:?}", enclosing_scopes);
                             if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
-                                let mut all_constraints = Vec::new();
-                                for enclosing_scope in enclosing_scopes.unwrap() {
-                                    match self.scoped_get(&enclosing_scope, key, false) {
-                                        Some(val) => match val {
-                                            MapValue::Constraints(constraints) => {
-                                                unique_append(&mut all_constraints, constraints)
-                                            }
-                                            _ => panic!("got scope"),
-                                        },
-                                        None => {}
-                                    }
-                                }
-                                Some(MapValue::Constraints(all_constraints))
+                                let constraints =
+                                    self.get_from_enclosing_scopes(&enclosing_scopes, key);
+                                Some(MapValue::Constraints(constraints))
                             } else {
+                                // If this is incorrectly labeled as _not_ a closure (meaning it
+                                // should be labeled a closure), can we get the needed value in the
+                                // enclosing scope?
+                                //debug!("SHOULD THIS SCOPE BE A CLOSURE?");
+                                //log_scope(&scope);
+
+                                //if enclosing_scopes.is_some() {
+                                //    let constraints = self.get_from_enclosing_scopes(&enclosing_scopes, key);
+                                //    debug!("got constraints from enclosing scope: {:?}", constraints);
+                                //} else {
+                                //    debug!("nope");
+                                //}
+
                                 None
                             }
                         }
@@ -147,6 +150,26 @@ impl InterpStore {
             },
             None => None,
         }
+    }
+
+    fn get_from_enclosing_scopes(
+        &self,
+        enclosing_scopes: &EnclosingScopes,
+        key: &MapKey,
+    ) -> Constraints {
+        let mut all_constraints = Vec::new();
+        for enclosing_scope in enclosing_scopes.as_ref().unwrap() {
+            match self.scoped_get(&enclosing_scope, key, false) {
+                Some(val) => match val {
+                    MapValue::Constraints(constraints) => {
+                        unique_append(&mut all_constraints, constraints)
+                    }
+                    _ => panic!("got scope"),
+                },
+                None => {}
+            }
+        }
+        all_constraints
     }
 
     pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {

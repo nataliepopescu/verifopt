@@ -1,0 +1,327 @@
+use rustc_data_structures::fx::FxHashMap as HashMap;
+use rustc_public::mir::Local;
+use rustc_public::mir::mono::Instance;
+use rustc_public::ty::{AdtDef, ClosureDef, FnDef, GenericArgs, Ty};
+
+use crate::common::log_scope;
+use crate::error::Error;
+use crate::wto::BBDeps;
+
+use log::debug;
+
+pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
+    if vec.contains(&elem) {
+        Some(elem)
+    } else {
+        vec.push(elem);
+        None
+    }
+}
+
+pub fn unique_append<T: PartialEq>(vec: &mut Vec<T>, to_append: Vec<T>) {
+    for elem in to_append {
+        unique_push(vec, elem);
+    }
+}
+
+/// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
+pub type VOID = (Instance, GenericArgs);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum MapKey {
+    Local(Local),
+    ScopeId(VOID),
+}
+
+pub type EnclosingScopes = Option<Vec<VOID>>;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapValue {
+    Store(InterpStore, EnclosingScopes),
+    Constraints(Constraints),
+}
+
+// Set of positive constraints; negative constraints are resolved immediately by removing them from the set
+pub type Constraints = Vec<VORval>;
+
+// Alias around VORval to make it semantically easier to tell when we are processing generic arguments
+pub type VOGenargs = Vec<VOGenarg>;
+pub type VOGenarg = VORval;
+
+// Preserving these int types for closure kind encoding
+//#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+//pub enum IntTy {
+//    I8,
+//    I16,
+//    I32,
+//    Other
+//}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum VORval {
+    // primitive data types
+    Bool,
+    Int,
+    Uint,
+    Str,
+    Scalar(u128),
+    // more complex data types
+    Slice(Ty),
+    Array(Ty),
+    Tuple(Vec<VORval>),
+    Adt(AdtDef, Option<VOGenargs>),
+    Never,
+    // pointer types
+    AddressOf(Box<VORval>),
+    RawPtr(Box<VORval>),
+    Ref(Box<VORval>),
+    // function types
+    Closure(ClosureDef, GenericArgs),
+    FnDef(FnDef, Option<VOGenargs>),
+    FnPtr(Vec<VORval>),
+    // fallback types
+    IdkType(Ty),
+    Idk,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct InterpStore {
+    pub cmap: HashMap<MapKey, Box<MapValue>>,
+    pub wtos: HashMap<VOID, BBDeps>,
+}
+
+impl InterpStore {
+    pub fn new() -> InterpStore {
+        Self {
+            cmap: HashMap::default(),
+            wtos: HashMap::default(),
+        }
+    }
+
+    pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
+        debug!("IN SCOPED_GET");
+        log_scope(&scope);
+        debug!("key: {:?}", key);
+        //debug!("cmap: {:#?}", self.cmap);
+
+        //if scope.is_none() {
+        //    match self.cmap.get(key) {
+        //        Some(boxed) => return Some(*boxed.clone()),
+        //        None => return None,
+        //    }
+        //}
+
+        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
+            Some(vartype) => match *vartype.clone() {
+                MapValue::Store(store, enclosing_scopes) => {
+                    // Is key in inner_cmap? if not:
+                    // - Is nested func: return None
+                    // - Is closure: follow backptr to enclosing scope
+                    match store.cmap.get(key) {
+                        Some(boxed) => Some(*boxed.clone()),
+                        None => {
+                            debug!("is_closure?: {:?}", is_closure);
+                            //debug!("enclosing_scope: {:?}", enclosing_scopes);
+                            if is_closure && enclosing_scopes.is_some() {
+                                // Check enclosing scopes for missing key(s)
+                                let constraints =
+                                    self.get_from_enclosing_scopes(&enclosing_scopes, key);
+                                Some(MapValue::Constraints(constraints))
+                            } else {
+                                // If this is incorrectly labeled as _not_ a closure (meaning it
+                                // should be labeled a closure), can we get the needed value in the
+                                // enclosing scope?
+                                //debug!("SHOULD THIS SCOPE BE A CLOSURE?");
+                                //log_scope(&scope);
+
+                                //if enclosing_scopes.is_some() {
+                                //    let constraints = self.get_from_enclosing_scopes(&enclosing_scopes, key);
+                                //    debug!("got constraints from enclosing scope: {:?}", constraints);
+                                //} else {
+                                //    debug!("nope");
+                                //}
+
+                                None
+                            }
+                        }
+                    }
+                }
+                _ => panic!("not a scope: {:?}", scope),
+            },
+            None => None,
+        }
+    }
+
+    fn get_from_enclosing_scopes(
+        &self,
+        enclosing_scopes: &EnclosingScopes,
+        key: &MapKey,
+    ) -> Constraints {
+        let mut all_constraints = Vec::new();
+        for enclosing_scope in enclosing_scopes.as_ref().unwrap() {
+            match self.scoped_get(&enclosing_scope, key, false) {
+                Some(val) => match val {
+                    MapValue::Constraints(constraints) => {
+                        unique_append(&mut all_constraints, constraints)
+                    }
+                    _ => panic!("got scope"),
+                },
+                None => {}
+            }
+        }
+        all_constraints
+    }
+
+    pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
+        //if scope.is_none() {
+        //    if self.cmap.contains_key(&key) {
+        //        // FIXME MIR is not SSA
+        //        error!("symbol already exists: {:?}", key);
+        //    }
+
+        //    self.cmap.insert(key, value.clone());
+        //    return;
+        //}
+
+        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
+            Some(vartype) => match *vartype.clone() {
+                MapValue::Store(mut store, enclosing_scope) => {
+                    let mut new_val = value.clone();
+                    let old_val = store.cmap.get(&key);
+                    match old_val {
+                        Some(old_val_) => {
+                            new_val = Box::new(merge_mapvals(old_val_, &value));
+                        }
+                        None => {}
+                    }
+
+                    // modify scope w new key/val
+                    store.cmap.insert(key, new_val);
+                    self.cmap.insert(
+                        MapKey::ScopeId(scope.clone()),
+                        Box::new(MapValue::Store(store, enclosing_scope)),
+                    );
+                }
+                MapValue::Constraints(..) => {
+                    panic!("defid is not a scope: {:?}", scope);
+                }
+            },
+            None => panic!("undefined scope: {:?}", scope),
+        }
+    }
+}
+
+pub fn merge_stores(
+    cur_store: &InterpStore,
+    cur_es: &EnclosingScopes,
+    new_store: &InterpStore,
+    new_es: &EnclosingScopes,
+) -> (InterpStore, EnclosingScopes) {
+    let merged_es = match (cur_es, new_es) {
+        (Some(cur_es_vec), Some(new_es_vec)) => {
+            let mut merged_es_vec = cur_es_vec.clone();
+            unique_append(&mut merged_es_vec, new_es_vec.to_vec());
+            Some(merged_es_vec)
+        }
+        (Some(cur_es_vec), None) => Some(cur_es_vec.to_vec()),
+        (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
+        (None, None) => None,
+    };
+
+    let merged_store = if *cur_store != *new_store {
+        merge_stores_helper(cur_store, new_store)
+    } else {
+        cur_store.clone()
+    };
+
+    (merged_store, merged_es)
+}
+
+fn merge_stores_helper(cur_store: &InterpStore, new_store: &InterpStore) -> InterpStore {
+    let vec = vec![cur_store.clone(), new_store.clone()];
+    match vec.merge() {
+        Ok(Some(merged)) => merged,
+        Ok(None) => panic!("no stores to merge?"),
+        e @ _ => panic!("error merging stores: {:?}", e),
+    }
+}
+
+fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
+    let mut merged = cur_constraints.clone();
+    if merged != *new_constraints {
+        unique_append(&mut merged, new_constraints.to_vec());
+    }
+    merged
+}
+
+fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
+    match (cur_val.clone(), new_val.clone()) {
+        (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
+            MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
+        }
+        (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
+            let (store, es) = merge_stores(&cur_store, &cur_es, &new_store, &new_es);
+            MapValue::Store(store, es)
+        }
+        _ => panic!("incomparable MapValue types"),
+    }
+}
+
+pub trait Merge<T> {
+    fn merge(&self) -> Result<Option<T>, Error>;
+}
+
+impl Merge<InterpStore> for Vec<InterpStore> {
+    fn merge(&self) -> Result<Option<InterpStore>, Error> {
+        debug!("interp stores to merge: {:?}", self);
+
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut merged = self[0].clone();
+        let mut first = true;
+        for store in self.iter() {
+            if first {
+                first = false;
+                continue;
+            }
+            for (key, val) in store.clone().cmap.iter() {
+                match merged.cmap.get_mut(key) {
+                    Some(merged_val) => {
+                        let new_merged_val = merge_mapvals(merged_val, val);
+                        merged.cmap.insert(key.clone(), Box::new(new_merged_val));
+                    }
+                    None => {
+                        merged.cmap.insert(key.clone(), val.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(Some(merged))
+    }
+}
+
+impl Merge<Constraints> for Vec<Constraints> {
+    fn merge(&self) -> Result<Option<Constraints>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut merged_constraints = self[0].clone();
+        for constraints in self.iter() {
+            merged_constraints = merge_constraints(&merged_constraints, &constraints);
+        }
+
+        Ok(Some(merged_constraints))
+    }
+}

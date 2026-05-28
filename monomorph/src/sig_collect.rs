@@ -108,7 +108,7 @@ impl SigCollectPass {
         all_crates.insert(0, rustc_public::local_crate());
         let len = all_crates.len();
         for (i, krate) in all_crates.into_iter().enumerate() {
-            debug!("krate# {:?}/{:?}", i + 1, len);
+            debug!("krate#{:?} ({:?}/{:?})", i, i + 1, len);
             debug!("krate: {:?}", krate);
 
             // Non-crate-local FnDefs

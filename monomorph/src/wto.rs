@@ -117,11 +117,13 @@ impl BBDeps {
                         unwind,
                     } => {
                         if let UnwindAction::Unreachable = unwind {
+                            debug!("UNREACHABLE: {:?}", bbi);
                             return false;
                         }
-                        if let UnwindAction::Cleanup(_) = unwind {
-                            return false;
-                        }
+                        //if let UnwindAction::Cleanup(_) = unwind {
+                        //    debug!("CLEANUP: {:?}", bbi);
+                        //    return false;
+                        //}
                     }
                     TerminatorKind::Unreachable => return false,
                     TerminatorKind::Resume => return false,
@@ -132,6 +134,7 @@ impl BBDeps {
                         if ret_set {
                             panic!("return block already visited");
                         }
+                        debug!("RETURN: {:?}", bbi);
                         ret_bb = bbi.clone();
                         ret_found = true;
                         ret_set = true;

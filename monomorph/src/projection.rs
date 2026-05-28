@@ -8,6 +8,7 @@ use crate::constraints::{Constraints, VORval};
 
 use log::{debug, error};
 
+/*
 fn is_box(defid: &DefId) -> bool {
     let idx = defid.to_index();
     // FIXME why multiple defids for box?
@@ -16,6 +17,7 @@ fn is_box(defid: &DefId) -> bool {
     }
     false
 }
+*/
 
 pub struct ProjectionHandler;
 

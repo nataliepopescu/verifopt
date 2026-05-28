@@ -12,7 +12,7 @@ use rustc_public::ty::{
 use log::debug;
 
 use crate::VOLogger;
-use crate::common::{log_call_stack, log_mir, log_scope};
+use crate::common::{is_wrapper_type, log_call_stack, log_mir, log_scope};
 use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VOID, VORval};
 use crate::constraints::{merge_stores, unique_append};
 use crate::convert::RvalConverter;
@@ -79,7 +79,7 @@ impl<'a> InterpPass<'a> {
             cur_scope.0.name()
         );
         log_call_stack(call_stack);
-        log_mir(&body);
+        //log_mir(&body);
         debug!("#############################\n\n");
 
         self.check_call_stack(call_stack, cur_scope);
@@ -110,6 +110,8 @@ impl<'a> InterpPass<'a> {
         let mut last_res = None;
         let num_bbs = bb_deps.ordering.len();
         loop {
+            debug!("\n\nGETTING NEXT BB");
+            debug!("pre-pop ordering: {:?}", bb_deps.ordering);
             if bb_deps.ordering.is_empty() {
                 break;
             }
@@ -144,11 +146,12 @@ impl<'a> InterpPass<'a> {
         bb: usize,
         data: &BasicBlock,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("\n\n##########");
+        debug!("\n##########");
         debug!(
-            "# visiting BASICBLOCK {:?}/{:?} for {:?}",
+            "# visiting BASICBLOCK {:?} ({:?}/{:?}) for {:?}",
             bb,
-            num_bbs - 1,
+            bb + 1,
+            num_bbs,
             cur_scope.0.name()
         );
         debug!("##########");
@@ -158,9 +161,10 @@ impl<'a> InterpPass<'a> {
         let num_stmts = data.statements.len();
         for (i, stmt) in data.statements.iter().enumerate() {
             debug!(
-                "\n\n# visiting STATEMENT {:?}/{:?} in BB{:?} for {:?}",
+                "\n\n# visiting STATEMENT {:?} ({:?}/{:?}) in BB{:?} for {:?}",
                 i,
-                num_stmts - 1,
+                i + 1,
+                num_stmts,
                 bb,
                 cur_scope.0.name()
             );
@@ -193,7 +197,7 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &mut InterpStore,
         cur_scope: &VOID,
-        local_decls: &[LocalDecl],
+        _local_decls: &[LocalDecl],
         stmt: &Statement,
     ) {
         match &stmt.kind {
@@ -202,14 +206,12 @@ impl<'a> InterpPass<'a> {
                 debug!("start assignment!");
                 log_scope(cur_scope);
                 debug!("stmt: {:?}", &stmt.kind);
-                debug!("dest ty: {:?}", place.ty(local_decls).unwrap());
+                //debug!("dest ty: {:?}", place.ty(local_decls).unwrap());
                 debug!("place: {:?}", place);
                 debug!("rval: {:?}", rvalue);
 
                 // convert MIR Rvalue to VORval
-                let constraints = self
-                    .converter
-                    .convert(istore, cur_scope, local_decls, rvalue);
+                let constraints = self.converter.convert(istore, cur_scope, rvalue);
                 debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
 
                 // add resolved constraints to istore
@@ -270,7 +272,9 @@ impl<'a> InterpPass<'a> {
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(istore, cur_scope, local_decls, bb, bb_deps, discr, targets)
             }
-            TerminatorKind::Drop { .. } => Ok(None),
+            TerminatorKind::Assert { .. }
+            | TerminatorKind::Drop { .. }
+            | TerminatorKind::Goto { .. } => Ok(None),
             _ => todo!("other term kind"),
         }
     }
@@ -345,6 +349,7 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         match constraint {
+            /*
             VORval::IdkType(ty) => match ty.kind() {
                 TyKind::RigidTy(rigid_ty) => match rigid_ty {
                     RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
@@ -383,6 +388,7 @@ impl<'a> InterpPass<'a> {
                 },
                 _ => todo!("other tykind"),
             },
+            */
             VORval::FnDef(..) => todo!("fndef vorval: {:?}", constraint),
             VORval::FnPtr(_) => todo!("fnptr vorval: {:?}", constraint),
             VORval::Closure(cdef, genargs) => self.interp_closure(
@@ -768,19 +774,19 @@ impl<'a> InterpPass<'a> {
                         MapValue::Constraints(constraints) => constraints,
                         _ => panic!("arg is a scope"),
                     },
-                    None => panic!(
-                        "place {:?} DNE in cmap (use backup ty?)\ncmap: {:#?}",
-                        place, istore.cmap
-                    ),
+                    None => {
+                        debug!("place {:?} DNE in cmap, widen to type", place,);
+                        vec![]
+                    }
                 }
             }
             // TODO can maybe get a more precise VORval depending on kind
             Operand::Constant(const_op) => match const_op.const_.kind() {
                 ConstantKind::Allocated(alloc) => match alloc.read_uint() {
-                    Ok(val) => vec![VORval::Scalar(val)],
-                    _ => vec![self.converter.convert_ty(&const_op.const_.ty())],
+                    Ok(val) => vec![VORval::Scalar(Some(val))],
+                    _ => vec![],
                 },
-                ConstantKind::ZeroSized => vec![self.converter.convert_ty(&const_op.const_.ty())],
+                ConstantKind::ZeroSized => vec![],
                 other @ _ => todo!("arg is another constant kind: {:?}", other),
             },
             _ => todo!("runtime check arg"),
@@ -802,13 +808,12 @@ impl<'a> InterpPass<'a> {
     }
 
     fn retty_fallback(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
-        //let sig = fndef.fn_sig();
         debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());
 
         // Return output type as VORval (widening)
-        let ret_constraints = vec![self.converter.convert_ty(&sig.value.output())];
+        let ret_constraints = vec![];
         Ok(Some(ret_constraints))
     }
 
@@ -847,12 +852,17 @@ impl<'a> InterpPass<'a> {
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!("SET OF IMPLS DIFFER");
             // Log this dynamic dispatch!
-            match logger.log(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa) {
+            match logger.log_found(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa) {
                 e @ Err(_) => panic!("logging error: {:?}", e),
                 _ => {}
             }
         } else {
             debug!("SET OF IMPLS SAME");
+            // Log this dynamic dispatch :(
+            match logger.log_not_found(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa) {
+                e @ Err(_) => panic!("logging error: {:?}", e),
+                _ => {}
+            }
         }
 
         self.simulate_static_calls(
@@ -898,6 +908,7 @@ impl<'a> InterpPass<'a> {
     fn get_impls_cha(&self, assoc_fn_defid: &DefId, trait_defid: &DefId) -> Vec<DefId> {
         debug!("GETTING CHA IMPLS");
         let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
+        debug!("constraint defids: {:?}", constraint_defids);
         self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
     }
 
@@ -918,8 +929,11 @@ impl<'a> InterpPass<'a> {
     ) -> Vec<DefId> {
         debug!("GETTING FSA IMPLS");
         let local = self.get_traitobj_local(args);
+        debug!("local: {:?}", local);
         let tyconstraints = self.get_fsa_tyconstraints(istore, cur_scope, local);
+        debug!("tyconstraints: {:?}", tyconstraints);
         let constraint_defids = self.get_fsa_constraint_defids(&tyconstraints);
+        debug!("constraint defids: {:?}", constraint_defids);
         self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
     }
 
@@ -955,15 +969,34 @@ impl<'a> InterpPass<'a> {
     fn get_fsa_constraint_defids(&self, tyconstraints: &Constraints) -> Vec<DefId> {
         let mut defids = Vec::new();
         for vorval in tyconstraints {
-            defids.push(self.resolve_defid(vorval));
+            unique_append(&mut defids, self.resolve_defid(vorval));
         }
         defids
     }
 
-    fn resolve_defid(&self, vorval: &VORval) -> DefId {
+    fn resolve_defid(&self, vorval: &VORval) -> Vec<DefId> {
         match vorval {
-            VORval::Adt(adtdef, _) => adtdef.0,
-            VORval::RawPtr(inner) | VORval::Ref(inner) => self.resolve_defid(inner),
+            VORval::Adt(adtdef, genargs) => {
+                if is_wrapper_type(&adtdef.0) {
+                    //let genargs = genargs.clone().unwrap();
+                    if genargs.is_none() {
+                        panic!("no genargs");
+                    }
+                    if genargs.as_ref().unwrap().len() > 1 {
+                        debug!("more than 1 genarg in wrapper type");
+                    }
+                    self.resolve_defid(&genargs.as_ref().unwrap()[0])
+                } else {
+                    vec![adtdef.0]
+                }
+            }
+            VORval::Idk(inner_vec) => {
+                let mut defids = Vec::new();
+                for vorval in inner_vec {
+                    unique_append(&mut defids, self.resolve_defid(vorval));
+                }
+                defids
+            }
             _ => panic!("other vorval: {:?}", vorval),
         }
     }
@@ -1078,9 +1111,7 @@ impl<'a> InterpPass<'a> {
                             debug!("constraints: {:?}", constraints);
 
                             // Populate byte-map with possible branch values, based on constraints
-                            for constraint in constraints {
-                                self.set_bytemap(constraint, targets, discr_vals);
-                            }
+                            self.set_bytemap(&constraints, targets, discr_vals);
                             debug!("POST discr_vals: {:?}", discr_vals);
 
                             self.prune_switchint_targets(
@@ -1092,7 +1123,9 @@ impl<'a> InterpPass<'a> {
                         }
                         _ => panic!("cannot switch on scope"),
                     },
-                    None => panic!("local DNE"),
+                    None => {
+                        debug!("local DNE, cannot prune any targets");
+                    }
                 }
             }
             Operand::Constant(_co) => {}
@@ -1104,43 +1137,55 @@ impl<'a> InterpPass<'a> {
 
     fn set_bytemap(
         &self,
-        constraint: VORval,
+        constraints: &Constraints,
         //branches: impl Iterator<Item = (u128, BasicBlockIdx)>,
         targets: &SwitchTargets,
         discr_vals: &mut [u8],
     ) {
-        debug!("setting bytemap for constraint: {:?}", constraint);
-        match constraint {
-            VORval::Scalar(num) => {
-                debug!("scalar discr val: {:?}", num);
-                // Increment matching branch counters
-                let mut set = false;
-                for (i, (val, _bb)) in targets.branches().enumerate() {
-                    if num == val {
-                        discr_vals[usize::try_from(i).unwrap()] += 1;
-                        set = true;
+        if constraints.is_empty() {
+            debug!("NO CONSTRAINTS FOR BYTEMAP");
+            // Increment all branch counters (since no statically-known discr value)
+            for (i, _) in targets.branches().enumerate() {
+                discr_vals[usize::try_from(i).unwrap()] += 1;
+            }
+            return;
+        }
+
+        debug!("USING CONSTRAINTS TO SET BYTEMAP");
+        for constraint in constraints {
+            debug!("setting bytemap for constraint: {:?}", constraint);
+            match constraint {
+                VORval::Scalar(num_opt) => {
+                    debug!("scalar discr val: {:?}", num_opt);
+
+                    if let Some(num) = num_opt {
+                        // Increment matching branch counters
+                        let mut set = false;
+                        for (i, (val, _bb)) in targets.branches().enumerate() {
+                            if *num == val {
+                                discr_vals[usize::try_from(i).unwrap()] += 1;
+                                set = true;
+                            }
+                        }
+                        if !set {
+                            discr_vals[discr_vals.len() - 1] += 1;
+                        }
+                    } else {
+                        // Increment all branch counters (since no statically-known discr value)
+                        for (i, _) in targets.branches().enumerate() {
+                            discr_vals[usize::try_from(i).unwrap()] += 1;
+                        }
+                        discr_vals[discr_vals.len() - 1] += 1;
                     }
                 }
-                if !set {
+                _ => {
+                    // Increment all branch counters (since no statically-known discr value)
+                    for (i, _) in targets.branches().enumerate() {
+                        discr_vals[usize::try_from(i).unwrap()] += 1;
+                    }
                     discr_vals[discr_vals.len() - 1] += 1;
                 }
             }
-            VORval::Bool => {
-                // Increment all branch counters (since no static bool value)
-                for (i, _) in targets.branches().enumerate() {
-                    discr_vals[usize::try_from(i).unwrap()] += 1;
-                }
-            }
-            VORval::IdkType(_) | VORval::Idk => {
-                // Increment "otherwise" branch counter
-                discr_vals[discr_vals.len() - 1] += 1;
-            }
-            VORval::Ref(inner) => self.set_bytemap(*inner, targets, discr_vals),
-            VORval::Int | VORval::Uint => {
-                // Increment "otherwise" branch counter
-                discr_vals[discr_vals.len() - 1] += 1;
-            }
-            _ => panic!("unexpected switchint discr: {:?}", constraint),
         }
     }
 

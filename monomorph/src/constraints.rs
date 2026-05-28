@@ -1,7 +1,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
-use rustc_public::ty::{AdtDef, ClosureDef, FnDef, GenericArgs, Ty};
+use rustc_public::ty::{AdtDef, ClosureDef, FnDef, GenericArgs};
 
 use crate::common::log_scope;
 use crate::error::Error;
@@ -60,28 +60,24 @@ pub type VOGenarg = VORval;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum VORval {
     // primitive data types
-    Bool,
-    Int,
-    Uint,
-    Str,
-    Scalar(u128),
+    Scalar(Option<u128>),
+
     // more complex data types
-    Slice(Ty),
-    Array(Ty),
-    Tuple(Vec<VORval>),
     Adt(AdtDef, Option<VOGenargs>),
-    Never,
+
     // pointer types
-    AddressOf(Box<VORval>),
-    RawPtr(Box<VORval>),
-    Ref(Box<VORval>),
+    //AddressOf(Box<VORval>),
+    //RawPtr(Box<VORval>),
+    //Ref(Box<VORval>),
+
     // function types
     Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, Option<VOGenargs>),
     FnPtr(Vec<VORval>),
+
     // fallback types
-    IdkType(Ty),
-    Idk,
+    //IdkType(Ty),
+    Idk(Vec<VORval>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

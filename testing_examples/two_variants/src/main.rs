@@ -70,8 +70,8 @@ fn main() {
             let x = args[1].parse().unwrap();
             let animal = get_animal(x);
             let cat = get_animal(0);
-            let animal_vtable = core::ptr::metadata(&*animal);
-            let cat_vtable = core::ptr::metadata(&*cat);
+            let _animal_vtable = core::ptr::metadata(&*animal);
+            let _cat_vtable = core::ptr::metadata(&*cat);
             //let res = wrap_dyn_call(&animal, animal_vtable, cat_vtable);
             let res = animal.speak();
             println!("res: {:?}", res);

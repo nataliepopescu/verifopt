@@ -74,7 +74,7 @@ pub fn is_wrapper_type(defid: &DefId) -> bool {
 fn is_box(idx: usize) -> bool {
     // FIXME why multiple defids for box?
     match idx {
-        11 | 14 | 18965 | 18968 | 18969 => true,
+        11 | 12 | 14 | 18965 | 18968 | 18969 => true,
         _ => false,
     }
 }

@@ -389,7 +389,17 @@ impl<'a> InterpPass<'a> {
                 _ => todo!("other tykind"),
             },
             */
-            VORval::FnDef(..) => todo!("fndef vorval: {:?}", constraint),
+            VORval::FnDef(fndef, genargs) => self.interp_fn_def(
+                logger,
+                term_span,
+                istore,
+                call_stack,
+                cur_scope,
+                local_decls,
+                *fndef,
+                &genargs,
+                args,
+            ),
             VORval::FnPtr(_) => todo!("fnptr vorval: {:?}", constraint),
             VORval::Closure(cdef, genargs) => self.interp_closure(
                 logger,

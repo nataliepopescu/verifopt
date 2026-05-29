@@ -1,5 +1,9 @@
-use rustc_public::mir::{AggregateKind, BinOp, CastKind, Operand, Place, Rvalue, UnOp};
-use rustc_public::ty::{BoundVariableKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind};
+use rustc_public::mir::{
+    AggregateKind, BinOp, CastKind, Operand, Place, PointerCoercion, Rvalue, UnOp,
+};
+use rustc_public::ty::{
+    BoundVariableKind, ConstantKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind,
+};
 
 use crate::InterpStore;
 use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VOID, VORval};
@@ -69,14 +73,19 @@ impl RvalConverter {
     fn convert_op(&self, istore: &InterpStore, cur_scope: &VOID, op: &Operand) -> Constraints {
         debug!("CONVERTING OP");
         debug!("op: {:?}", op);
+
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.convert_place(istore, cur_scope, place)
             }
-            Operand::Constant(const_op) => {
-                debug!("const_op: {:#?}", const_op.const_);
-                vec![]
-            }
+            Operand::Constant(const_op) => match const_op.const_.kind() {
+                ConstantKind::Allocated(alloc) => match alloc.read_uint() {
+                    Ok(val) => vec![VORval::Scalar(Some(val))],
+                    _ => vec![],
+                },
+                ConstantKind::ZeroSized => vec![],
+                other @ _ => todo!("other constant kind: {:?}", other),
+            },
             _ => todo!("runtime checks"),
         }
     }
@@ -116,10 +125,21 @@ impl RvalConverter {
         debug!("ty: {:?}", ty);
 
         match op {
-            Operand::Constant(_const_op) => {
-                vec![]
+            Operand::Constant(const_op) => {
+                debug!("CONST OP");
+                match kind {
+                    CastKind::PointerCoercion(pc) => match pc {
+                        PointerCoercion::ReifyFnPointer(_) => {
+                            vec![self.convert_ty(&const_op.const_.ty())]
+                        }
+                        _ => todo!("pc: {:?}", pc),
+                    },
+                    CastKind::Transmute => vec![self.convert_ty(&const_op.const_.ty())],
+                    _ => todo!("kind: {:?}", kind),
+                }
             }
             Operand::Copy(place) | Operand::Move(place) => {
+                debug!("PLACE OP");
                 self.convert_place(istore, cur_scope, place)
             }
             _ => todo!("runtime checks"),
@@ -133,15 +153,10 @@ impl RvalConverter {
         kind: &AggregateKind,
         fields: &Vec<Operand>,
     ) -> Constraints {
-        let mut constraints = Vec::new();
-
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 debug!("ADT agg");
-                unique_push(
-                    &mut constraints,
-                    VORval::Adt(*def, self.convert_genargs(genargs)),
-                );
+                vec![VORval::Adt(*def, self.convert_genargs(genargs))]
             }
             AggregateKind::Tuple => {
                 debug!("tuple agg");
@@ -152,7 +167,7 @@ impl RvalConverter {
                         self.convert_op(istore, cur_scope, op),
                     );
                 }
-                unique_push(&mut constraints, VORval::Idk(inner_constraints));
+                inner_constraints
             }
             AggregateKind::RawPtr(ty, _mut) => {
                 debug!("rawptr agg");
@@ -165,20 +180,18 @@ impl RvalConverter {
                     _ => todo!("more than 2 fields"),
                 }
 
-                unique_push(&mut constraints, VORval::Idk(vec![self.convert_ty(ty)]));
+                vec![self.convert_ty(ty)]
             }
             AggregateKind::Array(ty) => {
                 debug!("array agg");
-                unique_push(&mut constraints, VORval::Idk(vec![self.convert_ty(ty)]));
+                vec![self.convert_ty(ty)]
             }
             AggregateKind::Closure(def, genargs) => {
                 debug!("closure agg");
-                unique_push(&mut constraints, VORval::Closure(*def, genargs.clone()));
+                vec![VORval::Closure(*def, genargs.clone())]
             }
             _ => todo!("other agg kind: {:?}", kind),
         }
-
-        constraints
     }
 
     fn convert_genargs(&self, genargs: &GenericArgs) -> Option<VOGenargs> {
@@ -203,6 +216,9 @@ impl RvalConverter {
     }
 
     pub fn convert_ty(&self, ty: &Ty) -> VORval {
+        debug!("CONVERTING TY");
+        debug!("ty: {:?}", ty);
+
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => VORval::Scalar(None),
@@ -214,9 +230,9 @@ impl RvalConverter {
                     }
                     VORval::Idk(inner)
                 }
-                RigidTy::Slice(ty) => self.convert_ty(&ty),
+                RigidTy::Array(ty, _) | RigidTy::Slice(ty) => self.convert_ty(&ty),
                 RigidTy::Closure(def, genargs) => VORval::Closure(def, genargs),
-                RigidTy::FnDef(def, genargs) => VORval::FnDef(def, self.convert_genargs(&genargs)),
+                RigidTy::FnDef(def, genargs) => VORval::FnDef(def, genargs),
                 RigidTy::FnPtr(poly_fn_sig) => {
                     debug!("poly_fn_sig: {:?}", poly_fn_sig);
                     if !poly_fn_sig.bound_vars.is_empty() {
@@ -234,8 +250,7 @@ impl RvalConverter {
                     VORval::FnPtr(inputs_output_vorvals)
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
-                RigidTy::RawPtr(ty, _mut) => self.convert_ty(&ty), //VORval::RawPtr(Box::new(self.convert_ty(&ty))),
-                //RigidTy::Str => VORval::Str,
+                RigidTy::RawPtr(ty, _mut) => self.convert_ty(&ty),
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),
@@ -250,32 +265,80 @@ impl RvalConverter {
         op1: &Operand,
         op2: &Operand,
     ) -> Constraints {
+        debug!("BINOP");
+
         match binop {
-            // These binops return bool/Ord results, so can safely ignore any operand constraints
-            BinOp::Eq | BinOp::Lt | BinOp::Le | BinOp::Ne | BinOp::Ge | BinOp::Gt | BinOp::Cmp => {
-                vec![]
+            BinOp::Add | BinOp::AddUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x + y)
             }
-            // Otherwise, retain the operand constraints
-            _ => {
-                let mut constraints = self.convert_op(istore, cur_scope, op1);
-                unique_append(&mut constraints, self.convert_op(istore, cur_scope, op2));
-                constraints
+            BinOp::Sub | BinOp::SubUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x - y)
             }
+            BinOp::Mul | BinOp::MulUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x * y)
+            }
+            BinOp::Div => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x / y),
+            BinOp::Rem => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x % y),
+            BinOp::Eq => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                if x == y { 1u128 } else { 0u128 }
+            }),
+            BinOp::Lt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                if x < y { 1u128 } else { 0u128 }
+            }),
+            BinOp::Le => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                if x <= y { 1u128 } else { 0u128 }
+            }),
+            BinOp::Ne => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                if x != y { 1u128 } else { 0u128 }
+            }),
+            BinOp::Ge => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                if x >= y { 1u128 } else { 0u128 }
+            }),
+            BinOp::Gt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                if x > y { 1u128 } else { 0u128 }
+            }),
+            // This binop return Ord results
+            BinOp::Cmp => todo!("impl cmp binop"),
+            // bit-level binops
+            _ => todo!(),
+        }
+    }
+
+    fn convert_binop_helper(
+        &self,
+        istore: &InterpStore,
+        cur_scope: &VOID,
+        op1: &Operand,
+        op2: &Operand,
+        f: fn(u128, u128) -> u128,
+    ) -> Constraints {
+        let c_op1 = self.convert_op(istore, cur_scope, op1);
+        let c_op2 = self.convert_op(istore, cur_scope, op2);
+        if c_op1.len() != 1 || c_op2.len() != 1 {
+            return vec![VORval::Scalar(None)];
+        }
+        match (c_op1[0].clone(), c_op2[0].clone()) {
+            (VORval::Scalar(Some(val1)), VORval::Scalar(Some(val2))) => {
+                vec![VORval::Scalar(Some(f(val1, val2)))]
+            }
+            (VORval::Scalar(_), VORval::Scalar(_)) => vec![VORval::Scalar(None)],
+            _ => panic!("unexpected vorvals for binop"),
         }
     }
 
     fn convert_unop(
         &self,
-        istore: &InterpStore,
-        cur_scope: &VOID,
+        _istore: &InterpStore,
+        _cur_scope: &VOID,
         unop: &UnOp,
-        op: &Operand,
+        _op: &Operand,
     ) -> Constraints {
         match unop {
-            // These unops return bool/integer results, so can safely ignore any operand constraints
-            UnOp::Not | UnOp::Neg => vec![],
-            // Otherwise, retain the operand constraints
-            _ => self.convert_op(istore, cur_scope, op),
+            //// These unops return bool/integer results, so can safely ignore any operand constraints
+            //UnOp::Not | UnOp::Neg => vec![],
+            //// Otherwise, retain the operand constraints
+            //_ => self.convert_op(istore, cur_scope, op),
+            _ => todo!("unimpl unop: {:?}", unop),
         }
     }
 }

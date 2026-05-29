@@ -72,7 +72,7 @@ pub enum VORval {
 
     // function types
     Closure(ClosureDef, GenericArgs),
-    FnDef(FnDef, Option<VOGenargs>),
+    FnDef(FnDef, GenericArgs),
     FnPtr(Vec<VORval>),
 
     // fallback types

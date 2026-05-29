@@ -490,6 +490,7 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
+        debug!("INTERPING CLOSURE");
         debug!("cdef: {:?}", cdef);
         debug!("args: {:?}", args);
         let closure_kind = self.get_closure_kind(&genargs);
@@ -762,8 +763,13 @@ impl<'a> InterpPass<'a> {
                 self.resolve_arg(istore, caller_scope, local_decls, arg, is_closure);
             debug!("arg constraints: {:?}\n", arg_constraints);
 
+            let local = if is_closure {
+                place.local + 1
+            } else {
+                place.local
+            };
             new_substore.cmap.insert(
-                MapKey::Local(place.local),
+                MapKey::Local(local),
                 Box::new(MapValue::Constraints(arg_constraints)),
             );
         }

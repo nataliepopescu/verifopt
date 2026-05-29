@@ -1,6 +1,4 @@
-use rustc_public::mir::{
-    AggregateKind, BinOp, CastKind, Operand, Place, PointerCoercion, Rvalue, UnOp,
-};
+use rustc_public::mir::{AggregateKind, BinOp, CastKind, Operand, Place, Rvalue, UnOp};
 use rustc_public::ty::{
     BoundVariableKind, ConstantKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind,
 };
@@ -127,16 +125,7 @@ impl RvalConverter {
         match op {
             Operand::Constant(const_op) => {
                 debug!("CONST OP");
-                match kind {
-                    CastKind::PointerCoercion(pc) => match pc {
-                        PointerCoercion::ReifyFnPointer(_) => {
-                            vec![self.convert_ty(&const_op.const_.ty())]
-                        }
-                        _ => todo!("pc: {:?}", pc),
-                    },
-                    CastKind::Transmute => vec![self.convert_ty(&const_op.const_.ty())],
-                    _ => todo!("kind: {:?}", kind),
-                }
+                vec![self.convert_ty(&const_op.const_.ty())]
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("PLACE OP");

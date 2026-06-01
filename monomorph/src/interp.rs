@@ -5,8 +5,8 @@ use rustc_public::mir::{
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
-    BoundVariableKind, ClosureDef, ClosureKind, ConstantKind, FnDef, GenericArgKind, GenericArgs,
-    IntTy, PolyFnSig, RigidTy, Span, TyKind,
+    BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
+    PolyFnSig, RigidTy, Span, TyKind,
 };
 
 use log::debug;
@@ -824,27 +824,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
             // TODO can maybe get a more precise VORval depending on kind
-            Operand::Constant(const_op) => match const_op.const_.kind() {
-                ConstantKind::Allocated(alloc) => match alloc.read_uint() {
-                    // FIXME
-                    Ok(val) => {
-                        debug!("ALLOC CONST");
-                        // Only use the constval if this is supposed to be used as an integer
-                        match const_op.const_.ty().kind() {
-                            TyKind::RigidTy(rigidty) => match rigidty {
-                                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
-                                    vec![VORval::Scalar(Some(val))]
-                                }
-                                _ => vec![],
-                            },
-                            _ => todo!(),
-                        }
-                    }
-                    _ => vec![],
-                },
-                ConstantKind::ZeroSized => vec![],
-                other @ _ => todo!("arg is another constant kind: {:?}", other),
-            },
+            Operand::Constant(const_op) => self.converter.convert_const(&const_op),
             _ => todo!("runtime check arg"),
         }
     }

@@ -1,4 +1,6 @@
-use rustc_public::mir::{AggregateKind, BinOp, CastKind, Operand, Place, Rvalue, UnOp};
+use rustc_public::mir::{
+    AggregateKind, BinOp, CastKind, ConstOperand, Operand, Place, Rvalue, UnOp,
+};
 use rustc_public::ty::{
     BoundVariableKind, ConstantKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind,
 };
@@ -76,15 +78,32 @@ impl RvalConverter {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.convert_place(istore, cur_scope, place)
             }
-            Operand::Constant(const_op) => match const_op.const_.kind() {
-                ConstantKind::Allocated(alloc) => match alloc.read_uint() {
-                    Ok(val) => vec![VORval::Scalar(Some(val))],
-                    _ => vec![],
-                },
-                ConstantKind::ZeroSized => vec![],
-                other @ _ => todo!("other constant kind: {:?}", other),
-            },
+            Operand::Constant(const_op) => self.convert_const(&const_op),
             _ => todo!("runtime checks"),
+        }
+    }
+
+    pub fn convert_const(&self, const_op: &ConstOperand) -> Constraints {
+        match const_op.const_.kind() {
+            ConstantKind::Allocated(alloc) => match alloc.read_uint() {
+                // FIXME
+                Ok(val) => {
+                    debug!("ALLOC CONST");
+                    // Only use the constval if this is supposed to be used as an integer
+                    match const_op.const_.ty().kind() {
+                        TyKind::RigidTy(rigidty) => match rigidty {
+                            RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
+                                vec![VORval::Scalar(Some(val))]
+                            }
+                            _ => vec![],
+                        },
+                        _ => todo!(),
+                    }
+                }
+                _ => vec![],
+            },
+            ConstantKind::ZeroSized => vec![],
+            other @ _ => todo!("arg is another constant kind: {:?}", other),
         }
     }
 

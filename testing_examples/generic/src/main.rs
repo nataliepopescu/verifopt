@@ -13,7 +13,7 @@ struct Rect {
 
 impl Shape for Circle {
     fn area(&self) -> f32 {
-        3.14 * self.r.powi(2)
+        3.14 * self.r.powi(2) //as u32
     }
 }
 
@@ -34,7 +34,7 @@ fn foo<T: Shape>(s: &T) -> f32 {
 }
 
 fn main() {
-    let c = Circle { r: 2.0 };
+    let _c = Circle { r: 2.0 };
     let r = Rect { h: 3.0, w: 4.0 };
 
     noop();

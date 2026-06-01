@@ -6,7 +6,7 @@
 
 - [x] closures
 - [x] fnptrs
-- [ ] generic
+- [x] generic
 - [ ] one_variant
 - [x] rand_
 - [x] shims
@@ -20,7 +20,8 @@
 
 - [x] closures
 - [x] fnptrs
-- [ ] generic
+- [x] generic
+    - Rect fields are not stored b/c specific to the Rect const allocation layout (maybe this is generalizable but have not yet thought about this)
 - [ ] one_variant
 - [ ] rand_
     - not really anything else to analyze

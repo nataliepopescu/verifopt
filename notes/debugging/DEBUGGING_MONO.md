@@ -82,3 +82,15 @@ visiting: 0, 16, 17, 2, 3, *10, 14, 11*
 
 switch statement weirdness
 
+### Getting a Scalar when want a callable item
+
+in LocalKey::try_with
+- triggered via minimal example in shims/
+- and rand_/ example (same func)
+
+how did we get here (last -> first)
+- term func: Copy _7
+- assign: Copy *_1.0
+
+
+

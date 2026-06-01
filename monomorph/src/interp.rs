@@ -197,7 +197,7 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &mut InterpStore,
         cur_scope: &VOID,
-        _local_decls: &[LocalDecl],
+        local_decls: &[LocalDecl],
         stmt: &Statement,
     ) {
         match &stmt.kind {
@@ -206,9 +206,10 @@ impl<'a> InterpPass<'a> {
                 debug!("start assignment!");
                 log_scope(cur_scope);
                 debug!("stmt: {:?}", &stmt.kind);
-                //debug!("dest ty: {:?}", place.ty(local_decls).unwrap());
+                debug!("dest ty: {:?}", place.ty(local_decls).unwrap());
                 debug!("place: {:?}", place);
                 debug!("rval: {:?}", rvalue);
+                //debug!("locals: {:?}", local_decls);
 
                 // convert MIR Rvalue to VORval
                 let constraints = self.converter.convert(istore, cur_scope, rvalue);
@@ -755,18 +756,14 @@ impl<'a> InterpPass<'a> {
         for (i, arg) in args.into_iter().enumerate() {
             debug!("\narg position: {:?}", i);
             debug!("arg: {:?}", arg);
-            let place = Place {
-                local: i + 1,
-                projection: vec![],
-            };
             let arg_constraints =
                 self.resolve_arg(istore, caller_scope, local_decls, arg, is_closure);
             debug!("arg constraints: {:?}\n", arg_constraints);
 
             let local = if is_closure {
-                place.local + 1
+                i + 2
             } else {
-                place.local
+                i + 1
             };
             new_substore.cmap.insert(
                 MapKey::Local(local),
@@ -799,7 +796,20 @@ impl<'a> InterpPass<'a> {
             // TODO can maybe get a more precise VORval depending on kind
             Operand::Constant(const_op) => match const_op.const_.kind() {
                 ConstantKind::Allocated(alloc) => match alloc.read_uint() {
-                    Ok(val) => vec![VORval::Scalar(Some(val))],
+                    // FIXME
+                    Ok(val) => {
+                        debug!("ALLOC CONST");
+                        // Only use the constval if this is supposed to be used as an integer
+                        match const_op.const_.ty().kind() {
+                            TyKind::RigidTy(rigidty) => match rigidty {
+                                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
+                                    vec![VORval::Scalar(Some(val))]
+                                }
+                                _ => vec![],
+                            },
+                            _ => todo!(),
+                        }
+                    }
                     _ => vec![],
                 },
                 ConstantKind::ZeroSized => vec![],

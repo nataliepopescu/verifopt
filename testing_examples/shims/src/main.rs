@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::hint::black_box;
+//use std::hint::black_box;
 
 fn add_one(x: i32) -> i32 {
     x + 1
@@ -10,7 +10,7 @@ thread_local! {
 }
 
 fn main() {
-    let res = FOO.get()(2);
-    black_box(res);
+    let _res = FOO.get()(2);
+    //black_box(res);
     //println!("res: {}", res);
 }

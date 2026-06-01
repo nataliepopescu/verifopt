@@ -55,7 +55,7 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     trait_collect.run(&mut tstore);
 
     // Abstractly Interpret MIR
-    debug!("INTERP PASS");
+    debug!("\n\nINTERP PASS");
     let mut istore = InterpStore::new();
     let interp = InterpPass::new(&sigstore, &tstore);
     let _ = interp.run(&mut logger, &mut istore, entry_instance);

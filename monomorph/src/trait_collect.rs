@@ -4,8 +4,6 @@ use rustc_public::ty::{
 };
 use rustc_public::{CrateDefItems, DefId};
 
-use log::{debug, error, info, warn};
-
 pub struct TraitVal {}
 
 pub struct TraitStore {
@@ -35,41 +33,41 @@ impl TraitCollectPass {
     }
 
     pub fn run(&self, tstore: &mut TraitStore) {
-        debug!("TRAIT PASS");
+        //debug!("TRAIT PASS");
         self.collect_trait_mappings(tstore);
-        debug!("DONE TRAIT PASS");
+        //debug!("DONE TRAIT PASS");
     }
 
     fn collect_trait_mappings(&self, tstore: &mut TraitStore) {
         for impl_def in rustc_public::all_trait_impls() {
-            debug!("\n###################");
+            //debug!("\n###################");
 
             let trait_impl = impl_def.trait_impl();
 
             // Get Trait DefId
             let trait_defid = trait_impl.value.def_id.0;
-            debug!("trait_defid: {:?}", trait_defid);
+            //debug!("trait_defid: {:?}", trait_defid);
 
             // Get Struct DefId
             let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
             if result.is_err() {
-                debug!("CAUGHT PANIC");
+                //debug!("CAUGHT PANIC");
                 continue;
             }
             let struct_defid;
             if let Some(struct_defid_inner) = result.unwrap() {
                 struct_defid = struct_defid_inner;
             } else {
-                debug!("got a None struct_defid option (FIXME)");
+                //debug!("got a None struct_defid option (FIXME)");
                 continue;
             }
-            debug!("struct_defid: {:?}", struct_defid);
+            //debug!("struct_defid: {:?}", struct_defid);
 
             // Get AssocFn DefIds
             let assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
-            debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
+            //debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
             if assoc_fn_defids.is_empty() {
-                debug!("NO ASSOC FNS");
+                //debug!("NO ASSOC FNS");
                 continue;
             }
 
@@ -134,7 +132,7 @@ impl TraitCollectPass {
             //for (i, genarg) in trait_impl.value.args().0.clone().into_iter().enumerate() {
             //    debug!("genarg #{}", i);
             match genarg {
-                GenericArgKind::Lifetime(region) => debug!("lifetime: {:?}", region),
+                GenericArgKind::Lifetime(_region) => {}, //debug!("lifetime: {:?}", region),
                 GenericArgKind::Type(ty) => {
                     //debug!("type: {:?}", ty);
                     //debug!("ty.kind: {:?}", ty.kind());
@@ -142,34 +140,34 @@ impl TraitCollectPass {
                         TyKind::RigidTy(rigidty) => match rigidty {
                             // TODO process _adt_genargs
                             RigidTy::Adt(adtdef, adt_genargs) => {
-                                debug!("ADT rigidty");
+                                //debug!("ADT rigidty");
                                 if !adt_genargs.0.is_empty() {
-                                    warn!("process adt generic args: {:?}", adt_genargs);
+                                    //warn!("process adt generic args: {:?}", adt_genargs);
                                 }
 
                                 match struct_defid {
                                     None => struct_defid = Some(adtdef.0),
-                                    Some(existing_struct_defid) => {
-                                        error!(
-                                            "already seen adt {:?} in this trait impls genargs",
-                                            existing_struct_defid
-                                        );
+                                    Some(_existing_struct_defid) => {
+                                        //error!(
+                                        //    "already seen adt {:?} in this trait impls genargs",
+                                        //    existing_struct_defid
+                                        //);
                                     }
                                 }
                             }
                             // TODO
-                            _ => warn!("other rigidty kind"),
+                            _ => {}, //warn!("other rigidty kind"),
                         },
                         // TODO
-                        _ => warn!("other ty kind"),
+                        _ => {}, //warn!("other ty kind"),
                     }
                 }
-                GenericArgKind::Const(tyconst) => debug!("const: {:?}", tyconst),
+                GenericArgKind::Const(_tyconst) => {}, //debug!("const: {:?}", tyconst),
             }
         }
 
         if struct_defid.is_none() {
-            error!("never saw an Adt in this trait impls genargs");
+            //error!("never saw an Adt in this trait impls genargs");
         }
 
         struct_defid
@@ -185,23 +183,23 @@ impl TraitCollectPass {
                 AssocKind::Fn { name: _, has_self } => {
                     // If has_self is false, cannot be dynamically dispatched, so no need to store
                     if !has_self {
-                        debug!("NO SELF");
+                        //debug!("NO SELF");
                         continue;
                     }
                 }
                 // TODO
                 _ => {
-                    warn!("other assoc kind");
+                    //warn!("other assoc kind");
                     continue;
                 }
             }
 
-            info!("assoc_item container: {:?}", assoc_item.container);
+            //info!("assoc_item container: {:?}", assoc_item.container);
             match assoc_item.container {
                 AssocContainer::TraitImpl(assoc_def) => {
                     assoc_fns.push((assoc_item.def_id.0, assoc_def.0));
                 }
-                _ => warn!("other container kind"),
+                _ => {}, //warn!("other container kind"),
             }
         }
 

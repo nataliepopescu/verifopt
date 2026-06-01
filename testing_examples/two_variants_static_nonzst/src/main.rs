@@ -9,25 +9,37 @@ pub trait Animal {
 #[inline(never)]
 pub fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        Box::new(Cat {})
+        Box::new(Cat {
+            name: "default_kitty",
+            fav_scratching_post: 3,
+        })
     } else {
-        Box::new(Dog {})
+        Box::new(Dog {
+            name: "default_doggo",
+            fav_walking_route: 7,
+        })
     }
 }
 
-#[inline(always)]
-pub fn get_cat() -> Box<dyn Animal> {
-    return Box::new(Cat {});
+//#[inline(always)]
+//pub fn get_cat() -> Box<dyn Animal> {
+//    return Box::new(Cat {});
+//}
+//
+//#[inline(always)]
+//pub fn get_dog() -> Box<dyn Animal> {
+//    return Box::new(Dog {});
+//}
+
+pub struct Cat {
+    name: &'static str,
+    fav_scratching_post: u32,
 }
 
-#[inline(always)]
-pub fn get_dog() -> Box<dyn Animal> {
-    return Box::new(Dog {});
+pub struct Dog {
+    name: &'static str,
+    fav_walking_route: u32,
 }
-
-// FIXME add fields to structs so not zero-sized!
-pub struct Cat;
-pub struct Dog;
 
 impl Animal for Cat {
     fn speak(&self) -> usize {
@@ -48,7 +60,7 @@ impl Animal for Dog {
 }
 
 fn main() {
-    let x = 0; //rand::rng().random_range(..2usize); //args[1].parse().unwrap();
+    let x = 0;
     let animal = get_animal(x);
     let cat = get_animal(0);
     let _animal_vtable = core::ptr::metadata(&*animal);

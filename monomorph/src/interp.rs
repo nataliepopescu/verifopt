@@ -5,8 +5,8 @@ use rustc_public::mir::{
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
-    BoundVariableKind, ClosureDef, ClosureKind, ConstantKind, FnDef, GenericArgs, IntTy, PolyFnSig,
-    RigidTy, Span, TyKind,
+    BoundVariableKind, ClosureDef, ClosureKind, ConstantKind, FnDef, GenericArgKind, GenericArgs,
+    IntTy, PolyFnSig, RigidTy, Span, TyKind,
 };
 
 use log::debug;
@@ -413,8 +413,41 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
+            VORval::Adt(_def, genargs) => {
+                // Search for fnptr in genargs
+                match self.any_fn_ptr(genargs) {
+                    Some(sig) => self.interp_fn_ptr(
+                        logger,
+                        term_span,
+                        istore,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        sig,
+                        args,
+                    ),
+                    None => todo!(),
+                }
+            }
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
+    }
+
+    fn any_fn_ptr(&self, genargs: &GenericArgs) -> Option<PolyFnSig> {
+        for genarg in &genargs.0 {
+            match genarg {
+                GenericArgKind::Type(ty) => match ty.kind() {
+                    TyKind::RigidTy(rigidty) => match rigidty {
+                        RigidTy::FnPtr(sig) => return Some(sig),
+                        _ => {}
+                    },
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+
+        None
     }
 
     fn interp_fn_ptr(
@@ -430,6 +463,7 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         debug!("sig!: {:?}", sig);
         let sigval = SigVal::new(&self.converter, &sig);
+        debug!("sigval!: {:?}", sigval);
         match self.sigstore.sigs.get(&sigval) {
             Some(fndef_vec) => {
                 debug!("got fndef_vec!: {:?}", fndef_vec);
@@ -760,11 +794,7 @@ impl<'a> InterpPass<'a> {
                 self.resolve_arg(istore, caller_scope, local_decls, arg, is_closure);
             debug!("arg constraints: {:?}\n", arg_constraints);
 
-            let local = if is_closure {
-                i + 2
-            } else {
-                i + 1
-            };
+            let local = if is_closure { i + 2 } else { i + 1 };
             new_substore.cmap.insert(
                 MapKey::Local(local),
                 Box::new(MapValue::Constraints(arg_constraints)),
@@ -1005,13 +1035,17 @@ impl<'a> InterpPass<'a> {
             VORval::Adt(adtdef, genargs) => {
                 if is_wrapper_type(&adtdef.0) {
                     //let genargs = genargs.clone().unwrap();
-                    if genargs.is_none() {
-                        panic!("no genargs");
-                    }
-                    if genargs.as_ref().unwrap().len() > 1 {
+                    //if genargs.is_none() {
+                    //    panic!("no genargs");
+                    //}
+                    if genargs.0.len() > 1 {
                         debug!("more than 1 genarg in wrapper type");
                     }
-                    self.resolve_defid(&genargs.as_ref().unwrap()[0])
+
+                    match self.converter.convert_genarg(&genargs.0[0]) {
+                        Some(vorval) => self.resolve_defid(&vorval),
+                        _ => todo!(),
+                    }
                 } else {
                     vec![adtdef.0]
                 }

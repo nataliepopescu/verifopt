@@ -63,7 +63,7 @@ pub enum VORval {
     Scalar(Option<u128>),
 
     // more complex data types
-    Adt(AdtDef, Option<VOGenargs>),
+    Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
 
     // pointer types
     //AddressOf(Box<VORval>),

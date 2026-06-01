@@ -145,7 +145,7 @@ impl RvalConverter {
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 debug!("ADT agg");
-                vec![VORval::Adt(*def, self.convert_genargs(genargs))]
+                vec![VORval::Adt(*def, genargs.clone())] //self.convert_genargs(genargs))]
             }
             AggregateKind::Tuple => {
                 debug!("tuple agg");
@@ -189,9 +189,9 @@ impl RvalConverter {
         }
         let mut converted_genargs = Vec::new();
         for genarg in &genargs.0 {
-            match genarg {
-                GenericArgKind::Type(ty) => {
-                    unique_push(&mut converted_genargs, self.convert_ty(ty));
+            match self.convert_genarg(genarg) {
+                Some(vorval) => {
+                    unique_push(&mut converted_genargs, vorval);
                 }
                 _ => {}
             }
@@ -204,6 +204,13 @@ impl RvalConverter {
         }
     }
 
+    pub fn convert_genarg(&self, genarg: &GenericArgKind) -> Option<VORval> {
+        match genarg {
+            GenericArgKind::Type(ty) => Some(self.convert_ty(ty)),
+            _ => None,
+        }
+    }
+
     pub fn convert_ty(&self, ty: &Ty) -> VORval {
         debug!("CONVERTING TY");
         debug!("ty: {:?}", ty);
@@ -211,7 +218,7 @@ impl RvalConverter {
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => VORval::Scalar(None),
-                RigidTy::Adt(def, genargs) => VORval::Adt(def, self.convert_genargs(&genargs)),
+                RigidTy::Adt(def, genargs) => VORval::Adt(def, genargs), //self.convert_genargs(&genargs)),
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {

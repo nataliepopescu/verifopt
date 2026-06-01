@@ -1,6 +1,7 @@
-use crate::rustc_public_bridge::IndexedVal;
-use rustc_public::DefId;
+//use crate::rustc_public_bridge::IndexedVal;
+//use rustc_public::DefId;
 use rustc_public::mir::Body;
+use rustc_public::ty::AdtDef;
 
 use log::debug;
 
@@ -62,22 +63,21 @@ pub fn log_mir(body: &Body) {
     */
 }
 
-pub fn is_wrapper_type(defid: &DefId) -> bool {
-    let idx = defid.to_index();
-    debug!(
-        "CHECKING IF DEFID IS A WRAPPER TYPE: {:?} (idx {:?})",
-        defid, idx
-    );
-    is_box(idx)
+pub fn is_wrapper_type(def: &AdtDef) -> bool {
+    debug!("CHECKING IF DEFID IS A WRAPPER TYPE: {:?}", def);
+
+    // TODO extend to Option, Result, ...
+    def.is_box()
 }
 
-fn is_box(idx: usize) -> bool {
-    // FIXME why multiple defids for box?
-    match idx {
-        11 | 12 | 14 | 18965 | 18968 | 18969 | 88530 | 88531 | 88533 | 88536 | 94645 => true,
-        _ => false,
-    }
-}
+//fn is_box(defid: &DefId) -> bool {
+//    // FIXME why multiple defids for box?
+//    let idx = defid.to_index();
+//    match idx {
+//        11 | 12 | 14 | 18965 | 18968 | 18969 | 88530 | 88531 | 88533 | 88536 | 94645 => true,
+//        _ => false,
+//    }
+//}
 
 /*
 pub struct AnalysisContext<'tcx> {

@@ -1013,7 +1013,7 @@ impl<'a> InterpPass<'a> {
     fn resolve_defid(&self, vorval: &VORval) -> Vec<DefId> {
         match vorval {
             VORval::Adt(adtdef, genargs) => {
-                if is_wrapper_type(&adtdef.0) {
+                if is_wrapper_type(&adtdef) {
                     //let genargs = genargs.clone().unwrap();
                     //if genargs.is_none() {
                     //    panic!("no genargs");

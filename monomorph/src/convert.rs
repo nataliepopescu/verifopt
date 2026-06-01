@@ -247,6 +247,7 @@ impl RvalConverter {
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
                 RigidTy::RawPtr(ty, _mut) => self.convert_ty(&ty),
+                RigidTy::Str => VORval::Idk(vec![]),
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),
@@ -262,6 +263,7 @@ impl RvalConverter {
         op2: &Operand,
     ) -> Constraints {
         debug!("BINOP");
+        debug!("binop: {:?}", binop);
 
         match binop {
             BinOp::Add | BinOp::AddUnchecked => {
@@ -296,6 +298,15 @@ impl RvalConverter {
             // This binop return Ord results
             BinOp::Cmp => todo!("impl cmp binop"),
             // bit-level binops
+            BinOp::Shl | BinOp::ShlUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x << y)
+            }
+            BinOp::Shr | BinOp::ShrUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x >> y)
+            }
+            BinOp::BitAnd => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x & y),
+            BinOp::BitOr => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x | y),
+            BinOp::BitXor => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x ^ y),
             _ => todo!(),
         }
     }
@@ -334,6 +345,7 @@ impl RvalConverter {
             //UnOp::Not | UnOp::Neg => vec![],
             //// Otherwise, retain the operand constraints
             //_ => self.convert_op(istore, cur_scope, op),
+            UnOp::PtrMetadata => vec![],
             _ => todo!("unimpl unop: {:?}", unop),
         }
     }

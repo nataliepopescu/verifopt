@@ -8,7 +8,7 @@
 - [x] fnptrs
 - [ ] generic
 - [ ] one_variant
-- [ ] rand_
+- [x] rand_
 - [x] shims
 - [x] switchint
 - [ ] two_variants
@@ -23,6 +23,7 @@
 - [ ] generic
 - [ ] one_variant
 - [ ] rand_
+    - not really anything else to analyze
 - [ ] shims
     - the candidate list of fns for the fnptr w the signature i32 -> i32 is too
       large, so we are currently falling back to return types

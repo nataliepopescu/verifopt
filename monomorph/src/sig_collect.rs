@@ -155,7 +155,7 @@ impl SigCollectPass {
                 Ok(body) => {
                     log_mir(&body.unwrap());
                 }
-                _ => {}, //debug!("ERROR GETTING BODY"),
+                _ => {} //debug!("ERROR GETTING BODY"),
             }
         } else {
             //debug!("NO BODY");

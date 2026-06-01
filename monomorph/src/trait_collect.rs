@@ -132,7 +132,7 @@ impl TraitCollectPass {
             //for (i, genarg) in trait_impl.value.args().0.clone().into_iter().enumerate() {
             //    debug!("genarg #{}", i);
             match genarg {
-                GenericArgKind::Lifetime(_region) => {}, //debug!("lifetime: {:?}", region),
+                GenericArgKind::Lifetime(_region) => {} //debug!("lifetime: {:?}", region),
                 GenericArgKind::Type(ty) => {
                     //debug!("type: {:?}", ty);
                     //debug!("ty.kind: {:?}", ty.kind());
@@ -156,13 +156,13 @@ impl TraitCollectPass {
                                 }
                             }
                             // TODO
-                            _ => {}, //warn!("other rigidty kind"),
+                            _ => {} //warn!("other rigidty kind"),
                         },
                         // TODO
-                        _ => {}, //warn!("other ty kind"),
+                        _ => {} //warn!("other ty kind"),
                     }
                 }
-                GenericArgKind::Const(_tyconst) => {}, //debug!("const: {:?}", tyconst),
+                GenericArgKind::Const(_tyconst) => {} //debug!("const: {:?}", tyconst),
             }
         }
 
@@ -199,7 +199,7 @@ impl TraitCollectPass {
                 AssocContainer::TraitImpl(assoc_def) => {
                     assoc_fns.push((assoc_item.def_id.0, assoc_def.0));
                 }
-                _ => {}, //warn!("other container kind"),
+                _ => {} //warn!("other container kind"),
             }
         }
 

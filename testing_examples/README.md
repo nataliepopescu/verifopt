@@ -7,7 +7,7 @@
 - [x] closures
 - [x] fnptrs
 - [x] generic
-- [ ] one_variant
+- [x] one_variant
 - [x] rand_
 - [x] shims
 - [x] switchint
@@ -22,8 +22,8 @@
 - [x] fnptrs
 - [x] generic
     - Rect fields are not stored b/c specific to the Rect const allocation layout (maybe this is generalizable but have not yet thought about this)
-- [ ] one_variant
-- [ ] rand_
+- [x] one_variant
+- [x] rand_
     - not really anything else to analyze
 - [ ] shims
     - the candidate list of fns for the fnptr w the signature i32 -> i32 is too

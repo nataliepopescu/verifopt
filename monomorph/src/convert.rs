@@ -314,8 +314,6 @@ impl RvalConverter {
             BinOp::Gt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
                 if x > y { 1u128 } else { 0u128 }
             }),
-            // This binop return Ord results
-            BinOp::Cmp => todo!("impl cmp binop"),
             // bit-level binops
             BinOp::Shl | BinOp::ShlUnchecked => {
                 self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x << y)
@@ -326,7 +324,10 @@ impl RvalConverter {
             BinOp::BitAnd => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x & y),
             BinOp::BitOr => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x | y),
             BinOp::BitXor => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x ^ y),
-            _ => todo!(),
+            // This binop return Ord results
+            BinOp::Cmp => todo!("impl cmp binop"),
+            // TODO
+            BinOp::Offset => vec![],
         }
     }
 
@@ -348,24 +349,46 @@ impl RvalConverter {
                 vec![VORval::Scalar(Some(f(val1, val2)))]
             }
             (VORval::Scalar(_), VORval::Scalar(_)) => vec![VORval::Scalar(None)],
-            _ => panic!("unexpected vorvals for binop"),
+            _ => {
+                debug!("unexpected vorvals for binop");
+                vec![VORval::Scalar(None)]
+            }
         }
     }
 
     fn convert_unop(
         &self,
-        _istore: &InterpStore,
-        _cur_scope: &VOID,
+        istore: &InterpStore,
+        cur_scope: &VOID,
         unop: &UnOp,
-        _op: &Operand,
+        op: &Operand,
     ) -> Constraints {
         match unop {
-            //// These unops return bool/integer results, so can safely ignore any operand constraints
-            //UnOp::Not | UnOp::Neg => vec![],
-            //// Otherwise, retain the operand constraints
-            //_ => self.convert_op(istore, cur_scope, op),
+            //UnOp::Neg => self.convert_unop_helper(istore, cur_scope, op, |x| -x),
+            UnOp::Not => self.convert_unop_helper(istore, cur_scope, op, |x| !x),
             UnOp::PtrMetadata => vec![],
             _ => todo!("unimpl unop: {:?}", unop),
+        }
+    }
+
+    fn convert_unop_helper(
+        &self,
+        istore: &InterpStore,
+        cur_scope: &VOID,
+        op: &Operand,
+        f: fn(u128) -> u128,
+    ) -> Constraints {
+        let c_op = self.convert_op(istore, cur_scope, op);
+        if c_op.len() != 1 {
+            return vec![VORval::Scalar(None)];
+        }
+        match c_op[0].clone() {
+            VORval::Scalar(Some(val)) => vec![VORval::Scalar(Some(f(val)))],
+            VORval::Scalar(_) => vec![VORval::Scalar(None)],
+            _ => {
+                debug!("unexpected vorvals for unop");
+                vec![VORval::Scalar(None)]
+            }
         }
     }
 }

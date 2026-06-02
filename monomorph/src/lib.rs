@@ -44,15 +44,15 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     let entry_fn = rustc_public::entry_fn().unwrap();
     let entry_instance = Instance::try_from(entry_fn).unwrap();
 
-    // Collect function signatures for indirect calls
-    let mut sigstore = SigStore::new();
-    let sig_collect = SigCollectPass::new();
-    sig_collect.run(&mut sigstore);
-
     // Collect trait metadata
     let mut tstore = TraitStore::new();
     let trait_collect = TraitCollectPass::new();
     trait_collect.run(&mut tstore);
+
+    // Collect function signatures for indirect calls
+    let mut sigstore = SigStore::new();
+    let sig_collect = SigCollectPass::new(&tstore);
+    sig_collect.run(&mut sigstore);
 
     // Abstractly Interpret MIR
     debug!("\n\nINTERP PASS");

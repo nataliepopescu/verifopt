@@ -7,6 +7,8 @@ use rustc_public::{CrateDefItems, DefId};
 pub struct TraitVal {}
 
 pub struct TraitStore {
+    // HashMap<Struct, Vec<Trait>>
+    pub struct_traits: HashMap<DefId, Vec<DefId>>,
     // (CHA/RTA) HashMap<Trait, Vec<Struct>>
     pub trait_structs: HashMap<DefId, Vec<DefId>>,
     // HashMap<AssocFn, Trait>
@@ -18,6 +20,7 @@ pub struct TraitStore {
 impl TraitStore {
     pub fn new() -> TraitStore {
         Self {
+            struct_traits: HashMap::default(),
             trait_structs: HashMap::default(),
             assoc_fn_traits: HashMap::default(),
             struct_assoc_fns: HashMap::default(),
@@ -69,6 +72,14 @@ impl TraitCollectPass {
             if assoc_fn_defids.is_empty() {
                 //debug!("NO ASSOC FNS");
                 continue;
+            }
+
+            // Add trait to list of traits that this struct impls
+            match tstore.struct_traits.get_mut(&struct_defid) {
+                Some(trait_vec) => trait_vec.push(trait_defid),
+                None => {
+                    tstore.struct_traits.insert(struct_defid, vec![trait_defid]);
+                }
             }
 
             // Add struct to list of structs that impl this trait

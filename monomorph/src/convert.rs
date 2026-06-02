@@ -2,20 +2,25 @@ use rustc_public::mir::{
     AggregateKind, BinOp, CastKind, ConstOperand, Operand, Place, Rvalue, UnOp,
 };
 use rustc_public::ty::{
-    BoundVariableKind, ConstantKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind,
+    AdtDef, BoundVariableKind, ConstantKind, GenericArgKind, GenericArgs, RigidTy, Ty, TyKind,
 };
 
 use crate::InterpStore;
-use crate::constraints::{Constraints, MapKey, MapValue, VOGenargs, VOID, VORval};
+use crate::TraitStore;
+use crate::constraints::{
+    Constraint, Constraints, ControlFlowConstraint, MapKey, MapValue, TraitObjConstraint, VOID,
+};
 use crate::constraints::{unique_append, unique_push};
 
 use log::debug;
 
-pub struct RvalConverter;
+pub struct RvalConverter<'a> {
+    pub tstore: &'a TraitStore,
+}
 
-impl RvalConverter {
-    pub fn new() -> RvalConverter {
-        Self {}
+impl<'a> RvalConverter<'a> {
+    pub fn new(tstore: &'a TraitStore) -> RvalConverter<'a> {
+        Self { tstore }
     }
 
     pub fn convert(
@@ -93,7 +98,9 @@ impl RvalConverter {
                     match const_op.const_.ty().kind() {
                         TyKind::RigidTy(rigidty) => match rigidty {
                             RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
-                                vec![VORval::Scalar(Some(val))]
+                                vec![Constraint::ControlFlow(Box::new(
+                                    ControlFlowConstraint::Scalar(Some(val)),
+                                ))]
                             }
                             _ => vec![],
                         },
@@ -154,6 +161,99 @@ impl RvalConverter {
         }
     }
 
+    fn contains_traitobj(
+        &self,
+        def: &AdtDef,
+        genargs: &GenericArgs,
+    ) -> (bool, Option<TraitObjConstraint>) {
+        debug!("IS TO?");
+        debug!("def: {:?}", def);
+        debug!("genargs: {:?}", genargs);
+
+        // TODO check def for traitobj
+
+        // check genargs for traitobj
+        let mut to = None;
+        for genarg in &genargs.0 {
+            match self.convert_genarg(genarg) {
+                Some(constraint) => match constraint {
+                    Constraint::TraitObj(to_) => {
+                        to = Some(to_);
+                        break;
+                    }
+                    Constraint::ControlFlow(box maybe_to) => match maybe_to {
+                        ControlFlowConstraint::Adt(adtdef, inner_genargs) => {
+                            match self.tstore.struct_traits.get(&adtdef.0) {
+                                // FIXME can maybe also even store backptr to traits this might
+                                // pertain to (idk if that would be helpful)
+                                Some(_) => {
+                                    to = Some((adtdef, inner_genargs));
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    },
+                },
+                _ => {}
+            }
+        }
+
+        debug!("TO: {:?}", to);
+
+        (to.is_some(), to)
+    }
+
+    fn contains_controlflow(
+        &self,
+        def: &AdtDef,
+        genargs: &GenericArgs,
+    ) -> (bool, Option<ControlFlowConstraint>) {
+        debug!("IS CF?");
+        debug!("def: {:?}", def);
+        debug!("genargs: {:?}", genargs);
+
+        // TODO check def for controlflow
+
+        // check genargs for controlflow
+        let mut cf = None;
+        for genarg in &genargs.0 {
+            match self.convert_genarg(genarg) {
+                Some(constraint) => match constraint {
+                    //Constraint::TraitObj(to_) => {
+                    //    to = Some(to_);
+                    //    break;
+                    //}
+                    Constraint::ControlFlow(box cf_) => {
+                        cf = Some(cf_);
+                        break;
+                    }
+                    _ => {}
+                    //(maybe_to) => match maybe_to {
+                    //    ControlFlowConstraint::Adt(adtdef, inner_genargs) => {
+                    //        match self.tstore.struct_traits.get(&adtdef.0) {
+                    //            // FIXME can maybe also even store backptr to traits this might
+                    //            // pertain to (idk if that would be helpful)
+                    //            Some(_) => {
+                    //                to = Some((adtdef, inner_genargs));
+                    //                break;
+                    //            },
+                    //            _ => {},
+                    //        }
+                    //    }
+                    //    _ => {},
+                    //}
+                },
+                _ => {}
+            }
+        }
+
+        debug!("CF: {:?}", cf);
+
+        (cf.is_some(), cf)
+    }
+
     fn convert_agg(
         &self,
         istore: &InterpStore,
@@ -164,7 +264,20 @@ impl RvalConverter {
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 debug!("ADT agg");
-                vec![VORval::Adt(*def, genargs.clone())] //self.convert_genargs(genargs))]
+                let (is_to, to) = self.contains_traitobj(def, genargs);
+                let (is_cf, cf) = self.contains_controlflow(def, genargs);
+
+                if is_to && is_cf {
+                    panic!();
+                }
+                if is_to {
+                    return vec![Constraint::TraitObj(to.unwrap())];
+                }
+                if is_cf {
+                    return vec![Constraint::ControlFlow(Box::new(cf.unwrap()))];
+                }
+
+                vec![]
             }
             AggregateKind::Tuple => {
                 debug!("tuple agg");
@@ -196,12 +309,15 @@ impl RvalConverter {
             }
             AggregateKind::Closure(def, genargs) => {
                 debug!("closure agg");
-                vec![VORval::Closure(*def, genargs.clone())]
+                vec![Constraint::ControlFlow(Box::new(
+                    ControlFlowConstraint::Closure(*def, genargs.clone()),
+                ))]
             }
             _ => todo!("other agg kind: {:?}", kind),
         }
     }
 
+    /*
     fn convert_genargs(&self, genargs: &GenericArgs) -> Option<VOGenargs> {
         if genargs.0.is_empty() {
             return None;
@@ -222,32 +338,41 @@ impl RvalConverter {
             Some(converted_genargs)
         }
     }
+    */
 
-    pub fn convert_genarg(&self, genarg: &GenericArgKind) -> Option<VORval> {
+    pub fn convert_genarg(&self, genarg: &GenericArgKind) -> Option<Constraint> {
         match genarg {
             GenericArgKind::Type(ty) => Some(self.convert_ty(ty)),
             _ => None,
         }
     }
 
-    pub fn convert_ty(&self, ty: &Ty) -> VORval {
+    pub fn convert_ty(&self, ty: &Ty) -> Constraint {
         debug!("CONVERTING TY");
         debug!("ty: {:?}", ty);
 
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => VORval::Scalar(None),
-                RigidTy::Adt(def, genargs) => VORval::Adt(def, genargs), //self.convert_genargs(&genargs)),
+                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
+                    Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None)))
+                }
+                RigidTy::Adt(def, genargs) => {
+                    Constraint::ControlFlow(Box::new(ControlFlowConstraint::Adt(def, genargs)))
+                }
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {
                         unique_push(&mut inner, self.convert_ty(&ty));
                     }
-                    VORval::Idk(inner)
+                    Constraint::ControlFlow(Box::new(ControlFlowConstraint::Idk(Box::new(inner))))
                 }
                 RigidTy::Array(ty, _) | RigidTy::Slice(ty) => self.convert_ty(&ty),
-                RigidTy::Closure(def, genargs) => VORval::Closure(def, genargs),
-                RigidTy::FnDef(def, genargs) => VORval::FnDef(def, genargs),
+                RigidTy::Closure(def, genargs) => {
+                    Constraint::ControlFlow(Box::new(ControlFlowConstraint::Closure(def, genargs)))
+                }
+                RigidTy::FnDef(def, genargs) => {
+                    Constraint::ControlFlow(Box::new(ControlFlowConstraint::FnDef(def, genargs)))
+                }
                 RigidTy::FnPtr(poly_fn_sig) => {
                     debug!("poly_fn_sig: {:?}", poly_fn_sig);
                     if !poly_fn_sig.bound_vars.is_empty() {
@@ -262,11 +387,15 @@ impl RvalConverter {
                     for io in poly_fn_sig.value.inputs_and_output {
                         inputs_output_vorvals.push(self.convert_ty(&io));
                     }
-                    VORval::FnPtr(inputs_output_vorvals)
+                    Constraint::ControlFlow(Box::new(ControlFlowConstraint::FnPtr(Box::new(
+                        inputs_output_vorvals,
+                    ))))
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
                 RigidTy::RawPtr(ty, _mut) => self.convert_ty(&ty),
-                RigidTy::Str => VORval::Idk(vec![]),
+                RigidTy::Str => {
+                    Constraint::ControlFlow(Box::new(ControlFlowConstraint::Idk(Box::new(vec![]))))
+                }
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),
@@ -284,7 +413,7 @@ impl RvalConverter {
         debug!("BINOP");
         debug!("binop: {:?}", binop);
 
-        match binop {
+        let constraint = match binop {
             BinOp::Add | BinOp::AddUnchecked => {
                 self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x + y)
             }
@@ -327,8 +456,12 @@ impl RvalConverter {
             // This binop return Ord results
             BinOp::Cmp => todo!("impl cmp binop"),
             // TODO
-            BinOp::Offset => vec![],
-        }
+            BinOp::Offset => {
+                Constraint::ControlFlow(Box::new(ControlFlowConstraint::Idk(Box::new(vec![]))))
+            }
+        };
+
+        vec![constraint]
     }
 
     fn convert_binop_helper(
@@ -338,21 +471,20 @@ impl RvalConverter {
         op1: &Operand,
         op2: &Operand,
         f: fn(u128, u128) -> u128,
-    ) -> Constraints {
+    ) -> Constraint {
         let c_op1 = self.convert_op(istore, cur_scope, op1);
         let c_op2 = self.convert_op(istore, cur_scope, op2);
         if c_op1.len() != 1 || c_op2.len() != 1 {
-            return vec![VORval::Scalar(None)];
+            return Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None)));
         }
         match (c_op1[0].clone(), c_op2[0].clone()) {
-            (VORval::Scalar(Some(val1)), VORval::Scalar(Some(val2))) => {
-                vec![VORval::Scalar(Some(f(val1, val2)))]
-            }
-            (VORval::Scalar(_), VORval::Scalar(_)) => vec![VORval::Scalar(None)],
-            _ => {
-                debug!("unexpected vorvals for binop");
-                vec![VORval::Scalar(None)]
-            }
+            (
+                Constraint::ControlFlow(box ControlFlowConstraint::Scalar(Some(val1))),
+                Constraint::ControlFlow(box ControlFlowConstraint::Scalar(Some(val2))),
+            ) => Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(Some(f(
+                val1, val2,
+            ))))),
+            _ => Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None))),
         }
     }
 
@@ -363,12 +495,16 @@ impl RvalConverter {
         unop: &UnOp,
         op: &Operand,
     ) -> Constraints {
-        match unop {
+        let constraint = match unop {
             //UnOp::Neg => self.convert_unop_helper(istore, cur_scope, op, |x| -x),
             UnOp::Not => self.convert_unop_helper(istore, cur_scope, op, |x| !x),
-            UnOp::PtrMetadata => vec![],
+            UnOp::PtrMetadata => {
+                Constraint::ControlFlow(Box::new(ControlFlowConstraint::Idk(Box::new(vec![]))))
+            }
             _ => todo!("unimpl unop: {:?}", unop),
-        }
+        };
+
+        vec![constraint]
     }
 
     fn convert_unop_helper(
@@ -377,18 +513,16 @@ impl RvalConverter {
         cur_scope: &VOID,
         op: &Operand,
         f: fn(u128) -> u128,
-    ) -> Constraints {
+    ) -> Constraint {
         let c_op = self.convert_op(istore, cur_scope, op);
         if c_op.len() != 1 {
-            return vec![VORval::Scalar(None)];
+            return Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None)));
         }
         match c_op[0].clone() {
-            VORval::Scalar(Some(val)) => vec![VORval::Scalar(Some(f(val)))],
-            VORval::Scalar(_) => vec![VORval::Scalar(None)],
-            _ => {
-                debug!("unexpected vorvals for unop");
-                vec![VORval::Scalar(None)]
+            Constraint::ControlFlow(box ControlFlowConstraint::Scalar(Some(val))) => {
+                Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(Some(f(val)))))
             }
+            _ => Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None))),
         }
     }
 }

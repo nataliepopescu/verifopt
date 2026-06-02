@@ -9,6 +9,7 @@ use rustc_public::ty::{
 //use log::debug;
 use std::panic;
 
+use crate::TraitStore;
 use crate::common::log_mir;
 use crate::convert::RvalConverter;
 
@@ -72,14 +73,14 @@ impl SigStore {
     }
 }
 
-pub struct SigCollectPass {
-    pub converter: RvalConverter,
+pub struct SigCollectPass<'a> {
+    pub converter: RvalConverter<'a>,
 }
 
-impl SigCollectPass {
-    pub fn new() -> SigCollectPass {
+impl<'a> SigCollectPass<'a> {
+    pub fn new(tstore: &'a TraitStore) -> SigCollectPass<'a> {
         Self {
-            converter: RvalConverter::new(),
+            converter: RvalConverter::new(tstore),
         }
     }
 

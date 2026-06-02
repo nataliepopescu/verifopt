@@ -13,7 +13,9 @@ use log::debug;
 
 use crate::VOLogger;
 use crate::common::{is_wrapper_type, log_call_stack, log_mir, log_scope};
-use crate::constraints::{Constraints, InterpStore, MapKey, MapValue, Merge, VOID, VORval};
+use crate::constraints::{
+    Constraint, Constraints, ControlFlowConstraint, InterpStore, MapKey, MapValue, Merge, VOID,
+};
 use crate::constraints::{merge_stores, unique_append};
 use crate::convert::RvalConverter;
 use crate::error::Error;
@@ -24,7 +26,7 @@ use crate::wto::BBDeps;
 pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
-    pub converter: RvalConverter,
+    pub converter: RvalConverter<'a>,
 }
 
 impl<'a> InterpPass<'a> {
@@ -32,7 +34,7 @@ impl<'a> InterpPass<'a> {
         Self {
             sigstore,
             tstore,
-            converter: RvalConverter::new(),
+            converter: RvalConverter::new(tstore),
         }
     }
 
@@ -211,7 +213,7 @@ impl<'a> InterpPass<'a> {
                 debug!("rval: {:?}", rvalue);
                 //debug!("locals: {:?}", local_decls);
 
-                // convert MIR Rvalue to VORval
+                // convert MIR Rvalue to Constraint
                 let constraints = self.converter.convert(istore, cur_scope, rvalue);
                 debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
 
@@ -299,21 +301,27 @@ impl<'a> InterpPass<'a> {
                 MapValue::Constraints(constraints) => {
                     debug!("found constraints!: {:?}", constraints);
                     for constraint in &constraints {
-                        match self.interp_constraint_as_fn(
-                            logger,
-                            term_span,
-                            istore,
-                            call_stack,
-                            cur_scope,
-                            local_decls,
-                            &constraint,
-                            args,
-                        ) {
-                            Ok(Some(constraints)) => {
-                                unique_append(&mut ret_constraints, constraints)
-                            }
-                            Ok(None) => {}
-                            e @ Err(_) => panic!("interping constraint as fn, got error: {:?}", e),
+                        match constraint {
+                            Constraint::ControlFlow(box vorval) => match self
+                                .interp_constraint_as_fn(
+                                    logger,
+                                    term_span,
+                                    istore,
+                                    call_stack,
+                                    cur_scope,
+                                    local_decls,
+                                    &vorval,
+                                    args,
+                                ) {
+                                Ok(Some(constraints)) => {
+                                    unique_append(&mut ret_constraints, constraints)
+                                }
+                                Ok(None) => {}
+                                e @ Err(_) => {
+                                    panic!("interping constraint as fn, got error: {:?}", e)
+                                }
+                            },
+                            _ => panic!("got traitobj when expected fn-type thing"),
                         }
                     }
                 }
@@ -346,7 +354,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
-        constraint: &VORval,
+        constraint: &ControlFlowConstraint,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         match constraint {
@@ -390,7 +398,7 @@ impl<'a> InterpPass<'a> {
                 _ => todo!("other tykind"),
             },
             */
-            VORval::FnDef(fndef, genargs) => self.interp_fn_def(
+            ControlFlowConstraint::FnDef(fndef, genargs) => self.interp_fn_def(
                 logger,
                 term_span,
                 istore,
@@ -401,8 +409,8 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
-            VORval::FnPtr(_) => todo!("fnptr vorval: {:?}", constraint),
-            VORval::Closure(cdef, genargs) => self.interp_closure(
+            ControlFlowConstraint::FnPtr(_) => todo!("fnptr vorval: {:?}", constraint),
+            ControlFlowConstraint::Closure(cdef, genargs) => self.interp_closure(
                 logger,
                 term_span,
                 istore,
@@ -413,6 +421,7 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
+            /*
             VORval::Adt(_def, genargs) => {
                 // Search for fnptr in genargs
                 match self.any_fn_ptr(genargs) {
@@ -429,6 +438,7 @@ impl<'a> InterpPass<'a> {
                     None => todo!(),
                 }
             }
+            */
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
     }
@@ -1004,18 +1014,18 @@ impl<'a> InterpPass<'a> {
 
     fn get_fsa_constraint_defids(&self, tyconstraints: &Constraints) -> Vec<DefId> {
         let mut defids = Vec::new();
-        for vorval in tyconstraints {
-            unique_append(&mut defids, self.resolve_defid(vorval));
+        for constraint in tyconstraints {
+            unique_append(&mut defids, self.resolve_defid(constraint));
         }
         defids
     }
 
-    fn resolve_defid(&self, vorval: &VORval) -> Vec<DefId> {
-        match vorval {
-            VORval::Adt(adtdef, genargs) => {
+    fn resolve_defid(&self, constraint: &Constraint) -> Vec<DefId> {
+        match constraint {
+            Constraint::TraitObj((adtdef, genargs)) => {
                 // FIXME currently, brittle handling of box-wrapped objects
                 // but maybe want to generalize to, whatever ends up wrapping the traitobj
-                // constraints, get those constraints (would potentially require marking those 
+                // constraints, get those constraints (would potentially require marking those
                 // differently than other constraints)
                 if is_wrapper_type(&adtdef) {
                     //let genargs = genargs.clone().unwrap();
@@ -1034,14 +1044,14 @@ impl<'a> InterpPass<'a> {
                     vec![adtdef.0]
                 }
             }
-            VORval::Idk(inner_vec) => {
-                let mut defids = Vec::new();
-                for vorval in inner_vec {
-                    unique_append(&mut defids, self.resolve_defid(vorval));
-                }
-                defids
-            }
-            _ => panic!("other vorval: {:?}", vorval),
+            //VORval::Idk(inner_vec) => {
+            //    let mut defids = Vec::new();
+            //    for vorval in inner_vec {
+            //        unique_append(&mut defids, self.resolve_defid(vorval));
+            //    }
+            //    defids
+            //}
+            _ => panic!("expected traitobj constraint, got control flow"),
         }
     }
 
@@ -1199,7 +1209,7 @@ impl<'a> InterpPass<'a> {
         for constraint in constraints {
             debug!("setting bytemap for constraint: {:?}", constraint);
             match constraint {
-                VORval::Scalar(num_opt) => {
+                Constraint::ControlFlow(box ControlFlowConstraint::Scalar(num_opt)) => {
                     debug!("scalar discr val: {:?}", num_opt);
 
                     if let Some(num) = num_opt {

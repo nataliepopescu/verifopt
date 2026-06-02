@@ -42,23 +42,22 @@ pub enum MapValue {
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-pub type Constraints = Vec<VORval>;
+pub type Constraints = Vec<Constraint>;
 
 // Alias around VORval to make it semantically easier to tell when we are processing generic arguments
-pub type VOGenargs = Vec<VOGenarg>;
-pub type VOGenarg = VORval;
-
-// Preserving these int types for closure kind encoding
-//#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-//pub enum IntTy {
-//    I8,
-//    I16,
-//    I32,
-//    Other
-//}
+//pub type VOGenargs = Vec<VOGenarg>;
+//pub type VOGenarg = VORval;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum VORval {
+pub enum Constraint {
+    TraitObj(TraitObjConstraint),
+    ControlFlow(Box<ControlFlowConstraint>),
+}
+
+pub type TraitObjConstraint = (AdtDef, GenericArgs);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ControlFlowConstraint {
     // primitive data types
     Scalar(Option<u128>),
 
@@ -73,11 +72,11 @@ pub enum VORval {
     // function types
     Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, GenericArgs),
-    FnPtr(Vec<VORval>),
+    FnPtr(Box<Constraints>),
 
     // fallback types
     //IdkType(Ty),
-    Idk(Vec<VORval>),
+    Idk(Box<Constraints>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

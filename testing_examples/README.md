@@ -9,12 +9,12 @@
 - [x] generic
 - [x] one_variant
 - [x] rand_
-- [x] shims
+- [ ] shims
 - [x] switchint
 - [x] two_variants
 - [x] two_variants_rand
 - [x] two_variants_static
-- [ ] two_variants_static_nonzst
+- [x] two_variants_static_nonzst
 
 ### Analyze fully
 
@@ -35,4 +35,4 @@
 - [x] two_variants_rand
     - not really anything else to analyze b/c rand cannot be statically known...
 - [x] two_variants_static
-- [ ] two_variants_static_nonzst
+- [x] two_variants_static_nonzst

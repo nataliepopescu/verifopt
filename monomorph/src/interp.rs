@@ -1013,6 +1013,10 @@ impl<'a> InterpPass<'a> {
     fn resolve_defid(&self, vorval: &VORval) -> Vec<DefId> {
         match vorval {
             VORval::Adt(adtdef, genargs) => {
+                // FIXME currently, brittle handling of box-wrapped objects
+                // but maybe want to generalize to, whatever ends up wrapping the traitobj
+                // constraints, get those constraints (would potentially require marking those 
+                // differently than other constraints)
                 if is_wrapper_type(&adtdef) {
                     //let genargs = genargs.clone().unwrap();
                     //if genargs.is_none() {

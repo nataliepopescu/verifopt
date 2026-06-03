@@ -915,18 +915,10 @@ impl<'a> InterpPass<'a> {
 
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!("SET OF IMPLS DIFFER");
-            // Log this dynamic dispatch!
-            match logger.log_found(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa) {
-                e @ Err(_) => panic!("logging error: {:?}", e),
-                _ => {}
-            }
+            logger.update_diff(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         } else {
             debug!("SET OF IMPLS SAME");
-            // Log this dynamic dispatch :(
-            match logger.log_not_found(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa) {
-                e @ Err(_) => panic!("logging error: {:?}", e),
-                _ => {}
-            }
+            logger.update_same(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         }
 
         self.simulate_static_calls(

@@ -5,6 +5,7 @@ use rustc_public::ty::{AdtDef, ClosureDef, FnDef, GenericArgs};
 
 use crate::common::log_scope;
 use crate::error::Error;
+use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
 use log::debug;
@@ -48,13 +49,39 @@ pub type Constraints = Vec<Constraint>;
 //pub type VOGenargs = Vec<VOGenarg>;
 //pub type VOGenarg = VORval;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Constraint {
-    TraitObj(TraitObjConstraint),
-    ControlFlow(Box<ControlFlowConstraint>),
-}
+//#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+//pub enum Constraint {
+//    TraitObj(TraitObjConstraint),
+//    ControlFlow(Box<ControlFlowConstraint>),
+//}
+
+pub type Constraint = (Option<TraitObjConstraint>, Option<ControlFlowConstraint>);
 
 pub type TraitObjConstraint = (AdtDef, GenericArgs);
+
+/*
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub type VOFnSig {
+    pub bound_vars: Vec<>,
+    pub inputs: Vec<Ty>,
+    pub output: Ty,
+    pub c_variadic: bool,
+    pub safety: Safety,
+    //pub abi: Abi,
+}
+
+impl VOFnSig {
+    pub fn new_from_poly(sig: PolyFnSig) -> Self {
+        Self {
+            bound_vars: sig.bound_vars,
+            inputs: sig.inputs().as_vec(),
+            output: sig.output(),
+            c_variadic: sig.c_variadic,
+            safety: sig.safety,
+        }
+    }
+}
+*/
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ControlFlowConstraint {
@@ -72,7 +99,7 @@ pub enum ControlFlowConstraint {
     // function types
     Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, GenericArgs),
-    FnPtr(Box<Constraints>),
+    FnPtr(SigVal), //Box<Constraints>, FnSig),
 
     // fallback types
     //IdkType(Ty),

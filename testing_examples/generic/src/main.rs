@@ -1,3 +1,5 @@
+use std::hint::black_box;
+
 trait Shape {
     fn area(&self) -> f32;
 }
@@ -40,7 +42,8 @@ fn main() {
     noop();
     let res = foo(&r);
     noop();
+    black_box(res);
     //let res = foo(&c);
-    println!("res: {:?}", res);
+    //println!("res: {:?}", res);
 
 }

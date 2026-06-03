@@ -45,11 +45,13 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     let entry_instance = Instance::try_from(entry_fn).unwrap();
 
     // Collect trait metadata
+    debug!("\n\nTRAIT PASS");
     let mut tstore = TraitStore::new();
     let trait_collect = TraitCollectPass::new();
     trait_collect.run(&mut tstore);
 
     // Collect function signatures for indirect calls
+    debug!("\n\nSIG PASS");
     let mut sigstore = SigStore::new();
     let sig_collect = SigCollectPass::new(&tstore);
     sig_collect.run(&mut sigstore);

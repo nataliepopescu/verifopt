@@ -16,7 +16,7 @@
 - [x] two_variants_static
 - [x] two_variants_static_nonzst
 
-### Analyze fully
+### Analyze fully/correctly
 
 - [x] closures
 - [x] fnptrs
@@ -29,6 +29,8 @@
     - the candidate list of fns for the fnptr w the signature i32 -> i32 is too
       large, so we are currently falling back to return types
     - ideally we can narrow down this list a lot
+    - the actual `add_one` value is assigned in a static, which we do not yet
+      currently traverse
 - [x] switchint
 - [x] two_variants
     - not really anything else to analyze b/c input cannot be statically known...

@@ -302,17 +302,16 @@ impl<'a> InterpPass<'a> {
                     debug!("found constraints!: {:?}", constraints);
                     for constraint in &constraints {
                         match constraint {
-                            Constraint::ControlFlow(box vorval) => match self
-                                .interp_constraint_as_fn(
-                                    logger,
-                                    term_span,
-                                    istore,
-                                    call_stack,
-                                    cur_scope,
-                                    local_decls,
-                                    &vorval,
-                                    args,
-                                ) {
+                            (_, Some(cf)) => match self.interp_constraint_as_fn(
+                                logger,
+                                term_span,
+                                istore,
+                                call_stack,
+                                cur_scope,
+                                local_decls,
+                                &cf,
+                                args,
+                            ) {
                                 Ok(Some(constraints)) => {
                                     unique_append(&mut ret_constraints, constraints)
                                 }
@@ -409,7 +408,16 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
-            ControlFlowConstraint::FnPtr(_) => todo!("fnptr vorval: {:?}", constraint),
+            ControlFlowConstraint::FnPtr(sigval) => self.interp_fn_ptr(
+                logger,
+                term_span,
+                istore,
+                call_stack,
+                cur_scope,
+                local_decls,
+                sigval,
+                args,
+            ),
             ControlFlowConstraint::Closure(cdef, genargs) => self.interp_closure(
                 logger,
                 term_span,
@@ -468,11 +476,10 @@ impl<'a> InterpPass<'a> {
         _call_stack: &mut Vec<VOID>,
         _cur_scope: &VOID,
         _local_decls: &[LocalDecl],
-        sig: PolyFnSig,
+        sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("sig!: {:?}", sig);
-        let sigval = SigVal::new(&self.converter, &sig);
+        debug!("INTERPING FN PTR");
         debug!("sigval!: {:?}", sigval);
         match self.sigstore.sigs.get(&sigval) {
             Some(fndef_vec) => {
@@ -483,7 +490,7 @@ impl<'a> InterpPass<'a> {
                 // many possible fns to call, just fallback to retty
                 if fndef_vec.len() > 5 {
                     debug!("TOO MANY CANDIDATES - falling back to retty");
-                    self.retty_fallback(sig)
+                    self.retty_fallback_from_sigval(sigval)
                 // Otherwise, interpret the candidate functions
                 } else {
                     debug!("INTERPRET CANDIDATES");
@@ -518,7 +525,7 @@ impl<'a> InterpPass<'a> {
             None => {
                 debug!("sigval: {:?}", sigval);
                 debug!("no candidate fns to call, using retty fallback");
-                self.retty_fallback(sig)
+                self.retty_fallback_from_sigval(sigval)
             }
         }
     }
@@ -695,7 +702,7 @@ impl<'a> InterpPass<'a> {
             }
             InstanceKind::Intrinsic => {
                 debug!("intrinsic funccall");
-                self.retty_fallback(fndef.fn_sig())
+                self.retty_fallback_from_poly(fndef.fn_sig())
             }
         }
     }
@@ -730,7 +737,7 @@ impl<'a> InterpPass<'a> {
             self.visit_instance(logger, istore, call_stack, cur_scope)
         } else {
             debug!("no body, so not visiting/not updating call stack");
-            self.retty_fallback(fndef.fn_sig())
+            self.retty_fallback_from_poly(fndef.fn_sig())
         }
     }
 
@@ -853,12 +860,23 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn retty_fallback(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
+    fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
         debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());
 
-        // Return output type as VORval (widening)
+        // Return output type that matches type info (widening)
+        let ret_constraints = vec![];
+        Ok(Some(ret_constraints))
+    }
+
+    fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
+        debug!("sigval: {:?}", sigval);
+        if !sigval.bound_tys.is_empty() {
+            todo!();
+        }
+
+        // Return output type that matches type info (widening)
         let ret_constraints = vec![];
         Ok(Some(ret_constraints))
     }
@@ -1022,7 +1040,7 @@ impl<'a> InterpPass<'a> {
 
     fn resolve_defid(&self, constraint: &Constraint) -> Vec<DefId> {
         match constraint {
-            Constraint::TraitObj((adtdef, genargs)) => {
+            (Some((adtdef, genargs)), _) => {
                 // FIXME currently, brittle handling of box-wrapped objects
                 // but maybe want to generalize to, whatever ends up wrapping the traitobj
                 // constraints, get those constraints (would potentially require marking those
@@ -1209,7 +1227,7 @@ impl<'a> InterpPass<'a> {
         for constraint in constraints {
             debug!("setting bytemap for constraint: {:?}", constraint);
             match constraint {
-                Constraint::ControlFlow(box ControlFlowConstraint::Scalar(num_opt)) => {
+                (_, Some(ControlFlowConstraint::Scalar(num_opt))) => {
                     debug!("scalar discr val: {:?}", num_opt);
 
                     if let Some(num) = num_opt {

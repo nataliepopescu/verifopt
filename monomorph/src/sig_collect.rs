@@ -15,14 +15,14 @@ use crate::convert::RvalConverter;
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct SigVal {
-    inputs: Vec<Ty>,
-    output: Ty,
-    bound_tys: Vec<(DefId, String)>,
-    bound_regions: Vec<(DefId, String)>,
+    pub bound_tys: Vec<(DefId, String)>,
+    pub bound_regions: Vec<(DefId, String)>,
+    pub inputs: Vec<Ty>,
+    pub output: Ty,
 }
 
 impl SigVal {
-    pub fn new(_converter: &RvalConverter, sig: &PolyFnSig) -> SigVal {
+    pub fn new_from_poly(sig: &PolyFnSig) -> SigVal {
         let mut bound_tys = Vec::new();
         let mut bound_regions = Vec::new();
         if !sig.bound_vars.is_empty() {
@@ -52,10 +52,10 @@ impl SigVal {
         //debug!("BOUND_REGIONS: {:?}", bound_regions);
 
         Self {
-            inputs,
-            output,
             bound_tys,
             bound_regions,
+            inputs,
+            output,
         }
     }
 }
@@ -136,7 +136,7 @@ impl<'a> SigCollectPass<'a> {
     fn process_fndef(&self, sigstore: &mut SigStore, fndef: &FnDef) {
         let sig = fndef.fn_sig();
         //debug!("fndef: {:?}", fndef);
-        let sigval = SigVal::new(&self.converter, &sig);
+        let sigval = SigVal::new_from_poly(&sig);
         //debug!("sigval: {:?}", sigval);
         match sigstore.sigs.get_mut(&sigval) {
             Some(fn_vec) => {

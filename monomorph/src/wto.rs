@@ -77,6 +77,7 @@ pub struct BBDeps {
     pub preds: HashMap<usize, Vec<usize>>,
     pub ordering: Vec<usize>,
     pub visited: Vec<usize>,
+    pub has_ret: bool,
 }
 
 impl BBDeps {
@@ -86,6 +87,7 @@ impl BBDeps {
             preds: HashMap::default(),
             ordering: Vec::new(),
             visited: Vec::new(),
+            has_ret: false,
         };
 
         debug!("%%%%%");
@@ -148,7 +150,9 @@ impl BBDeps {
             .collect();
 
         if !ret_found {
-            panic!("no return block?");
+            debug!("no return block?");
+        } else {
+            bb_deps.has_ret = true;
         }
 
         // add return bb last

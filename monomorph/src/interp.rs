@@ -38,14 +38,22 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn check_call_stack(&self, call_stack: &Vec<VOID>, cur_scope: &VOID) {
+    fn check_call_stack(&self, call_stack: &Vec<VOID>, scope: &VOID) {
         let last_item = call_stack[call_stack.len() - 1].clone();
-        if *cur_scope != last_item {
-            debug!("cur_scope: {:?}", cur_scope.0.name());
+        if *scope != last_item {
+            debug!("scope: {:?}", scope.0.name());
             debug!("last call_stack item: {:?}", last_item);
             log_call_stack(call_stack);
-            panic!("call stack out of sorts (cur_scope does not match last call_stack elem)");
+            panic!("call stack out of sorts (scope does not match last call_stack elem)");
         }
+    }
+
+    fn prepare_call(&self, call_stack: &mut Vec<VOID>, new_scope: &VOID) {
+        call_stack.push(new_scope.clone());
+    }
+
+    fn prepare_return(&self, call_stack: &mut Vec<VOID>) -> Option<VOID> {
+        call_stack.pop()
     }
 
     pub fn run(
@@ -81,7 +89,7 @@ impl<'a> InterpPass<'a> {
             cur_scope.0.name()
         );
         log_call_stack(call_stack);
-        //log_mir(&body);
+        log_mir(&body);
         debug!("#############################\n\n");
 
         self.check_call_stack(call_stack, cur_scope);
@@ -101,9 +109,23 @@ impl<'a> InterpPass<'a> {
         let mut bb_deps;
         if let Some(mem_bb_deps) = istore.wtos.get(cur_scope) {
             bb_deps = mem_bb_deps.clone();
+            if !bb_deps.has_ret {
+                debug!(
+                    "RETURNING, this block does not explicitly return - likely a panicker thus we can skip"
+                );
+                self.prepare_return(call_stack);
+                return Ok(None);
+            }
             debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
+            if !bb_deps.has_ret {
+                debug!(
+                    "RETURNING, this block does not explicitly return - likely a panicker thus we can skip"
+                );
+                self.prepare_return(call_stack);
+                return Ok(None);
+            }
             istore.wtos.insert(cur_scope.clone(), bb_deps.clone());
             debug!("NEW ordering: {:?}", bb_deps.ordering);
         }
@@ -163,20 +185,22 @@ impl<'a> InterpPass<'a> {
         let num_stmts = data.statements.len();
         for (i, stmt) in data.statements.iter().enumerate() {
             debug!(
-                "\n\n# visiting STATEMENT {:?} ({:?}/{:?}) in BB{:?} for {:?}",
+                "\n\n# visiting STATEMENT {:?} ({:?}/{:?}) in BB{:?} for {:?}\n\nSPAN: {:?}",
                 i,
                 i + 1,
                 num_stmts,
                 bb,
-                cur_scope.0.name()
+                cur_scope.0.name(),
+                stmt.span,
             );
             self.visit_statement(istore, cur_scope, local_decls, stmt);
         }
 
         debug!(
-            "\n\n# visiting TERMINATOR in BB{:?} for {:?}",
+            "\n\n# visiting TERMINATOR in BB{:?} for {:?}\n\nSPAN: {:?}",
             bb,
-            cur_scope.0.name()
+            cur_scope.0.name(),
+            &data.terminator.span,
         );
 
         let res = self.visit_terminator(
@@ -555,12 +579,9 @@ impl<'a> InterpPass<'a> {
             debug!("closure body..");
             log_mir(&body);
 
-            // FIXME may not need to clone if only one thing to interpret?
-            //let mut istore_clone = istore.clone();
             let new_scope = (instance, genargs.clone());
-            call_stack.push(new_scope.clone());
+            self.prepare_call(call_stack, &new_scope);
             self.resolve_args(
-                //&mut istore_clone,
                 istore,
                 cur_scope,
                 local_decls,
@@ -569,7 +590,6 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 true,
             );
-            //self.visit_instance(logger, &mut istore_clone, call_stack, &new_scope)
             self.visit_instance(logger, istore, call_stack, &new_scope)
         } else {
             todo!("closure has no body");
@@ -721,10 +741,8 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         debug!("INTERP STATIC CALL");
         if cur_scope.0.has_body() {
-            //let mut istore_clone = istore.clone();
-            call_stack.push(cur_scope.clone());
+            self.prepare_call(call_stack, cur_scope);
             self.resolve_args(
-                //&mut istore_clone,
                 istore,
                 caller_scope,
                 local_decls,
@@ -733,7 +751,6 @@ impl<'a> InterpPass<'a> {
                 genargs,
                 false,
             );
-            //self.visit_instance(logger, &mut istore_clone, call_stack, cur_scope)
             self.visit_instance(logger, istore, call_stack, cur_scope)
         } else {
             debug!("no body, so not visiting/not updating call stack");
@@ -1088,8 +1105,7 @@ impl<'a> InterpPass<'a> {
             let mut istore_clone = istore.clone();
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (instance, genargs.clone());
-            call_stack_clone.push(callee_scope.clone());
-
+            self.prepare_call(&mut call_stack_clone, &callee_scope);
             self.resolve_args(
                 &mut istore_clone,
                 cur_scope,
@@ -1310,9 +1326,9 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
-        let popped = call_stack.pop();
-        if popped.clone().unwrap() != *cur_scope {
-            debug!("\npopped: {:?}", popped.unwrap().0.name());
+        let old_scope = self.prepare_return(call_stack);
+        if old_scope.clone().unwrap() != *cur_scope {
+            debug!("\nold_scope: {:?}", old_scope.unwrap().0.name());
             debug!("cur_scope: {:?}", cur_scope.0.name());
             log_call_stack(call_stack);
             panic!("call stack out of sorts");

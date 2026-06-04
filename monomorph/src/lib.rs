@@ -41,7 +41,12 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     let nf_filename = "notfound_ex";
     let mut logger = VOLogger::new(f_filename, nf_filename);
 
-    let entry_fn = rustc_public::entry_fn().unwrap();
+    let entry_fn_opt = rustc_public::entry_fn();
+    if entry_fn_opt.is_none() {
+        panic!("no entry function");
+    }
+
+    let entry_fn = entry_fn_opt.unwrap();
     let entry_instance = Instance::try_from(entry_fn).unwrap();
 
     // Collect trait metadata

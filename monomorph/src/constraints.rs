@@ -55,6 +55,8 @@ pub type Constraints = Vec<Constraint>;
 //    ControlFlow(Box<ControlFlowConstraint>),
 //}
 
+// Maybe organize TraitObjConstraints by trait..? Like if we have two potentially obfuscating
+// dynamic calls (one for Option and one for inner TraitObj)
 pub type Constraint = (Option<TraitObjConstraint>, Option<ControlFlowConstraint>);
 
 pub type TraitObjConstraint = (AdtDef, GenericArgs);

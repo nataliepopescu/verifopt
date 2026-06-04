@@ -236,6 +236,8 @@ impl<'a> RvalConverter<'a> {
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
                 debug!("ADT agg");
+                debug!("ty: {:?}", def.ty_with_args(genargs));
+
                 if let Some(c_genargs) = self.convert_genargs(genargs) {
                     let to = self.contains_traitobj(def, &c_genargs);
                     let cf = self.contains_controlflow(def, &c_genargs);

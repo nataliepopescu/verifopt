@@ -478,6 +478,7 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /*
     fn any_fn_ptr(&self, genargs: &GenericArgs) -> Option<PolyFnSig> {
         for genarg in &genargs.0 {
             match genarg {
@@ -494,6 +495,7 @@ impl<'a> InterpPass<'a> {
 
         None
     }
+    */
 
     fn interp_fn_ptr(
         &self,
@@ -638,6 +640,19 @@ impl<'a> InterpPass<'a> {
                     &genargs,
                     args,
                 ),
+                RigidTy::FnPtr(poly_sig) => {
+                    let sigval = SigVal::new_from_poly(&poly_sig);
+                    self.interp_fn_ptr(
+                        logger,
+                        term_span,
+                        istore,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        &sigval,
+                        args,
+                    )
+                }
                 other @ _ => todo!("different RigidTy: {:?}", other),
             },
             kind @ _ => todo!("funccall const is another kind: {:?}", kind),

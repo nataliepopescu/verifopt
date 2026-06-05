@@ -683,6 +683,7 @@ impl<'a> InterpPass<'a> {
 
         if call_stack.contains(&new_scope) {
             debug!("recursive call!");
+            return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
         match instance.kind {
@@ -1291,19 +1292,40 @@ impl<'a> InterpPass<'a> {
         targets: &Successors,
         discr_vals: &mut [u8],
     ) {
-        let prunable = self.get_prunable_targets(discr_vals);
-
+        let prunable_indices_opt = self.get_prunable_indices(discr_vals);
         debug!("all targets: {:?}", targets);
-        debug!("prunable: {:?}", prunable);
+        debug!("prunable indices: {:?}", prunable_indices_opt);
 
-        if let Some(prune_idxs) = prunable {
-            for prune_idx in prune_idxs {
-                bb_deps.prune(bb, targets[prune_idx]);
+        if let Some(prunable_indices) = prunable_indices_opt {
+            // Some prunable items point to bbs that are also pointed to by non-prunable items,
+            // so need to check that prunable bbs are ONLY pointed to by prunable items
+            let mut keep_targets = Vec::new();
+            let mut prunable_targets = Vec::new();
+
+            // First collect all targets to keep
+            for (i, target) in targets.iter().enumerate() {
+                if !prunable_indices.contains(&i) {
+                    keep_targets.push(target.clone());
+                }
+            }
+
+            // Then collect all targets we might be able to prune
+            for prune_idx in prunable_indices {
+                prunable_targets.push(targets[prune_idx]);
+            }
+
+            // Finally, prune all targets that are _not_ in the list of targets to keep
+            for prunable_target in prunable_targets {
+                if keep_targets.contains(&prunable_target) {
+                    debug!("...cannot prune target {:?}", prunable_target);
+                    continue;
+                }
+                bb_deps.prune(bb, prunable_target);
             }
         }
     }
 
-    fn get_prunable_targets(&self, discr_vals: &mut [u8]) -> Option<Vec<usize>> {
+    fn get_prunable_indices(&self, discr_vals: &mut [u8]) -> Option<Vec<usize>> {
         // If the last value (otherwise branch) is > 0, cannot prune anything
         if discr_vals[discr_vals.len() - 1] > 0 {
             return None;

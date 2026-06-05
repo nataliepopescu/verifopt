@@ -8,6 +8,6 @@ fn factorial(n: u32) -> u32 {
 }
 
 fn main() {
-    let num = 5;
+    let num = 1;
     black_box(factorial(num));
 }

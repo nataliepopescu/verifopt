@@ -68,7 +68,7 @@ pub type TraitObjConstraint = (AdtDef, GenericArgs);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ControlFlowConstraint {
     // primitive data types
-    Scalar(Option<u128>),
+    Scalar(Option<i128>),
 
     // more complex data types
     Adt(AdtDef, GenericArgs), //Option<VOGenargs>),

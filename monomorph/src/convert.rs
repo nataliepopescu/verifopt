@@ -93,7 +93,7 @@ impl<'a> RvalConverter<'a> {
 
     pub fn convert_const(&self, const_op: &ConstOperand) -> Constraints {
         match const_op.const_.kind() {
-            ConstantKind::Allocated(alloc) => match alloc.read_uint() {
+            ConstantKind::Allocated(alloc) => match alloc.read_int() {
                 // FIXME
                 Ok(val) => {
                     debug!("ALLOC CONST");
@@ -414,53 +414,68 @@ impl<'a> RvalConverter<'a> {
         debug!("BINOP");
         debug!("binop: {:?}", binop);
 
-        let constraint = match binop {
-            BinOp::Add | BinOp::AddUnchecked => {
-                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x + y)
-            }
-            BinOp::Sub | BinOp::SubUnchecked => {
-                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x - y)
-            }
-            BinOp::Mul | BinOp::MulUnchecked => {
-                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x * y)
-            }
-            BinOp::Div => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x / y),
-            BinOp::Rem => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x % y),
-            BinOp::Eq => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                if x == y { 1u128 } else { 0u128 }
-            }),
-            BinOp::Lt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                if x < y { 1u128 } else { 0u128 }
-            }),
-            BinOp::Le => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                if x <= y { 1u128 } else { 0u128 }
-            }),
-            BinOp::Ne => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                if x != y { 1u128 } else { 0u128 }
-            }),
-            BinOp::Ge => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                if x >= y { 1u128 } else { 0u128 }
-            }),
-            BinOp::Gt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                if x > y { 1u128 } else { 0u128 }
-            }),
-            // bit-level binops
-            BinOp::Shl | BinOp::ShlUnchecked => {
-                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x << y)
-            }
-            BinOp::Shr | BinOp::ShrUnchecked => {
-                self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x >> y)
-            }
-            BinOp::BitAnd => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x & y),
-            BinOp::BitOr => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x | y),
-            BinOp::BitXor => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x ^ y),
-            // This binop return Ord results
-            BinOp::Cmp => todo!("impl cmp binop"),
-            // TODO
-            BinOp::Offset => {
-                Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
-            }
-        };
+        let constraint =
+            match binop {
+                BinOp::Add | BinOp::AddUnchecked => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x + y)
+                }
+                BinOp::Sub | BinOp::SubUnchecked => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x - y)
+                }
+                BinOp::Mul | BinOp::MulUnchecked => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x * y)
+                }
+                BinOp::Div => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x / y),
+                BinOp::Rem => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x % y),
+                BinOp::Eq => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                    if x == y { 1 } else { 0 }
+                }),
+                BinOp::Lt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                    if x < y { 1 } else { 0 }
+                }),
+                BinOp::Le => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                    if x <= y { 1 } else { 0 }
+                }),
+                BinOp::Ne => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                    if x != y { 1 } else { 0 }
+                }),
+                BinOp::Ge => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                    if x >= y { 1 } else { 0 }
+                }),
+                BinOp::Gt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                    if x > y { 1 } else { 0 }
+                }),
+                // bit-level binops
+                BinOp::Shl | BinOp::ShlUnchecked => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x << y)
+                }
+                BinOp::Shr | BinOp::ShrUnchecked => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x >> y)
+                }
+                BinOp::BitAnd => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x & y)
+                }
+                BinOp::BitOr => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x | y)
+                }
+                BinOp::BitXor => {
+                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x ^ y)
+                }
+                // This binop return Ord results
+                BinOp::Cmp => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
+                    if x < y {
+                        -1
+                    } else if x > y {
+                        1
+                    } else {
+                        0
+                    }
+                }),
+                // TODO
+                BinOp::Offset => {
+                    Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
+                }
+            };
 
         vec![constraint]
     }
@@ -471,7 +486,7 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         op1: &Operand,
         op2: &Operand,
-        f: fn(u128, u128) -> u128,
+        f: fn(i128, i128) -> i128,
     ) -> Constraint {
         let c_op1 = self.convert_op(istore, cur_scope, op1);
         let c_op2 = self.convert_op(istore, cur_scope, op2);
@@ -542,12 +557,11 @@ impl<'a> RvalConverter<'a> {
         op: &Operand,
     ) -> Constraints {
         let constraint = match unop {
-            //UnOp::Neg => self.convert_unop_helper(istore, cur_scope, op, |x| -x),
+            UnOp::Neg => self.convert_unop_helper(istore, cur_scope, op, |x| -x),
             UnOp::Not => self.convert_unop_helper(istore, cur_scope, op, |x| !x),
             UnOp::PtrMetadata => {
                 Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
             }
-            _ => todo!("unimpl unop: {:?}", unop),
         };
 
         vec![constraint]
@@ -558,7 +572,7 @@ impl<'a> RvalConverter<'a> {
         istore: &InterpStore,
         cur_scope: &VOID,
         op: &Operand,
-        f: fn(u128) -> u128,
+        f: fn(i128) -> i128,
     ) -> Constraint {
         let c_op = self.convert_op(istore, cur_scope, op);
         if c_op.len() != 1 {
@@ -571,8 +585,7 @@ impl<'a> RvalConverter<'a> {
             } => Constraint::new(to, Some(ControlFlowConstraint::Scalar(Some(f(val))))),
             Constraint { toc: to, cfc: _ } => {
                 Constraint::new(to, Some(ControlFlowConstraint::Scalar(None)))
-            }
-            //_ => Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None))),
+            } //_ => Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None))),
         }
     }
 }

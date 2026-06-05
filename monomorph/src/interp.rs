@@ -1258,7 +1258,7 @@ impl<'a> InterpPass<'a> {
                         // Increment matching branch counters
                         let mut set = false;
                         for (i, (val, _bb)) in targets.branches().enumerate() {
-                            if *num == val {
+                            if *num == val.try_into().unwrap() {
                                 discr_vals[usize::try_from(i).unwrap()] += 1;
                                 set = true;
                             }

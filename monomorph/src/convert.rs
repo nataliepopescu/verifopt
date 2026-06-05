@@ -101,7 +101,10 @@ impl<'a> RvalConverter<'a> {
                     match const_op.const_.ty().kind() {
                         TyKind::RigidTy(rigidty) => match rigidty {
                             RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
-                                vec![(None, Some(ControlFlowConstraint::Scalar(Some(val))))]
+                                vec![Constraint::new(
+                                    None,
+                                    Some(ControlFlowConstraint::Scalar(Some(val))),
+                                )]
                             }
                             _ => vec![],
                         },
@@ -177,11 +180,14 @@ impl<'a> RvalConverter<'a> {
         let mut to = None;
         for genarg in genargs {
             match genarg {
-                (Some(to_), _) => {
+                Constraint { toc: Some(to_), .. } => {
                     to = Some(to_.clone());
                     break;
                 }
-                (None, Some(maybe_to)) => match maybe_to {
+                Constraint {
+                    toc: None,
+                    cfc: Some(maybe_to),
+                } => match maybe_to {
                     ControlFlowConstraint::Adt(adtdef, adt_genargs) => {
                         match self.tstore.struct_traits.get(&adtdef.0) {
                             Some(_) => {
@@ -217,7 +223,10 @@ impl<'a> RvalConverter<'a> {
         let mut cf = None;
         for genarg in genargs {
             match genarg {
-                (_, Some(cf_)) => {
+                Constraint {
+                    toc: _,
+                    cfc: Some(cf_),
+                } => {
                     cf = Some(cf_.clone());
                     break;
                 }
@@ -264,7 +273,7 @@ impl<'a> RvalConverter<'a> {
                     let cf = self.contains_controlflow(def, &c_genargs);
 
                     if to.is_some() || cf.is_some() {
-                        return vec![(to, cf)];
+                        return vec![Constraint::new(to, cf)];
                     }
                 }
 
@@ -300,7 +309,7 @@ impl<'a> RvalConverter<'a> {
             }
             AggregateKind::Closure(def, genargs) => {
                 debug!("closure agg");
-                vec![(
+                vec![Constraint::new(
                     None,
                     Some(ControlFlowConstraint::Closure(*def, genargs.clone())),
                 )]
@@ -345,24 +354,24 @@ impl<'a> RvalConverter<'a> {
             TyKind::RigidTy(rigidty) => match rigidty {
                 // FIXME want to create any TraitObjConstraints here?
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
-                    (None, Some(ControlFlowConstraint::Scalar(None)))
+                    Constraint::new(None, Some(ControlFlowConstraint::Scalar(None)))
                 }
                 RigidTy::Adt(def, genargs) => {
-                    (None, Some(ControlFlowConstraint::Adt(def, genargs)))
+                    Constraint::new(None, Some(ControlFlowConstraint::Adt(def, genargs)))
                 }
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     for ty in ty_vec {
                         unique_push(&mut inner, self.convert_ty(&ty));
                     }
-                    (None, Some(ControlFlowConstraint::Idk(Box::new(inner))))
+                    Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(inner))))
                 }
                 RigidTy::Array(ty, _) | RigidTy::Slice(ty) => self.convert_ty(&ty),
                 RigidTy::Closure(def, genargs) => {
-                    (None, Some(ControlFlowConstraint::Closure(def, genargs)))
+                    Constraint::new(None, Some(ControlFlowConstraint::Closure(def, genargs)))
                 }
                 RigidTy::FnDef(def, genargs) => {
-                    (None, Some(ControlFlowConstraint::FnDef(def, genargs)))
+                    Constraint::new(None, Some(ControlFlowConstraint::FnDef(def, genargs)))
                 }
                 RigidTy::FnPtr(poly_fn_sig) => {
                     debug!("CONVERTING FN PTR");
@@ -383,11 +392,11 @@ impl<'a> RvalConverter<'a> {
                     //    inputs_output_vorvals.push(self.convert_ty(&io));
                     //}
 
-                    (None, Some(ControlFlowConstraint::FnPtr(sigval)))
+                    Constraint::new(None, Some(ControlFlowConstraint::FnPtr(sigval)))
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
                 RigidTy::RawPtr(ty, _mut) => self.convert_ty(&ty),
-                RigidTy::Char | RigidTy::Str | RigidTy::Never => (None, None),
+                RigidTy::Char | RigidTy::Str | RigidTy::Never => Constraint::new(None, None),
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),
@@ -448,7 +457,9 @@ impl<'a> RvalConverter<'a> {
             // This binop return Ord results
             BinOp::Cmp => todo!("impl cmp binop"),
             // TODO
-            BinOp::Offset => (None, Some(ControlFlowConstraint::Idk(Box::new(vec![])))),
+            BinOp::Offset => {
+                Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
+            }
         };
 
         vec![constraint]
@@ -465,27 +476,51 @@ impl<'a> RvalConverter<'a> {
         let c_op1 = self.convert_op(istore, cur_scope, op1);
         let c_op2 = self.convert_op(istore, cur_scope, op2);
         if c_op1.len() != 1 || c_op2.len() != 1 {
-            return (None, Some(ControlFlowConstraint::Scalar(None)));
+            return Constraint::new(None, Some(ControlFlowConstraint::Scalar(None)));
         }
         match (c_op1[0].clone(), c_op2[0].clone()) {
             (
-                (None, Some(ControlFlowConstraint::Scalar(Some(val1)))),
-                (None, Some(ControlFlowConstraint::Scalar(Some(val2)))),
-            ) => (
+                Constraint {
+                    toc: None,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(val1))),
+                },
+                Constraint {
+                    toc: None,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(val2))),
+                },
+            ) => Constraint::new(
                 None,
                 Some(ControlFlowConstraint::Scalar(Some(f(val1, val2)))),
             ),
             (
-                (None, Some(ControlFlowConstraint::Scalar(Some(val1)))),
-                (to, Some(ControlFlowConstraint::Scalar(Some(val2)))),
-            ) => (to, Some(ControlFlowConstraint::Scalar(Some(f(val1, val2))))),
+                Constraint {
+                    toc: None,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(val1))),
+                },
+                Constraint {
+                    toc: to,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(val2))),
+                },
+            ) => Constraint::new(to, Some(ControlFlowConstraint::Scalar(Some(f(val1, val2))))),
             (
-                (to, Some(ControlFlowConstraint::Scalar(Some(val1)))),
-                (None, Some(ControlFlowConstraint::Scalar(Some(val2)))),
-            ) => (to, Some(ControlFlowConstraint::Scalar(Some(f(val1, val2))))),
+                Constraint {
+                    toc: to,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(val1))),
+                },
+                Constraint {
+                    toc: None,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(val2))),
+                },
+            ) => Constraint::new(to, Some(ControlFlowConstraint::Scalar(Some(f(val1, val2))))),
             (
-                (_to1, Some(ControlFlowConstraint::Scalar(Some(_val1)))),
-                (_to2, Some(ControlFlowConstraint::Scalar(Some(_val2)))),
+                Constraint {
+                    toc: _to1,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(_val1))),
+                },
+                Constraint {
+                    toc: _to2,
+                    cfc: Some(ControlFlowConstraint::Scalar(Some(_val2))),
+                },
             ) => {
                 todo!();
                 //(to, Some(ControlFlowConstraint::Scalar(Some(f(
@@ -494,7 +529,7 @@ impl<'a> RvalConverter<'a> {
             }
             other @ _ => {
                 debug!("BINOP HELPER OTHER: {:?}", other);
-                (None, Some(ControlFlowConstraint::Scalar(None)))
+                Constraint::new(None, Some(ControlFlowConstraint::Scalar(None)))
             }
         }
     }
@@ -509,7 +544,9 @@ impl<'a> RvalConverter<'a> {
         let constraint = match unop {
             //UnOp::Neg => self.convert_unop_helper(istore, cur_scope, op, |x| -x),
             UnOp::Not => self.convert_unop_helper(istore, cur_scope, op, |x| !x),
-            UnOp::PtrMetadata => (None, Some(ControlFlowConstraint::Idk(Box::new(vec![])))),
+            UnOp::PtrMetadata => {
+                Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
+            }
             _ => todo!("unimpl unop: {:?}", unop),
         };
 
@@ -525,13 +562,16 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraint {
         let c_op = self.convert_op(istore, cur_scope, op);
         if c_op.len() != 1 {
-            return (None, Some(ControlFlowConstraint::Scalar(None)));
+            return Constraint::new(None, Some(ControlFlowConstraint::Scalar(None)));
         }
         match c_op[0].clone() {
-            (to, Some(ControlFlowConstraint::Scalar(Some(val)))) => {
-                (to, Some(ControlFlowConstraint::Scalar(Some(f(val)))))
+            Constraint {
+                toc: to,
+                cfc: Some(ControlFlowConstraint::Scalar(Some(val))),
+            } => Constraint::new(to, Some(ControlFlowConstraint::Scalar(Some(f(val))))),
+            Constraint { toc: to, cfc: _ } => {
+                Constraint::new(to, Some(ControlFlowConstraint::Scalar(None)))
             }
-            (to, _) => (to, Some(ControlFlowConstraint::Scalar(None))),
             //_ => Constraint::ControlFlow(Box::new(ControlFlowConstraint::Scalar(None))),
         }
     }

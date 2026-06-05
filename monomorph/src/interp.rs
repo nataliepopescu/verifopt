@@ -326,7 +326,10 @@ impl<'a> InterpPass<'a> {
                     debug!("found constraints!: {:?}", constraints);
                     for constraint in &constraints {
                         match constraint {
-                            (_, Some(cf)) => match self.interp_constraint_as_fn(
+                            Constraint {
+                                toc: _,
+                                cfc: Some(cf),
+                            } => match self.interp_constraint_as_fn(
                                 logger,
                                 term_span,
                                 istore,
@@ -1054,7 +1057,10 @@ impl<'a> InterpPass<'a> {
 
     fn resolve_defid(&self, constraint: &Constraint) -> Vec<DefId> {
         match constraint {
-            (Some((adtdef, genargs)), _) => {
+            Constraint {
+                toc: Some((adtdef, genargs)),
+                cfc: _,
+            } => {
                 // FIXME currently, brittle handling of box-wrapped objects
                 // but maybe want to generalize to, whatever ends up wrapping the traitobj
                 // constraints, get those constraints (would potentially require marking those
@@ -1241,7 +1247,10 @@ impl<'a> InterpPass<'a> {
         for constraint in constraints {
             debug!("setting bytemap for constraint: {:?}", constraint);
             match constraint {
-                (_, Some(ControlFlowConstraint::Scalar(num_opt))) => {
+                Constraint {
+                    toc: _,
+                    cfc: Some(ControlFlowConstraint::Scalar(num_opt)),
+                } => {
                     debug!("scalar discr val: {:?}", num_opt);
 
                     if let Some(num) = num_opt {

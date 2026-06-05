@@ -51,7 +51,17 @@ pub type Constraints = Vec<Constraint>;
 
 // Maybe organize TraitObjConstraints by trait..? Like if we have two potentially obfuscating
 // dynamic calls (one for Option and one for inner TraitObj)
-pub type Constraint = (Option<TraitObjConstraint>, Option<ControlFlowConstraint>);
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Constraint {
+    pub toc: Option<TraitObjConstraint>,
+    pub cfc: Option<ControlFlowConstraint>,
+}
+
+impl Constraint {
+    pub fn new(toc: Option<TraitObjConstraint>, cfc: Option<ControlFlowConstraint>) -> Constraint {
+        Self { toc, cfc }
+    }
+}
 
 pub type TraitObjConstraint = (AdtDef, GenericArgs);
 
@@ -296,6 +306,8 @@ impl Merge<InterpStore> for Vec<InterpStore> {
                 }
             }
         }
+
+        debug!("merged stores: {:?}", merged);
 
         Ok(Some(merged))
     }

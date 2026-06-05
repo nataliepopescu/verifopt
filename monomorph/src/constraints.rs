@@ -49,41 +49,11 @@ pub type Constraints = Vec<Constraint>;
 //pub type VOGenargs = Vec<VOGenarg>;
 //pub type VOGenarg = VORval;
 
-//#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-//pub enum Constraint {
-//    TraitObj(TraitObjConstraint),
-//    ControlFlow(Box<ControlFlowConstraint>),
-//}
-
 // Maybe organize TraitObjConstraints by trait..? Like if we have two potentially obfuscating
 // dynamic calls (one for Option and one for inner TraitObj)
 pub type Constraint = (Option<TraitObjConstraint>, Option<ControlFlowConstraint>);
 
 pub type TraitObjConstraint = (AdtDef, GenericArgs);
-
-/*
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub type VOFnSig {
-    pub bound_vars: Vec<>,
-    pub inputs: Vec<Ty>,
-    pub output: Ty,
-    pub c_variadic: bool,
-    pub safety: Safety,
-    //pub abi: Abi,
-}
-
-impl VOFnSig {
-    pub fn new_from_poly(sig: PolyFnSig) -> Self {
-        Self {
-            bound_vars: sig.bound_vars,
-            inputs: sig.inputs().as_vec(),
-            output: sig.output(),
-            c_variadic: sig.c_variadic,
-            safety: sig.safety,
-        }
-    }
-}
-*/
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ControlFlowConstraint {

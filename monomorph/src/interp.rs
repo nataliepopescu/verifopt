@@ -89,7 +89,7 @@ impl<'a> InterpPass<'a> {
             cur_scope.0.name()
         );
         log_call_stack(call_stack);
-        log_mir(&body);
+        //log_mir(&body);
         debug!("#############################\n\n");
 
         self.check_call_stack(call_stack, cur_scope);
@@ -677,6 +677,11 @@ impl<'a> InterpPass<'a> {
         debug!("instance def: {:?}", instance.def);
         debug!("--- CALLING {:?}", fndef);
         log_scope(cur_scope);
+
+        if call_stack.contains(&new_scope) {
+            debug!("recursive call!");
+        }
+
         match instance.kind {
             InstanceKind::Item => {
                 debug!("regular static funccall");
@@ -1228,6 +1233,7 @@ impl<'a> InterpPass<'a> {
             for (i, _) in targets.branches().enumerate() {
                 discr_vals[usize::try_from(i).unwrap()] += 1;
             }
+            discr_vals[discr_vals.len() - 1] += 1;
             return;
         }
 

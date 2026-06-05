@@ -70,6 +70,10 @@ impl<'a> RvalConverter<'a> {
                 debug!("CHECKED BINOP");
                 self.convert_binop(istore, cur_scope, binop, op1, op2)
             }
+            Rvalue::Repeat(op, _tyconst) => {
+                debug!("REPEAT");
+                self.convert_op(istore, cur_scope, op)
+            }
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
@@ -226,6 +230,23 @@ impl<'a> RvalConverter<'a> {
         cf
     }
 
+    /*
+    fn convert_repeat(
+        &self,
+        istore: &InterpStore,
+        cur_scope: &VOID,
+        op: &Operand,
+    ) -> Constraints {
+        match op {
+            Operand::Copy(place) | Operand::Move(place) => {
+                self.convert_place(istore, cur_scope, place)
+            }
+            Operand::Constant(const_op) => self.convert_const(&const_op),
+            _ => todo!("runtime checks"),
+        }
+    }
+    */
+
     fn convert_agg(
         &self,
         istore: &InterpStore,
@@ -366,7 +387,7 @@ impl<'a> RvalConverter<'a> {
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(&ty),
                 RigidTy::RawPtr(ty, _mut) => self.convert_ty(&ty),
-                RigidTy::Str => (None, Some(ControlFlowConstraint::Idk(Box::new(vec![])))),
+                RigidTy::Char | RigidTy::Str | RigidTy::Never => (None, None),
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),

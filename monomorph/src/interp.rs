@@ -6,7 +6,7 @@ use rustc_public::mir::{
 };
 use rustc_public::ty::{
     BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
-    PolyFnSig, RigidTy, Span, TyKind,
+    PolyFnSig, RigidTy, Span, Ty, TyKind,
 };
 
 use log::debug;
@@ -14,7 +14,8 @@ use log::debug;
 use crate::VOLogger;
 use crate::common::{is_wrapper_type, log_call_stack, log_mir, log_scope};
 use crate::constraints::{
-    Constraint, Constraints, ControlFlowConstraint, InterpStore, MapKey, MapValue, Merge, VOID,
+    Constraint, Constraints, ControlFlowConstraint, InterpStore, MapKey, MapValue, Merge,
+    TraitObjDestTy, VOID,
 };
 use crate::constraints::{merge_stores, unique_append};
 use crate::convert::RvalConverter;
@@ -219,6 +220,38 @@ impl<'a> InterpPass<'a> {
         Ok(res)
     }
 
+    fn contains_dyn(&self, ty: &Ty) -> Option<TraitObjDestTy> {
+        match ty.kind() {
+            TyKind::RigidTy(rigidty) => match rigidty {
+                RigidTy::Dynamic(trait_vec, _) => {
+                    debug!("trait_vec: {:?}", trait_vec);
+                    if trait_vec.len() > 1 {
+                        panic!("handle multiple traits?: {:?}", trait_vec);
+                    }
+                    debug!("FOUND DYN DEST TY: {:?}", ty);
+                    return Some(TraitObjDestTy::new_from_bound_existential(&trait_vec[0]));
+                }
+                RigidTy::Adt(_def, genargs) => {
+                    for genarg in genargs.0 {
+                        match genarg {
+                            GenericArgKind::Type(ty) => {
+                                let maybe_dyn = self.contains_dyn(&ty);
+                                if maybe_dyn.is_some() {
+                                    return maybe_dyn;
+                                }
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+                _ => debug!("DEST TY OTHER RIGIDTY"),
+            },
+            _ => debug!("DEST TY OTHER TYKIND"),
+        }
+
+        None
+    }
+
     fn visit_statement(
         &self,
         istore: &mut InterpStore,
@@ -232,13 +265,20 @@ impl<'a> InterpPass<'a> {
                 debug!("start assignment!");
                 log_scope(cur_scope);
                 debug!("stmt: {:?}", &stmt.kind);
-                debug!("dest ty: {:?}", place.ty(local_decls).unwrap());
                 debug!("place: {:?}", place);
                 debug!("rval: {:?}", rvalue);
                 //debug!("locals: {:?}", local_decls);
 
+                debug!("[ASSIGN] CHECKING FOR DYN IN DEST TY");
+                let dest_ty = place.ty(local_decls).unwrap();
+                debug!("dest ty: {:?}", dest_ty);
+                let maybe_trait_destty = self.contains_dyn(&dest_ty);
+                debug!("(assign) dyn dest ty? {:?}", maybe_trait_destty);
+
                 // convert MIR Rvalue to Constraint
-                let constraints = self.converter.convert(istore, cur_scope, rvalue);
+                let constraints =
+                    self.converter
+                        .convert(istore, cur_scope, &maybe_trait_destty, rvalue);
                 debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
 
                 // add resolved constraints to istore
@@ -662,8 +702,39 @@ impl<'a> InterpPass<'a> {
         debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
+
+        debug!("[RET] CHECKING FOR DYN IN DEST TY");
+        let dest_ty = destination.ty(local_decls).unwrap();
+        debug!("dest ty: {:?}", dest_ty);
+        let maybe_trait_destty = self.contains_dyn(&dest_ty);
+        debug!("(ret) dyn dest ty? {:?}", maybe_trait_destty);
+
         match ret_constraints {
-            Ok(Some(constraints)) => {
+            Ok(Some(constraints_)) => {
+                // Make sure that if we're widening the concrete type of a function's return value
+                // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
+                let mut constraints = Vec::new();
+
+                for constraint in constraints_ {
+                    match self
+                        .converter
+                        .get_any_traitobj(&maybe_trait_destty, &constraint)
+                    {
+                        // Add into traitobj constraint
+                        toc @ Some(_) => match constraint {
+                            Constraint { toc: None, cfc } => {
+                                constraints.push(Constraint::new(toc, cfc))
+                            }
+                            Constraint {
+                                toc: Some(_existing_toc),
+                                cfc: _cfc,
+                            } => todo!("update existing TOC"),
+                        },
+                        // Push constraint unchanged
+                        None => constraints.push(constraint),
+                    }
+                }
+
                 istore.scoped_update(
                     cur_scope,
                     MapKey::Local(destination.local),
@@ -943,16 +1014,27 @@ impl<'a> InterpPass<'a> {
         //   - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
 
         debug!("DYNAMIC DISPATCH");
+        log_scope(cur_scope);
+        debug!("fndef: {:?}", fndef);
         debug!("args: {:?}", args);
+        debug!("genargs: {:?}", genargs);
 
         let trait_defid = self.get_trait_defid(&fndef.0);
         debug!("trait_defid: {:?}", trait_defid);
 
         let assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
-        debug!("------- assoc_fn_impls_cha: {:?}", assoc_fn_impls_cha);
+        debug!(
+            "------- assoc_fn_impls_cha ({:?} total): {:?}",
+            assoc_fn_impls_cha.len(),
+            assoc_fn_impls_cha
+        );
 
         let assoc_fn_impls_fsa = self.get_impls_fsa(istore, cur_scope, &fndef.0, args);
-        debug!("------- assoc_fn_impls_fsa: {:?}", assoc_fn_impls_fsa);
+        debug!(
+            "------- assoc_fn_impls_fsa: ({:?} total): {:?}",
+            assoc_fn_impls_fsa.len(),
+            assoc_fn_impls_fsa
+        );
 
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!("SET OF IMPLS DIFFER");
@@ -991,21 +1073,30 @@ impl<'a> InterpPass<'a> {
         // Get every concrete type constraint's impl of this function
         let mut assoc_fn_impls = Vec::new();
         for defid in constraint_defids {
+            debug!("looping");
+            debug!("DEFID: {:?}", defid);
+            debug!("assoc_fn_impls BEFORE match: {:?}", assoc_fn_impls);
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
                 Some(assoc_fn_impl) => assoc_fn_impls.append(&mut assoc_fn_impl.clone()),
-                None => panic!(
+                None => debug!(
                     "struct/container ({:?}, {:?}) pair does not point to assoc fn",
                     defid, assoc_fn_defid
                 ),
             }
         }
+        debug!("assoc_fn_impls AFTER loop: {:?}", assoc_fn_impls);
+        //todo!();
         assoc_fn_impls
     }
 
     fn get_impls_cha(&self, assoc_fn_defid: &DefId, trait_defid: &DefId) -> Vec<DefId> {
         debug!("GETTING CHA IMPLS");
         let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
-        debug!("constraint defids: {:?}", constraint_defids);
+        debug!(
+            "constraint defids ({:?} total): {:?}",
+            constraint_defids.len(),
+            constraint_defids
+        );
         self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
     }
 
@@ -1030,7 +1121,11 @@ impl<'a> InterpPass<'a> {
         let tyconstraints = self.get_fsa_tyconstraints(istore, cur_scope, local);
         debug!("tyconstraints: {:?}", tyconstraints);
         let constraint_defids = self.get_fsa_constraint_defids(&tyconstraints);
-        debug!("constraint defids: {:?}", constraint_defids);
+        debug!(
+            "constraint defids ({:?} total): {:?}",
+            constraint_defids.len(),
+            constraint_defids
+        );
         self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
     }
 
@@ -1105,7 +1200,10 @@ impl<'a> InterpPass<'a> {
             //    }
             //    defids
             //}
-            _ => panic!("expected traitobj constraint, got control flow"),
+            _ => panic!(
+                "expected traitobj constraint, got control flow: {:?}",
+                constraint
+            ),
         }
     }
 

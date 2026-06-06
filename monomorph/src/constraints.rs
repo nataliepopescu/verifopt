@@ -1,7 +1,9 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
-use rustc_public::ty::{AdtDef, ClosureDef, FnDef, GenericArgs};
+use rustc_public::ty::{
+    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef,
+};
 
 use crate::common::log_scope;
 use crate::error::Error;
@@ -86,6 +88,46 @@ pub enum ControlFlowConstraint {
     // fallback types
     //IdkType(Ty),
     Idk(Box<Constraints>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TraitObjDestTy {
+    //pub bound_tys: Vec<(DefId, String)>,
+    //pub bound_regions: Vec<(DefId, String)>,
+    pub def: TraitDef,
+    pub genargs: GenericArgs,
+}
+
+impl TraitObjDestTy {
+    pub fn new_from_bound_existential(binder: &Binder<ExistentialPredicate>) -> TraitObjDestTy {
+        //let mut bound_tys = Vec::new();
+        //let mut bound_regions = Vec::new();
+        //if !binder.bound_vars.is_empty() {
+        //    for bound_var in &binder.bound_vars {
+        //        match bound_var {
+        //            BoundVariableKind::Ty(ty) => match ty {
+        //                BoundTyKind::Param(def, s) => bound_tys.push((def.0, s.clone())),
+        //                _ => {}
+        //            },
+        //            BoundVariableKind::Region(region) => match region {
+        //                BoundRegionKind::BrNamed(def, s) => bound_regions.push((def.0, s.clone())),
+        //                _ => {}
+        //            },
+        //            _ => {}
+        //        }
+        //    }
+        //}
+
+        match binder.clone().skip_binder() {
+            ExistentialPredicate::Trait(trait_ref) => {
+                return Self {
+                    def: trait_ref.def_id,
+                    genargs: trait_ref.generic_args,
+                };
+            }
+            _ => todo!(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

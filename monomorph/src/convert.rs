@@ -6,7 +6,8 @@ use rustc_public::ty::{AdtDef, ConstantKind, GenericArgKind, GenericArgs, RigidT
 use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    Constraint, Constraints, ControlFlowConstraint, MapKey, MapValue, TraitObjConstraint, VOID,
+    Constraint, Constraints, ControlFlowConstraint, MapKey, MapValue, TraitObjConstraint,
+    TraitObjDestTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -26,6 +27,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        maybe_trait_destty: &Option<TraitObjDestTy>,
         to_convert: &Rvalue,
     ) -> Constraints {
         debug!("CONVERTING RVALUE");
@@ -52,7 +54,7 @@ impl<'a> RvalConverter<'a> {
             }
             Rvalue::Aggregate(kind, fields) => {
                 debug!("AGGREGATE");
-                self.convert_agg(istore, cur_scope, kind, fields)
+                self.convert_agg(istore, cur_scope, maybe_trait_destty, kind, fields)
             }
             Rvalue::AddressOf(_rawptrkind, place) => {
                 debug!("ADDRESS OF");
@@ -165,8 +167,46 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
+    pub fn get_any_traitobj(
+        &self,
+        maybe_trait_destty: &Option<TraitObjDestTy>,
+        constraint: &Constraint,
+    ) -> Option<TraitObjConstraint> {
+        match constraint {
+            Constraint { toc: Some(to_), .. } => {
+                debug!("PROPAGATING TOC: {:?}", to_);
+                return Some(to_.clone());
+            }
+            Constraint {
+                toc: None,
+                cfc: Some(maybe_to),
+            } => match maybe_to {
+                ControlFlowConstraint::Adt(adtdef, adt_genargs) => {
+                    // If we get Some, that means this struct/adt implements one or more
+                    // traits, but that does _not_ mean that this is a trait object
+                    match self.tstore.struct_traits.get(&adtdef.0) {
+                        Some(_) => {
+                            // If we know we are storing the result of this rval into a
+                            // traitobj, then populate the traitobj constraint field
+                            if maybe_trait_destty.is_some() {
+                                debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
+                                return Some((adtdef.clone(), adt_genargs.clone()));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+
+        None
+    }
+
     fn contains_traitobj(
         &self,
+        maybe_trait_destty: &Option<TraitObjDestTy>,
         def: &AdtDef,
         genargs: &Vec<Constraint>,
     ) -> Option<TraitObjConstraint> {
@@ -179,26 +219,11 @@ impl<'a> RvalConverter<'a> {
         // check genargs for traitobj
         let mut to = None;
         for genarg in genargs {
-            match genarg {
-                Constraint { toc: Some(to_), .. } => {
-                    to = Some(to_.clone());
+            match self.get_any_traitobj(maybe_trait_destty, &genarg) {
+                to_ @ Some(_) => {
+                    to = to_;
                     break;
                 }
-                Constraint {
-                    toc: None,
-                    cfc: Some(maybe_to),
-                } => match maybe_to {
-                    ControlFlowConstraint::Adt(adtdef, adt_genargs) => {
-                        match self.tstore.struct_traits.get(&adtdef.0) {
-                            Some(_) => {
-                                to = Some((adtdef.clone(), adt_genargs.clone()));
-                                break;
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                },
                 _ => {}
             }
         }
@@ -260,6 +285,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        maybe_trait_destty: &Option<TraitObjDestTy>,
         kind: &AggregateKind,
         fields: &Vec<Operand>,
     ) -> Constraints {
@@ -269,7 +295,7 @@ impl<'a> RvalConverter<'a> {
                 debug!("ty: {:?}", def.ty_with_args(genargs));
 
                 if let Some(c_genargs) = self.convert_genargs(genargs) {
-                    let to = self.contains_traitobj(def, &c_genargs);
+                    let to = self.contains_traitobj(maybe_trait_destty, def, &c_genargs);
                     let cf = self.contains_controlflow(def, &c_genargs);
 
                     if to.is_some() || cf.is_some() {

@@ -22,11 +22,11 @@ pub struct SigVal {
 }
 
 impl SigVal {
-    pub fn new_from_poly(sig: &PolyFnSig) -> SigVal {
+    pub fn new_from_poly(polysig: &PolyFnSig) -> SigVal {
         let mut bound_tys = Vec::new();
         let mut bound_regions = Vec::new();
-        if !sig.bound_vars.is_empty() {
-            for bound_var in &sig.bound_vars {
+        if !polysig.bound_vars.is_empty() {
+            for bound_var in &polysig.bound_vars {
                 match bound_var {
                     BoundVariableKind::Ty(ty) => match ty {
                         BoundTyKind::Param(def, s) => bound_tys.push((def.0, s.clone())),
@@ -41,9 +41,9 @@ impl SigVal {
             }
         }
 
-        let sigval = sig.clone().skip_binder();
-        let inputs = sigval.inputs().to_vec();
-        let output = sigval.output();
+        let sig = polysig.clone().skip_binder();
+        let inputs = sig.inputs().to_vec();
+        let output = sig.output();
 
         //debug!("NUM INPUTS: {:?}", inputs.len());
         //debug!("INPUTS: {:?}", inputs);

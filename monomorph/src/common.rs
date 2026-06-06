@@ -1,5 +1,5 @@
-//use crate::rustc_public_bridge::IndexedVal;
-//use rustc_public::DefId;
+use crate::rustc_public_bridge::IndexedVal;
+use rustc_public::DefId;
 use rustc_public::mir::Body;
 use rustc_public::ty::AdtDef;
 
@@ -67,7 +67,15 @@ pub fn is_wrapper_type(def: &AdtDef) -> bool {
     debug!("CHECKING IF DEFID IS A WRAPPER TYPE: {:?}", def);
 
     // TODO extend to Option, Result, ...
-    def.is_box()
+    def.is_box() || is_option(&def.0)
+}
+
+fn is_option(defid: &DefId) -> bool {
+    let idx = defid.to_index();
+    match idx {
+        28539 => true,
+        _ => false,
+    }
 }
 
 //fn is_box(defid: &DefId) -> bool {

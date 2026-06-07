@@ -17,7 +17,7 @@ use crate::constraints::{
     Constraint, Constraints, ControlFlowConstraint, InterpStore, MapKey, MapValue, Merge,
     TraitObjDestTy, VOID,
 };
-use crate::constraints::{merge_stores, unique_append};
+use crate::constraints::{merge_stores, unique_append, unique_push};
 use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::sig_collect::{SigStore, SigVal};
@@ -252,6 +252,34 @@ impl<'a> InterpPass<'a> {
         None
     }
 
+    fn pull_traitobjs_from_constraints(
+        &self,
+        maybe_trait_destty: &Option<TraitObjDestTy>,
+        old_constraints: Constraints,
+    ) -> Constraints {
+        let mut constraints = Vec::new();
+        for constraint in old_constraints {
+            match self
+                .converter
+                .get_any_traitobj(maybe_trait_destty, &constraint)
+            {
+                // Add into traitobj constraint
+                toc @ Some(_) => match constraint {
+                    Constraint { toc: None, cfc } => {
+                        constraints.push(Constraint::new(toc, cfc))
+                    }
+                    Constraint {
+                        toc: Some(_existing_toc),
+                        cfc: _cfc,
+                    } => todo!("update existing TOC"),
+                },
+                // Push constraint unchanged
+                None => constraints.push(constraint),
+            }
+        }
+        constraints
+    }
+
     fn visit_statement(
         &self,
         istore: &mut InterpStore,
@@ -359,6 +387,13 @@ impl<'a> InterpPass<'a> {
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
         debug!("INTERPING INDIRECT CALL");
+
+        debug!("[RET] CHECKING FOR DYN IN DEST TY");
+        let dest_ty = destination.ty(local_decls).unwrap();
+        debug!("dest ty: {:?}", dest_ty);
+        let maybe_trait_destty = self.contains_dyn(&dest_ty);
+        debug!("(ret) dyn dest ty? {:?}", maybe_trait_destty);
+
         let mut ret_constraints = Vec::new();
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
             Some(val) => match val {
@@ -376,6 +411,7 @@ impl<'a> InterpPass<'a> {
                                 call_stack,
                                 cur_scope,
                                 local_decls,
+                                &maybe_trait_destty,
                                 &cf,
                                 args,
                             ) {
@@ -403,10 +439,11 @@ impl<'a> InterpPass<'a> {
         );
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
+        let constraints = self.pull_traitobjs_from_constraints(&maybe_trait_destty, ret_constraints);
         istore.scoped_update(
             cur_scope,
             MapKey::Local(destination.local),
-            Box::new(MapValue::Constraints(ret_constraints)),
+            Box::new(MapValue::Constraints(constraints)),
         );
 
         Ok(None)
@@ -420,50 +457,11 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
+        maybe_trait_destty: &Option<TraitObjDestTy>,
         constraint: &ControlFlowConstraint,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         match constraint {
-            /*
-            VORval::IdkType(ty) => match ty.kind() {
-                TyKind::RigidTy(rigid_ty) => match rigid_ty {
-                    RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
-                        logger,
-                        term_span,
-                        istore,
-                        call_stack,
-                        cur_scope,
-                        local_decls,
-                        fndef,
-                        &genargs,
-                        args,
-                    ),
-                    RigidTy::FnPtr(sig) => self.interp_fn_ptr(
-                        logger,
-                        term_span,
-                        istore,
-                        call_stack,
-                        cur_scope,
-                        local_decls,
-                        sig,
-                        args,
-                    ),
-                    RigidTy::Closure(cdef, genargs) => self.interp_closure(
-                        logger,
-                        term_span,
-                        istore,
-                        call_stack,
-                        cur_scope,
-                        local_decls,
-                        cdef,
-                        &genargs,
-                        args,
-                    ),
-                    other @ _ => panic!("other rigidty (not a fn ptr!): {:?}", other),
-                },
-                _ => todo!("other tykind"),
-            },
-            */
             ControlFlowConstraint::FnDef(fndef, genargs) => self.interp_fn_def(
                 logger,
                 term_span,
@@ -471,6 +469,7 @@ impl<'a> InterpPass<'a> {
                 call_stack,
                 cur_scope,
                 local_decls,
+                maybe_trait_destty,
                 *fndef,
                 &genargs,
                 args,
@@ -496,24 +495,6 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
-            /*
-            VORval::Adt(_def, genargs) => {
-                // Search for fnptr in genargs
-                match self.any_fn_ptr(genargs) {
-                    Some(sig) => self.interp_fn_ptr(
-                        logger,
-                        term_span,
-                        istore,
-                        call_stack,
-                        cur_scope,
-                        local_decls,
-                        sig,
-                        args,
-                    ),
-                    None => todo!(),
-                }
-            }
-            */
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
     }
@@ -667,6 +648,12 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
+        debug!("[RET] CHECKING FOR DYN IN DEST TY");
+        let dest_ty = destination.ty(local_decls).unwrap();
+        debug!("dest ty: {:?}", dest_ty);
+        let maybe_trait_destty = self.contains_dyn(&dest_ty);
+        debug!("(ret) dyn dest ty? {:?}", maybe_trait_destty);
+
         let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
@@ -676,6 +663,7 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
+                    &maybe_trait_destty,
                     fndef,
                     &genargs,
                     args,
@@ -703,38 +691,11 @@ impl<'a> InterpPass<'a> {
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
 
-        debug!("[RET] CHECKING FOR DYN IN DEST TY");
-        let dest_ty = destination.ty(local_decls).unwrap();
-        debug!("dest ty: {:?}", dest_ty);
-        let maybe_trait_destty = self.contains_dyn(&dest_ty);
-        debug!("(ret) dyn dest ty? {:?}", maybe_trait_destty);
-
         match ret_constraints {
             Ok(Some(constraints_)) => {
                 // Make sure that if we're widening the concrete type of a function's return value
                 // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
-                let mut constraints = Vec::new();
-
-                for constraint in constraints_ {
-                    match self
-                        .converter
-                        .get_any_traitobj(&maybe_trait_destty, &constraint)
-                    {
-                        // Add into traitobj constraint
-                        toc @ Some(_) => match constraint {
-                            Constraint { toc: None, cfc } => {
-                                constraints.push(Constraint::new(toc, cfc))
-                            }
-                            Constraint {
-                                toc: Some(_existing_toc),
-                                cfc: _cfc,
-                            } => todo!("update existing TOC"),
-                        },
-                        // Push constraint unchanged
-                        None => constraints.push(constraint),
-                    }
-                }
-
+                let constraints = self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints_);
                 istore.scoped_update(
                     cur_scope,
                     MapKey::Local(destination.local),
@@ -757,6 +718,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
+        maybe_trait_destty: &Option<TraitObjDestTy>,
         fndef: FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -796,6 +758,8 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
+                    maybe_trait_destty,
+                    &new_scope,
                     &fndef,
                     &genargs,
                     args,
@@ -999,8 +963,10 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        cur_scope: &VOID,
+        callee_scope: &VOID,
         local_decls: &[LocalDecl],
+        maybe_trait_destty: &Option<TraitObjDestTy>,
+        cur_scope: &VOID,
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -1014,27 +980,39 @@ impl<'a> InterpPass<'a> {
         //   - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
 
         debug!("DYNAMIC DISPATCH");
-        log_scope(cur_scope);
+        log_scope(callee_scope);
         debug!("fndef: {:?}", fndef);
         debug!("args: {:?}", args);
         debug!("genargs: {:?}", genargs);
 
+        //if cur_scope.0.has_body() {
+        //    panic!("virtual instance has body (default impl)");
+        //} else {
+        //    panic!("virtual instance has NO body");
+        //}
+
         let trait_defid = self.get_trait_defid(&fndef.0);
         debug!("trait_defid: {:?}", trait_defid);
 
-        let assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
+        let assoc_fn_impls_cha = self.get_impls_cha(cur_scope, &fndef.0, &trait_defid);
         debug!(
             "------- assoc_fn_impls_cha ({:?} total): {:?}",
             assoc_fn_impls_cha.len(),
             assoc_fn_impls_cha
         );
 
-        let assoc_fn_impls_fsa = self.get_impls_fsa(istore, cur_scope, &fndef.0, args);
+        let assoc_fn_impls_fsa = self.get_impls_fsa(istore, callee_scope, cur_scope, maybe_trait_destty, &fndef.0, args);
         debug!(
             "------- assoc_fn_impls_fsa: ({:?} total): {:?}",
             assoc_fn_impls_fsa.len(),
             assoc_fn_impls_fsa
         );
+
+        for fsa_impl in &assoc_fn_impls_fsa {
+            if !assoc_fn_impls_cha.contains(&fsa_impl) {
+                panic!("CHA missing impl: {:?}", fsa_impl);
+            }
+        }
 
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!("SET OF IMPLS DIFFER");
@@ -1048,7 +1026,7 @@ impl<'a> InterpPass<'a> {
             logger,
             istore,
             call_stack,
-            cur_scope,
+            callee_scope,
             local_decls,
             //assoc_fn_impls_cha,
             assoc_fn_impls_fsa,
@@ -1067,29 +1045,42 @@ impl<'a> InterpPass<'a> {
 
     fn get_impls_from_defids(
         &self,
+        cur_scope: &VOID,
         assoc_fn_defid: &DefId,
         constraint_defids: &Vec<DefId>,
+        fsa: bool,
     ) -> Vec<DefId> {
-        // Get every concrete type constraint's impl of this function
         let mut assoc_fn_impls = Vec::new();
+        if constraint_defids.is_empty() {
+            debug!("no valid constraints - does this function have a default impl? {:?}", assoc_fn_defid);
+            if cur_scope.0.has_body() {
+                debug!("function has default impl!");
+                assoc_fn_impls.push(*assoc_fn_defid);
+            }
+            return assoc_fn_impls;
+        }
+
+        // Get every concrete type constraint's impl of this function
         for defid in constraint_defids {
-            debug!("looping");
-            debug!("DEFID: {:?}", defid);
-            debug!("assoc_fn_impls BEFORE match: {:?}", assoc_fn_impls);
+            //debug!("looping");
+            //debug!("DEFID: {:?}", defid);
+            //debug!("assoc_fn_impls BEFORE match: {:?}", assoc_fn_impls);
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
                 Some(assoc_fn_impl) => assoc_fn_impls.append(&mut assoc_fn_impl.clone()),
                 None => debug!(
-                    "struct/container ({:?}, {:?}) pair does not point to assoc fn",
+                    "(STRUCT={:?}, ASSOC FN={:?}) pair does not point to assoc fn",
                     defid, assoc_fn_defid
                 ),
             }
         }
-        debug!("assoc_fn_impls AFTER loop: {:?}", assoc_fn_impls);
-        //todo!();
+        // Add in any default impl if this is not FSA
+        if !fsa {
+            unique_push(&mut assoc_fn_impls, *assoc_fn_defid);
+        }
         assoc_fn_impls
     }
 
-    fn get_impls_cha(&self, assoc_fn_defid: &DefId, trait_defid: &DefId) -> Vec<DefId> {
+    fn get_impls_cha(&self, cur_scope: &VOID, assoc_fn_defid: &DefId, trait_defid: &DefId) -> Vec<DefId> {
         debug!("GETTING CHA IMPLS");
         let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
         debug!(
@@ -1097,7 +1088,7 @@ impl<'a> InterpPass<'a> {
             constraint_defids.len(),
             constraint_defids
         );
-        self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
+        self.get_impls_from_defids(cur_scope, assoc_fn_defid, &constraint_defids, false)
     }
 
     fn get_cha_tyconstraint_defids(&self, trait_defid: &DefId) -> Vec<DefId> {
@@ -1111,22 +1102,26 @@ impl<'a> InterpPass<'a> {
     fn get_impls_fsa(
         &self,
         istore: &InterpStore,
+        callee_scope: &VOID,
         cur_scope: &VOID,
+        maybe_trait_destty: &Option<TraitObjDestTy>,
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
     ) -> Vec<DefId> {
         debug!("GETTING FSA IMPLS");
         let local = self.get_traitobj_local(args);
         debug!("local: {:?}", local);
-        let tyconstraints = self.get_fsa_tyconstraints(istore, cur_scope, local);
+        let tyconstraints = self.get_fsa_tyconstraints(istore, callee_scope, local);
         debug!("tyconstraints: {:?}", tyconstraints);
-        let constraint_defids = self.get_fsa_constraint_defids(&tyconstraints);
+        let to_tyconstraints = self.pull_traitobjs_from_constraints(maybe_trait_destty, tyconstraints);
+        debug!("to_tyconstraints: {:?}", to_tyconstraints);
+        let constraint_defids = self.get_fsa_constraint_defids(&to_tyconstraints);
         debug!(
             "constraint defids ({:?} total): {:?}",
             constraint_defids.len(),
             constraint_defids
         );
-        self.get_impls_from_defids(assoc_fn_defid, &constraint_defids)
+        self.get_impls_from_defids(cur_scope, assoc_fn_defid, &constraint_defids, true)
     }
 
     fn get_traitobj_local(&self, args: &Vec<Operand>) -> Local {
@@ -1193,17 +1188,13 @@ impl<'a> InterpPass<'a> {
                     vec![adtdef.0]
                 }
             }
-            //VORval::Idk(inner_vec) => {
-            //    let mut defids = Vec::new();
-            //    for vorval in inner_vec {
-            //        unique_append(&mut defids, self.resolve_defid(vorval));
-            //    }
-            //    defids
-            //}
-            _ => panic!(
-                "expected traitobj constraint, got control flow: {:?}",
-                constraint
-            ),
+            _ => {
+                debug!(
+                    "expected traitobj constraint, got control flow: {:?}",
+                    constraint
+                );
+                vec![]
+            }
         }
     }
 

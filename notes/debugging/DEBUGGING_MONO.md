@@ -92,5 +92,10 @@ how did we get here (last -> first)
 - term func: Copy _7
 - assign: Copy *_1.0
 
+### when dyn call, constraints do not contain traitobj
+
+trying to trace backwards
+
+
 
 

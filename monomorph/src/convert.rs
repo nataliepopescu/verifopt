@@ -27,7 +27,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
-        maybe_trait_destty: &Option<TraitObjDestTy>,
+        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
         to_convert: &Rvalue,
     ) -> Constraints {
         debug!("CONVERTING RVALUE");
@@ -169,7 +169,7 @@ impl<'a> RvalConverter<'a> {
 
     pub fn get_any_traitobj(
         &self,
-        maybe_trait_destty: &Option<TraitObjDestTy>,
+        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
         constraint: &Constraint,
     ) -> Option<TraitObjConstraint> {
         match constraint {
@@ -181,7 +181,7 @@ impl<'a> RvalConverter<'a> {
                 toc: None,
                 cfc: Some(maybe_to),
             } => match maybe_to {
-                ControlFlowConstraint::Adt(adtdef, adt_genargs) => {
+                ControlFlowConstraint::Adt(adtdef, _adt_genargs) => {
                     // If we get Some, that means this struct/adt implements one or more
                     // traits, but that does _not_ mean that this is a trait object
                     match self.tstore.struct_traits.get(&adtdef.0) {
@@ -189,8 +189,9 @@ impl<'a> RvalConverter<'a> {
                             // If we know we are storing the result of this rval into a
                             // traitobj, then populate the traitobj constraint field
                             if maybe_trait_destty.is_some() {
-                                debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
-                                return Some((adtdef.clone(), adt_genargs.clone()));
+                                todo!();
+                                //debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
+                                //return Some((adtdef.clone(), adt_genargs.clone()));
                             }
                         }
                         _ => {}
@@ -206,7 +207,7 @@ impl<'a> RvalConverter<'a> {
 
     fn contains_traitobj(
         &self,
-        maybe_trait_destty: &Option<TraitObjDestTy>,
+        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
         def: &AdtDef,
         genargs: &Vec<Constraint>,
     ) -> Option<TraitObjConstraint> {
@@ -285,7 +286,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
-        maybe_trait_destty: &Option<TraitObjDestTy>,
+        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
         kind: &AggregateKind,
         fields: &Vec<Operand>,
     ) -> Constraints {

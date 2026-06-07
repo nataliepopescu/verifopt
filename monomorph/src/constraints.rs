@@ -125,6 +125,12 @@ impl TraitObjDestTy {
                     genargs: trait_ref.generic_args,
                 };
             }
+            ExistentialPredicate::Projection(proj) => {
+                return Self {
+                    def: proj.def_id,
+                    genargs: proj.generic_args,
+                };
+            }
             _ => todo!(),
         }
     }

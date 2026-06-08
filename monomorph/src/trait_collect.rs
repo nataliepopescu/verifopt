@@ -17,8 +17,6 @@ pub struct TraitStore {
     pub assoc_fn_traits: HashMap<DefId, DefId>,
     // HashMap<(Struct, AssocFnDecl), Vec<AssocFnImpl>>
     pub struct_assoc_fns: HashMap<(DefId, DefId), Vec<DefId>>,
-    // HashMap<Trait, Vec<AssocFnImpl>>
-    pub default_impls: HashMap<DefId, Vec<DefId>>,
 }
 
 impl TraitStore {
@@ -28,7 +26,6 @@ impl TraitStore {
             trait_structs: HashMap::default(),
             assoc_fn_traits: HashMap::default(),
             struct_assoc_fns: HashMap::default(),
-            default_impls: HashMap::default(),
         }
     }
 }
@@ -53,7 +50,6 @@ impl TraitCollectPass {
 
             debug!("trait_def: {:?}", trait_def);
 
-            let mut default_impls = Vec::new();
             for assoc_item in trait_def.associated_items() {
                 debug!("assoc_item: {:?}", assoc_item);
 
@@ -66,23 +62,23 @@ impl TraitCollectPass {
                         AssocContainer::Trait => {
                             if FnDef(assoc_item.def_id.0).has_body() {
                                 debug!("found default impl {:?}", assoc_item.def_id.0);
-                                default_impls.push(assoc_item.def_id.0);
+                                match tstore.assoc_fn_traits.get_mut(&assoc_item.def_id.0) {
+                                    Some(trait_defid) => {
+                                        if *trait_defid != trait_def.0 {
+                                            panic!("same assoc fn for multiple traits");
+                                        }
+                                    }
+                                    None => {
+                                        tstore
+                                            .assoc_fn_traits
+                                            .insert(assoc_item.def_id.0, trait_def.0);
+                                    }
+                                }
                             }
                         }
                         _ => {}
                     },
                     _ => {}
-                }
-            }
-
-            match tstore.default_impls.get_mut(&trait_def.0) {
-                Some(_) => panic!(
-                    "already set default impls for this trait: {:?}",
-                    trait_def.0
-                ),
-                None => {
-                    debug!("storing default impls: {:?}", default_impls);
-                    tstore.default_impls.insert(trait_def.0, default_impls);
                 }
             }
         }
@@ -131,9 +127,6 @@ impl TraitCollectPass {
             // Get AssocFn DefIds
             let assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
             //debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
-            if assoc_fn_defids.is_empty() {
-                continue;
-            }
 
             // Add back pointers from associated fns to this trait
             for (_, assoc_fn_decl_defid) in &assoc_fn_defids {

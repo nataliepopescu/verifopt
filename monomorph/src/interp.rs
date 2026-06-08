@@ -960,6 +960,10 @@ impl<'a> InterpPass<'a> {
             assoc_fn_impls_fsa
         );
 
+        if assoc_fn_impls_fsa.is_empty() {
+            panic!("nothing to call, FSA set is empty");
+        }
+
         for fsa_impl in &assoc_fn_impls_fsa {
             if !assoc_fn_impls_cha.contains(&fsa_impl) {
                 panic!("CHA missing impl: {:?}", fsa_impl);
@@ -1015,15 +1019,19 @@ impl<'a> InterpPass<'a> {
 
         // Get every concrete type constraint's impl of this function
         for defid in constraint_defids {
-            //debug!("looping");
-            //debug!("DEFID: {:?}", defid);
-            //debug!("assoc_fn_impls BEFORE match: {:?}", assoc_fn_impls);
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
-                Some(assoc_fn_impl) => assoc_fn_impls.append(&mut assoc_fn_impl.clone()),
-                None => debug!(
-                    "(STRUCT={:?}, ASSOC FN={:?}) pair does not point to assoc fn",
-                    defid, assoc_fn_defid
-                ),
+                Some(assoc_fn_impl) => unique_append(&mut assoc_fn_impls, assoc_fn_impl.clone()),
+                None => {
+                    debug!(
+                        "(STRUCT={:?}, ASSOC FN={:?}) pair does not point to assoc fn",
+                        defid, assoc_fn_defid
+                    );
+
+                    // Could this be a default impl?
+                    if FnDef(*assoc_fn_defid).has_body() {
+                        unique_push(&mut assoc_fn_impls, *assoc_fn_defid);
+                    }
+                }
             }
         }
         // Add in any default impl if this is not FSA
@@ -1173,23 +1181,31 @@ impl<'a> InterpPass<'a> {
             debug!("assoc_fn_impl defid: {:?}", assoc_fn_impl);
             let fndef = FnDef(assoc_fn_impl);
             let instance_ = Instance::resolve(fndef, &genargs).unwrap();
-            let instance = match instance_.kind {
+            let (is_virtual, instance) = match instance_.kind {
                 // Likely a default trait method implementation, convert to a concrete InstanceKind
                 // so we can interpret it
-                InstanceKind::Virtual { .. } => Instance {
-                    kind: InstanceKind::Item,
-                    def: instance_.def,
-                },
-                _ => instance_,
+                InstanceKind::Virtual { .. } => (
+                    true,
+                    Instance {
+                        kind: InstanceKind::Item,
+                        def: instance_.def,
+                    },
+                ),
+                _ => (false, instance_),
             };
             debug!("a converted static instance: {:?}", instance);
             debug!("has body? {:?}", instance.has_body());
-            debug!("body: {:?}", instance.body());
 
             let mut istore_clone = istore.clone();
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (instance, genargs.clone());
-            let body = self.get_body(&callee_scope);
+            let body = if is_virtual {
+                FnDef(assoc_fn_impl).body().unwrap()
+            } else {
+                self.get_body(&callee_scope)
+            };
+            log_mir(&body);
+
             self.prepare_call(&mut call_stack_clone, &callee_scope);
             self.resolve_args(
                 &mut istore_clone,

@@ -1,10 +1,10 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::ty::{
-    AssocContainer, AssocKind, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind,
+    AssocContainer, AssocKind, FnDef, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind,
 };
 use rustc_public::{CrateDefItems, DefId};
 
-//use log::debug;
+use log::debug;
 
 pub struct TraitVal {}
 
@@ -13,10 +13,12 @@ pub struct TraitStore {
     pub struct_traits: HashMap<DefId, Vec<DefId>>,
     // (CHA/RTA) HashMap<Trait, Vec<Struct>>
     pub trait_structs: HashMap<DefId, Vec<DefId>>,
-    // HashMap<AssocFn, Trait>
+    // HashMap<AssocFnDecl, Trait>
     pub assoc_fn_traits: HashMap<DefId, DefId>,
     // HashMap<(Struct, AssocFnDecl), Vec<AssocFnImpl>>
     pub struct_assoc_fns: HashMap<(DefId, DefId), Vec<DefId>>,
+    // HashMap<Trait, Vec<AssocFnImpl>>
+    pub default_impls: HashMap<DefId, Vec<DefId>>,
 }
 
 impl TraitStore {
@@ -26,6 +28,7 @@ impl TraitStore {
             trait_structs: HashMap::default(),
             assoc_fn_traits: HashMap::default(),
             struct_assoc_fns: HashMap::default(),
+            default_impls: HashMap::default(),
         }
     }
 }
@@ -38,12 +41,54 @@ impl TraitCollectPass {
     }
 
     pub fn run(&self, tstore: &mut TraitStore) {
-        //debug!("TRAIT PASS");
-        self.collect_trait_mappings(tstore);
-        //debug!("DONE TRAIT PASS");
+        debug!("DEFAULTS");
+        self.collect_default_impls(tstore);
+        debug!("OTHER IMPLS");
+        self.collect_rest_impls(tstore);
     }
 
-    fn collect_trait_mappings(&self, tstore: &mut TraitStore) {
+    fn collect_default_impls(&self, tstore: &mut TraitStore) {
+        for trait_def in rustc_public::all_trait_decls() {
+            debug!("\n###################");
+
+            debug!("trait_def: {:?}", trait_def);
+
+            let mut default_impls = Vec::new();
+            for assoc_item in trait_def.associated_items() {
+                debug!("assoc_item: {:?}", assoc_item);
+
+                if assoc_item.is_impl_trait_in_trait() {
+                    debug!("TODO nested trait impl");
+                }
+
+                match assoc_item.kind {
+                    AssocKind::Fn { .. } => match assoc_item.container {
+                        AssocContainer::Trait => {
+                            if FnDef(assoc_item.def_id.0).has_body() {
+                                debug!("found default impl {:?}", assoc_item.def_id.0);
+                                default_impls.push(assoc_item.def_id.0);
+                            }
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+
+            match tstore.default_impls.get_mut(&trait_def.0) {
+                Some(_) => panic!(
+                    "already set default impls for this trait: {:?}",
+                    trait_def.0
+                ),
+                None => {
+                    debug!("storing default impls: {:?}", default_impls);
+                    tstore.default_impls.insert(trait_def.0, default_impls);
+                }
+            }
+        }
+    }
+
+    fn collect_rest_impls(&self, tstore: &mut TraitStore) {
         for impl_def in rustc_public::all_trait_impls() {
             //debug!("\n###################");
 
@@ -91,7 +136,7 @@ impl TraitCollectPass {
             }
 
             // Add back pointers from associated fns to this trait
-            for (_assoc_fn_impl_defid, assoc_fn_decl_defid) in &assoc_fn_defids {
+            for (_, assoc_fn_decl_defid) in &assoc_fn_defids {
                 match tstore.assoc_fn_traits.get(&assoc_fn_decl_defid) {
                     None => {
                         tstore

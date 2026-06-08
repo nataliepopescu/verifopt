@@ -288,9 +288,15 @@ impl<'a> InterpPass<'a> {
                 toc @ Some(_) => match constraint {
                     Constraint { toc: None, cfc } => constraints.push(Constraint::new(toc, cfc)),
                     Constraint {
-                        toc: Some(_existing_toc),
+                        toc: Some(existing_toc),
                         cfc: _cfc,
-                    } => todo!("update existing TOC"),
+                    } => {
+                        debug!("existing toc: {:?}", existing_toc);
+                        debug!("new (?) toc: {:?}", toc);
+                        if existing_toc != toc.unwrap() {
+                            todo!("update existing TOC");
+                        }
+                    }
                 },
                 // Push constraint unchanged
                 None => constraints.push(constraint),
@@ -1249,7 +1255,7 @@ impl<'a> InterpPass<'a> {
         debug!("results PRE filter: {:?}", results);
         let filtered_results: Vec<Constraints> = results
             .into_iter()
-            .filter(|option| option.is_none())
+            .filter(|option| option.is_some())
             .map(|x| x.clone().unwrap())
             .collect();
         debug!("results POST filter: {:?}", filtered_results);

@@ -4,6 +4,8 @@ use rustc_public::ty::{
 };
 use rustc_public::{CrateDefItems, DefId};
 
+//use log::debug;
+
 pub struct TraitVal {}
 
 pub struct TraitStore {
@@ -49,12 +51,10 @@ impl TraitCollectPass {
 
             // Get Trait DefId
             let trait_defid = trait_impl.value.def_id.0;
-            //debug!("trait_defid: {:?}", trait_defid);
 
             // Get Struct DefId
             let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
             if result.is_err() {
-                //debug!("CAUGHT PANIC");
                 continue;
             }
             let struct_defid;
@@ -64,19 +64,12 @@ impl TraitCollectPass {
                 //debug!("got a None struct_defid option (FIXME)");
                 continue;
             }
-            //debug!("struct_defid: {:?}", struct_defid);
-
-            // Get AssocFn DefIds
-            let assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
-            //debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
-            if assoc_fn_defids.is_empty() {
-                //debug!("NO ASSOC FNS");
-                continue;
-            }
 
             // Add trait to list of traits that this struct impls
             match tstore.struct_traits.get_mut(&struct_defid) {
-                Some(trait_vec) => trait_vec.push(trait_defid),
+                Some(trait_vec) => {
+                    trait_vec.push(trait_defid);
+                }
                 None => {
                     tstore.struct_traits.insert(struct_defid, vec![trait_defid]);
                 }
@@ -88,6 +81,13 @@ impl TraitCollectPass {
                 None => {
                     tstore.trait_structs.insert(trait_defid, vec![struct_defid]);
                 }
+            }
+
+            // Get AssocFn DefIds
+            let assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
+            //debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
+            if assoc_fn_defids.is_empty() {
+                continue;
             }
 
             // Add back pointers from associated fns to this trait

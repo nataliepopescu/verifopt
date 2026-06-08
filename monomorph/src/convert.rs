@@ -27,6 +27,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        destty: &Ty,
         maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
         to_convert: &Rvalue,
     ) -> Constraints {
@@ -34,19 +35,19 @@ impl<'a> RvalConverter<'a> {
         match to_convert {
             Rvalue::Use(op) => {
                 debug!("USE");
-                self.convert_op(istore, cur_scope, op)
+                self.convert_op(istore, cur_scope, op, destty)
             }
             Rvalue::Ref(_region, _borrow_kind, place) => {
                 debug!("REF");
-                self.convert_place(istore, cur_scope, place)
+                self.convert_place(istore, cur_scope, place, destty)
             }
             Rvalue::Discriminant(place) => {
                 debug!("DISCRIMINANT");
-                self.convert_place(istore, cur_scope, place)
+                self.convert_place(istore, cur_scope, place, destty)
             }
             Rvalue::CopyForDeref(place) => {
                 debug!("COPY FOR DEREF");
-                self.convert_place(istore, cur_scope, place)
+                self.convert_place(istore, cur_scope, place, destty)
             }
             Rvalue::Cast(kind, op, ty) => {
                 debug!("CAST");
@@ -54,39 +55,45 @@ impl<'a> RvalConverter<'a> {
             }
             Rvalue::Aggregate(kind, fields) => {
                 debug!("AGGREGATE");
-                self.convert_agg(istore, cur_scope, maybe_trait_destty, kind, fields)
+                self.convert_agg(istore, cur_scope, destty, maybe_trait_destty, kind, fields)
             }
             Rvalue::AddressOf(_rawptrkind, place) => {
                 debug!("ADDRESS OF");
-                self.convert_place(istore, cur_scope, place)
+                self.convert_place(istore, cur_scope, place, destty)
             }
             Rvalue::UnaryOp(unop, op) => {
                 debug!("UNOP");
-                self.convert_unop(istore, cur_scope, unop, op)
+                self.convert_unop(istore, cur_scope, destty, unop, op)
             }
             Rvalue::BinaryOp(binop, op1, op2) => {
                 debug!("BINOP");
-                self.convert_binop(istore, cur_scope, binop, op1, op2)
+                self.convert_binop(istore, cur_scope, destty, binop, op1, op2)
             }
             Rvalue::CheckedBinaryOp(binop, op1, op2) => {
                 debug!("CHECKED BINOP");
-                self.convert_binop(istore, cur_scope, binop, op1, op2)
+                self.convert_binop(istore, cur_scope, destty, binop, op1, op2)
             }
             Rvalue::Repeat(op, _tyconst) => {
                 debug!("REPEAT");
-                self.convert_op(istore, cur_scope, op)
+                self.convert_op(istore, cur_scope, op, destty)
             }
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
 
-    fn convert_op(&self, istore: &InterpStore, cur_scope: &VOID, op: &Operand) -> Constraints {
+    fn convert_op(
+        &self,
+        istore: &InterpStore,
+        cur_scope: &VOID,
+        op: &Operand,
+        destty: &Ty,
+    ) -> Constraints {
         debug!("CONVERTING OP");
         debug!("op: {:?}", op);
 
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                self.convert_place(istore, cur_scope, place)
+                self.convert_place(istore, cur_scope, place, destty)
             }
             Operand::Constant(const_op) => self.convert_const(&const_op),
             _ => todo!("runtime checks"),
@@ -120,7 +127,13 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn convert_place(&self, istore: &InterpStore, cur_scope: &VOID, place: &Place) -> Constraints {
+    fn convert_place(
+        &self,
+        istore: &InterpStore,
+        cur_scope: &VOID,
+        place: &Place,
+        destty: &Ty,
+    ) -> Constraints {
         debug!("CONVERTING PLACE");
         debug!("place: {:?}", place);
 
@@ -137,7 +150,7 @@ impl<'a> RvalConverter<'a> {
             },
             None => {
                 debug!("place {:?} has not been set, widen to type", place,);
-                vec![]
+                vec![self.convert_ty(destty)]
             }
         }
     }
@@ -161,7 +174,7 @@ impl<'a> RvalConverter<'a> {
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("PLACE OP");
-                self.convert_place(istore, cur_scope, place)
+                self.convert_place(istore, cur_scope, place, ty)
             }
             _ => todo!("runtime checks"),
         }
@@ -169,9 +182,11 @@ impl<'a> RvalConverter<'a> {
 
     pub fn get_any_traitobj(
         &self,
-        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
+        maybe_trait_ty: &Option<Vec<TraitObjDestTy>>,
         constraint: &Constraint,
     ) -> Option<TraitObjConstraint> {
+        debug!("IN GET_ANY_TO");
+
         match constraint {
             Constraint { toc: Some(to_), .. } => {
                 debug!("PROPAGATING TOC: {:?}", to_);
@@ -181,17 +196,19 @@ impl<'a> RvalConverter<'a> {
                 toc: None,
                 cfc: Some(maybe_to),
             } => match maybe_to {
-                ControlFlowConstraint::Adt(adtdef, _adt_genargs) => {
+                ControlFlowConstraint::Adt(adtdef, adt_genargs) => {
                     // If we get Some, that means this struct/adt implements one or more
                     // traits, but that does _not_ mean that this is a trait object
+                    debug!("MAYBE PULL TOC from {:?} (adtdef = {:?})", maybe_to, adtdef);
                     match self.tstore.struct_traits.get(&adtdef.0) {
-                        Some(_) => {
+                        Some(possible_traits) => {
+                            debug!("possible traits this type impls: {:?}", possible_traits);
+
                             // If we know we are storing the result of this rval into a
                             // traitobj, then populate the traitobj constraint field
-                            if maybe_trait_destty.is_some() {
-                                todo!();
-                                //debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
-                                //return Some((adtdef.clone(), adt_genargs.clone()));
+                            if maybe_trait_ty.is_some() {
+                                debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
+                                return Some((adtdef.clone(), adt_genargs.clone()));
                             }
                         }
                         _ => {}
@@ -286,6 +303,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        destty: &Ty,
         maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
         kind: &AggregateKind,
         fields: &Vec<Operand>,
@@ -312,7 +330,7 @@ impl<'a> RvalConverter<'a> {
                 for op in fields {
                     unique_append(
                         &mut inner_constraints,
-                        self.convert_op(istore, cur_scope, op),
+                        self.convert_op(istore, cur_scope, op, destty),
                     );
                 }
                 inner_constraints
@@ -434,6 +452,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        destty: &Ty,
         binop: &BinOp,
         op1: &Operand,
         op2: &Operand,
@@ -441,68 +460,71 @@ impl<'a> RvalConverter<'a> {
         debug!("BINOP");
         debug!("binop: {:?}", binop);
 
-        let constraint =
-            match binop {
-                BinOp::Add | BinOp::AddUnchecked => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x + y)
+        let constraint = match binop {
+            BinOp::Add | BinOp::AddUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x + y)
+            }
+            BinOp::Sub | BinOp::SubUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x - y)
+            }
+            BinOp::Mul | BinOp::MulUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x * y)
+            }
+            BinOp::Div => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x / y)
+            }
+            BinOp::Rem => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x % y)
+            }
+            BinOp::Eq => self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| {
+                if x == y { 1 } else { 0 }
+            }),
+            BinOp::Lt => self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| {
+                if x < y { 1 } else { 0 }
+            }),
+            BinOp::Le => self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| {
+                if x <= y { 1 } else { 0 }
+            }),
+            BinOp::Ne => self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| {
+                if x != y { 1 } else { 0 }
+            }),
+            BinOp::Ge => self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| {
+                if x >= y { 1 } else { 0 }
+            }),
+            BinOp::Gt => self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| {
+                if x > y { 1 } else { 0 }
+            }),
+            // bit-level binops
+            BinOp::Shl | BinOp::ShlUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x << y)
+            }
+            BinOp::Shr | BinOp::ShrUnchecked => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x >> y)
+            }
+            BinOp::BitAnd => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x & y)
+            }
+            BinOp::BitOr => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x | y)
+            }
+            BinOp::BitXor => {
+                self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| x ^ y)
+            }
+            // This binop return Ord results
+            BinOp::Cmp => self.convert_binop_helper(istore, cur_scope, destty, op1, op2, |x, y| {
+                if x < y {
+                    -1
+                } else if x > y {
+                    1
+                } else {
+                    0
                 }
-                BinOp::Sub | BinOp::SubUnchecked => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x - y)
-                }
-                BinOp::Mul | BinOp::MulUnchecked => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x * y)
-                }
-                BinOp::Div => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x / y),
-                BinOp::Rem => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x % y),
-                BinOp::Eq => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                    if x == y { 1 } else { 0 }
-                }),
-                BinOp::Lt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                    if x < y { 1 } else { 0 }
-                }),
-                BinOp::Le => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                    if x <= y { 1 } else { 0 }
-                }),
-                BinOp::Ne => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                    if x != y { 1 } else { 0 }
-                }),
-                BinOp::Ge => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                    if x >= y { 1 } else { 0 }
-                }),
-                BinOp::Gt => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                    if x > y { 1 } else { 0 }
-                }),
-                // bit-level binops
-                BinOp::Shl | BinOp::ShlUnchecked => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x << y)
-                }
-                BinOp::Shr | BinOp::ShrUnchecked => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x >> y)
-                }
-                BinOp::BitAnd => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x & y)
-                }
-                BinOp::BitOr => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x | y)
-                }
-                BinOp::BitXor => {
-                    self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| x ^ y)
-                }
-                // This binop return Ord results
-                BinOp::Cmp => self.convert_binop_helper(istore, cur_scope, op1, op2, |x, y| {
-                    if x < y {
-                        -1
-                    } else if x > y {
-                        1
-                    } else {
-                        0
-                    }
-                }),
-                // TODO
-                BinOp::Offset => {
-                    Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
-                }
-            };
+            }),
+            // TODO
+            BinOp::Offset => {
+                Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
+            }
+        };
 
         vec![constraint]
     }
@@ -511,12 +533,13 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        destty: &Ty,
         op1: &Operand,
         op2: &Operand,
         f: fn(i128, i128) -> i128,
     ) -> Constraint {
-        let c_op1 = self.convert_op(istore, cur_scope, op1);
-        let c_op2 = self.convert_op(istore, cur_scope, op2);
+        let c_op1 = self.convert_op(istore, cur_scope, op1, destty);
+        let c_op2 = self.convert_op(istore, cur_scope, op2, destty);
         if c_op1.len() != 1 || c_op2.len() != 1 {
             return Constraint::new(None, Some(ControlFlowConstraint::Scalar(None)));
         }
@@ -580,12 +603,13 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        destty: &Ty,
         unop: &UnOp,
         op: &Operand,
     ) -> Constraints {
         let constraint = match unop {
-            UnOp::Neg => self.convert_unop_helper(istore, cur_scope, op, |x| -x),
-            UnOp::Not => self.convert_unop_helper(istore, cur_scope, op, |x| !x),
+            UnOp::Neg => self.convert_unop_helper(istore, cur_scope, destty, op, |x| -x),
+            UnOp::Not => self.convert_unop_helper(istore, cur_scope, destty, op, |x| !x),
             UnOp::PtrMetadata => {
                 Constraint::new(None, Some(ControlFlowConstraint::Idk(Box::new(vec![]))))
             }
@@ -598,10 +622,11 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         cur_scope: &VOID,
+        destty: &Ty,
         op: &Operand,
         f: fn(i128) -> i128,
     ) -> Constraint {
-        let c_op = self.convert_op(istore, cur_scope, op);
+        let c_op = self.convert_op(istore, cur_scope, op, destty);
         if c_op.len() != 1 {
             return Constraint::new(None, Some(ControlFlowConstraint::Scalar(None)));
         }

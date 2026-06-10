@@ -7,7 +7,7 @@ use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
     Constraint, Constraints, ControlFlowConstraint, MapKey, MapValue, TraitObjConstraint,
-    TraitObjDestTy, VOID,
+    TraitObjLvalTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -28,7 +28,7 @@ impl<'a> RvalConverter<'a> {
         istore: &InterpStore,
         cur_scope: &VOID,
         destty: &Ty,
-        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
+        maybe_trait_destty: &Option<Vec<TraitObjLvalTy>>,
         to_convert: &Rvalue,
     ) -> Constraints {
         debug!("CONVERTING RVALUE");
@@ -182,10 +182,11 @@ impl<'a> RvalConverter<'a> {
 
     pub fn get_any_traitobj(
         &self,
-        maybe_trait_ty: &Option<Vec<TraitObjDestTy>>,
+        maybe_trait_ty: &Option<Vec<TraitObjLvalTy>>,
         constraint: &Constraint,
     ) -> Option<TraitObjConstraint> {
         debug!("IN GET_ANY_TO");
+        debug!("maybe_trait_ty: {:?}", maybe_trait_ty);
 
         match constraint {
             Constraint { toc: Some(to_), .. } => {
@@ -195,28 +196,47 @@ impl<'a> RvalConverter<'a> {
             Constraint {
                 toc: None,
                 cfc: Some(maybe_to),
-            } => match maybe_to {
-                ControlFlowConstraint::Adt(adtdef, adt_genargs) => {
-                    // If we get Some, that means this struct/adt implements one or more
-                    // traits, but that does _not_ mean that this is a trait object
-                    debug!("MAYBE PULL TOC from {:?} (adtdef = {:?})", maybe_to, adtdef);
-                    match self.tstore.struct_traits.get(&adtdef.0) {
-                        Some(possible_traits) => {
-                            debug!("possible traits this type impls: {:?}", possible_traits);
+            } => {
+                debug!("MAYBE PULL TOC from {:?}", maybe_to);
+                match maybe_to {
+                    ControlFlowConstraint::Adt(adtdef, adt_genargs) => {
+                        debug!("ADT (adtdef): {:?}", adtdef);
 
-                            // If we know we are storing the result of this rval into a
-                            // traitobj, then populate the traitobj constraint field
-                            if maybe_trait_ty.is_some() {
-                                debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
-                                return Some((adtdef.clone(), adt_genargs.clone()));
+                        // If we get Some, that means this struct/adt implements one or more
+                        // traits, but that does _not_ mean that this is a trait object
+                        match self.tstore.struct_traits.get(&adtdef.0) {
+                            Some(possible_traits) => {
+                                debug!("possible traits this type impls: {:?}", possible_traits);
+
+                                // Once we know we are storing the result of this rval into a
+                                // traitobj, only _then_ can we populate the traitobj constraint field
+                                if maybe_trait_ty.is_some() {
+                                    debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
+                                    return Some(TraitObjConstraint::Adt(
+                                        adtdef.clone(),
+                                        adt_genargs.clone(),
+                                    ));
+                                }
                             }
+                            _ => debug!("no possible traits?"),
                         }
-                        _ => {}
                     }
+                    ControlFlowConstraint::Closure(cdef, genargs) => {
+                        // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
+                        debug!("CLOSURE (cdef): {:?}", cdef);
+
+                        if maybe_trait_ty.is_some() {
+                            debug!("SETTING TOC: ({:?}, {:?})", cdef, genargs);
+                            return Some(TraitObjConstraint::Closure(
+                                cdef.clone(),
+                                genargs.clone(),
+                            ));
+                        }
+                    }
+                    _ => debug!("another CFC kind"),
                 }
-                _ => {}
-            },
-            _ => {}
+            }
+            _ => debug!("CFC is NONE"),
         }
 
         None
@@ -224,12 +244,12 @@ impl<'a> RvalConverter<'a> {
 
     fn contains_traitobj(
         &self,
-        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
-        def: &AdtDef,
+        maybe_trait_destty: &Option<Vec<TraitObjLvalTy>>,
+        //def: &AdtDef,
         genargs: &Vec<Constraint>,
     ) -> Option<TraitObjConstraint> {
         debug!("IS TO?");
-        debug!("def: {:?}", def);
+        //debug!("def: {:?}", def);
         debug!("genargs: {:?}", genargs);
 
         // TODO check def for traitobj
@@ -304,7 +324,7 @@ impl<'a> RvalConverter<'a> {
         istore: &InterpStore,
         cur_scope: &VOID,
         destty: &Ty,
-        maybe_trait_destty: &Option<Vec<TraitObjDestTy>>,
+        maybe_trait_destty: &Option<Vec<TraitObjLvalTy>>,
         kind: &AggregateKind,
         fields: &Vec<Operand>,
     ) -> Constraints {
@@ -314,7 +334,7 @@ impl<'a> RvalConverter<'a> {
                 debug!("ty: {:?}", def.ty_with_args(genargs));
 
                 if let Some(c_genargs) = self.convert_genargs(genargs) {
-                    let to = self.contains_traitobj(maybe_trait_destty, def, &c_genargs);
+                    let to = self.contains_traitobj(maybe_trait_destty, &c_genargs);
                     let cf = self.contains_controlflow(def, &c_genargs);
 
                     if to.is_some() || cf.is_some() {

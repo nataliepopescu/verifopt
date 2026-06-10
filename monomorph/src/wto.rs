@@ -122,6 +122,10 @@ impl BBDeps {
                             debug!("UNREACHABLE: {:?}", bbi);
                             return false;
                         }
+                        //if let UnwindAction::Continue = unwind {
+                        //    debug!("CONTINUE: {:?}", bbi);
+                        //    return false;
+                        //}
                         //if let UnwindAction::Cleanup(_) = unwind {
                         //    debug!("CLEANUP: {:?}", bbi);
                         //    return false;

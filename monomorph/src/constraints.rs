@@ -65,7 +65,16 @@ impl Constraint {
     }
 }
 
-pub type TraitObjConstraint = (AdtDef, GenericArgs);
+//pub type TraitObjConstraint = (AdtDef, GenericArgs);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TraitObjConstraint {
+    // more complex data types
+    Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
+
+    // callable types
+    Closure(ClosureDef, GenericArgs),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ControlFlowConstraint {
@@ -80,7 +89,7 @@ pub enum ControlFlowConstraint {
     //RawPtr(Box<VORval>),
     //Ref(Box<VORval>),
 
-    // function types
+    // callable types
     Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, GenericArgs),
     FnPtr(SigVal), //Box<Constraints>, FnSig),
@@ -91,15 +100,15 @@ pub enum ControlFlowConstraint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TraitObjDestTy {
+pub struct TraitObjLvalTy {
     //pub bound_tys: Vec<(DefId, String)>,
     //pub bound_regions: Vec<(DefId, String)>,
     pub def: TraitDef,
     pub genargs: GenericArgs,
 }
 
-impl TraitObjDestTy {
-    pub fn new_from_bound_existential(binder: &Binder<ExistentialPredicate>) -> TraitObjDestTy {
+impl TraitObjLvalTy {
+    pub fn new_from_bound_existential(binder: &Binder<ExistentialPredicate>) -> TraitObjLvalTy {
         //let mut bound_tys = Vec::new();
         //let mut bound_regions = Vec::new();
         //if !binder.bound_vars.is_empty() {

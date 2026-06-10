@@ -1,13 +1,21 @@
 use rustc_public::DefId;
-use rustc_public::ty::Span;
+use rustc_public::ty::{GenericArgs, Span};
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
 pub struct VOLogger {
     stats_file: File,
-    diff: Vec<(Span, Vec<DefId>, Vec<DefId>)>,
-    same: Vec<(Span, Vec<DefId>, Vec<DefId>)>,
+    diff: Vec<(
+        Span,
+        Vec<(DefId, Option<GenericArgs>)>,
+        Vec<(DefId, Option<GenericArgs>)>,
+    )>,
+    same: Vec<(
+        Span,
+        Vec<(DefId, Option<GenericArgs>)>,
+        Vec<(DefId, Option<GenericArgs>)>,
+    )>,
 }
 
 impl VOLogger {
@@ -68,8 +76,8 @@ impl VOLogger {
     pub fn update_diff(
         &mut self,
         term_span: &Span,
-        assoc_fn_impls_cha: &Vec<DefId>,
-        assoc_fn_impls_fsa: &Vec<DefId>,
+        assoc_fn_impls_cha: &Vec<(DefId, Option<GenericArgs>)>,
+        assoc_fn_impls_fsa: &Vec<(DefId, Option<GenericArgs>)>,
     ) {
         self.diff.push((
             *term_span,
@@ -81,8 +89,8 @@ impl VOLogger {
     pub fn update_same(
         &mut self,
         term_span: &Span,
-        assoc_fn_impls_cha: &Vec<DefId>,
-        assoc_fn_impls_fsa: &Vec<DefId>,
+        assoc_fn_impls_cha: &Vec<(DefId, Option<GenericArgs>)>,
+        assoc_fn_impls_fsa: &Vec<(DefId, Option<GenericArgs>)>,
     ) {
         self.same.push((
             *term_span,

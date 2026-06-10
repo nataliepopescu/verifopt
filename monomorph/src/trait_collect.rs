@@ -4,7 +4,7 @@ use rustc_public::ty::{
 };
 use rustc_public::{CrateDefItems, DefId};
 
-use log::debug;
+//use log::debug;
 
 pub struct TraitVal {}
 
@@ -38,30 +38,30 @@ impl TraitCollectPass {
     }
 
     pub fn run(&self, tstore: &mut TraitStore) {
-        debug!("DEFAULTS");
+        //debug!("DEFAULTS");
         self.collect_default_impls(tstore);
-        debug!("OTHER IMPLS");
+        //debug!("OTHER IMPLS");
         self.collect_rest_impls(tstore);
     }
 
     fn collect_default_impls(&self, tstore: &mut TraitStore) {
         for trait_def in rustc_public::all_trait_decls() {
-            debug!("\n###################");
+            //debug!("\n###################");
 
-            debug!("trait_def: {:?}", trait_def);
+            //debug!("trait_def: {:?}", trait_def);
 
             for assoc_item in trait_def.associated_items() {
-                debug!("assoc_item: {:?}", assoc_item);
+                //debug!("assoc_item: {:?}", assoc_item);
 
                 if assoc_item.is_impl_trait_in_trait() {
-                    debug!("TODO nested trait impl");
+                    //debug!("TODO nested trait impl");
                 }
 
                 match assoc_item.kind {
                     AssocKind::Fn { .. } => match assoc_item.container {
                         AssocContainer::Trait => {
                             if FnDef(assoc_item.def_id.0).has_body() {
-                                debug!("found default impl {:?}", assoc_item.def_id.0);
+                                //debug!("found default impl {:?}", assoc_item.def_id.0);
                                 match tstore.assoc_fn_traits.get_mut(&assoc_item.def_id.0) {
                                     Some(trait_defid) => {
                                         if *trait_defid != trait_def.0 {

@@ -951,6 +951,7 @@ impl<'a> InterpPass<'a> {
         // - tstore.assoc_fn_traits (Map<AssocFn, Trait>)
         let trait_defid = self.get_trait_defid(&fndef.0);
         debug!("trait_defid: {:?}", trait_defid);
+        debug!("struct that impl trait: {:?}", self.tstore.trait_structs.get(&trait_defid));
 
         // Get concrete type constraints for trait object
         // - istore (FSA) / tstore (CHA / RTA)
@@ -963,7 +964,7 @@ impl<'a> InterpPass<'a> {
             assoc_fn_impls_cha
         );
 
-        let (is_closure, assoc_fn_impls_fsa) =
+        let (is_closure, mut assoc_fn_impls_fsa) =
             self.get_impls_fsa(istore, callee_scope, cur_scope, &fndef.0, args);
         debug!(
             "------- assoc_fn_impls_fsa: ({:?} total): {:?}",
@@ -971,14 +972,15 @@ impl<'a> InterpPass<'a> {
             assoc_fn_impls_fsa
         );
 
-        if assoc_fn_impls_fsa.is_empty() {
-            panic!("nothing to call, FSA set is empty");
-        }
-
         for fsa_impl in &assoc_fn_impls_fsa {
             if !assoc_fn_impls_cha.contains(&fsa_impl) {
                 error!("CHA missing impl: {:?}", fsa_impl);
             }
+        }
+
+        if assoc_fn_impls_fsa.is_empty() {
+            debug!("nothing to call, FSA set is empty, falling back to CHA");
+            assoc_fn_impls_fsa = assoc_fn_impls_cha.clone();
         }
 
         // Log CHA vs FSA diffs

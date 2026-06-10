@@ -17,7 +17,7 @@ pub fn log_scope(scope: &VOID) {
 }
 
 pub fn log_call_stack(call_stack: &Vec<VOID>) {
-    debug!("CALL STACK\n[");
+    debug!("CALL STACK ({:?})\n[", call_stack.len());
     for instance in call_stack {
         debug!("\t{:?},", instance.0.name());
     }

@@ -4,7 +4,7 @@ use rustc_public::ty::{
 };
 use rustc_public::{CrateDefItems, DefId};
 
-//use log::debug;
+use log::debug;
 
 pub struct TraitVal {}
 
@@ -86,12 +86,13 @@ impl TraitCollectPass {
 
     fn collect_rest_impls(&self, tstore: &mut TraitStore) {
         for impl_def in rustc_public::all_trait_impls() {
-            //debug!("\n###################");
+            debug!("\n###################");
 
             let trait_impl = impl_def.trait_impl();
 
             // Get Trait DefId
             let trait_defid = trait_impl.value.def_id.0;
+            debug!("TRAIT: {:?}", trait_defid);
 
             // Get Struct DefId
             let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
@@ -154,12 +155,14 @@ impl TraitCollectPass {
                     .get_mut(&(struct_defid, *assoc_fn_decl_defid))
                 {
                     Some(existing_impls) => {
+                        debug!("ADDING TO EXISTING: {:?}", assoc_fn_impl_defid);
                         // Skip duplicates
                         if !existing_impls.contains(assoc_fn_impl_defid) {
                             existing_impls.push(*assoc_fn_impl_defid);
                         }
                     }
                     None => {
+                        debug!("INITING WITH: {:?}", assoc_fn_impl_defid);
                         tstore.struct_assoc_fns.insert(
                             (struct_defid, *assoc_fn_decl_defid),
                             vec![*assoc_fn_impl_defid],

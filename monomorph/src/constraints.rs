@@ -2,7 +2,7 @@ use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{
-    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef,
+    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
 };
 
 use crate::common::log_scope;
@@ -56,11 +56,11 @@ pub type Constraints = Vec<Constraint>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Constraint {
     pub toc: Option<TraitObjConstraint>,
-    pub cfc: Option<ControlFlowConstraint>,
+    pub cfc: Option<RunningConstraint>,
 }
 
 impl Constraint {
-    pub fn new(toc: Option<TraitObjConstraint>, cfc: Option<ControlFlowConstraint>) -> Constraint {
+    pub fn new(toc: Option<TraitObjConstraint>, cfc: Option<RunningConstraint>) -> Constraint {
         Self { toc, cfc }
     }
 }
@@ -76,18 +76,25 @@ pub enum TraitObjConstraint {
     Closure(ClosureDef, GenericArgs),
 }
 
+//pub struct Location
+
+// Span portion corresponds to when this constraint was last set (at what span)
+// TODO maybe refine this a bit though
+pub type RunningConstraint = (Span, RunningConstraintInner);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ControlFlowConstraint {
+pub enum RunningConstraintInner {
     // primitive data types
     Scalar(Option<i128>),
 
     // more complex data types
     Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
+    List(Box<Constraint>),
+    Tuple(Vec<Constraint>),
 
     // pointer types
-    //AddressOf(Box<VORval>),
-    //RawPtr(Box<VORval>),
-    //Ref(Box<VORval>),
+    Ptr(Box<Constraint>),
+    //Ref(Box<Constraint>),
 
     // callable types
     Closure(ClosureDef, GenericArgs),
@@ -307,6 +314,7 @@ fn merge_stores_helper(cur_store: &InterpStore, new_store: &InterpStore) -> Inte
     }
 }
 
+// FIXME merge span of RunningConstraints into a single vec if the RunningConstraintsInner are equal
 fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
     let mut merged = cur_constraints.clone();
     if merged != *new_constraints {

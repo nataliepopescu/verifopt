@@ -97,5 +97,73 @@ how did we get here (last -> first)
 trying to trace backwards
 
 
+### default impls
+
+`impl<E> StdError for E` ...
+`let backtrace = backtrace_if_absent!(&self); `
+
+might be default
+
+but also may not have collected constraints b/c macro stuff makes this weird?
+- or some other reason, i think casting
+- fixed casting but want to make sure haven't erased any important information
+  about which precise error this is
+
+tracing backwards:
+- in parse()
+- in context()
+    - move(_5) -> first arg of ext_context
+    - currently: Constraint { toc, None, cfc: Some(Adt(Result,
+      Genargs(Option(lexopt::Args), lexopt::Error))) }
+      - log.md line 222205
+- in ext_context()
+    - move(_5) -> first arg of request_ref_backtrace
+    - currently: also dyn (see below)
+      - log.md line 222360
+- in request_ref_backtrace
+    - move(_1) -> first arg of request_by_type_tag
+    - currently: Constraint { toc: None, cfc: Some(Dyn(Error)) }
+        - info was lost here
+        - when do we set this var / when is the non-dynamic value overridden?
+- dynamic dispatch site (provide()) in request_by_type_tag
+    - self should be in _1,
+
+casting op
+- log.md line 222334
+- in ext_context, but really the backtrace! macro
+- /home/np/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/anyhow-1.0.100/src/backtrace.rs: 41:54 41:85
+- yep, `$err as &dyn core::error::Error`
+- explicit, source level cast
+
+
+
+
+
+
+### traitobj generic args
+
+testing-examples/generic_traitobj
+
+main: [0, 7, 6, 8, 2, 5, 1]
+
+bb7
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

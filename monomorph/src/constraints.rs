@@ -2,7 +2,7 @@ use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{
-    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
+    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef,
 };
 
 use crate::common::log_scope;
@@ -76,11 +76,18 @@ pub enum TraitObjConstraint {
     Closure(ClosureDef, GenericArgs),
 }
 
-//pub struct Location
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Location;
 
-// Span portion corresponds to when this constraint was last set (at what span)
+impl Location {
+    pub fn new() -> Location {
+        Self {}
+    }
+}
+
+// Location portion corresponds to when this constraint was last set (at what span)
 // TODO maybe refine this a bit though
-pub type RunningConstraint = (Span, RunningConstraintInner);
+pub type RunningConstraint = (Location, RunningConstraintInner);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RunningConstraintInner {

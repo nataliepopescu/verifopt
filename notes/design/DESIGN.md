@@ -42,7 +42,6 @@ everything can *potentially* flow into a traitobj
 it is important for `RunningConstraint`s to be kept accurate, because they are
 what ultimately flow into `TraitObjConstraint`s
 - keep accurate without modeling/applying casts/projections
-- this is the difficult part ^
 
 if you have accurate `RunningConstraint`s, it is relatively
 straightforward to pull out `TraitObjConstraint`s
@@ -59,30 +58,49 @@ straightforward to pull out `TraitObjConstraint`s
 
 ### How to keep `RunningConstraint`s accurate
 
-convert_op (operand)
+when to return empty constraints vs constraints that match the type system?
+
+the only time that we do not want the `RunningConstraint` type to match the type
+system type is where there is a traitobject (`dyn`) somewhere in the type system
+type
+- what about empty constraints?
+
+tricky part: do not want to model casting/projections
+- when set a type, mirror type system
+- when update a type, how to mirror type system without loosing info/needing to
+  model a whole bunch of shtuff
+
+#### convert_op (operand)
+
 - if copy/move operand, convert_place
 - if constant operand, convert_const
 
-convert_place
+#### convert_place
+
 - probe cmap
     - if constraint exist, return those exact constraints
     - otherwise, initialize constraints that mirror the place type (convert_ty)
 
-convert_const
+#### convert_const
+
 - if (1) allocated const that is (2) a bool/integer type with a (3) readable inner integer value, create a scalar constraint of the allocated value
 - all other allocated consts, as well as zero-sized consts, do not have directly interpretable values, so return *empty* constraints ~FIXME~
     - fixed: returning through convert_ty
-    - **FIXME** wrap in verifopt Const variant?
+    - **TODO** wrap in verifopt Const variant?
 - have not yet run into other types of consts, TBD
 
-convert_cast
+#### convert_cast
+
 - if cast operand is copy/move, convert_place
-    - **FIXME** this keeps the constraints that were collected before the cast, so after
+    - ~FIXME~ this keeps the constraints that were collected before the cast, so after
       the cast the constraints will not match the type system
-    - difficulty: changing type may make us lose our trait object constraints - **TEST**
+    - difficulty: changing type may make us lose our trait object constraints
+        - KEY: how to change the type in a _simple_ way without losing collected traitobj constraints? 
+    - fix **WIP**
 - if cast operand is constant, convert_ty
 
-convert_agg (aggregate)
+#### convert_agg (aggregates)
+
 - if ADT, ~FIXME~
     - only converting/checking genargs for traitobj/controlflow constraints
     - fixed: creating regular Adt (traitobj pulling shouldn't happen from within
@@ -98,9 +116,12 @@ convert_agg (aggregate)
 - if closure, closure
 - have not yet come across coroutines
 
-convert_unop / convert_binop = straightforward
+#### convert_unop / convert_binop
 
-convert_ty
+straightforward
+
+#### convert_ty
+
 - if bool/integer, Scalar(None)
 - if adt, Adt
 - if tuple,
@@ -114,18 +135,6 @@ convert_ty
   ref/rawptr)
 - if char/string/never, nothing
 
-
-when to return empty constraints vs constraints that match the type system?
-
-the only time that we do not want the `RunningConstraint` type to match the type
-system type is where there is a traitobject (`dyn`) somewhere in the type system
-type
-- what about empty constraints?
-
-tricky part: do not want to model casting/projections
-- when set a type, mirror type system
-- when update a type, how to mirror type system without loosing info/needing to
-  model a whole bunch of shit
 
 
 

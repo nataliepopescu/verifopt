@@ -14,8 +14,8 @@ use log::{debug, error};
 use crate::VOLogger;
 use crate::common::{is_wrapper_type, log_call_stack, log_scope};
 use crate::constraints::{
-    Constraint, Constraints, InterpStore, MapKey, MapValue, Merge, RunningConstraintInner,
-    TraitObjConstraint, TraitObjTy, VOID,
+    Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge,
+    RunningConstraintInner, TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{merge_stores, unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -345,7 +345,7 @@ impl<'a> InterpPass<'a> {
                 // convert MIR Rvalue to Constraint
                 let constraints = self.converter.convert(
                     istore,
-                    &stmt.span,
+                    &Location::new(),
                     local_decls,
                     cur_scope,
                     &dest_ty,
@@ -886,7 +886,7 @@ impl<'a> InterpPass<'a> {
     fn resolve_arg(
         &self,
         istore: &InterpStore,
-        term_span: &Span,
+        _term_span: &Span,
         caller_scope: &VOID,
         maybe_trait_argty: &Option<Vec<TraitObjTy>>,
         arg: &Operand,
@@ -913,7 +913,9 @@ impl<'a> InterpPass<'a> {
                 }
             }
             // TODO can maybe get a more precise VORval depending on kind
-            Operand::Constant(const_op) => self.converter.convert_const(term_span, &const_op),
+            Operand::Constant(const_op) => {
+                self.converter.convert_const(&Location::new(), &const_op)
+            }
             _ => todo!("runtime check arg"),
         }
     }
@@ -1222,7 +1224,10 @@ impl<'a> InterpPass<'a> {
                                 debug!("more than 1 genarg in wrapper type");
                             }
 
-                            match self.converter.convert_genarg(term_span, &genargs.0[0]) {
+                            match self
+                                .converter
+                                .convert_genarg(&Location::new(), &genargs.0[0])
+                            {
                                 Some(vorval) => self.resolve_defid(term_span, &vorval),
                                 _ => todo!(),
                             }

@@ -1,13 +1,13 @@
 use rustc_public::mir::{
     AggregateKind, BinOp, CastKind, ConstOperand, LocalDecl, Operand, Place, Rvalue, UnOp,
 };
-use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Span, Ty, TyKind};
+use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 
 use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    Constraint, Constraints, MapKey, MapValue, RunningConstraintInner, TraitObjConstraint,
-    TraitObjTy, VOID,
+    Constraint, Constraints, Location, MapKey, MapValue, RunningConstraintInner,
+    TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -26,7 +26,7 @@ impl<'a> RvalConverter<'a> {
     pub fn convert(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
@@ -85,7 +85,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_op(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         op: &Operand,
@@ -100,7 +100,7 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    pub fn convert_const(&self, span: &Span, const_op: &ConstOperand) -> Constraints {
+    pub fn convert_const(&self, span: &Location, const_op: &ConstOperand) -> Constraints {
         debug!("CONVERTING CONST");
         match const_op.const_.kind() {
             ConstantKind::Allocated(alloc) => match alloc.read_int() {
@@ -131,7 +131,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_place(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         place: &Place,
@@ -159,10 +159,10 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_cast(
         &self,
-        _istore: &InterpStore,
-        span: &Span,
-        _local_decls: &[LocalDecl],
-        _cur_scope: &VOID,
+        istore: &InterpStore,
+        span: &Location,
+        local_decls: &[LocalDecl],
+        cur_scope: &VOID,
         _kind: &CastKind,
         op: &Operand,
         ty: &Ty,
@@ -171,12 +171,17 @@ impl<'a> RvalConverter<'a> {
             Operand::Constant(const_op) => {
                 vec![self.convert_ty(span, &const_op.const_.ty())]
             }
-            Operand::Copy(_place) | Operand::Move(_place) => {
+            Operand::Copy(place) | Operand::Move(place) => {
                 debug!("CASTING existing place");
-                //self.convert_place(istore, span, local_decls, cur_scope, place, ty)
-                let t = self.convert_ty(span, ty);
-                debug!("POST CAST ty: {:?}", t);
-                vec![t]
+                let prev_constraints =
+                    self.convert_place(istore, span, local_decls, cur_scope, place, ty);
+                debug!("PRE CAST constraints: {:?}", prev_constraints);
+                let post_ty = self.convert_ty(span, ty);
+                debug!("POST CAST ty: {:?}", post_ty);
+
+                //if
+
+                vec![post_ty]
             }
             _ => todo!("runtime checks"),
         }
@@ -292,7 +297,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_agg(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
@@ -373,7 +378,7 @@ impl<'a> RvalConverter<'a> {
     }
 
     /*
-    fn convert_genargs(&self, span: &Span, genargs: &GenericArgs) -> Option<Vec<Constraint>> {
+    fn convert_genargs(&self, span: &Location, genargs: &GenericArgs) -> Option<Vec<Constraint>> {
         if genargs.0.is_empty() {
             return None;
         }
@@ -395,14 +400,14 @@ impl<'a> RvalConverter<'a> {
     }
     */
 
-    pub fn convert_genarg(&self, span: &Span, genarg: &GenericArgKind) -> Option<Constraint> {
+    pub fn convert_genarg(&self, span: &Location, genarg: &GenericArgKind) -> Option<Constraint> {
         match genarg {
             GenericArgKind::Type(ty) => Some(self.convert_ty(span, ty)),
             _ => None,
         }
     }
 
-    pub fn convert_ty(&self, span: &Span, ty: &Ty) -> Constraint {
+    pub fn convert_ty(&self, span: &Location, ty: &Ty) -> Constraint {
         debug!("CONVERTING TY");
         debug!("ty: {:?}", ty);
 
@@ -467,6 +472,7 @@ impl<'a> RvalConverter<'a> {
                 RigidTy::RawPtr(ty, _mut) => self.convert_ty(span, &ty),
                 RigidTy::Char | RigidTy::Str | RigidTy::Never => Constraint::new(None, None),
                 RigidTy::Dynamic(bound_existentials, _) => {
+                    debug!("SETTING INTO DYNAMIC");
                     let mut traitobj_vec = Vec::new();
                     for bound_existential in bound_existentials {
                         unique_push(
@@ -488,7 +494,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_binop(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
@@ -702,7 +708,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_binop_helper(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
@@ -795,7 +801,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_unop(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
@@ -821,7 +827,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_unop_helper(
         &self,
         istore: &InterpStore,
-        span: &Span,
+        span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
@@ -830,7 +836,10 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraint {
         let c_op = self.convert_op(istore, span, local_decls, cur_scope, op, destty);
         if c_op.len() != 1 {
-            return Constraint::new(None, Some((*span, RunningConstraintInner::Scalar(None))));
+            return Constraint::new(
+                None,
+                Some((span.clone(), RunningConstraintInner::Scalar(None))),
+            );
         }
         match c_op[0].clone() {
             Constraint {

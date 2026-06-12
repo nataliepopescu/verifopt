@@ -15,7 +15,7 @@ use crate::VOLogger;
 use crate::common::{is_wrapper_type, log_call_stack, log_scope};
 use crate::constraints::{
     Constraint, Constraints, InterpStore, MapKey, MapValue, Merge, RunningConstraintInner,
-    TraitObjConstraint, TraitObjLvalTy, VOID,
+    TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{merge_stores, unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -54,7 +54,7 @@ impl<'a> InterpPass<'a> {
         &self,
         local_decls: &[LocalDecl],
         place: &Place,
-    ) -> (Ty, Option<Vec<TraitObjLvalTy>>) {
+    ) -> (Ty, Option<Vec<TraitObjTy>>) {
         debug!("CHECKING FOR DYN IN PLACE TY");
         let ty = place.ty(local_decls).unwrap();
         debug!("lval ty: {:?}", ty);
@@ -231,7 +231,7 @@ impl<'a> InterpPass<'a> {
         Ok(res)
     }
 
-    fn contains_dyn(&self, ty: &Ty) -> Option<Vec<TraitObjLvalTy>> {
+    fn contains_dyn(&self, ty: &Ty) -> Option<Vec<TraitObjTy>> {
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Dynamic(trait_vec, _) => {
@@ -239,7 +239,7 @@ impl<'a> InterpPass<'a> {
                     for trait_ in trait_vec {
                         unique_push(
                             &mut desttys,
-                            TraitObjLvalTy::new_from_bound_existential(&trait_),
+                            TraitObjTy::new_from_bound_existential(&trait_),
                         );
                     }
                     return Some(desttys);
@@ -285,7 +285,7 @@ impl<'a> InterpPass<'a> {
 
     fn pull_traitobjs_from_constraints(
         &self,
-        maybe_trait_destty: &Option<Vec<TraitObjLvalTy>>,
+        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
     ) -> Constraints {
         let mut constraints = Vec::new();
@@ -333,8 +333,8 @@ impl<'a> InterpPass<'a> {
                 debug!("place: {:?}", place);
                 debug!("rval: {:?}", rvalue);
 
-                let rval_ty = rvalue.ty(local_decls).unwrap();
-                debug!("rval ty: {:?}", rval_ty);
+                //let rval_ty = rvalue.ty(local_decls).unwrap();
+                //debug!("rval ty: {:?}", rval_ty);
 
                 debug!("CHECKING FOR DYN IN PLACE TY");
                 let dest_ty = place.ty(local_decls).unwrap();
@@ -342,16 +342,15 @@ impl<'a> InterpPass<'a> {
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
                 debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-                if rval_ty != dest_ty {
-                    panic!("tys are not the same");
-                } else {
-                    debug!("tys are the same");
-                }
-
                 // convert MIR Rvalue to Constraint
-                let constraints = self
-                    .converter
-                    .convert(istore, &stmt.span, cur_scope, &dest_ty, rvalue);
+                let constraints = self.converter.convert(
+                    istore,
+                    &stmt.span,
+                    local_decls,
+                    cur_scope,
+                    &dest_ty,
+                    rvalue,
+                );
                 debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
                 let constraints =
                     self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints);
@@ -889,7 +888,7 @@ impl<'a> InterpPass<'a> {
         istore: &InterpStore,
         term_span: &Span,
         caller_scope: &VOID,
-        maybe_trait_argty: &Option<Vec<TraitObjLvalTy>>,
+        maybe_trait_argty: &Option<Vec<TraitObjTy>>,
         arg: &Operand,
         is_closure: bool,
     ) -> Constraints {

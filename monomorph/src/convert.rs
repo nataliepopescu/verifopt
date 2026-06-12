@@ -1,5 +1,5 @@
 use rustc_public::mir::{
-    AggregateKind, BinOp, CastKind, ConstOperand, Operand, Place, Rvalue, UnOp,
+    AggregateKind, BinOp, CastKind, ConstOperand, LocalDecl, Operand, Place, Rvalue, UnOp,
 };
 use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Span, Ty, TyKind};
 
@@ -7,7 +7,7 @@ use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
     Constraint, Constraints, MapKey, MapValue, RunningConstraintInner, TraitObjConstraint,
-    TraitObjLvalTy, VOID,
+    TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -27,38 +27,57 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
         to_convert: &Rvalue,
     ) -> Constraints {
         match to_convert {
-            Rvalue::Use(op) => self.convert_op(istore, span, cur_scope, op, destty),
+            Rvalue::Use(op) => self.convert_op(istore, span, local_decls, cur_scope, op, destty),
             Rvalue::Ref(_region, _borrow_kind, place) => {
-                self.convert_place(istore, span, cur_scope, place, destty)
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }
             Rvalue::Discriminant(place) => {
-                self.convert_place(istore, span, cur_scope, place, destty)
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }
             Rvalue::CopyForDeref(place) => {
-                self.convert_place(istore, span, cur_scope, place, destty)
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }
-            Rvalue::Cast(kind, op, ty) => self.convert_cast(istore, span, cur_scope, kind, op, ty),
+            Rvalue::Cast(kind, op, ty) => {
+                self.convert_cast(istore, span, local_decls, cur_scope, kind, op, ty)
+            }
             Rvalue::Aggregate(kind, fields) => {
-                self.convert_agg(istore, span, cur_scope, destty, kind, fields)
+                self.convert_agg(istore, span, local_decls, cur_scope, destty, kind, fields)
             }
             Rvalue::AddressOf(_rawptrkind, place) => {
-                self.convert_place(istore, span, cur_scope, place, destty)
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }
             Rvalue::UnaryOp(unop, op) => {
-                self.convert_unop(istore, span, cur_scope, destty, unop, op)
+                self.convert_unop(istore, span, local_decls, cur_scope, destty, unop, op)
             }
-            Rvalue::BinaryOp(binop, op1, op2) => {
-                self.convert_binop(istore, span, cur_scope, destty, binop, op1, op2)
+            Rvalue::BinaryOp(binop, op1, op2) => self.convert_binop(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                binop,
+                op1,
+                op2,
+            ),
+            Rvalue::CheckedBinaryOp(binop, op1, op2) => self.convert_binop(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                binop,
+                op1,
+                op2,
+            ),
+            Rvalue::Repeat(op, _tyconst) => {
+                self.convert_op(istore, span, local_decls, cur_scope, op, destty)
             }
-            Rvalue::CheckedBinaryOp(binop, op1, op2) => {
-                self.convert_binop(istore, span, cur_scope, destty, binop, op1, op2)
-            }
-            Rvalue::Repeat(op, _tyconst) => self.convert_op(istore, span, cur_scope, op, destty),
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
@@ -67,13 +86,14 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         op: &Operand,
         destty: &Ty,
     ) -> Constraints {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                self.convert_place(istore, span, cur_scope, place, destty)
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }
             Operand::Constant(const_op) => self.convert_const(span, &const_op),
             _ => todo!("runtime checks"),
@@ -81,6 +101,7 @@ impl<'a> RvalConverter<'a> {
     }
 
     pub fn convert_const(&self, span: &Span, const_op: &ConstOperand) -> Constraints {
+        debug!("CONVERTING CONST");
         match const_op.const_.kind() {
             ConstantKind::Allocated(alloc) => match alloc.read_int() {
                 // FIXME
@@ -95,14 +116,14 @@ impl<'a> RvalConverter<'a> {
                                     Some((span.clone(), RunningConstraintInner::Scalar(Some(val)))),
                                 )]
                             }
-                            _ => vec![],
+                            _ => vec![self.convert_ty(span, &const_op.const_.ty())],
                         },
                         _ => todo!(),
                     }
                 }
-                _ => vec![],
+                _ => vec![self.convert_ty(span, &const_op.const_.ty())],
             },
-            ConstantKind::ZeroSized => vec![],
+            ConstantKind::ZeroSized => vec![self.convert_ty(span, &const_op.const_.ty())],
             other @ _ => todo!("arg is another constant kind: {:?}", other),
         }
     }
@@ -111,10 +132,13 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         place: &Place,
         destty: &Ty,
     ) -> Constraints {
+        debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
+
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
@@ -135,9 +159,10 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_cast(
         &self,
-        istore: &InterpStore,
+        _istore: &InterpStore,
         span: &Span,
-        cur_scope: &VOID,
+        _local_decls: &[LocalDecl],
+        _cur_scope: &VOID,
         _kind: &CastKind,
         op: &Operand,
         ty: &Ty,
@@ -146,8 +171,12 @@ impl<'a> RvalConverter<'a> {
             Operand::Constant(const_op) => {
                 vec![self.convert_ty(span, &const_op.const_.ty())]
             }
-            Operand::Copy(place) | Operand::Move(place) => {
-                self.convert_place(istore, span, cur_scope, place, ty)
+            Operand::Copy(_place) | Operand::Move(_place) => {
+                debug!("CASTING existing place");
+                //self.convert_place(istore, span, local_decls, cur_scope, place, ty)
+                let t = self.convert_ty(span, ty);
+                debug!("POST CAST ty: {:?}", t);
+                vec![t]
             }
             _ => todo!("runtime checks"),
         }
@@ -155,7 +184,7 @@ impl<'a> RvalConverter<'a> {
 
     pub fn get_any_traitobj(
         &self,
-        maybe_trait_ty: &Option<Vec<TraitObjLvalTy>>,
+        maybe_trait_ty: &Option<Vec<TraitObjTy>>,
         constraint: &Constraint,
     ) -> Option<TraitObjConstraint> {
         match constraint {
@@ -213,7 +242,7 @@ impl<'a> RvalConverter<'a> {
     /*
     fn contains_traitobj(
         &self,
-        maybe_trait_destty: &Option<Vec<TraitObjLvalTy>>,
+        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         //def: &AdtDef,
         genargs: &Vec<Constraint>,
     ) -> Option<TraitObjConstraint> {
@@ -264,6 +293,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
         kind: &AggregateKind,
@@ -288,7 +318,7 @@ impl<'a> RvalConverter<'a> {
                 for op in fields {
                     unique_append(
                         &mut inner_constraints,
-                        self.convert_op(istore, span, cur_scope, op, destty),
+                        self.convert_op(istore, span, local_decls, cur_scope, op, destty),
                     );
                 }
                 vec![Constraint::new(
@@ -436,6 +466,19 @@ impl<'a> RvalConverter<'a> {
                 RigidTy::Ref(_, ty, _) => self.convert_ty(span, &ty),
                 RigidTy::RawPtr(ty, _mut) => self.convert_ty(span, &ty),
                 RigidTy::Char | RigidTy::Str | RigidTy::Never => Constraint::new(None, None),
+                RigidTy::Dynamic(bound_existentials, _) => {
+                    let mut traitobj_vec = Vec::new();
+                    for bound_existential in bound_existentials {
+                        unique_push(
+                            &mut traitobj_vec,
+                            TraitObjTy::new_from_bound_existential(&bound_existential),
+                        );
+                    }
+                    Constraint::new(
+                        None,
+                        Some((span.clone(), RunningConstraintInner::Dynamic(traitobj_vec))),
+                    )
+                }
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
             other @ _ => panic!("other ty kind: {:?}", other),
@@ -446,6 +489,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
         binop: &BinOp,
@@ -453,70 +497,189 @@ impl<'a> RvalConverter<'a> {
         op2: &Operand,
     ) -> Constraints {
         let constraint = match binop {
-            BinOp::Add | BinOp::AddUnchecked => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x + y)
-            }
-            BinOp::Sub | BinOp::SubUnchecked => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x - y)
-            }
-            BinOp::Mul | BinOp::MulUnchecked => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x * y)
-            }
-            BinOp::Div => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x / y)
-            }
-            BinOp::Rem => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x % y)
-            }
-            BinOp::Eq => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| {
+            BinOp::Add | BinOp::AddUnchecked => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x + y,
+            ),
+            BinOp::Sub | BinOp::SubUnchecked => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x - y,
+            ),
+            BinOp::Mul | BinOp::MulUnchecked => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x * y,
+            ),
+            BinOp::Div => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x / y,
+            ),
+            BinOp::Rem => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x % y,
+            ),
+            BinOp::Eq => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| {
                     if x == y { 1 } else { 0 }
-                })
-            }
-            BinOp::Lt => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| {
+                },
+            ),
+            BinOp::Lt => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| {
                     if x < y { 1 } else { 0 }
-                })
-            }
-            BinOp::Le => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| {
+                },
+            ),
+            BinOp::Le => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| {
                     if x <= y { 1 } else { 0 }
-                })
-            }
-            BinOp::Ne => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| {
+                },
+            ),
+            BinOp::Ne => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| {
                     if x != y { 1 } else { 0 }
-                })
-            }
-            BinOp::Ge => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| {
+                },
+            ),
+            BinOp::Ge => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| {
                     if x >= y { 1 } else { 0 }
-                })
-            }
-            BinOp::Gt => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| {
+                },
+            ),
+            BinOp::Gt => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| {
                     if x > y { 1 } else { 0 }
-                })
-            }
+                },
+            ),
             // bit-level binops
-            BinOp::Shl | BinOp::ShlUnchecked => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x << y)
-            }
-            BinOp::Shr | BinOp::ShrUnchecked => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x >> y)
-            }
-            BinOp::BitAnd => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x & y)
-            }
-            BinOp::BitOr => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x | y)
-            }
-            BinOp::BitXor => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| x ^ y)
-            }
+            BinOp::Shl | BinOp::ShlUnchecked => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x << y,
+            ),
+            BinOp::Shr | BinOp::ShrUnchecked => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x >> y,
+            ),
+            BinOp::BitAnd => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x & y,
+            ),
+            BinOp::BitOr => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x | y,
+            ),
+            BinOp::BitXor => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| x ^ y,
+            ),
             // This binop return Ord results
-            BinOp::Cmp => {
-                self.convert_binop_helper(istore, span, cur_scope, destty, op1, op2, |x, y| {
+            BinOp::Cmp => self.convert_binop_helper(
+                istore,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op1,
+                op2,
+                |x, y| {
                     if x < y {
                         -1
                     } else if x > y {
@@ -524,8 +687,8 @@ impl<'a> RvalConverter<'a> {
                     } else {
                         0
                     }
-                })
-            }
+                },
+            ),
             // TODO
             BinOp::Offset => Constraint::new(
                 None,
@@ -540,14 +703,15 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
         op1: &Operand,
         op2: &Operand,
         f: fn(i128, i128) -> i128,
     ) -> Constraint {
-        let c_op1 = self.convert_op(istore, span, cur_scope, op1, destty);
-        let c_op2 = self.convert_op(istore, span, cur_scope, op2, destty);
+        let c_op1 = self.convert_op(istore, span, local_decls, cur_scope, op1, destty);
+        let c_op2 = self.convert_op(istore, span, local_decls, cur_scope, op2, destty);
         if c_op1.len() != 1 || c_op2.len() != 1 {
             return Constraint::new(
                 None,
@@ -632,14 +796,19 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
         unop: &UnOp,
         op: &Operand,
     ) -> Constraints {
         let constraint = match unop {
-            UnOp::Neg => self.convert_unop_helper(istore, span, cur_scope, destty, op, |x| -x),
-            UnOp::Not => self.convert_unop_helper(istore, span, cur_scope, destty, op, |x| !x),
+            UnOp::Neg => {
+                self.convert_unop_helper(istore, span, local_decls, cur_scope, destty, op, |x| -x)
+            }
+            UnOp::Not => {
+                self.convert_unop_helper(istore, span, local_decls, cur_scope, destty, op, |x| !x)
+            }
             UnOp::PtrMetadata => Constraint::new(
                 None,
                 Some((span.clone(), RunningConstraintInner::Idk(Box::new(vec![])))),
@@ -653,12 +822,13 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Span,
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         destty: &Ty,
         op: &Operand,
         f: fn(i128) -> i128,
     ) -> Constraint {
-        let c_op = self.convert_op(istore, span, cur_scope, op, destty);
+        let c_op = self.convert_op(istore, span, local_decls, cur_scope, op, destty);
         if c_op.len() != 1 {
             return Constraint::new(None, Some((*span, RunningConstraintInner::Scalar(None))));
         }

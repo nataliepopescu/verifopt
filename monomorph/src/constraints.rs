@@ -101,38 +101,42 @@ pub enum RunningConstraintInner {
     FnDef(FnDef, GenericArgs),
     FnPtr(SigVal), //Box<Constraints>, FnSig),
 
+    // dynamic types
+    Dynamic(Vec<TraitObjTy>),
+
     // fallback types
     //IdkType(Ty),
     Idk(Box<Constraints>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TraitObjLvalTy {
+pub struct TraitObjTy {
     //pub bound_tys: Vec<(DefId, String)>,
     //pub bound_regions: Vec<(DefId, String)>,
     pub def: TraitDef,
     pub genargs: GenericArgs,
 }
 
-impl TraitObjLvalTy {
-    pub fn new_from_bound_existential(binder: &Binder<ExistentialPredicate>) -> TraitObjLvalTy {
+impl TraitObjTy {
+    pub fn new_from_bound_existential(binder: &Binder<ExistentialPredicate>) -> TraitObjTy {
         //let mut bound_tys = Vec::new();
         //let mut bound_regions = Vec::new();
-        //if !binder.bound_vars.is_empty() {
-        //    for bound_var in &binder.bound_vars {
-        //        match bound_var {
-        //            BoundVariableKind::Ty(ty) => match ty {
-        //                BoundTyKind::Param(def, s) => bound_tys.push((def.0, s.clone())),
-        //                _ => {}
-        //            },
-        //            BoundVariableKind::Region(region) => match region {
-        //                BoundRegionKind::BrNamed(def, s) => bound_regions.push((def.0, s.clone())),
-        //                _ => {}
-        //            },
-        //            _ => {}
-        //        }
-        //    }
-        //}
+        if !binder.bound_vars.is_empty() {
+            debug!("handle bound vars");
+            //    for bound_var in &binder.bound_vars {
+            //        match bound_var {
+            //            BoundVariableKind::Ty(ty) => match ty {
+            //                BoundTyKind::Param(def, s) => bound_tys.push((def.0, s.clone())),
+            //                _ => {}
+            //            },
+            //            BoundVariableKind::Region(region) => match region {
+            //                BoundRegionKind::BrNamed(def, s) => bound_regions.push((def.0, s.clone())),
+            //                _ => {}
+            //            },
+            //            _ => {}
+            //        }
+            //    }
+        }
 
         match binder.clone().skip_binder() {
             ExistentialPredicate::Trait(trait_ref) => {

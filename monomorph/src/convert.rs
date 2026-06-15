@@ -116,14 +116,33 @@ impl<'a> RvalConverter<'a> {
                                     Some((span.clone(), RunningConstraintInner::Scalar(Some(val)))),
                                 )]
                             }
-                            _ => vec![self.convert_ty(span, &const_op.const_.ty())],
+                            _ => {
+                                let (maybe_traitobj, ty) =
+                                    self.convert_ty(span, &const_op.const_.ty());
+                                if maybe_traitobj.is_some() {
+                                    todo!("const contains dyn");
+                                }
+                                vec![ty]
+                            }
                         },
                         _ => todo!(),
                     }
                 }
-                _ => vec![self.convert_ty(span, &const_op.const_.ty())],
+                _ => {
+                    let (maybe_traitobj, ty) = self.convert_ty(span, &const_op.const_.ty());
+                    if maybe_traitobj.is_some() {
+                        todo!("const contains dyn");
+                    }
+                    vec![ty]
+                }
             },
-            ConstantKind::ZeroSized => vec![self.convert_ty(span, &const_op.const_.ty())],
+            ConstantKind::ZeroSized => {
+                let (maybe_traitobj, ty) = self.convert_ty(span, &const_op.const_.ty());
+                if maybe_traitobj.is_some() {
+                    todo!("const contains dyn");
+                }
+                vec![ty]
+            }
             other @ _ => todo!("arg is another constant kind: {:?}", other),
         }
     }
@@ -152,7 +171,11 @@ impl<'a> RvalConverter<'a> {
             },
             None => {
                 debug!("place {:?} has not been set, widen to type", place,);
-                vec![self.convert_ty(span, destty)]
+                let (maybe_traitobj, ty) = self.convert_ty(span, destty);
+                if maybe_traitobj.is_some() {
+                    todo!("place ty contains dyn");
+                }
+                vec![ty]
             }
         }
     }
@@ -169,17 +192,24 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         match op {
             Operand::Constant(const_op) => {
-                vec![self.convert_ty(span, &const_op.const_.ty())]
+                let (maybe_traitobj, ty) = self.convert_ty(span, &const_op.const_.ty());
+                if maybe_traitobj.is_some() {
+                    todo!("cast const contains dyn");
+                }
+                vec![ty]
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("CASTING existing place");
                 let prev_constraints =
                     self.convert_place(istore, span, local_decls, cur_scope, place, ty);
                 debug!("PRE CAST constraints: {:?}", prev_constraints);
-                let post_ty = self.convert_ty(span, ty);
+                let (maybe_traitobj, post_ty) = self.convert_ty(span, ty);
                 debug!("POST CAST ty: {:?}", post_ty);
 
-                //if
+                if maybe_traitobj.is_some() {
+                    debug!("maybe_traitobj: {:?}", maybe_traitobj);
+                    todo!("dest ty is traitobj");
+                }
 
                 vec![post_ty]
             }
@@ -345,21 +375,30 @@ impl<'a> RvalConverter<'a> {
                     _ => todo!("more than 2 fields"),
                 }
 
+                let (maybe_traitobj, converted_ty) = self.convert_ty(span, ty);
+                if maybe_traitobj.is_some() {
+                    todo!("rawptr contains dyn");
+                }
+
                 vec![Constraint::new(
                     None,
                     Some((
                         span.clone(),
-                        RunningConstraintInner::Ptr(Box::new(self.convert_ty(span, ty))),
+                        RunningConstraintInner::Ptr(Box::new(converted_ty)),
                     )),
                 )]
             }
             AggregateKind::Array(ty) => {
                 debug!("array agg");
+                let (maybe_traitobj, converted_ty) = self.convert_ty(span, ty);
+                if maybe_traitobj.is_some() {
+                    todo!("array contains dyn");
+                }
                 vec![Constraint::new(
                     None,
                     Some((
                         span.clone(),
-                        RunningConstraintInner::List(Box::new(self.convert_ty(span, ty))),
+                        RunningConstraintInner::List(Box::new(converted_ty)),
                     )),
                 )]
             }
@@ -402,50 +441,83 @@ impl<'a> RvalConverter<'a> {
 
     pub fn convert_genarg(&self, span: &Location, genarg: &GenericArgKind) -> Option<Constraint> {
         match genarg {
-            GenericArgKind::Type(ty) => Some(self.convert_ty(span, ty)),
+            GenericArgKind::Type(ty) => {
+                let (maybe_traitobj, converted_ty) = self.convert_ty(span, ty);
+                if maybe_traitobj.is_some() {
+                    todo!("genarg contains dyn");
+                }
+                Some(converted_ty)
+            }
             _ => None,
         }
     }
 
-    pub fn convert_ty(&self, span: &Location, ty: &Ty) -> Constraint {
+    pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
         debug!("CONVERTING TY");
         debug!("ty: {:?}", ty);
 
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
-                // FIXME want to create any TraitObjConstraints here?
-                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => Constraint::new(
+                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => (
                     None,
-                    Some((span.clone(), RunningConstraintInner::Scalar(None))),
+                    Constraint::new(
+                        None,
+                        Some((span.clone(), RunningConstraintInner::Scalar(None))),
+                    ),
                 ),
-                RigidTy::Adt(def, genargs) => Constraint::new(
+                RigidTy::Adt(def, genargs) => (
                     None,
-                    Some((span.clone(), RunningConstraintInner::Adt(def, genargs))),
+                    Constraint::new(
+                        None,
+                        Some((span.clone(), RunningConstraintInner::Adt(def, genargs))),
+                    ),
                 ),
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
+                    let mut traitobj_vec = Vec::new();
                     for ty in ty_vec {
-                        unique_push(&mut inner, self.convert_ty(span, &ty));
+                        // FIXME
+                        let (maybe_traitobj, constraint) = self.convert_ty(span, &ty);
+                        unique_push(&mut inner, constraint);
+                        match maybe_traitobj {
+                            Some(to) => unique_append(&mut traitobj_vec, to),
+                            _ => {}
+                        }
                     }
-                    Constraint::new(
-                        None,
-                        Some((span.clone(), RunningConstraintInner::Idk(Box::new(inner)))),
+                    (
+                        Some(traitobj_vec),
+                        Constraint::new(
+                            None,
+                            Some((span.clone(), RunningConstraintInner::Idk(Box::new(inner)))),
+                        ),
                     )
                 }
-                RigidTy::Array(ty, _) | RigidTy::Slice(ty) => Constraint::new(
+                RigidTy::Array(ty, _) | RigidTy::Slice(ty) => {
+                    let (maybe_traitobj, constraint) = self.convert_ty(span, &ty);
+                    (
+                        maybe_traitobj,
+                        Constraint::new(
+                            None,
+                            Some((
+                                span.clone(),
+                                RunningConstraintInner::Idk(Box::new(vec![constraint])),
+                            )),
+                        ),
+                    )
+                }
+                RigidTy::Closure(def, genargs) => (
                     None,
-                    Some((
-                        span.clone(),
-                        RunningConstraintInner::Idk(Box::new(vec![self.convert_ty(span, &ty)])),
-                    )),
+                    Constraint::new(
+                        None,
+                        Some((span.clone(), RunningConstraintInner::Closure(def, genargs))),
+                    ),
                 ),
-                RigidTy::Closure(def, genargs) => Constraint::new(
+                RigidTy::FnDef(def, genargs) => (
                     None,
-                    Some((span.clone(), RunningConstraintInner::Closure(def, genargs))),
-                ),
-                RigidTy::FnDef(def, genargs) => Constraint::new(
-                    None,
-                    Some((span.clone(), RunningConstraintInner::FnDef(def, genargs))),
+                    Constraint::new(
+                        None,
+                        Some((span.clone(), RunningConstraintInner::FnDef(def, genargs))),
+                    ),
                 ),
                 RigidTy::FnPtr(poly_fn_sig) => {
                     let sigval = SigVal::new_from_poly(&poly_fn_sig);
@@ -463,14 +535,19 @@ impl<'a> RvalConverter<'a> {
                     //    inputs_output_vorvals.push(self.convert_ty(&io));
                     //}
 
-                    Constraint::new(
+                    (
                         None,
-                        Some((span.clone(), RunningConstraintInner::FnPtr(sigval))),
+                        Constraint::new(
+                            None,
+                            Some((span.clone(), RunningConstraintInner::FnPtr(sigval))),
+                        ),
                     )
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(span, &ty),
                 RigidTy::RawPtr(ty, _mut) => self.convert_ty(span, &ty),
-                RigidTy::Char | RigidTy::Str | RigidTy::Never => Constraint::new(None, None),
+                RigidTy::Char | RigidTy::Str | RigidTy::Never => {
+                    (None, Constraint::new(None, None))
+                }
                 RigidTy::Dynamic(bound_existentials, _) => {
                     debug!("SETTING INTO DYNAMIC");
                     let mut traitobj_vec = Vec::new();
@@ -480,9 +557,12 @@ impl<'a> RvalConverter<'a> {
                             TraitObjTy::new_from_bound_existential(&bound_existential),
                         );
                     }
-                    Constraint::new(
-                        None,
-                        Some((span.clone(), RunningConstraintInner::Dynamic(traitobj_vec))),
+                    (
+                        Some(traitobj_vec.clone()),
+                        Constraint::new(
+                            None,
+                            Some((span.clone(), RunningConstraintInner::Dynamic(traitobj_vec))),
+                        ),
                     )
                 }
                 other @ _ => panic!("other rigidty: {:?}", other),

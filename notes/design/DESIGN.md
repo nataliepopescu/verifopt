@@ -86,18 +86,23 @@ tricky part: do not want to model casting/projections
 - if (1) allocated const that is (2) a bool/integer type with a (3) readable inner integer value, create a scalar constraint of the allocated value
 - all other allocated consts, as well as zero-sized consts, do not have directly interpretable values, so return *empty* constraints ~FIXME~
     - fixed: returning through convert_ty
-    - **TODO** wrap in verifopt Const variant?
+    - **TODO** wrap in verifopt Const variant? (verifopt doesn't really care
+      about consts though)
 - have not yet run into other types of consts, TBD
 
 #### convert_cast
 
+- if cast operand is constant, convert_ty
 - if cast operand is copy/move, convert_place
     - ~FIXME~ this keeps the constraints that were collected before the cast, so after
       the cast the constraints will not match the type system
     - difficulty: changing type may make us lose our trait object constraints
         - KEY: how to change the type in a _simple_ way without losing collected traitobj constraints? 
-    - fix **WIP**
-- if cast operand is constant, convert_ty
+
+    - fix:
+        - if casting into traitobj, search existing constraints for concrete type(s) that
+          implements that trait -> putting those concrete types into the
+          traitobj-constraints should preserve our collected info through the cast
 
 #### convert_agg (aggregates)
 

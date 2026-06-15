@@ -180,6 +180,84 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
+    fn convert_cfc_to_toc(&self, cfc: &RunningConstraintInner) -> TraitObjConstraint {
+        match cfc {
+            RunningConstraintInner::Adt(adtdef, genargs) => {
+                TraitObjConstraint::Adt(*adtdef, genargs.clone())
+            }
+            RunningConstraintInner::Closure(cdef, genargs) => {
+                TraitObjConstraint::Closure(*cdef, genargs.clone())
+            }
+            _ => panic!("unexpected cfc: {:?}", cfc),
+        }
+    }
+
+    fn convert_cast_helper(
+        &self,
+        traitobjtys: &Vec<TraitObjTy>,
+        prev_constraints: &Constraints,
+    ) -> Constraints {
+        let mut new_constraints = Vec::new();
+
+        debug!("\ntraitobjtys: {:?}", traitobjtys);
+        for traitobjty in traitobjtys {
+            for constraint in prev_constraints {
+                debug!("\ntraitobjty: {:?}", traitobjty);
+                debug!("constraint: {:?}", constraint);
+                match constraint {
+                    Constraint {
+                        toc: Some(_toc_), ..
+                    } => {
+                        // Replace any Dynamic(TraitObjTy) with any TOC from
+                        // prev_constraints
+                        todo!();
+                    }
+                    Constraint {
+                        toc: None,
+                        cfc: Some(cfc_),
+                    } => {
+                        // If no TOC but CFC exists, pull any CFC constraints that
+                        // could be a traitobj for this traitobjty
+                        debug!("cfc_: {:?}", cfc_);
+                        let defid; // = None;
+                        match cfc_.1 {
+                            RunningConstraintInner::Adt(adtdef, _) => defid = adtdef.0,
+                            _ => todo!(),
+                        }
+
+                        match self.tstore.struct_traits.get(&defid) {
+                            Some(traits) => {
+                                if traits.contains(&traitobjty.def.0) {
+                                    // pull relevant CFC into TOC
+                                    let new_constraint = Constraint::new(
+                                        Some((
+                                            traitobjty.clone(),
+                                            self.convert_cfc_to_toc(&cfc_.1),
+                                        )),
+                                        Some(cfc_.clone()),
+                                    );
+                                    unique_push(&mut new_constraints, new_constraint);
+                                } else {
+                                    // push old constraint unchanged
+                                    unique_push(&mut new_constraints, constraint.clone());
+                                }
+                            }
+                            None => {}
+                        }
+                    }
+                    _ => {
+                        // push old constraint unchanged
+                        unique_push(&mut new_constraints, constraint.clone());
+                    }
+                }
+            }
+        }
+
+        debug!("\nNEW CONSTRAINTS: {:?}", new_constraints);
+
+        new_constraints
+    }
+
     fn convert_cast(
         &self,
         istore: &InterpStore,
@@ -206,12 +284,11 @@ impl<'a> RvalConverter<'a> {
                 let (maybe_traitobj, post_ty) = self.convert_ty(span, ty);
                 debug!("POST CAST ty: {:?}", post_ty);
 
-                if maybe_traitobj.is_some() {
-                    debug!("maybe_traitobj: {:?}", maybe_traitobj);
-                    todo!("dest ty is traitobj");
+                if let Some(traitobjtys) = maybe_traitobj {
+                    self.convert_cast_helper(&traitobjtys, &prev_constraints)
+                } else {
+                    vec![post_ty]
                 }
-
-                vec![post_ty]
             }
             _ => todo!("runtime checks"),
         }
@@ -221,7 +298,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         maybe_trait_ty: &Option<Vec<TraitObjTy>>,
         constraint: &Constraint,
-    ) -> Option<TraitObjConstraint> {
+    ) -> Option<(TraitObjTy, TraitObjConstraint)> {
         match constraint {
             Constraint { toc: Some(to_), .. } => {
                 debug!("PROPAGATING TOC: {:?}", to_);
@@ -244,10 +321,12 @@ impl<'a> RvalConverter<'a> {
                                 // traitobj, only _then_ can we populate the traitobj constraint field
                                 if maybe_trait_ty.is_some() {
                                     debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
-                                    return Some(TraitObjConstraint::Adt(
-                                        adtdef.clone(),
-                                        adt_genargs.clone(),
-                                    ));
+                                    debug!("maybe_trait_ty: {:?}", maybe_trait_ty);
+                                    todo!("get traitobjty val");
+                                    //return Some(TraitObjConstraint::Adt(
+                                    //    adtdef.clone(),
+                                    //    adt_genargs.clone(),
+                                    //));
                                 }
                             }
                             _ => debug!("no possible traits?"),
@@ -259,10 +338,12 @@ impl<'a> RvalConverter<'a> {
 
                         if maybe_trait_ty.is_some() {
                             debug!("SETTING TOC: ({:?}, {:?})", cdef, genargs);
-                            return Some(TraitObjConstraint::Closure(
-                                cdef.clone(),
-                                genargs.clone(),
-                            ));
+                            debug!("maybe_trait_ty: {:?}", maybe_trait_ty);
+                            todo!("get traitobjty val");
+                            //return Some(TraitObjConstraint::Closure(
+                            //    cdef.clone(),
+                            //    genargs.clone(),
+                            //));
                         }
                     }
                     _ => debug!("another CFC kind"),

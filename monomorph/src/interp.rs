@@ -300,11 +300,14 @@ impl<'a> InterpPass<'a> {
                         constraints.push(Constraint::new(toc, cfc));
                     }
                     Constraint {
-                        toc: Some(existing_toc),
-                        cfc: _cfc,
+                        toc: Some(ref existing_toc),
+                        cfc: ref _cfc,
                     } => {
-                        if existing_toc != toc.unwrap() {
+                        debug!("existing_toc: {:?}", existing_toc);
+                        if *existing_toc != toc.unwrap() {
                             todo!("update existing TOC");
+                        } else {
+                            constraints.push(constraint);
                         }
                     }
                 },
@@ -1209,8 +1212,9 @@ impl<'a> InterpPass<'a> {
                 toc: Some(toc_), //(adtdef, genargs)),
                 cfc: _,
             } => {
+                debug!("TODO toc.0: {:?}", toc_.0);
                 match toc_ {
-                    TraitObjConstraint::Adt(adtdef, genargs) => {
+                    (_, TraitObjConstraint::Adt(adtdef, genargs)) => {
                         // FIXME currently, brittle handling of box-wrapped objects
                         // but maybe want to generalize to, whatever ends up wrapping the traitobj
                         // constraints, get those constraints (would potentially require marking those
@@ -1235,7 +1239,7 @@ impl<'a> InterpPass<'a> {
                             (false, vec![(adtdef.0, Some(genargs.clone()))])
                         }
                     }
-                    TraitObjConstraint::Closure(cdef, genargs) => {
+                    (_, TraitObjConstraint::Closure(cdef, genargs)) => {
                         debug!("CLOSURE GENARGS: {:?}", genargs);
                         (true, vec![(cdef.0, Some(genargs.clone()))])
                     }

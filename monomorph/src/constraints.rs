@@ -55,12 +55,15 @@ pub type Constraints = Vec<Constraint>;
 // dynamic calls (one for Option and one for inner TraitObj)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Constraint {
-    pub toc: Option<TraitObjConstraint>,
+    pub toc: Option<(TraitObjTy, TraitObjConstraint)>,
     pub cfc: Option<RunningConstraint>,
 }
 
 impl Constraint {
-    pub fn new(toc: Option<TraitObjConstraint>, cfc: Option<RunningConstraint>) -> Constraint {
+    pub fn new(
+        toc: Option<(TraitObjTy, TraitObjConstraint)>,
+        cfc: Option<RunningConstraint>,
+    ) -> Constraint {
         Self { toc, cfc }
     }
 }

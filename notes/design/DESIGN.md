@@ -35,6 +35,12 @@ trade-off
     - more to interpret
     - greater info
 
+tracking max set of types
+- not applying projections to constraints is sound for our purposes b/c we will
+  always overapproximate the set of possible traitobjects (i.e. applying
+  projections will remove things/possibilities from the type constraints, so if 
+  we do not do that, we will never miss something that is valid (?)
+
 ### High-level Structure/Interactions of `TraitObjTy`s and `TraitObjConstraint`s
 
 TODO

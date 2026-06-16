@@ -688,6 +688,10 @@ impl<'a> InterpPass<'a> {
                 // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
                 let constraints =
                     self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints_);
+                debug!(
+                    "SETTING CONSTRAINTS to local {:?}: \n\t{:?}",
+                    destination.local, constraints
+                );
                 istore.scoped_update(
                     cur_scope,
                     MapKey::Local(destination.local),
@@ -1069,9 +1073,13 @@ impl<'a> InterpPass<'a> {
 
         // CHA-collected defids are not accopmanied by genargs
         // Get every concrete type constraint's impl of this function
-        for (defid, genargs) in constraint_defids {
+        for (i, (defid, genargs)) in constraint_defids.iter().enumerate() {
+            debug!("\ni: {:?}", i);
+            debug!("defid: {:?}", defid);
+            debug!("genargs: {:?}", genargs);
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
                 Some(assoc_fn_impl) => {
+                    debug!("found assoc_fn_impl: {:?}", assoc_fn_impl);
                     unique_append(
                         &mut assoc_fn_impls,
                         assoc_fn_impl
@@ -1080,8 +1088,14 @@ impl<'a> InterpPass<'a> {
                             .map(|x| (x, genargs.clone()))
                             .collect(),
                     );
+                    debug!(
+                        "updated assoc_fn_impls (len={:?}): {:?}",
+                        assoc_fn_impls.len(),
+                        assoc_fn_impls
+                    );
                 }
                 None => {
+                    debug!("did NOT find assoc_fn_impl");
                     //debug!(
                     //    "(STRUCT={:?}, ASSOC FN={:?}) pair does not point to assoc fn",
                     //    defid, assoc_fn_defid
@@ -1111,11 +1125,11 @@ impl<'a> InterpPass<'a> {
     ) -> Vec<(DefId, Option<GenericArgs>)> {
         debug!("GETTING CHA IMPLS");
         let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
-        //debug!(
-        //    "constraint defids ({:?} total): {:?}",
-        //    constraint_defids.len(),
-        //    constraint_defids
-        //);
+        debug!(
+            "constraint defids ({:?} total): {:?}",
+            constraint_defids.len(),
+            constraint_defids
+        );
         self.get_impls_from_defids(cur_scope, assoc_fn_defid, &constraint_defids, false)
     }
 
@@ -1325,14 +1339,22 @@ impl<'a> InterpPass<'a> {
         let len = assoc_fn_impls.len();
 
         for (i, (assoc_fn_impl, genargs)) in assoc_fn_impls.iter().enumerate() {
-            debug!("ITER {:?} out of {:?} ({:?}/{:?})", i, len - 1, i + 1, len);
+            debug!(
+                "\n---ITER {:?} out of {:?} ({:?}/{:?})",
+                i,
+                len - 1,
+                i + 1,
+                len
+            );
             debug!("assoc_fn_impl defid: {:?}", assoc_fn_impl);
             let genargs = if genargs.is_some() {
+                debug!("USING INNER GENARGS");
                 genargs.clone().unwrap()
             } else {
+                debug!("USING OUTER GENARGS");
                 outer_genargs.clone()
             };
-            debug!("inner genargs: {:?}", genargs);
+            debug!("genargs: {:?}", genargs);
             let fndef = FnDef(*assoc_fn_impl);
             let instance_ = Instance::resolve(fndef, &genargs).unwrap();
             let (is_virtual, instance) = match instance_.kind {

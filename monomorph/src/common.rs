@@ -1,7 +1,7 @@
-use crate::rustc_public_bridge::IndexedVal;
-use rustc_public::DefId;
+//use crate::rustc_public_bridge::IndexedVal;
+//use rustc_public::DefId;
 use rustc_public::mir::Body;
-use rustc_public::ty::AdtDef;
+//use rustc_public::ty::AdtDef;
 
 use log::debug;
 

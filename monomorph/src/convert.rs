@@ -155,6 +155,7 @@ impl<'a> RvalConverter<'a> {
         destty: &Ty,
     ) -> Constraints {
         debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
+        // TODO use current place ty instead of *just* getting existing place constraints
 
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
             Some(val) => match val {
@@ -297,6 +298,7 @@ impl<'a> RvalConverter<'a> {
         maybe_trait_ty: &Option<Vec<TraitObjTy>>,
         constraint: &Constraint,
     ) -> Option<(TraitObjTy, TraitObjConstraint)> {
+        debug!("maybe_trait_ty: {:?}", maybe_trait_ty);
         match constraint {
             Constraint { toc: Some(to_), .. } => {
                 debug!("PROPAGATING TOC: {:?}", to_);
@@ -306,11 +308,9 @@ impl<'a> RvalConverter<'a> {
                 toc: None,
                 cfc: Some((_, maybe_to)),
             } => {
-                debug!("MAYBE PULL TOC from {:?}", maybe_to);
+                //debug!("MAYBE PULL TOC from {:?}", maybe_to);
                 match maybe_to {
                     RunningConstraintInner::Adt(adtdef, adt_genargs) => {
-                        debug!("ADT (adtdef): {:?}", adtdef);
-
                         // If we get Some, that means this struct/adt implements one or more
                         // traits, but that does _not_ mean that this is a trait object
                         match self.tstore.struct_traits.get(&adtdef.0) {
@@ -318,6 +318,7 @@ impl<'a> RvalConverter<'a> {
                                 // Once we know we are storing the result of this rval into a
                                 // traitobj, only _then_ can we populate the traitobj constraint field
                                 if let Some(trait_ty) = maybe_trait_ty {
+                                    debug!("ADT (adtdef): {:?}", adtdef);
                                     debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
                                     debug!("trait_ty: {:?}", trait_ty);
                                     if trait_ty.len() > 1 {
@@ -338,9 +339,9 @@ impl<'a> RvalConverter<'a> {
                     }
                     RunningConstraintInner::Closure(cdef, genargs) => {
                         // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
-                        debug!("CLOSURE (cdef): {:?}", cdef);
 
                         if let Some(trait_ty) = maybe_trait_ty {
+                            debug!("CLOSURE (cdef): {:?}", cdef);
                             debug!("SETTING TOC: ({:?}, {:?})", cdef, genargs);
                             debug!("trait_ty: {:?}", trait_ty);
                             if trait_ty.len() > 1 {

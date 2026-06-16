@@ -92,9 +92,6 @@ how did we get here (last -> first)
 - term func: Copy _7
 - assign: Copy *_1.0
 
-### when dyn call, constraints do not contain traitobj
-
-trying to trace backwards
 
 
 ### default impls
@@ -173,10 +170,124 @@ calling default provide is correct, but now know that got the correct self
 constraints (lexopt::Error) and when those constraints impl the trait Error they
 do not override the provide impl
 
+### FnMut genargs mismatch?
 
+fallback to CHA
 
+which genargs are correct? where to get them from?
 
+actually, why are we falling back to CHA here?
+- why can we not retain the precise eq info? isn't that assigned somewhere?
 
+TRACE:
+
+find_short ~/hack/verifopt-examples/ripgrep/crates/core/flags/parse.rs:298
+- find flag corresponding to command-line arg byte in map (FlagMap =
+  HashMap<Vec<u8>, usize>) populated from static FLAGS array
+- `self.map.find(&[byte])`
+    - what is `&[byte]`'s constraint?
+        - byte = Result<u8, TryFromCharError> (b/c didn't apply unwrap on constraints/type)
+        - TODO why can't handle unwrap / other funccalls like casts, in terms of
+          preserving traitobj constraints across type changes?
+        - TBD if this is a problem we need to solve now or not
+
+        - then [byte] = List<Scalar(None)>
+
+        - then pointer coercion (Array -> Slice)
+
+        - then call find()
+            - arg 0 (self.map)
+                - Result<Parser<Never>>,
+                - but arg ty is a FlagMap, so how did we get here?
+                    - self == Parser
+                    - self.map == FlagMap (I guess we can just trust that this
+                      is here)
+            - arg 1 (&[byte])
+                - Idk(Scalar(None)) (fine)
+                - arg ty is a Slice(u8)
+
+FlagMap::find: ~/hack/verifopt-examples/ripgrep/crates/core/flags/parse.rs:394
+- `self.map.get(name)`
+- same args
+
+HashMap::get:
+/home/np/.rustup/toolchains/nightly-2026-01-13-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/collections/hash/map.rs:1002
+- `self.base.get(k)`
+- (inlined into find, same args)
+
+HashMap::get: /rust/deps/hashbrown-0.16.1/src/map.rs:1311
+- if table is not empty, make hash, then `match self.table.get(hash, equivalent_key(k)) { ... }`
+- after return from hash_one... [skipping hash fns here]
+- hash = Scalar(None)
+
+equivalent_key() (same file as above, line 224, inlined apparently via debugging
+info)
+- retval = impl Fn(..) -> bool
+- returns a big ol closure
+    - ClosureDef(closure#0)
+    - GenericArgs(
+        Slice(u8),
+        Vec(u8, Global),
+        usize,
+        i8,
+        FnPtr(
+          inputs: Tuple(
+            Ref(Tuple(
+              Vec(u8, Global),
+              usize
+            ))
+          ),
+          output: Bool,
+        ),
+      )
+    - ok, sure
+
+RawTable::get: /rust/deps/hashbrown-0.16.1/src/raw/mod.rs:1251
+
+RawTable::find: /rust/deps/hashbrown-0.16.1/src/raw/mod.rs:1234
+- args
+    - arg 0 (self)
+        - Result(Parser)
+    - arg 1 (hash)
+        - Scalar
+    - arg 2 (eq)
+        - Closure(...) (above)
+- self.table should be RawTableInner type but is Result<Parser<..>> still
+
+- creating another closure  (_8)
+    - arg (old closure) == eq
+    - new closure == &mut |index| eq(self.bucket(index).as_ref())
+
+- ref
+- cast into FnMut!! finally
+    - this cast fails! no resulting constraints
+    - *FIXME*
+
+RawTableInner::find_inner: /rust/deps/hashbrown-0.16.1/src/raw/mod.rs:2075
+- args
+    - arg 0 (self)
+        - Result(Parser) still
+    - arg 1 (hash)
+        - Scalar(None)
+    - arg 2 (eq, traitobj!)
+        - [] :(
+- some low level instructions [skipping]
+- binary ops => Scalar(None) (line 2073)
+- line 2075: `if likely(eq(index)) { ... }`
+    - FnDef("call_mut")
+    - GenericArgs(
+        dyn FnMut(GenericArgs(
+          usize,
+        )),
+        Output(usize),
+        term=Bool,
+      )
+
+- which call_mut do we actually want?
+    - many FnMut implementors are implicit - are we collecting all the ones we
+      should be??
+    - also, why are FSA constraints empty??
+        - b/c the arg constraints were empty!! need to fix :)
 
 
 

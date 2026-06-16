@@ -99,8 +99,6 @@ pub enum RunningConstraintInner {
 
     // more complex data types
     Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
-    List(Box<Constraint>),
-    Tuple(Vec<Constraint>),
 
     // pointer types
     Ptr(Box<Constraint>),
@@ -116,6 +114,8 @@ pub enum RunningConstraintInner {
 
     // fallback types
     //IdkType(Ty),
+    List(Box<Constraint>),
+    Tuple(Vec<Constraint>),
     Idk(Box<Constraints>),
 }
 

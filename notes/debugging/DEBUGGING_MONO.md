@@ -152,6 +152,32 @@ bb7
 
 
 
+### fixed "default" impl in ripgrep / wrong Self arg (first dyn dispatch)
+
+get FSA constraints
+- traitobj constraints seem correct
+- TraitObjTy: Error
+- TraitObjConstraints: Result<Option<lexopt::Arg>, lexopt::Error>
+
+resolve defid / ADT helper for Result
+- ADT: Result
+    - genarg 1: Option
+        - resolve defid / ADT helper for Option
+            - ADT: Option
+                - genarg 1: lexopt::Arg
+                    - resolve defid / ADT helper for lexopt::Arg
+                        - ADT: lexopt::Arg
+                            - genarg 1: Lifetime (skip)
+
+calling default provide is correct, but now know that got the correct self
+constraints (lexopt::Error) and when those constraints impl the trait Error they
+do not override the provide impl
+
+
+
+
+
+
 
 
 

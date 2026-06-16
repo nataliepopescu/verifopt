@@ -117,31 +117,29 @@ impl<'a> RvalConverter<'a> {
                                 )]
                             }
                             _ => {
-                                let (maybe_traitobj, ty) =
+                                let (_maybe_traitobjty, constraint) =
                                     self.convert_ty(span, &const_op.const_.ty());
-                                if maybe_traitobj.is_some() {
-                                    todo!("const contains dyn");
-                                }
-                                vec![ty]
+                                vec![constraint]
                             }
                         },
                         _ => todo!(),
                     }
                 }
                 _ => {
-                    let (maybe_traitobj, ty) = self.convert_ty(span, &const_op.const_.ty());
+                    let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
                     if maybe_traitobj.is_some() {
                         todo!("const contains dyn");
                     }
-                    vec![ty]
+                    vec![constraint]
                 }
             },
             ConstantKind::ZeroSized => {
-                let (maybe_traitobj, ty) = self.convert_ty(span, &const_op.const_.ty());
-                if maybe_traitobj.is_some() {
+                let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
+                if let Some(traitobjty) = maybe_traitobj {
+                    debug!("traitobjty: {:?}", traitobjty);
                     todo!("const contains dyn");
                 }
-                vec![ty]
+                vec![constraint]
             }
             other @ _ => todo!("arg is another constant kind: {:?}", other),
         }
@@ -171,11 +169,11 @@ impl<'a> RvalConverter<'a> {
             },
             None => {
                 debug!("place {:?} has not been set, widen to type", place,);
-                let (maybe_traitobj, ty) = self.convert_ty(span, destty);
+                let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
                 if maybe_traitobj.is_some() {
                     todo!("place ty contains dyn");
                 }
-                vec![ty]
+                vec![constraint]
             }
         }
     }
@@ -195,21 +193,20 @@ impl<'a> RvalConverter<'a> {
     fn convert_cast_helper(
         &self,
         traitobjtys: &Vec<TraitObjTy>,
-        prev_constraints: &Constraints,
+        constraints: &Constraints,
     ) -> Constraints {
         let mut new_constraints = Vec::new();
 
         debug!("\ntraitobjtys: {:?}", traitobjtys);
         for traitobjty in traitobjtys {
-            for constraint in prev_constraints {
+            for constraint in constraints {
                 debug!("\ntraitobjty: {:?}", traitobjty);
                 debug!("constraint: {:?}", constraint);
                 match constraint {
                     Constraint {
                         toc: Some(_toc_), ..
                     } => {
-                        // Replace any Dynamic(TraitObjTy) with any TOC from
-                        // prev_constraints
+                        // Replace any Dynamic(TraitObjTy) with any TOC from constraints
                         todo!();
                     }
                     Constraint {
@@ -222,6 +219,7 @@ impl<'a> RvalConverter<'a> {
                         let defid; // = None;
                         match cfc_.1 {
                             RunningConstraintInner::Adt(adtdef, _) => defid = adtdef.0,
+                            RunningConstraintInner::Closure(cdef, _) => defid = cdef.0,
                             _ => todo!(),
                         }
 
@@ -270,24 +268,24 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         match op {
             Operand::Constant(const_op) => {
-                let (maybe_traitobj, ty) = self.convert_ty(span, &const_op.const_.ty());
+                let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
                 if maybe_traitobj.is_some() {
                     todo!("cast const contains dyn");
                 }
-                vec![ty]
+                vec![constraint]
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("CASTING existing place");
                 let prev_constraints =
                     self.convert_place(istore, span, local_decls, cur_scope, place, ty);
                 debug!("PRE CAST constraints: {:?}", prev_constraints);
-                let (maybe_traitobj, post_ty) = self.convert_ty(span, ty);
-                debug!("POST CAST ty: {:?}", post_ty);
+                let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
+                debug!("POST CAST ty: {:?}", post_constraint);
 
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints)
                 } else {
-                    vec![post_ty]
+                    vec![post_constraint]
                 }
             }
             _ => todo!("runtime checks"),
@@ -319,14 +317,20 @@ impl<'a> RvalConverter<'a> {
                             Some(_possible_traits) => {
                                 // Once we know we are storing the result of this rval into a
                                 // traitobj, only _then_ can we populate the traitobj constraint field
-                                if maybe_trait_ty.is_some() {
+                                if let Some(trait_ty) = maybe_trait_ty {
                                     debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
-                                    debug!("maybe_trait_ty: {:?}", maybe_trait_ty);
-                                    todo!("get traitobjty val");
-                                    //return Some(TraitObjConstraint::Adt(
-                                    //    adtdef.clone(),
-                                    //    adt_genargs.clone(),
-                                    //));
+                                    debug!("trait_ty: {:?}", trait_ty);
+                                    if trait_ty.len() > 1 {
+                                        todo!();
+                                    }
+
+                                    return Some((
+                                        trait_ty[0].clone(),
+                                        TraitObjConstraint::Adt(
+                                            adtdef.clone(),
+                                            adt_genargs.clone(),
+                                        ),
+                                    ));
                                 }
                             }
                             _ => debug!("no possible traits?"),
@@ -336,14 +340,17 @@ impl<'a> RvalConverter<'a> {
                         // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
                         debug!("CLOSURE (cdef): {:?}", cdef);
 
-                        if maybe_trait_ty.is_some() {
+                        if let Some(trait_ty) = maybe_trait_ty {
                             debug!("SETTING TOC: ({:?}, {:?})", cdef, genargs);
-                            debug!("maybe_trait_ty: {:?}", maybe_trait_ty);
-                            todo!("get traitobjty val");
-                            //return Some(TraitObjConstraint::Closure(
-                            //    cdef.clone(),
-                            //    genargs.clone(),
-                            //));
+                            debug!("trait_ty: {:?}", trait_ty);
+                            if trait_ty.len() > 1 {
+                                todo!();
+                            }
+
+                            return Some((
+                                trait_ty[0].clone(),
+                                TraitObjConstraint::Closure(cdef.clone(), genargs.clone()),
+                            ));
                         }
                     }
                     _ => debug!("another CFC kind"),
@@ -456,7 +463,7 @@ impl<'a> RvalConverter<'a> {
                     _ => todo!("more than 2 fields"),
                 }
 
-                let (maybe_traitobj, converted_ty) = self.convert_ty(span, ty);
+                let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
                 if maybe_traitobj.is_some() {
                     todo!("rawptr contains dyn");
                 }
@@ -465,13 +472,13 @@ impl<'a> RvalConverter<'a> {
                     None,
                     Some((
                         span.clone(),
-                        RunningConstraintInner::Ptr(Box::new(converted_ty)),
+                        RunningConstraintInner::Ptr(Box::new(constraint)),
                     )),
                 )]
             }
             AggregateKind::Array(ty) => {
                 debug!("array agg");
-                let (maybe_traitobj, converted_ty) = self.convert_ty(span, ty);
+                let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
                 if maybe_traitobj.is_some() {
                     todo!("array contains dyn");
                 }
@@ -479,7 +486,7 @@ impl<'a> RvalConverter<'a> {
                     None,
                     Some((
                         span.clone(),
-                        RunningConstraintInner::List(Box::new(converted_ty)),
+                        RunningConstraintInner::List(Box::new(constraint)),
                     )),
                 )]
             }
@@ -523,11 +530,11 @@ impl<'a> RvalConverter<'a> {
     pub fn convert_genarg(&self, span: &Location, genarg: &GenericArgKind) -> Option<Constraint> {
         match genarg {
             GenericArgKind::Type(ty) => {
-                let (maybe_traitobj, converted_ty) = self.convert_ty(span, ty);
+                let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
                 if maybe_traitobj.is_some() {
                     todo!("genarg contains dyn");
                 }
-                Some(converted_ty)
+                Some(constraint)
             }
             _ => None,
         }
@@ -565,8 +572,15 @@ impl<'a> RvalConverter<'a> {
                             _ => {}
                         }
                     }
+
+                    let maybe_traitobjty = if traitobj_vec.is_empty() {
+                        None
+                    } else {
+                        Some(traitobj_vec)
+                    };
+
                     (
-                        Some(traitobj_vec),
+                        maybe_traitobjty,
                         Constraint::new(
                             None,
                             Some((span.clone(), RunningConstraintInner::Idk(Box::new(inner)))),
@@ -602,19 +616,6 @@ impl<'a> RvalConverter<'a> {
                 ),
                 RigidTy::FnPtr(poly_fn_sig) => {
                     let sigval = SigVal::new_from_poly(&poly_fn_sig);
-
-                    //if !poly_fn_sig.bound_vars.is_empty() {
-                    //    for bound_var in poly_fn_sig.bound_vars {
-                    //        match bound_var {
-                    //            BoundVariableKind::Ty(_) => todo!(),
-                    //            _ => {}
-                    //        }
-                    //    }
-                    //}
-                    //let mut inputs_output_vorvals = Vec::new();
-                    //for io in poly_fn_sig.value.inputs_and_output {
-                    //    inputs_output_vorvals.push(self.convert_ty(&io));
-                    //}
 
                     (
                         None,

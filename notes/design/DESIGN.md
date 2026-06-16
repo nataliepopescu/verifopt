@@ -35,7 +35,11 @@ trade-off
     - more to interpret
     - greater info
 
-### How to get `TraitObjConstraint`s
+### High-level Structure/Interactions of `TraitObjTy`s and `TraitObjConstraint`s
+
+TODO
+
+#### How to get `TraitObjConstraint`s
 
 everything can *potentially* flow into a traitobj
 

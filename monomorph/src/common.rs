@@ -63,20 +63,20 @@ pub fn log_mir(body: &Body) {
     */
 }
 
-pub fn is_wrapper_type(def: &AdtDef) -> bool {
-    debug!("CHECKING IF DEFID IS A WRAPPER TYPE: {:?}", def);
-
-    // TODO extend to Option, Result, ...
-    def.is_box() || is_option(&def.0)
-}
-
-fn is_option(defid: &DefId) -> bool {
-    let idx = defid.to_index();
-    match idx {
-        28539 => true,
-        _ => false,
-    }
-}
+//pub fn is_wrapper_type(def: &AdtDef) -> bool {
+//    debug!("CHECKING IF DEFID IS A WRAPPER TYPE: {:?}", def);
+//
+//    // TODO extend to Option, Result, ...
+//    def.is_box() || is_option(&def.0)
+//}
+//
+//fn is_option(defid: &DefId) -> bool {
+//    let idx = defid.to_index();
+//    match idx {
+//        28539 => true,
+//        _ => false,
+//    }
+//}
 
 //fn is_box(defid: &DefId) -> bool {
 //    // FIXME why multiple defids for box?

@@ -5,14 +5,14 @@ use rustc_public::mir::{
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
-    BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
+    AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
     PolyFnSig, RigidTy, Span, Ty, TyKind,
 };
 
 use log::{debug, error};
 
 use crate::VOLogger;
-use crate::common::{is_wrapper_type, log_call_stack, log_scope};
+use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
     Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge,
     RunningConstraintInner, TraitObjConstraint, TraitObjTy, VOID,
@@ -993,8 +993,15 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        let (is_closure, mut assoc_fn_impls_fsa) =
-            self.get_impls_fsa(istore, term_span, callee_scope, cur_scope, &fndef.0, args);
+        let (is_closure, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
+            istore,
+            term_span,
+            callee_scope,
+            cur_scope,
+            &trait_defid,
+            &fndef.0,
+            args,
+        );
 
         for fsa_impl in &assoc_fn_impls_fsa {
             if !assoc_fn_impls_cha.contains(&fsa_impl) {
@@ -1048,23 +1055,19 @@ impl<'a> InterpPass<'a> {
         constraint_defids: &Vec<(DefId, Option<GenericArgs>)>,
         fsa: bool,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
+        debug!("\nGETTING IMPL DEFIDS FROM TYPE DEFIDS");
+
         let mut assoc_fn_impls = Vec::new();
-        if constraint_defids.is_empty() {
+        if fsa && constraint_defids.is_empty() {
             // Does this virtual function also point to a default impl?
             if cur_scope.0.has_body() {
-                debug!("ADDING DEFAULT IMPL!");
+                debug!("ADDING DEFAULT IMPL (FSA + no constraint defids)");
                 assoc_fn_impls.push((*assoc_fn_defid, None));
             }
             return assoc_fn_impls;
         }
 
         // CHA-collected defids are not accopmanied by genargs
-        if !fsa && FnDef(*assoc_fn_defid).body().is_some() {
-            // This is a default impl, push the impl defid
-            debug!("(CHA) default impl!");
-            unique_push(&mut assoc_fn_impls, (*assoc_fn_defid, None));
-        }
-
         // Get every concrete type constraint's impl of this function
         for (defid, genargs) in constraint_defids {
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
@@ -1083,19 +1086,18 @@ impl<'a> InterpPass<'a> {
                     //    "(STRUCT={:?}, ASSOC FN={:?}) pair does not point to assoc fn",
                     //    defid, assoc_fn_defid
                     //);
-
-                    // FSA-collected defids might be accompanied by genargs
-                    if fsa && FnDef(*assoc_fn_defid).body().is_some() {
-                        // This is a default impl, push the impl defid
-                        debug!("(FSA) default impl!");
-                        unique_push(&mut assoc_fn_impls, (*assoc_fn_defid, genargs.clone()));
-                    } else if FnDef(*defid).body().is_some() {
+                    if FnDef(*defid).body().is_some() {
                         // This is a callable item, push the impl defid
                         debug!("callable defid!");
                         unique_push(&mut assoc_fn_impls, (*defid, genargs.clone()));
                     }
                 }
             }
+        }
+
+        if FnDef(*assoc_fn_defid).body().is_some() && (!fsa || assoc_fn_impls.is_empty()) {
+            debug!("ADDING DEFAULT IMPL (either CHA or FSA + no IMPL defids)");
+            unique_push(&mut assoc_fn_impls, (*assoc_fn_defid, None));
         }
 
         assoc_fn_impls
@@ -1137,6 +1139,7 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         callee_scope: &VOID,
         cur_scope: &VOID,
+        trait_defid: &DefId,
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
@@ -1144,14 +1147,14 @@ impl<'a> InterpPass<'a> {
         let local = self.get_traitobj_local(args);
         debug!("local: {:?}", local);
         let tyconstraints = self.get_fsa_tyconstraints(istore, callee_scope, local);
-        //debug!("tyconstraints: {:?}", tyconstraints);
+        debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
-            self.get_fsa_constraint_defids(term_span, &tyconstraints);
-        //debug!(
-        //    "constraint defids ({:?} total): {:?}",
-        //    constraint_defids.len(),
-        //    constraint_defids
-        //);
+            self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
+        debug!(
+            "constraint defids ({:?} total): {:?}",
+            constraint_defids.len(),
+            constraint_defids
+        );
         (
             is_closure,
             self.get_impls_from_defids(cur_scope, assoc_fn_defid, &constraint_defids, true),
@@ -1190,12 +1193,15 @@ impl<'a> InterpPass<'a> {
     fn get_fsa_constraint_defids(
         &self,
         term_span: &Span,
+        trait_defid: &DefId,
         tyconstraints: &Constraints,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         let mut defids = Vec::new();
         let mut is_closure = false;
+        debug!("\nGETTING CONSTRAINT DEFIDS");
         for constraint in tyconstraints {
-            let (is_closure_, res) = self.resolve_defid(term_span, constraint);
+            debug!("constraint: {:?}", constraint);
+            let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, constraint);
             is_closure = is_closure_;
             unique_append(&mut defids, res);
         }
@@ -1205,54 +1211,98 @@ impl<'a> InterpPass<'a> {
     fn resolve_defid(
         &self,
         term_span: &Span,
+        trait_defid: &DefId,
         constraint: &Constraint,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+        debug!("\nRESOLVE DEFID");
         match constraint {
             Constraint {
-                toc: Some(toc_), //(adtdef, genargs)),
+                toc: Some(toc_),
                 cfc: _,
             } => {
-                debug!("TODO toc.0: {:?}", toc_.0);
+                debug!("trait_defid: {:?}", trait_defid);
+                debug!("TOC traitobjty: {:?}", toc_.0);
+                debug!("TOC traitobj: {:?}", toc_.1);
+                if *trait_defid != toc_.0.def.0 {
+                    todo!("traits don't match");
+                }
+
                 match toc_ {
                     (_, TraitObjConstraint::Adt(adtdef, genargs)) => {
-                        // FIXME currently, brittle handling of box-wrapped objects
-                        // but maybe want to generalize to, whatever ends up wrapping the traitobj
-                        // constraints, get those constraints (would potentially require marking those
-                        // differently than other constraints)
-                        if is_wrapper_type(&adtdef) {
-                            //let genargs = genargs.clone().unwrap();
-                            //if genargs.is_none() {
-                            //    panic!("no genargs");
-                            //}
-                            if genargs.0.len() > 1 {
-                                debug!("more than 1 genarg in wrapper type");
-                            }
-
-                            match self
-                                .converter
-                                .convert_genarg(&Location::new(), &genargs.0[0])
-                            {
-                                Some(vorval) => self.resolve_defid(term_span, &vorval),
-                                _ => todo!(),
-                            }
-                        } else {
-                            (false, vec![(adtdef.0, Some(genargs.clone()))])
-                        }
+                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
+                        debug!("CDEF: {:?}", cdef);
                         debug!("CLOSURE GENARGS: {:?}", genargs);
                         (true, vec![(cdef.0, Some(genargs.clone()))])
                     }
                 }
             }
+            Constraint {
+                toc: None,
+                cfc: Some((_, cfc)),
+            } => {
+                debug!("cfc: {:?}", cfc);
+                match cfc {
+                    RunningConstraintInner::Adt(adtdef, genargs) => {
+                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
+                    }
+                    _ => todo!(),
+                }
+            }
             _ => {
-                debug!(
-                    "expected traitobj constraint, got control flow: {:?}",
-                    constraint
-                );
-                (false, vec![])
+                panic!("no constraints");
             }
         }
+    }
+
+    fn resolve_adt_helper(
+        &self,
+        term_span: &Span,
+        trait_defid: &DefId,
+        adtdef: &AdtDef,
+        genargs: &GenericArgs,
+    ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+        debug!("\nRESOLVE ADT HELPER");
+        debug!("ADT DEF: {:?}", adtdef);
+        debug!("ADT GENARGS: {:?}", genargs);
+
+        let mut resvec = Vec::new();
+        match self.tstore.struct_traits.get(&adtdef.0) {
+            // Does this ADT implement the desired trait? If so, add to vec
+            Some(traits) => {
+                if traits.contains(trait_defid) {
+                    unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
+                }
+            }
+            None => {}
+        }
+
+        // Also search in genargs for an implementing type
+        debug!("num genargs: {:?}", genargs.0.len());
+        for genarg in &genargs.0 {
+            debug!("\nGENARG: {:?}", genarg);
+            match self.converter.convert_genarg(&Location::new(), &genarg) {
+                Some(genarg_constraint) => {
+                    debug!("genarg constraint (repeat): {:?}", genarg_constraint);
+                    let (is_closure, inner_resvec) =
+                        self.resolve_defid(term_span, trait_defid, &genarg_constraint);
+                    debug!("ADT DEF (repeat): {:?}", adtdef);
+                    debug!("genarg constraint (repeat): {:?}", genarg_constraint);
+                    debug!("is_closure: {:?}", is_closure);
+                    debug!("inner resvec: {:?}", inner_resvec);
+                    unique_append(&mut resvec, inner_resvec);
+                    debug!("updated resvec: {:?}", resvec);
+                }
+                _ => {
+                    debug!("genarg is not a type, continuing");
+                }
+            }
+        }
+
+        debug!("FINAL resvec: {:?}", resvec);
+
+        (false, resvec)
     }
 
     fn simulate_static_calls(

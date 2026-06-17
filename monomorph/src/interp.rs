@@ -49,21 +49,6 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    /*
-    fn pull_trait_from_place_ty(
-        &self,
-        local_decls: &[LocalDecl],
-        place: &Place,
-    ) -> (Ty, Option<Vec<TraitObjTy>>) {
-        debug!("CHECKING FOR DYN IN PLACE TY");
-        let ty = place.ty(local_decls).unwrap();
-        debug!("lval ty: {:?}", ty);
-        let maybe_trait_ty = self.contains_dyn(&ty);
-        debug!("dyn lval ty? {:?}", maybe_trait_ty);
-        (ty, maybe_trait_ty)
-    }
-    */
-
     fn prepare_call(&self, call_stack: &mut Vec<VOID>, new_scope: &VOID) {
         call_stack.push(new_scope.clone());
     }
@@ -231,6 +216,8 @@ impl<'a> InterpPass<'a> {
         Ok(res)
     }
 
+    /// If this type contains one or more (RigidTy) Dynamics, return the associated TraitObjTys
+    /// (i.e. the Dynamic info converted into VerifOpt semantics)
     fn contains_dyn(&self, ty: &Ty) -> Option<Vec<TraitObjTy>> {
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
@@ -283,6 +270,9 @@ impl<'a> InterpPass<'a> {
         None
     }
 
+    /// If any of the constraints contain a type that implements one of the Traits listed in
+    /// `maybe_trait_destty`, copy those types and put them into the TraitObjConstraint field
+    /// of the constraint, leaving the RunningConstraint field unchanged
     fn pull_traitobjs_from_constraints(
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
@@ -514,25 +504,6 @@ impl<'a> InterpPass<'a> {
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
     }
-
-    /*
-    fn any_fn_ptr(&self, genargs: &GenericArgs) -> Option<PolyFnSig> {
-        for genarg in &genargs.0 {
-            match genarg {
-                GenericArgKind::Type(ty) => match ty.kind() {
-                    TyKind::RigidTy(rigidty) => match rigidty {
-                        RigidTy::FnPtr(sig) => return Some(sig),
-                        _ => {}
-                    },
-                    _ => {}
-                },
-                _ => {}
-            }
-        }
-
-        None
-    }
-    */
 
     fn interp_fn_ptr(
         &self,
@@ -791,6 +762,8 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// Create new subscope for the callee function, and put the resolved argument constraints into
+    /// it. Then, if another subscope already exists for this callee, merge it with the new one and update
     fn resolve_args(
         &self,
         istore: &mut InterpStore,
@@ -841,6 +814,12 @@ impl<'a> InterpPass<'a> {
             .insert(key, Box::new(MapValue::Store(store.0, store.1)));
     }
 
+    /// For each argument:
+    /// - get the local to put constraints into
+    /// - check if any arg types are traitobjects that we should translate existing concrete
+    /// constraints into
+    /// - resolve the argument into constraints (given constraints in our store)
+    /// - update the substore for the callee
     fn resolve_args_helper(
         &self,
         istore: &InterpStore,
@@ -890,6 +869,10 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// If constraints exist for the argument local, return those (potentially transforming/pulling
+    /// out traitobj constraints if this arg contains a traitobj).
+    /// If the arg is a constant, return the constraints gotten by converting the type into
+    /// VerifOpt constraints.
     fn resolve_arg(
         &self,
         istore: &InterpStore,
@@ -962,6 +945,16 @@ impl<'a> InterpPass<'a> {
         Ok(Some(ret_constraints))
     }
 
+    /// Interpret dynamic dispatch.
+    ///
+    /// First determine the set of calls as determined by CHA.
+    ///
+    /// Then determine the set of calls as determined by FSA.
+    ///
+    /// Comparing these sets will help us determine where FSA might win over CHA (or other
+    /// baselines TBD)
+    ///
+    /// Then continue interpretation given the FSA candidate function set.
     fn interp_virtual_call(
         &self,
         logger: &mut VOLogger,
@@ -1019,7 +1012,7 @@ impl<'a> InterpPass<'a> {
         }
 
         // Log CHA vs FSA diffs
-        debug!("\tterm_span: {:?}", term_span);
+        debug!("\n\tterm_span: {:?}", term_span);
         debug!("\ttrait_defid: {:?}", trait_defid);
         debug!("\tCHA: {:?}", assoc_fn_impls_cha.len());
         debug!("\tFSA: {:?}", assoc_fn_impls_fsa.len());
@@ -1052,6 +1045,12 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// Returns a set of candidate functions (implementation DefIds) given an input set of types
+    /// (constraint DefIds)
+    ///
+    /// If there are no candidates based on input constraints, and this is on the FSA path, add the default
+    /// implementation to the returned candidate function set, if there exists one.
+    /// For CHA, add the default implementation (if it exists) no matter what.
     fn get_impls_from_defids(
         &self,
         cur_scope: &VOID,
@@ -1204,6 +1203,10 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// For each concrete type constraint, if it contains a type that implements the trait of the
+    /// traitobject we are dispatching on, return that type's DefId (FIXME remove: along with its generic args)
+    ///
+    /// This will later be used to get that type's implementation of the function-to-dispatch
     fn get_fsa_constraint_defids(
         &self,
         term_span: &Span,
@@ -1222,6 +1225,10 @@ impl<'a> InterpPass<'a> {
         (is_closure, defids)
     }
 
+    /// If a concrete type constraint contains a type that implements the trait of the
+    /// traitobject we are dispatching on, return that type's DefId (FIXME remove: along with its generic args)
+    ///
+    /// This will later be used to get that type's implementation of the function-to-dispatch
     fn resolve_defid(
         &self,
         term_span: &Span,
@@ -1252,6 +1259,8 @@ impl<'a> InterpPass<'a> {
                     }
                 }
             }
+            // FIXME by the time we get here, shouldn't TOC be correctly populated? why are we
+            // looking inside CFC?
             Constraint {
                 toc: None,
                 cfc: Some((_, cfc)),
@@ -1260,6 +1269,9 @@ impl<'a> InterpPass<'a> {
                 match cfc {
                     RunningConstraintInner::Adt(adtdef, genargs) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
+                    }
+                    RunningConstraintInner::Closure(cdef, genargs) => {
+                        (true, vec![(cdef.0, Some(genargs.clone()))])
                     }
                     RunningConstraintInner::Scalar(_) => (false, vec![]),
                     _ => todo!(),
@@ -1287,7 +1299,8 @@ impl<'a> InterpPass<'a> {
             // Does this ADT implement the desired trait? If so, add to vec
             Some(traits) => {
                 if traits.contains(trait_defid) {
-                    unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
+                    debug!("ADT HAS GENARGS: {:?}", genargs.clone());
+                    unique_push(&mut resvec, (adtdef.0, None)); //Some(genargs.clone())));
                 }
             }
             None => {}
@@ -1320,6 +1333,8 @@ impl<'a> InterpPass<'a> {
         (false, resvec)
     }
 
+    /// For each of the FSA candidate functions to call, resolve into a monomorphic
+    /// instance and interpret as if it were a static call
     fn simulate_static_calls(
         &self,
         logger: &mut VOLogger,
@@ -1338,8 +1353,9 @@ impl<'a> InterpPass<'a> {
         debug!("\nSIMULATING STATIC CALL(S)");
         debug!("outer genargs: {:?}", outer_genargs);
         let len = assoc_fn_impls.len();
+        //let genargs = outer_genargs;
 
-        for (i, (assoc_fn_impl, genargs)) in assoc_fn_impls.iter().enumerate() {
+        for (i, (assoc_fn_impl, inner_genargs)) in assoc_fn_impls.iter().enumerate() {
             debug!(
                 "\n---ITER {:?} out of {:?} ({:?}/{:?})",
                 i,
@@ -1348,9 +1364,9 @@ impl<'a> InterpPass<'a> {
                 len
             );
             debug!("assoc_fn_impl defid: {:?}", assoc_fn_impl);
-            let genargs = if genargs.is_some() {
+            let genargs = if inner_genargs.is_some() {
                 debug!("USING INNER GENARGS");
-                genargs.clone().unwrap()
+                inner_genargs.clone().unwrap()
             } else {
                 debug!("USING OUTER GENARGS");
                 outer_genargs.clone()
@@ -1358,6 +1374,7 @@ impl<'a> InterpPass<'a> {
             debug!("genargs: {:?}", genargs);
             let fndef = FnDef(*assoc_fn_impl);
             let instance_ = Instance::resolve(fndef, &genargs).unwrap();
+            //debug!("og instance: {:?}", instance_);
             let (is_virtual, instance) = match instance_.kind {
                 // Likely a default trait method implementation, convert to a concrete InstanceKind
                 // so we can interpret it
@@ -1376,12 +1393,15 @@ impl<'a> InterpPass<'a> {
                     (false, instance_)
                 }
             };
-            debug!("a converted static instance: {:?}", instance);
-            debug!("has body? {:?}", instance.has_body());
+            //debug!("a converted static instance: {:?}", instance);
 
             let mut istore_clone = istore.clone();
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (instance, genargs.clone());
+
+            if !instance.has_body() {
+                panic!("instance has no body");
+            }
             let body = if is_virtual {
                 // FIXME not monomorphized
                 debug!("getting default func body");

@@ -223,9 +223,11 @@ impl<'a> RvalConverter<'a> {
                             RunningConstraintInner::Closure(cdef, _) => defid = cdef.0,
                             _ => todo!(),
                         }
+                        debug!("DEFID: {:?}", defid);
 
                         match self.tstore.struct_traits.get(&defid) {
                             Some(traits) => {
+                                debug!("found traits");
                                 if traits.contains(&traitobjty.def.0) {
                                     // pull relevant CFC into TOC
                                     let new_constraint = Constraint::new(
@@ -241,7 +243,28 @@ impl<'a> RvalConverter<'a> {
                                     unique_push(&mut new_constraints, constraint.clone());
                                 }
                             }
-                            None => {}
+                            None => {
+                                debug!("did NOT find traits in store");
+                                // Is the trait one of Fn/FnMut/FnOnce? And is the current
+                                // constraint a closure? If so, these traits are implicitly
+                                // implemented and won't exist in our trait_store
+                                debug!("\ntraitobjty: {:?}", traitobjty);
+                                //debug!("constraint: {:?}", constraint);
+                                if constraint.is_cfc_closure() && traitobjty.is_fn_trait() {
+                                    debug!("fn trait / closure");
+                                    // pull relevant CFC into TOC
+                                    let new_constraint = Constraint::new(
+                                        Some((
+                                            traitobjty.clone(),
+                                            self.convert_cfc_to_toc(&cfc_.1),
+                                        )),
+                                        Some(cfc_.clone()),
+                                    );
+                                    unique_push(&mut new_constraints, new_constraint);
+                                } else {
+                                    debug!("NOT fn trait / closure");
+                                }
+                            }
                         }
                     }
                     _ => {

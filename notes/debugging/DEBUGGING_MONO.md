@@ -262,6 +262,7 @@ RawTable::find: /rust/deps/hashbrown-0.16.1/src/raw/mod.rs:1234
 - cast into FnMut!! finally
     - this cast fails! no resulting constraints
     - *FIXME*
+    - problem: implicit Fn* trait implementations are not registered in our tool
 
 RawTableInner::find_inner: /rust/deps/hashbrown-0.16.1/src/raw/mod.rs:2075
 - args
@@ -279,7 +280,7 @@ RawTableInner::find_inner: /rust/deps/hashbrown-0.16.1/src/raw/mod.rs:2075
         dyn FnMut(GenericArgs(
           usize,
         )),
-        Output(usize),
+        FnOnce::Output(usize),
         term=Bool,
       )
 
@@ -289,7 +290,10 @@ RawTableInner::find_inner: /rust/deps/hashbrown-0.16.1/src/raw/mod.rs:2075
     - also, why are FSA constraints empty??
         - b/c the arg constraints were empty!! need to fix :)
 
-
+implicit closure Fn* trait impls
+- either find where the compiler generates these impls/shims or simulate them
+  ourselves
+- i guess we're rerouting the call_mut to the closure body? no need to simulate
 
 
 

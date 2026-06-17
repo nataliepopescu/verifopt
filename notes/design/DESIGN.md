@@ -151,6 +151,16 @@ straightforward
 - if char/string/never, nothing
 
 
+## Getting Trait Object implementations
+
+### Closures
+
+Implicitly implement Fn* traits, so don't show up in our collected set of traits
+in the trait store
+- but when we need to execute one of the `call*` functions for the Fn* traits,
+  just interpret the closure body instead
+
+
 
 
 

@@ -1071,7 +1071,7 @@ impl<'a> InterpPass<'a> {
             return assoc_fn_impls;
         }
 
-        // CHA-collected defids are not accopmanied by genargs
+        // CHA-collected defids are not accompanied by genargs
         // Get every concrete type constraint's impl of this function
         for (i, (defid, genargs)) in constraint_defids.iter().enumerate() {
             debug!("\ni: {:?}", i);
@@ -1102,7 +1102,7 @@ impl<'a> InterpPass<'a> {
                     //);
                     if FnDef(*defid).body().is_some() {
                         // This is a callable item, push the impl defid
-                        debug!("callable defid!");
+                        debug!("callable defid! {:?}", defid);
                         unique_push(&mut assoc_fn_impls, (*defid, genargs.clone()));
                     }
                 }
@@ -1261,6 +1261,7 @@ impl<'a> InterpPass<'a> {
                     RunningConstraintInner::Adt(adtdef, genargs) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
+                    RunningConstraintInner::Scalar(_) => (false, vec![]),
                     _ => todo!(),
                 }
             }

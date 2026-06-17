@@ -1,3 +1,4 @@
+use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::Local;
 use rustc_public::mir::mono::Instance;
@@ -65,6 +66,17 @@ impl Constraint {
         cfc: Option<RunningConstraint>,
     ) -> Constraint {
         Self { toc, cfc }
+    }
+
+    pub fn is_cfc_closure(&self) -> bool {
+        if self.cfc.is_none() {
+            return false;
+        }
+
+        match self.cfc.as_ref().unwrap().1 {
+            RunningConstraintInner::Closure(..) => true,
+            _ => false,
+        }
     }
 }
 
@@ -162,6 +174,17 @@ impl TraitObjTy {
                 };
             }
             _ => todo!(),
+        }
+    }
+
+    pub fn is_fn_trait(&self) -> bool {
+        // FnMut
+        if self.def.0.to_index() == 150 {
+            debug!("FNMUT TRAIT");
+            true
+        } else {
+            debug!("NOT A FN TRAIT");
+            false
         }
     }
 }

@@ -6,12 +6,12 @@ use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef,
 };
 
-use crate::common::log_scope;
+//use crate::common::log_scope;
 use crate::error::Error;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-use log::debug;
+//use log::debug;
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -144,7 +144,7 @@ impl TraitObjTy {
         //let mut bound_tys = Vec::new();
         //let mut bound_regions = Vec::new();
         if !binder.bound_vars.is_empty() {
-            debug!("handle bound vars");
+            //debug!("handle bound vars");
             //    for bound_var in &binder.bound_vars {
             //        match bound_var {
             //            BoundVariableKind::Ty(ty) => match ty {
@@ -180,10 +180,10 @@ impl TraitObjTy {
     pub fn is_fn_trait(&self) -> bool {
         // FnMut
         if self.def.0.to_index() == 150 {
-            debug!("FNMUT TRAIT");
+            //debug!("FNMUT TRAIT");
             true
         } else {
-            debug!("NOT A FN TRAIT");
+            //debug!("NOT A FN TRAIT");
             false
         }
     }
@@ -204,9 +204,9 @@ impl InterpStore {
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
-        debug!("IN SCOPED_GET");
-        log_scope(&scope);
-        debug!("key: {:?}", key);
+        //debug!("IN SCOPED_GET");
+        //log_scope(&scope);
+        //debug!("key: {:?}", key);
         //debug!("cmap: {:#?}", self.cmap);
 
         //if scope.is_none() {
@@ -225,7 +225,7 @@ impl InterpStore {
                     match store.cmap.get(key) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
-                            debug!("is_closure?: {:?}", is_closure);
+                            //debug!("is_closure?: {:?}", is_closure);
                             //debug!("enclosing_scope: {:?}", enclosing_scopes);
                             if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
@@ -379,7 +379,7 @@ pub trait Merge<T> {
 
 impl Merge<InterpStore> for Vec<InterpStore> {
     fn merge(&self) -> Result<Option<InterpStore>, Error> {
-        debug!("interp stores to merge: {:?}", self);
+        //debug!("interp stores to merge: {:?}", self);
 
         if self.is_empty() {
             return Ok(None);
@@ -409,7 +409,7 @@ impl Merge<InterpStore> for Vec<InterpStore> {
             }
         }
 
-        debug!("merged stores: {:?}", merged);
+        //debug!("merged stores: {:?}", merged);
 
         Ok(Some(merged))
     }

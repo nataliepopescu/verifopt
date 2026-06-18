@@ -2,7 +2,7 @@ use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::ty::{
     AssocContainer, AssocKind, FnDef, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind,
 };
-use rustc_public::{CrateDefItems, DefId};
+use rustc_public::{CrateDef, CrateDefItems, DefId};
 
 use log::debug;
 
@@ -106,6 +106,7 @@ impl TraitCollectPass {
                 //debug!("got a None struct_defid option (FIXME)");
                 continue;
             }
+            debug!("STRUCT: {:?}", struct_defid);
 
             // Add trait to list of traits that this struct impls
             match tstore.struct_traits.get_mut(&struct_defid) {
@@ -155,14 +156,14 @@ impl TraitCollectPass {
                     .get_mut(&(struct_defid, *assoc_fn_decl_defid))
                 {
                     Some(existing_impls) => {
-                        debug!("ADDING TO EXISTING: {:?}", assoc_fn_impl_defid);
+                        //debug!("ADDING TO EXISTING: {:?}", assoc_fn_impl_defid);
                         // Skip duplicates
                         if !existing_impls.contains(assoc_fn_impl_defid) {
                             existing_impls.push(*assoc_fn_impl_defid);
                         }
                     }
                     None => {
-                        debug!("INITING WITH: {:?}", assoc_fn_impl_defid);
+                        //debug!("INITING WITH: {:?}", assoc_fn_impl_defid);
                         tstore.struct_assoc_fns.insert(
                             (struct_defid, *assoc_fn_decl_defid),
                             vec![*assoc_fn_impl_defid],
@@ -249,6 +250,8 @@ impl TraitCollectPass {
             //info!("assoc_item container: {:?}", assoc_item.container);
             match assoc_item.container {
                 AssocContainer::TraitImpl(assoc_def) => {
+                    debug!("IMPL DEFID: {:?}", assoc_item.def_id.0);
+                    debug!("SPAN: {:?}", assoc_item.def_id.span());
                     assoc_fns.push((assoc_item.def_id.0, assoc_def.0));
                 }
                 _ => {} //warn!("other container kind"),

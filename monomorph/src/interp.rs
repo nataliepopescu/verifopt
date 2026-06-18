@@ -130,10 +130,10 @@ impl<'a> InterpPass<'a> {
         let mut last_res = None;
         let num_bbs = bb_deps.ordering.len();
         loop {
-            debug!("\n\nGETTING NEXT BB");
-            debug!("pre-pop ordering: {:?}", bb_deps.ordering);
+            //debug!("\n\nGETTING NEXT BB");
+            //debug!("pre-pop ordering: {:?}", bb_deps.ordering);
             if bb_deps.ordering.is_empty() {
-                debug!("DONE INTERPING");
+                //debug!("DONE INTERPING");
                 break;
             }
             let bb = bb_deps.ordering.remove(0);
@@ -167,7 +167,7 @@ impl<'a> InterpPass<'a> {
         bb: usize,
         data: &BasicBlock,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("\n##########");
+        //debug!("\n##########");
         debug!(
             "# visiting BASICBLOCK {:?} ({:?}/{:?}) for {:?}",
             bb,
@@ -175,7 +175,7 @@ impl<'a> InterpPass<'a> {
             num_bbs,
             cur_scope.0.name()
         );
-        debug!("##########");
+        //debug!("##########");
 
         self.check_call_stack(call_stack, cur_scope);
 
@@ -262,9 +262,9 @@ impl<'a> InterpPass<'a> {
                         return maybe_dyn;
                     }
                 }
-                _ => debug!("LVAL TY IS OTHER RIGIDTY"),
+                _ => {} //debug!("LVAL TY IS OTHER RIGIDTY"),
             },
-            _ => debug!("LVAL TY IS OTHER TYKIND"),
+            _ => {} //debug!("LVAL TY IS OTHER TYKIND"),
         }
 
         None
@@ -293,7 +293,7 @@ impl<'a> InterpPass<'a> {
                         toc: Some(ref existing_toc),
                         cfc: ref _cfc,
                     } => {
-                        debug!("existing_toc: {:?}", existing_toc);
+                        //debug!("existing_toc: {:?}", existing_toc);
                         if *existing_toc != toc.unwrap() {
                             todo!("update existing TOC");
                         } else {
@@ -323,17 +323,17 @@ impl<'a> InterpPass<'a> {
                 debug!("start assignment!");
                 log_scope(cur_scope);
                 debug!("stmt: {:?}", &stmt.kind);
-                debug!("place: {:?}", place);
-                debug!("rval: {:?}", rvalue);
+                //debug!("place: {:?}", place);
+                //debug!("rval: {:?}", rvalue);
 
                 //let rval_ty = rvalue.ty(local_decls).unwrap();
                 //debug!("rval ty: {:?}", rval_ty);
 
-                debug!("CHECKING FOR DYN IN PLACE TY");
+                //debug!("CHECKING FOR DYN IN PLACE TY");
                 let dest_ty = place.ty(local_decls).unwrap();
-                debug!("lval ty: {:?}", dest_ty);
+                //debug!("lval ty: {:?}", dest_ty);
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
-                debug!("dyn lval ty? {:?}", maybe_trait_destty);
+                //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
                 // convert MIR Rvalue to Constraint
                 let constraints = self.converter.convert(
@@ -344,10 +344,10 @@ impl<'a> InterpPass<'a> {
                     &dest_ty,
                     rvalue,
                 );
-                debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
+                //debug!("CONVERTED CONSTRAINTS: {:?}", constraints);
                 let constraints =
                     self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints);
-                debug!("TO PULLED CONSTRAINTS: {:?}", constraints);
+                debug!("FINAL (PULLED) CONSTRAINTS: {:?}", constraints);
 
                 // add resolved constraints to istore
                 istore.scoped_update(
@@ -426,13 +426,13 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("INTERPING INDIRECT CALL");
+        //debug!("INTERPING INDIRECT CALL");
 
-        debug!("CHECKING FOR DYN IN PLACE TY");
+        //debug!("CHECKING FOR DYN IN PLACE TY");
         let dest_ty = place.ty(local_decls).unwrap();
-        debug!("lval ty: {:?}", dest_ty);
+        //debug!("lval ty: {:?}", dest_ty);
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
-        debug!("dyn lval ty? {:?}", maybe_trait_destty);
+        //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let mut ret_constraints = Vec::new();
         match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
@@ -444,7 +444,14 @@ impl<'a> InterpPass<'a> {
                                 toc: _,
                                 cfc: Some((_, cf)),
                             } => match self.interp_constraint_as_fn(
-                                logger, term_span, istore, call_stack, cur_scope, &cf, args,
+                                logger,
+                                term_span,
+                                istore,
+                                call_stack,
+                                cur_scope,
+                                local_decls,
+                                &cf,
+                                args,
                             ) {
                                 Ok(Some(constraints)) => {
                                     unique_append(&mut ret_constraints, constraints)
@@ -464,12 +471,12 @@ impl<'a> InterpPass<'a> {
         }
 
         // Set destination local to value in cmap
-        debug!(
-            "RET FROM INDIRECT FUNC CALL ret_constraints: {:?}",
-            ret_constraints
-        );
-        log_scope(cur_scope);
-        debug!("destination: {:?}", destination);
+        //debug!(
+        //    "RET FROM INDIRECT FUNC CALL ret_constraints: {:?}",
+        //    ret_constraints
+        //);
+        //log_scope(cur_scope);
+        //debug!("destination: {:?}", destination);
         let constraints =
             self.pull_traitobjs_from_constraints(&maybe_trait_destty, ret_constraints);
         istore.scoped_update(
@@ -488,18 +495,42 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
+        local_decls: &[LocalDecl],
         constraint: &RunningConstraintInner,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         match constraint {
             RunningConstraintInner::FnDef(fndef, genargs) => self.interp_fn_def(
-                logger, term_span, istore, call_stack, cur_scope, *fndef, &genargs, args,
+                logger,
+                term_span,
+                istore,
+                call_stack,
+                cur_scope,
+                local_decls,
+                *fndef,
+                &genargs,
+                args,
             ),
             RunningConstraintInner::FnPtr(sigval) => self.interp_fn_ptr(
-                logger, term_span, istore, call_stack, cur_scope, sigval, args,
+                logger,
+                term_span,
+                istore,
+                call_stack,
+                cur_scope,
+                local_decls,
+                sigval,
+                args,
             ),
             RunningConstraintInner::Closure(cdef, genargs) => self.interp_closure(
-                logger, term_span, istore, call_stack, cur_scope, *cdef, &genargs, args,
+                logger,
+                term_span,
+                istore,
+                call_stack,
+                cur_scope,
+                local_decls,
+                *cdef,
+                &genargs,
+                args,
             ),
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
@@ -512,14 +543,15 @@ impl<'a> InterpPass<'a> {
         _istore: &mut InterpStore,
         _call_stack: &mut Vec<VOID>,
         _cur_scope: &VOID,
+        _local_decls: &[LocalDecl],
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("INTERPING FN PTR");
-        debug!("sigval!: {:?}", sigval);
+        //debug!("INTERPING FN PTR");
+        //debug!("sigval!: {:?}", sigval);
         match self.sigstore.sigs.get(&sigval) {
             Some(fndef_vec) => {
-                debug!("num candidate fns: {:?}", fndef_vec.len());
+                //debug!("num candidate fns: {:?}", fndef_vec.len());
 
                 // Don't want to pollute our results too much, so if we have too
                 // many possible fns to call, just fallback to retty
@@ -528,7 +560,7 @@ impl<'a> InterpPass<'a> {
                     self.retty_fallback_from_sigval(sigval)
                 // Otherwise, interpret the candidate functions
                 } else {
-                    debug!("INTERPRET CANDIDATES");
+                    //debug!("INTERPRET CANDIDATES");
                     todo!();
                     /*
                     let mut ret_constraints = Vec::new();
@@ -558,8 +590,8 @@ impl<'a> InterpPass<'a> {
                 }
             }
             None => {
-                debug!("sigval: {:?}", sigval);
-                debug!("no candidate fns to call, using retty fallback");
+                //debug!("sigval: {:?}", sigval);
+                //debug!("no candidate fns to call, using retty fallback");
                 self.retty_fallback_from_sigval(sigval)
             }
         }
@@ -572,19 +604,20 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
+        local_decls: &[LocalDecl],
         cdef: ClosureDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("INTERPING CLOSURE");
-        debug!("cdef: {:?}", cdef);
-        debug!("args: {:?}", args);
-        debug!("genargs: {:?}", genargs);
+        //debug!("INTERPING CLOSURE");
+        //debug!("cdef: {:?}", cdef);
+        //debug!("args: {:?}", args);
+        //debug!("genargs: {:?}", genargs);
         let closure_kind = self.get_closure_kind(&genargs);
-        debug!("CLOSURE KIND: {:?}", closure_kind);
+        //debug!("CLOSURE KIND: {:?}", closure_kind);
         if let Some(_body) = cdef.body() {
             let instance = Instance::resolve_closure(cdef, &genargs, closure_kind).unwrap();
-            debug!("instance: {:?}", instance);
+            //debug!("instance: {:?}", instance);
 
             let new_scope = (instance, genargs.clone());
             let body = self.get_body(&new_scope);
@@ -592,7 +625,15 @@ impl<'a> InterpPass<'a> {
 
             self.prepare_call(call_stack, &new_scope);
             self.resolve_args(
-                istore, term_span, cur_scope, &body, &new_scope, args, &genargs, true,
+                istore,
+                term_span,
+                cur_scope,
+                &body,
+                &new_scope,
+                local_decls,
+                args,
+                &genargs,
+                true,
             );
             self.visit_body(logger, istore, call_stack, &new_scope, &body)
         } else {
@@ -626,21 +667,36 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        debug!("CHECKING FOR DYN IN PLACE TY");
+        //debug!("CHECKING FOR DYN IN PLACE TY");
         let dest_ty = destination.ty(local_decls).unwrap();
-        debug!("lval ty: {:?}", dest_ty);
+        //debug!("lval ty: {:?}", dest_ty);
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
-        debug!("dyn lval ty? {:?}", maybe_trait_destty);
+        //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
-                    logger, term_span, istore, call_stack, cur_scope, fndef, &genargs, args,
+                    logger,
+                    term_span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    fndef,
+                    &genargs,
+                    args,
                 ),
                 RigidTy::FnPtr(poly_sig) => {
                     let sigval = SigVal::new_from_poly(&poly_sig);
                     self.interp_fn_ptr(
-                        logger, term_span, istore, call_stack, cur_scope, &sigval, args,
+                        logger,
+                        term_span,
+                        istore,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        &sigval,
+                        args,
                     )
                 }
                 other @ _ => todo!("different RigidTy: {:?}", other),
@@ -649,9 +705,9 @@ impl<'a> InterpPass<'a> {
         };
 
         // Set destination local to value in cmap
-        debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
-        log_scope(cur_scope);
-        debug!("destination: {:?}", destination);
+        //debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
+        //log_scope(cur_scope);
+        //debug!("destination: {:?}", destination);
 
         match ret_constraints {
             Ok(Some(constraints_)) => {
@@ -659,10 +715,10 @@ impl<'a> InterpPass<'a> {
                 // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
                 let constraints =
                     self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints_);
-                debug!(
-                    "SETTING CONSTRAINTS to local {:?}: \n\t{:?}",
-                    destination.local, constraints
-                );
+                //debug!(
+                //    "SETTING CONSTRAINTS to local {:?}: \n\t{:?}",
+                //    destination.local, constraints
+                //);
                 istore.scoped_update(
                     cur_scope,
                     MapKey::Local(destination.local),
@@ -684,6 +740,7 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
+        local_decls: &[LocalDecl],
         fndef: FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -692,36 +749,61 @@ impl<'a> InterpPass<'a> {
         let new_scope = (instance, genargs.clone());
         debug!("--- CALLING {:?}", fndef);
         log_scope(cur_scope);
+        //debug!("FNDEF GENARGS: {:?}", genargs);
 
         if call_stack.contains(&new_scope) {
-            debug!("recursive call (maybe)!");
+            //debug!("recursive call (maybe)!");
             return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
         match instance.kind {
             InstanceKind::Item => {
-                debug!("regular static funccall");
+                //debug!("regular static funccall");
                 self.interp_static_call(
-                    logger, term_span, istore, call_stack, cur_scope, &new_scope, fndef, args,
+                    logger,
+                    term_span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    &new_scope,
+                    local_decls,
+                    fndef,
+                    args,
                     &genargs,
                 )
             }
             InstanceKind::Virtual { .. } => {
-                debug!("virtual funccall");
+                //debug!("virtual funccall");
                 self.interp_virtual_call(
-                    logger, term_span, istore, call_stack, cur_scope, &new_scope, &fndef, &genargs,
+                    logger,
+                    term_span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    &new_scope,
+                    local_decls,
+                    &fndef,
+                    &genargs,
                     args,
                 )
             }
             InstanceKind::Shim => {
-                debug!("shim funccall");
+                //debug!("shim funccall");
                 self.interp_static_call(
-                    logger, term_span, istore, call_stack, cur_scope, &new_scope, fndef, args,
+                    logger,
+                    term_span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    &new_scope,
+                    local_decls,
+                    fndef,
+                    args,
                     &genargs,
                 )
             }
             InstanceKind::Intrinsic => {
-                debug!("intrinsic funccall");
+                //debug!("intrinsic funccall");
                 self.retty_fallback_from_poly(fndef.fn_sig())
             }
         }
@@ -735,12 +817,14 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         caller_scope: &VOID,
         cur_scope: &VOID,
+        local_decls: &[LocalDecl],
         fndef: FnDef,
         args: &Vec<Operand>,
         genargs: &GenericArgs,
     ) -> Result<Option<Constraints>, Error> {
         debug!("INTERP STATIC CALL");
         debug!("fndef: {:?}", fndef);
+        debug!("genargs: {:?}", genargs);
 
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
@@ -751,6 +835,7 @@ impl<'a> InterpPass<'a> {
                 caller_scope,
                 &body,
                 cur_scope,
+                local_decls,
                 args,
                 genargs,
                 false,
@@ -771,13 +856,14 @@ impl<'a> InterpPass<'a> {
         caller_scope: &VOID,
         body: &Body,
         callee_scope: &VOID,
+        local_decls: &[LocalDecl],
         //fndef: FnDef,
         args: &Vec<Operand>,
         _genargs: &GenericArgs,
         is_closure: bool,
     ) {
-        debug!("RESOLVING ARGS");
-        debug!("IS TARGET FN CLOSURE?: {}", is_closure);
+        //debug!("RESOLVING ARGS");
+        //debug!("IS TARGET FN CLOSURE?: {}", is_closure);
 
         let mut new_substore = InterpStore::new();
         let key = MapKey::ScopeId(callee_scope.clone());
@@ -789,6 +875,7 @@ impl<'a> InterpPass<'a> {
             &mut new_substore,
             caller_scope,
             body,
+            local_decls,
             args,
             is_closure,
         );
@@ -827,6 +914,7 @@ impl<'a> InterpPass<'a> {
         new_substore: &mut InterpStore,
         caller_scope: &VOID,
         body: &Body,
+        local_decls: &[LocalDecl],
         args: &Vec<Operand>,
         is_closure: bool,
     ) {
@@ -840,22 +928,23 @@ impl<'a> InterpPass<'a> {
                 projection: vec![],
             };
 
-            debug!("[CALL] CHECKING FOR DYN IN ARG TY");
+            //debug!("[CALL] CHECKING FOR DYN IN ARG TY");
             let maybe_trait_argty = if i > arg_count - 1 {
-                debug!("arg count is surpassed: {:?}", arg_count);
+                //debug!("arg count is surpassed: {:?}", arg_count);
                 None
             } else {
                 let arg_ty = place.ty(body.locals()).unwrap();
-                debug!("arg ty: {:?}", arg_ty);
+                //debug!("arg ty: {:?}", arg_ty);
                 self.contains_dyn(&arg_ty)
             };
-            debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
+            //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
 
             let arg_constraints = self.resolve_arg(
                 istore,
                 term_span,
                 caller_scope,
                 &maybe_trait_argty,
+                local_decls,
                 arg,
                 is_closure,
             );
@@ -879,6 +968,7 @@ impl<'a> InterpPass<'a> {
         _term_span: &Span,
         caller_scope: &VOID,
         maybe_trait_argty: &Option<Vec<TraitObjTy>>,
+        local_decls: &[LocalDecl],
         arg: &Operand,
         is_closure: bool,
     ) -> Constraints {
@@ -888,8 +978,8 @@ impl<'a> InterpPass<'a> {
                 match istore.scoped_get(caller_scope, &MapKey::Local(place.local), is_closure) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints_) => {
-                            debug!("got constraints from cmap: {:?}", constraints_);
-                            debug!("checking for traitobjs");
+                            //debug!("got constraints from cmap: {:?}", constraints_);
+                            //debug!("checking for traitobjs");
                             let constraints = self
                                 .pull_traitobjs_from_constraints(maybe_trait_argty, constraints_);
                             constraints
@@ -897,8 +987,11 @@ impl<'a> InterpPass<'a> {
                         _ => panic!("arg is a scope"),
                     },
                     None => {
-                        debug!("place {:?} DNE in cmap, widen to type", place,);
-                        vec![]
+                        debug!("place {:?} DNE in cmap, widen to type", place);
+                        let (_maybe_traitobjty, constraint) = self
+                            .converter
+                            .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
+                        vec![constraint]
                     }
                 }
             }
@@ -913,7 +1006,7 @@ impl<'a> InterpPass<'a> {
     fn check_sig_boundvars(&self, sig: &PolyFnSig) {
         if !sig.bound_vars.is_empty() {
             // Might not be safe to just skip binder
-            debug!("Bound vars - cannot just skip binder in call resolution");
+            //debug!("Bound vars - cannot just skip binder in call resolution");
             for bound_var in sig.bound_vars.iter() {
                 match bound_var {
                     BoundVariableKind::Ty(_) => todo!("ty"),
@@ -925,9 +1018,9 @@ impl<'a> InterpPass<'a> {
     }
 
     fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
-        debug!("fn_sig: {:?}", sig);
+        //debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
-        debug!("output: {:?}", sig.value.output());
+        //debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
         let ret_constraints = vec![];
@@ -935,7 +1028,7 @@ impl<'a> InterpPass<'a> {
     }
 
     fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
-        debug!("sigval: {:?}", sigval);
+        //debug!("sigval: {:?}", sigval);
         if !sigval.bound_tys.is_empty() {
             todo!();
         }
@@ -963,6 +1056,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         callee_scope: &VOID,
         cur_scope: &VOID,
+        local_decls: &[LocalDecl],
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -1012,17 +1106,17 @@ impl<'a> InterpPass<'a> {
         }
 
         // Log CHA vs FSA diffs
-        debug!("\n\tterm_span: {:?}", term_span);
+        if assoc_fn_impls_cha != assoc_fn_impls_fsa {
+            debug!("\n\nSET OF IMPLS DIFFER");
+            logger.update_diff(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
+        } else {
+            debug!("\n\nSET OF IMPLS SAME");
+            logger.update_same(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
+        }
+        debug!("\tterm_span: {:?}", term_span);
         debug!("\ttrait_defid: {:?}", trait_defid);
         debug!("\tCHA: {:?}", assoc_fn_impls_cha.len());
         debug!("\tFSA: {:?}", assoc_fn_impls_fsa.len());
-        if assoc_fn_impls_cha != assoc_fn_impls_fsa {
-            debug!("SET OF IMPLS DIFFER");
-            logger.update_diff(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
-        } else {
-            debug!("SET OF IMPLS SAME");
-            logger.update_same(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
-        }
 
         self.simulate_static_calls(
             logger,
@@ -1030,6 +1124,7 @@ impl<'a> InterpPass<'a> {
             istore,
             call_stack,
             callee_scope,
+            local_decls,
             assoc_fn_impls_fsa,
             genargs,
             args,
@@ -1070,7 +1165,8 @@ impl<'a> InterpPass<'a> {
             return assoc_fn_impls;
         }
 
-        // CHA-collected defids are not accompanied by genargs
+        // CHA-collected defid genargs are None, while FSA-collected defid genargs might be Some()
+        //
         // Get every concrete type constraint's impl of this function
         for (i, (defid, genargs)) in constraint_defids.iter().enumerate() {
             debug!("\ni: {:?}", i);
@@ -1122,13 +1218,13 @@ impl<'a> InterpPass<'a> {
         assoc_fn_defid: &DefId,
         trait_defid: &DefId,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
-        debug!("GETTING CHA IMPLS");
+        //debug!("GETTING CHA IMPLS");
         let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
-        debug!(
-            "constraint defids ({:?} total): {:?}",
-            constraint_defids.len(),
-            constraint_defids
-        );
+        //debug!(
+        //    "constraint defids ({:?} total): {:?}",
+        //    constraint_defids.len(),
+        //    constraint_defids
+        //);
         self.get_impls_from_defids(cur_scope, assoc_fn_defid, &constraint_defids, false)
     }
 
@@ -1215,9 +1311,9 @@ impl<'a> InterpPass<'a> {
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         let mut defids = Vec::new();
         let mut is_closure = false;
-        debug!("\nGETTING CONSTRAINT DEFIDS");
+        //debug!("\nGETTING CONSTRAINT DEFIDS");
         for constraint in tyconstraints {
-            debug!("constraint: {:?}", constraint);
+            //debug!("constraint: {:?}", constraint);
             let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, constraint);
             is_closure = is_closure_;
             unique_append(&mut defids, res);
@@ -1241,9 +1337,9 @@ impl<'a> InterpPass<'a> {
                 toc: Some(toc_),
                 cfc: _,
             } => {
-                debug!("trait_defid: {:?}", trait_defid);
-                debug!("TOC traitobjty: {:?}", toc_.0);
-                debug!("TOC traitobj: {:?}", toc_.1);
+                //debug!("trait_defid: {:?}", trait_defid);
+                //debug!("TOC traitobjty: {:?}", toc_.0);
+                //debug!("TOC traitobj: {:?}", toc_.1);
                 if *trait_defid != toc_.0.def.0 {
                     todo!("traits don't match");
                 }
@@ -1253,8 +1349,8 @@ impl<'a> InterpPass<'a> {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
-                        debug!("CDEF: {:?}", cdef);
-                        debug!("CLOSURE GENARGS: {:?}", genargs);
+                        //debug!("CDEF: {:?}", cdef);
+                        //debug!("CLOSURE GENARGS: {:?}", genargs);
                         (true, vec![(cdef.0, Some(genargs.clone()))])
                     }
                 }
@@ -1265,7 +1361,7 @@ impl<'a> InterpPass<'a> {
                 toc: None,
                 cfc: Some((_, cfc)),
             } => {
-                debug!("cfc: {:?}", cfc);
+                //debug!("cfc: {:?}", cfc);
                 match cfc {
                     RunningConstraintInner::Adt(adtdef, genargs) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
@@ -1290,45 +1386,45 @@ impl<'a> InterpPass<'a> {
         adtdef: &AdtDef,
         genargs: &GenericArgs,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        debug!("\nRESOLVE ADT HELPER");
-        debug!("ADT DEF: {:?}", adtdef);
-        debug!("ADT GENARGS: {:?}", genargs);
+        //debug!("\nRESOLVE ADT HELPER");
+        //debug!("ADT DEF: {:?}", adtdef);
+        //debug!("ADT GENARGS: {:?}", genargs);
 
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {
             // Does this ADT implement the desired trait? If so, add to vec
             Some(traits) => {
                 if traits.contains(trait_defid) {
-                    debug!("ADT HAS GENARGS: {:?}", genargs.clone());
-                    unique_push(&mut resvec, (adtdef.0, None)); //Some(genargs.clone())));
+                    //debug!("ADT HAS GENARGS: {:?}", genargs.clone());
+                    unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
                 }
             }
             None => {}
         }
 
         // Also search in genargs for an implementing type
-        debug!("num genargs: {:?}", genargs.0.len());
+        //debug!("num genargs: {:?}", genargs.0.len());
         for genarg in &genargs.0 {
-            debug!("\nGENARG: {:?}", genarg);
+            //debug!("\nGENARG: {:?}", genarg);
             match self.converter.convert_genarg(&Location::new(), &genarg) {
                 Some(genarg_constraint) => {
-                    debug!("genarg constraint (repeat): {:?}", genarg_constraint);
-                    let (is_closure, inner_resvec) =
+                    //debug!("genarg constraint (repeat): {:?}", genarg_constraint);
+                    let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
-                    debug!("ADT DEF (repeat): {:?}", adtdef);
-                    debug!("genarg constraint (repeat): {:?}", genarg_constraint);
-                    debug!("is_closure: {:?}", is_closure);
-                    debug!("inner resvec: {:?}", inner_resvec);
+                    //debug!("ADT DEF (repeat): {:?}", adtdef);
+                    //debug!("genarg constraint (repeat): {:?}", genarg_constraint);
+                    //debug!("is_closure: {:?}", is_closure);
+                    //debug!("inner resvec: {:?}", inner_resvec);
                     unique_append(&mut resvec, inner_resvec);
-                    debug!("updated resvec: {:?}", resvec);
+                    //debug!("updated resvec: {:?}", resvec);
                 }
                 _ => {
-                    debug!("genarg is not a type, continuing");
+                    //debug!("genarg is not a type, continuing");
                 }
             }
         }
 
-        debug!("FINAL resvec: {:?}", resvec);
+        //debug!("FINAL resvec: {:?}", resvec);
 
         (false, resvec)
     }
@@ -1342,8 +1438,9 @@ impl<'a> InterpPass<'a> {
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
+        local_decls: &[LocalDecl],
         assoc_fn_impls: Vec<(DefId, Option<GenericArgs>)>,
-        outer_genargs: &GenericArgs,
+        method_genargs: &GenericArgs,
         args: &Vec<Operand>,
         is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
@@ -1351,11 +1448,9 @@ impl<'a> InterpPass<'a> {
         let mut istore_vec = Vec::new();
 
         debug!("\nSIMULATING STATIC CALL(S)");
-        debug!("outer genargs: {:?}", outer_genargs);
         let len = assoc_fn_impls.len();
-        //let genargs = outer_genargs;
 
-        for (i, (assoc_fn_impl, inner_genargs)) in assoc_fn_impls.iter().enumerate() {
+        for (i, (assoc_fn_impl, adt_genargs)) in assoc_fn_impls.iter().enumerate() {
             debug!(
                 "\n---ITER {:?} out of {:?} ({:?}/{:?})",
                 i,
@@ -1364,14 +1459,32 @@ impl<'a> InterpPass<'a> {
                 len
             );
             debug!("assoc_fn_impl defid: {:?}", assoc_fn_impl);
-            let genargs = if inner_genargs.is_some() {
-                debug!("USING INNER GENARGS");
-                inner_genargs.clone().unwrap()
+            debug!("adt genargs: {:?}", adt_genargs);
+            debug!("method genargs: {:?}", method_genargs);
+            debug!("args: {:?}", args);
+
+            let genargs = if is_closure && adt_genargs.is_some() {
+                debug!("concatenating adt + method genargs");
+                let mut concated_genargs = adt_genargs.clone().unwrap().0;
+                concated_genargs.extend(method_genargs.0.clone());
+                GenericArgs(concated_genargs)
+                //GenericArgs(
+                //    adt_genargs.unwrap().0.iter()
+                //        .chain(method_genargs.0.iter())
+                //        .cloned()
+                //        .collect()
+                //)
+            } else if !is_closure && adt_genargs.is_some() {
+                debug!("adt genargs only");
+                adt_genargs.clone().unwrap()
             } else {
-                debug!("USING OUTER GENARGS");
-                outer_genargs.clone()
+                debug!("method genargs only");
+                method_genargs.clone()
             };
-            debug!("genargs: {:?}", genargs);
+            debug!("ALL genargs: {:?}", genargs);
+
+            // TODO different resolves for fn_ptr / closure
+
             let fndef = FnDef(*assoc_fn_impl);
             let instance_ = Instance::resolve(fndef, &genargs).unwrap();
             //debug!("og instance: {:?}", instance_);
@@ -1389,7 +1502,7 @@ impl<'a> InterpPass<'a> {
                     )
                 }
                 _ => {
-                    debug!("non-virtual instance");
+                    debug!("non-virtual instance: {:?}", instance_.kind);
                     (false, instance_)
                 }
             };
@@ -1399,9 +1512,9 @@ impl<'a> InterpPass<'a> {
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (instance, genargs.clone());
 
-            if !instance.has_body() {
-                panic!("instance has no body");
-            }
+            //if !instance.has_body() {
+            //    panic!("instance has no body");
+            //}
             let body = if is_virtual {
                 // FIXME not monomorphized
                 debug!("getting default func body");
@@ -1419,6 +1532,7 @@ impl<'a> InterpPass<'a> {
                 cur_scope,
                 &body,
                 &callee_scope,
+                local_decls,
                 args,
                 &genargs,
                 is_closure,
@@ -1470,15 +1584,15 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &mut InterpStore,
         cur_scope: &VOID,
-        local_decls: &[LocalDecl],
+        _local_decls: &[LocalDecl],
         bb: usize,
         bb_deps: &mut BBDeps,
         discr: &Operand,
         targets: &SwitchTargets,
     ) -> Result<Option<Constraints>, Error> {
         debug!("SWITCHINT");
-        debug!("discr: {:?}", discr);
-        debug!("targets: {:?}", targets);
+        //debug!("discr: {:?}", discr);
+        //debug!("targets: {:?}", targets);
 
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
@@ -1489,15 +1603,15 @@ impl<'a> InterpPass<'a> {
                             let mut discr_vals_uninit =
                                 Box::<[u8]>::new_zeroed_slice(targets.len());
                             let discr_vals = discr_vals_uninit.write_filled(0);
-                            debug!("PRE discr_vals: {:?}", discr_vals);
+                            //debug!("PRE discr_vals: {:?}", discr_vals);
 
                             // Check expected type of discriminant
-                            debug!("expected ty: {:?}", place.ty(local_decls));
-                            debug!("constraints: {:?}", constraints);
+                            //debug!("expected ty: {:?}", place.ty(local_decls));
+                            //debug!("constraints: {:?}", constraints);
 
                             // Populate byte-map with possible branch values, based on constraints
                             self.set_bytemap(&constraints, targets, discr_vals);
-                            debug!("POST discr_vals: {:?}", discr_vals);
+                            //debug!("POST discr_vals: {:?}", discr_vals);
 
                             self.prune_switchint_targets(
                                 bb,
@@ -1509,12 +1623,12 @@ impl<'a> InterpPass<'a> {
                         _ => panic!("cannot switch on scope"),
                     },
                     None => {
-                        debug!("local DNE, cannot prune any targets");
+                        //debug!("local DNE, cannot prune any targets");
                     }
                 }
             }
             Operand::Constant(_co) => {}
-            _ => debug!("runtime checks op (ignoring)"),
+            _ => {} //debug!("runtime checks op (ignoring)"),
         }
 
         Ok(None)
@@ -1536,15 +1650,15 @@ impl<'a> InterpPass<'a> {
             return;
         }
 
-        debug!("USING CONSTRAINTS TO SET BYTEMAP");
+        //debug!("USING CONSTRAINTS TO SET BYTEMAP");
         for constraint in constraints {
-            debug!("setting bytemap for constraint: {:?}", constraint);
+            //debug!("setting bytemap for constraint: {:?}", constraint);
             match constraint {
                 Constraint {
                     toc: _,
                     cfc: Some((_, RunningConstraintInner::Scalar(num_opt))),
                 } => {
-                    debug!("scalar discr val: {:?}", num_opt);
+                    //debug!("scalar discr val: {:?}", num_opt);
 
                     if let Some(num) = num_opt {
                         // Increment matching branch counters
@@ -1652,8 +1766,8 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         let old_scope = self.prepare_return(call_stack);
         if old_scope.clone().unwrap() != *cur_scope {
-            debug!("\nold_scope: {:?}", old_scope.unwrap().0.name());
-            debug!("cur_scope: {:?}", cur_scope.0.name());
+            //debug!("\nold_scope: {:?}", old_scope.unwrap().0.name());
+            //debug!("cur_scope: {:?}", cur_scope.0.name());
             log_call_stack(call_stack);
             panic!("call stack out of sorts");
         }

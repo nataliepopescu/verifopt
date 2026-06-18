@@ -1169,7 +1169,7 @@ impl<'a> InterpPass<'a> {
         //
         // Get every concrete type constraint's impl of this function
         for (i, (defid, genargs)) in constraint_defids.iter().enumerate() {
-            debug!("\ni: {:?}", i);
+            debug!("i: {:?}", i);
             debug!("defid: {:?}", defid);
             debug!("genargs: {:?}", genargs);
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
@@ -1183,11 +1183,11 @@ impl<'a> InterpPass<'a> {
                             .map(|x| (x, genargs.clone()))
                             .collect(),
                     );
-                    debug!(
-                        "updated assoc_fn_impls (len={:?}): {:?}",
-                        assoc_fn_impls.len(),
-                        assoc_fn_impls
-                    );
+                    //debug!(
+                    //    "updated assoc_fn_impls (len={:?}): {:?}",
+                    //    assoc_fn_impls.len(),
+                    //    assoc_fn_impls
+                    //);
                 }
                 None => {
                     debug!("did NOT find assoc_fn_impl");
@@ -1218,7 +1218,7 @@ impl<'a> InterpPass<'a> {
         assoc_fn_defid: &DefId,
         trait_defid: &DefId,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
-        //debug!("GETTING CHA IMPLS");
+        debug!("\n\nGETTING CHA IMPLS");
         let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
         //debug!(
         //    "constraint defids ({:?} total): {:?}",
@@ -1252,7 +1252,7 @@ impl<'a> InterpPass<'a> {
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        debug!("GETTING FSA IMPLS");
+        debug!("\n\nGETTING FSA IMPLS");
         let local = self.get_traitobj_local(args);
         debug!("local: {:?}", local);
         let tyconstraints = self.get_fsa_tyconstraints(istore, callee_scope, local);
@@ -1506,15 +1506,16 @@ impl<'a> InterpPass<'a> {
                     (false, instance_)
                 }
             };
-            //debug!("a converted static instance: {:?}", instance);
+            debug!("a converted static instance: {:?}", instance);
+            debug!("foreign? {:?}", instance.is_foreign_item());
 
             let mut istore_clone = istore.clone();
             let mut call_stack_clone = call_stack.clone();
             let callee_scope = (instance, genargs.clone());
 
-            //if !instance.has_body() {
-            //    panic!("instance has no body");
-            //}
+            if !instance.has_body() {
+                panic!("instance has no body");
+            }
             let body = if is_virtual {
                 // FIXME not monomorphized
                 debug!("getting default func body");

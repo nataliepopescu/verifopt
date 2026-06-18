@@ -295,6 +295,57 @@ implicit closure Fn* trait impls
   ourselves
 - i guess we're rerouting the call_mut to the closure body? no need to simulate
 
+### std::fmt::Write::write_str()
+
+no generic args in signature
+
+but missing a lifetime generic arg
+- Formatter has a lifetime generic arg...
+
+TRACE
+
+Formatter::write_fmt
+- signature: `pub fn write_fmt(&mut self, fmt: Arguments<'_>) -> Result { ... }`
+    - has an elided lifetime arg
+    - also from body:
+        - `impl<'a> Arguments<'a> { .. pub fn as_statically_known_str(&self) -> Option<&'static str> { ... } }`
+        - same lifetime arg
+- `self.buf.write_str`
+- Fomatter { options, buf: &'a mut (dyn Write + 'a) }
+    - one generic arg: 'a
+
+however, we don't modify the generic args at all... so we wouldn't be removing
+that lifetime arg from anyway
+
+Write::write_str
+
+spec_to_string (Display impl for SpecToString)
+- buf = String::new
+- formatter = Formatter::new(buf, options..)
+    - when we create formatter, we lose the buf:String association
+    - the eventual `self.buf.write_str` should run on String's write_str impl
+        - DefId 40456
+- Display::fmt(&self, &mut formatter)
+
+
+### Understanding/Tracking FnDef generic args
+
+interp_fn_def()
+- called in 2 places
+    - interp_indirect_call -> interp_constraint_as_fn
+        - uses RunningConstraintInner::FnDef(fndef, genargs)
+    - interp_direct_call
+        - uses RigidTy::FnDef(fndef, genargs)
+
+- calls 3 fns
+    - interp_static_call
+    - interp_virtual_call
+    - retty_from_polysig
+
+For FnMut traitobj
+
+For Write traitobj
+- using genargs from write_fmt func?
 
 
 

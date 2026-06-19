@@ -1,5 +1,6 @@
 use rustc_public::mir::{
-    AggregateKind, BinOp, CastKind, ConstOperand, LocalDecl, Operand, Place, Rvalue, UnOp,
+    AggregateKind, BinOp, CastKind, ConstOperand, LocalDecl, Operand, Place, ProjectionElem,
+    Rvalue, UnOp,
 };
 use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 
@@ -12,7 +13,7 @@ use crate::constraints::{
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
 
-//use log::debug;
+use log::debug;
 
 pub struct RvalConverter<'a> {
     pub tstore: &'a TraitStore,
@@ -31,53 +32,69 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         destty: &Ty,
         to_convert: &Rvalue,
-    ) -> Constraints {
+    ) -> (Constraints, Option<Vec<(Vec<ProjectionElem>, Constraints)>>) {
         match to_convert {
-            Rvalue::Use(op) => self.convert_op(istore, span, local_decls, cur_scope, op, destty),
-            Rvalue::Ref(_region, _borrow_kind, place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
-            }
-            Rvalue::Discriminant(place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
-            }
-            Rvalue::CopyForDeref(place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
-            }
-            Rvalue::Cast(kind, op, ty) => {
-                self.convert_cast(istore, span, local_decls, cur_scope, kind, op, ty)
-            }
-            Rvalue::Aggregate(kind, fields) => {
-                self.convert_agg(istore, span, local_decls, cur_scope, destty, kind, fields)
-            }
-            Rvalue::AddressOf(_rawptrkind, place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
-            }
-            Rvalue::UnaryOp(unop, op) => {
-                self.convert_unop(istore, span, local_decls, cur_scope, destty, unop, op)
-            }
-            Rvalue::BinaryOp(binop, op1, op2) => self.convert_binop(
-                istore,
-                span,
-                local_decls,
-                cur_scope,
-                destty,
-                binop,
-                op1,
-                op2,
+            Rvalue::Use(op) => (
+                self.convert_op(istore, span, local_decls, cur_scope, op, destty),
+                None,
             ),
-            Rvalue::CheckedBinaryOp(binop, op1, op2) => self.convert_binop(
-                istore,
-                span,
-                local_decls,
-                cur_scope,
-                destty,
-                binop,
-                op1,
-                op2,
+            Rvalue::Ref(_region, _borrow_kind, place) => (
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
+                None,
             ),
-            Rvalue::Repeat(op, _tyconst) => {
-                self.convert_op(istore, span, local_decls, cur_scope, op, destty)
+            Rvalue::Discriminant(place) => (
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
+                None,
+            ),
+            Rvalue::CopyForDeref(place) => (
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
+                None,
+            ),
+            Rvalue::Cast(kind, op, ty) => (
+                self.convert_cast(istore, span, local_decls, cur_scope, kind, op, ty),
+                None,
+            ),
+            Rvalue::Aggregate(kind, ops) => {
+                self.convert_agg(istore, span, local_decls, cur_scope, destty, kind, ops)
             }
+            Rvalue::AddressOf(_rawptrkind, place) => (
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
+                None,
+            ),
+            Rvalue::UnaryOp(unop, op) => (
+                self.convert_unop(istore, span, local_decls, cur_scope, destty, unop, op),
+                None,
+            ),
+            Rvalue::BinaryOp(binop, op1, op2) => (
+                self.convert_binop(
+                    istore,
+                    span,
+                    local_decls,
+                    cur_scope,
+                    destty,
+                    binop,
+                    op1,
+                    op2,
+                ),
+                None,
+            ),
+            Rvalue::CheckedBinaryOp(binop, op1, op2) => (
+                self.convert_binop(
+                    istore,
+                    span,
+                    local_decls,
+                    cur_scope,
+                    destty,
+                    binop,
+                    op1,
+                    op2,
+                ),
+                None,
+            ),
+            Rvalue::Repeat(op, _tyconst) => (
+                self.convert_op(istore, span, local_decls, cur_scope, op, destty),
+                None,
+            ),
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
@@ -157,23 +174,24 @@ impl<'a> RvalConverter<'a> {
         //debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
         // TODO use current place ty instead of *just* getting existing place constraints
 
-        match istore.scoped_get(cur_scope, &MapKey::Local(place.local), false) {
+        match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
-                    //debug!(
-                    //    "found constraints for local {:?}: {:?}",
-                    //    place.local, constraints
-                    //);
+                    debug!("found constraints for place {:?}: {:?}", place, constraints);
                     constraints
                 }
                 _ => panic!("value should not be a scope"),
             },
             None => {
-                //debug!("place {:?} has not been set, widen to type", place,);
-                let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
-                if maybe_traitobj.is_some() {
-                    todo!("place ty contains dyn");
+                debug!("place {:?} has not been set, widen to type", place);
+                for proj in &place.projection {
+                    debug!("PROJ: {:?}", proj);
                 }
+                let (_maybe_traitobj, constraint) = self.convert_ty(span, destty);
+                //debug!("constraint (from ty): {:?}", constraint);
+                //if let Some(traitobj) = maybe_traitobj {
+                //    todo!("place ty contains dyn {:?}", traitobj);
+                //}
                 vec![constraint]
             }
         }
@@ -444,47 +462,86 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         destty: &Ty,
         kind: &AggregateKind,
-        fields: &Vec<Operand>,
-    ) -> Constraints {
+        ops: &Vec<Operand>,
+    ) -> (Constraints, Option<Vec<(Vec<ProjectionElem>, Constraints)>>) {
         match kind {
-            AggregateKind::Adt(def, _variant_idx, genargs, _, _) => {
-                //debug!("ADT agg");
-                //debug!("ty: {:?}", def.ty_with_args(genargs));
+            AggregateKind::Adt(def, _variant_idx, genargs, _, field_idx) => {
+                debug!("ADT agg");
+                debug!("ops: {:?}", ops);
+                debug!("destty: {:?}", destty);
+                debug!("field_idx: {:?}", field_idx);
+                let ty = def.ty_with_args(genargs);
+                debug!("ty: {:?}", ty);
 
-                vec![Constraint::new(
-                    None,
-                    Some((
-                        span.clone(),
-                        RunningConstraintInner::Adt(*def, genargs.clone()),
-                    )),
-                )]
+                // Create projections here to simulate field initializers
+                let mut fields = Vec::new();
+                for (i, op) in ops.into_iter().enumerate() {
+                    debug!("op {:?}", i);
+                    let op_constraints =
+                        self.convert_op(istore, span, local_decls, cur_scope, op, destty);
+                    debug!("op constraints: {:?}", op_constraints);
+
+                    let op_ty;
+                    match op {
+                        Operand::Copy(place) | Operand::Move(place) => {
+                            op_ty = place.ty(local_decls).unwrap();
+                        }
+                        Operand::Constant(co) => {
+                            op_ty = co.const_.ty();
+                        }
+                        _ => todo!("op: {:?}", op),
+                    }
+
+                    let proj = vec![ProjectionElem::Deref, ProjectionElem::Field(i, op_ty)];
+                    debug!("PROJ: {:?}", proj);
+                    fields.push((
+                        // obj deref + field access
+                        proj,
+                        // field constraints
+                        op_constraints,
+                    ));
+                }
+
+                (
+                    vec![Constraint::new(
+                        None,
+                        Some((
+                            span.clone(),
+                            RunningConstraintInner::Adt(*def, genargs.clone()),
+                        )),
+                    )],
+                    Some(fields),
+                )
             }
             AggregateKind::Tuple => {
                 //debug!("tuple agg");
                 let mut inner_constraints = Vec::new();
-                for op in fields {
+                for op in ops {
                     unique_append(
                         &mut inner_constraints,
                         self.convert_op(istore, span, local_decls, cur_scope, op, destty),
                     );
                 }
-                vec![Constraint::new(
+                (
+                    vec![Constraint::new(
+                        None,
+                        Some((
+                            span.clone(),
+                            RunningConstraintInner::Tuple(inner_constraints),
+                        )),
+                    )],
                     None,
-                    Some((
-                        span.clone(),
-                        RunningConstraintInner::Tuple(inner_constraints),
-                    )),
-                )]
+                )
             }
             AggregateKind::RawPtr(ty, _mut) => {
                 //debug!("rawptr agg");
                 //debug!("ty: {:?}", ty);
 
-                match fields.len() {
-                    0 => todo!("no fields"),
-                    1 => todo!("thin ptr (1 field)"),
-                    2 => {} //debug!("fat ptr (2 fields)"),
-                    _ => todo!("more than 2 fields"),
+                match ops.len() {
+                    0 => todo!("no operands"),
+                    1 => todo!("thin ptr (1 operand)"),
+                    2 => {} //debug!("fat ptr (2 operands)"),
+                    _ => todo!("more than 2 operands"),
                 }
 
                 let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
@@ -492,13 +549,16 @@ impl<'a> RvalConverter<'a> {
                     todo!("rawptr contains dyn");
                 }
 
-                vec![Constraint::new(
+                (
+                    vec![Constraint::new(
+                        None,
+                        Some((
+                            span.clone(),
+                            RunningConstraintInner::Ptr(Box::new(constraint)),
+                        )),
+                    )],
                     None,
-                    Some((
-                        span.clone(),
-                        RunningConstraintInner::Ptr(Box::new(constraint)),
-                    )),
-                )]
+                )
             }
             AggregateKind::Array(ty) => {
                 //debug!("array agg");
@@ -506,23 +566,29 @@ impl<'a> RvalConverter<'a> {
                 if maybe_traitobj.is_some() {
                     todo!("array contains dyn");
                 }
-                vec![Constraint::new(
+                (
+                    vec![Constraint::new(
+                        None,
+                        Some((
+                            span.clone(),
+                            RunningConstraintInner::List(Box::new(constraint)),
+                        )),
+                    )],
                     None,
-                    Some((
-                        span.clone(),
-                        RunningConstraintInner::List(Box::new(constraint)),
-                    )),
-                )]
+                )
             }
             AggregateKind::Closure(def, genargs) => {
                 //debug!("closure agg");
-                vec![Constraint::new(
+                (
+                    vec![Constraint::new(
+                        None,
+                        Some((
+                            span.clone(),
+                            RunningConstraintInner::Closure(*def, genargs.clone()),
+                        )),
+                    )],
                     None,
-                    Some((
-                        span.clone(),
-                        RunningConstraintInner::Closure(*def, genargs.clone()),
-                    )),
-                )]
+                )
             }
             _ => todo!("other agg kind: {:?}", kind),
         }

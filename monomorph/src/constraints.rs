@@ -1,6 +1,6 @@
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
-use rustc_public::mir::Local;
+use rustc_public::mir::Place;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef,
@@ -33,7 +33,7 @@ pub type VOID = (Instance, GenericArgs);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
-    Local(Local),
+    Var(Place),
     ScopeId(VOID),
 }
 

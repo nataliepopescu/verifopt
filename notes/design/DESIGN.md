@@ -160,6 +160,10 @@ in the trait store
 - but when we need to execute one of the `call*` functions for the Fn* traits,
   just interpret the closure body instead
 
+### Field Projections
+
+Making map keys _places_ instead of _locals_ to maintain projection/field
+information
 
 
 

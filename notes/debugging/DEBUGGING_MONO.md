@@ -327,6 +327,34 @@ spec_to_string (Display impl for SpecToString)
         - DefId 40456
 - Display::fmt(&self, &mut formatter)
 
+when get to dynamic call, traitobj local is _41 which just seems to have the
+following constraint: (toc: None, cfc: Some(Dynamic(Write)))
+- maybe we can look at fields once hit a traitobj like this?
+- how is _41 set? is it correctly Formatter, or did we mis-assign it and it
+  should be Formatter.buf?
+  - previous statement: `stmt: Assign(_41, Use(Copy(((*_2).1: &mut dyn
+    std::fmt::Write))))`
+        - scope: fmt
+  - how is _2 set?
+    - _2 refers to the second (Formatter) arg: `[Constraint { toc: None, cfc: Some((Location, Adt(AdtDef(DefId { id: 37903, name: "std::fmt::Formatter" }), GenericArgs([Lifetime(Region { kind: ReErased })])))) }]`
+
+    - getting projection wrong? (the ty might be wrong?)
+        - PROJ: Deref
+        - PROJ: Field(1, 
+            Ty { id: 24921, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 113266, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_ id: TraitDef(DefId { id: 229, name: "std::fmt::Write" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }, Mut)) }
+          ) 
+        
+    - made:
+        - PROJ: Deref, 
+        - PROJ: Field(1, 
+            Ty { id: 24921, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 113266, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 229, name: "std::fmt::Write" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }, Mut)) }
+          )
+
+    - the projection looks correct??
+
+    - expecting these constraints: `[Constraint { toc: Some((TraitObjTy { def: TraitDef(DefId { id: 229, name: "std::fmt::Write" }), genargs: GenericArgs([]) }, Adt(AdtDef(DefId { id: 29272, name: "std::string::String" }), GenericArgs([])))), cfc: Some((Location, Adt(AdtDef(DefId { id: 29272, name: "std::string::String" }), GenericArgs([])))) }]`
+
+    - ah, we do not carry over projections when resolving args!
 
 ### Understanding/Tracking FnDef generic args
 

@@ -1,8 +1,8 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Statement, StatementKind,
-    Successors, SwitchTargets, Terminator, TerminatorKind,
+    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, ProjectionElem, Statement,
+    StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
@@ -362,8 +362,9 @@ impl<'a> InterpPass<'a> {
 
                 if let Some(field_projections) = maybe_fields {
                     // Store operand (field) constraints into projected places in istore
-                    debug!("\nStoring FIELD constraints");
+                    debug!("\nStoring FIELD constraints: {:?}", field_projections);
                     for field_proj in field_projections {
+                        debug!("\nfield PROJ: {:?}", field_proj);
                         let final_op_constraints = self.pull_traitobjs_from_constraints(
                             &maybe_trait_destty,
                             field_proj.1.clone(),
@@ -373,7 +374,7 @@ impl<'a> InterpPass<'a> {
                             projection: field_proj.0.clone(),
                         };
 
-                        debug!("\nfinal_op_constraints: {:?}", final_op_constraints);
+                        debug!("final_op_constraints: {:?}", final_op_constraints);
                         debug!("field_place: {:?}", field_place);
                         istore
                             .link_adt_field(&(place.clone(), cur_scope.clone()), &field_proj.0[1]);
@@ -1012,6 +1013,7 @@ impl<'a> InterpPass<'a> {
         arg: &Operand,
         is_closure: bool,
     ) -> (Constraints, Option<Vec<(Place, Constraints)>>) {
+        // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
                 match self.get_place_constraints(
@@ -1031,7 +1033,7 @@ impl<'a> InterpPass<'a> {
                                 for field_proj in field_projections {
                                     let field_place = Place {
                                         local: place.local,
-                                        projection: vec![field_proj.clone()],
+                                        projection: vec![ProjectionElem::Deref, field_proj.clone()],
                                     };
                                     match self.get_place_constraints(
                                         istore,
@@ -1041,7 +1043,10 @@ impl<'a> InterpPass<'a> {
                                         is_closure,
                                     ) {
                                         Some(field_constraints) => {
-                                            debug!("field_constraints: {:?}", field_constraints);
+                                            debug!(
+                                                "[ResolveArg] field_constraints: {:?}",
+                                                field_constraints
+                                            );
                                             fields.push((
                                                 // field place
                                                 field_place.clone(),

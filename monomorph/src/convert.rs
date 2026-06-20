@@ -7,7 +7,7 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    Constraint, Constraints, Location, MapKey, MapValue, RunningConstraintInner,
+    ADTFields, Constraint, Constraints, Location, MapKey, MapValue, RunningConstraintInner,
     TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -32,35 +32,27 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         destty: &Ty,
         to_convert: &Rvalue,
-    ) -> (Constraints, Option<Vec<(Vec<ProjectionElem>, Constraints)>>) {
+    ) -> (Constraints, Option<ADTFields>) {
         match to_convert {
-            Rvalue::Use(op) => (
-                self.convert_op(istore, span, local_decls, cur_scope, op, destty),
-                None,
-            ),
-            Rvalue::Ref(_region, _borrow_kind, place) => (
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
-                None,
-            ),
-            Rvalue::Discriminant(place) => (
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
-                None,
-            ),
-            Rvalue::CopyForDeref(place) => (
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
-                None,
-            ),
-            Rvalue::Cast(kind, op, ty) => (
-                self.convert_cast(istore, span, local_decls, cur_scope, kind, op, ty),
-                None,
-            ),
+            Rvalue::Use(op) => self.convert_op(istore, span, local_decls, cur_scope, op, destty),
+            Rvalue::Ref(_region, _borrow_kind, place) => {
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+            }
+            Rvalue::Discriminant(place) => {
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+            }
+            Rvalue::CopyForDeref(place) => {
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+            }
+            Rvalue::Cast(kind, op, ty) => {
+                self.convert_cast(istore, span, local_decls, cur_scope, kind, op, ty)
+            }
             Rvalue::Aggregate(kind, ops) => {
                 self.convert_agg(istore, span, local_decls, cur_scope, destty, kind, ops)
             }
-            Rvalue::AddressOf(_rawptrkind, place) => (
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty),
-                None,
-            ),
+            Rvalue::AddressOf(_rawptrkind, place) => {
+                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+            }
             Rvalue::UnaryOp(unop, op) => (
                 self.convert_unop(istore, span, local_decls, cur_scope, destty, unop, op),
                 None,
@@ -91,10 +83,9 @@ impl<'a> RvalConverter<'a> {
                 ),
                 None,
             ),
-            Rvalue::Repeat(op, _tyconst) => (
-                self.convert_op(istore, span, local_decls, cur_scope, op, destty),
-                None,
-            ),
+            Rvalue::Repeat(op, _tyconst) => {
+                self.convert_op(istore, span, local_decls, cur_scope, op, destty)
+            }
             _ => todo!("other rval: {:?}", to_convert),
         }
     }
@@ -107,12 +98,12 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         op: &Operand,
         destty: &Ty,
-    ) -> Constraints {
+    ) -> (Constraints, Option<ADTFields>) {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }
-            Operand::Constant(const_op) => self.convert_const(span, &const_op),
+            Operand::Constant(const_op) => (self.convert_const(span, &const_op), None),
             _ => todo!("runtime checks"),
         }
     }
@@ -166,19 +157,72 @@ impl<'a> RvalConverter<'a> {
         &self,
         istore: &InterpStore,
         span: &Location,
-        _local_decls: &[LocalDecl],
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         place: &Place,
         destty: &Ty,
-    ) -> Constraints {
+    ) -> (Constraints, Option<ADTFields>) {
         //debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
         // TODO use current place ty instead of *just* getting existing place constraints
 
+        debug!("CONVERTING PLACE");
         match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     debug!("found constraints for place {:?}: {:?}", place, constraints);
-                    constraints
+                    debug!("checking field projection constraints.....");
+
+                    // FIXME implementation is similar to interp::resolve_arg()
+                    match istore.field_map.get(&(place.clone(), cur_scope.clone())) {
+                        Some(field_projections) => {
+                            debug!("\n--FIELD projections: {:?}", field_projections);
+
+                            let mut fields = Vec::new();
+                            for field_proj in field_projections {
+                                let field_ty = match field_proj {
+                                    ProjectionElem::Field(_, ty) => ty,
+                                    _ => panic!("unexpected proj elem: {:?}", field_proj),
+                                };
+                                debug!("\nfield_proj: {:?}", field_proj);
+                                let proj = vec![ProjectionElem::Deref, field_proj.clone()];
+                                let field_place = Place {
+                                    local: place.local,
+                                    projection: proj.clone(),
+                                };
+                                // get each field constraints
+                                let (field_constraints, field_fields) = self.convert_place(
+                                    istore,
+                                    span,
+                                    local_decls,
+                                    cur_scope,
+                                    &field_place,
+                                    field_ty,
+                                );
+                                debug!("[ConvertPlace] field_constraints: {:?}", field_constraints);
+                                if field_fields.is_some() {
+                                    todo!();
+                                }
+
+                                // push into vec
+                                fields.push((
+                                    // full projection
+                                    proj,
+                                    // field constraints
+                                    field_constraints,
+                                ))
+                            }
+                            debug!("\n--DONE FIELD projections: {:?}\n", field_projections);
+                            if fields.is_empty() {
+                                (constraints, None)
+                            } else {
+                                (constraints, Some(fields))
+                            }
+                        }
+                        None => {
+                            debug!("NO FIELD CONSTRAINTS");
+                            (constraints, None)
+                        }
+                    }
                 }
                 _ => panic!("value should not be a scope"),
             },
@@ -192,7 +236,7 @@ impl<'a> RvalConverter<'a> {
                 //if let Some(traitobj) = maybe_traitobj {
                 //    todo!("place ty contains dyn {:?}", traitobj);
                 //}
-                vec![constraint]
+                (vec![constraint], None)
             }
         }
     }
@@ -307,27 +351,31 @@ impl<'a> RvalConverter<'a> {
         _kind: &CastKind,
         op: &Operand,
         ty: &Ty,
-    ) -> Constraints {
+    ) -> (Constraints, Option<ADTFields>) {
         match op {
             Operand::Constant(const_op) => {
                 let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
                 if maybe_traitobj.is_some() {
                     todo!("cast const contains dyn");
                 }
-                vec![constraint]
+                (vec![constraint], None)
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 //debug!("CASTING existing place");
-                let prev_constraints =
+                let (prev_constraints, maybe_fields) =
                     self.convert_place(istore, span, local_decls, cur_scope, place, ty);
-                //debug!("PRE CAST constraints: {:?}", prev_constraints);
+                debug!("FIELDS in CAST? {:?}", maybe_fields);
+                debug!("PRE CAST constraints: {:?}", prev_constraints);
                 let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
-                //debug!("POST CAST ty: {:?}", post_constraint);
+                debug!("POST CAST ty: {:?}", post_constraint);
 
                 if let Some(traitobjtys) = maybe_traitobj {
-                    self.convert_cast_helper(&traitobjtys, &prev_constraints)
+                    (
+                        self.convert_cast_helper(&traitobjtys, &prev_constraints),
+                        maybe_fields,
+                    )
                 } else {
-                    vec![post_constraint]
+                    (vec![post_constraint], maybe_fields)
                 }
             }
             _ => todo!("runtime checks"),
@@ -463,7 +511,7 @@ impl<'a> RvalConverter<'a> {
         destty: &Ty,
         kind: &AggregateKind,
         ops: &Vec<Operand>,
-    ) -> (Constraints, Option<Vec<(Vec<ProjectionElem>, Constraints)>>) {
+    ) -> (Constraints, Option<ADTFields>) {
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, field_idx) => {
                 debug!("ADT agg");
@@ -476,10 +524,12 @@ impl<'a> RvalConverter<'a> {
                 // Create projections here to simulate field initializers
                 let mut fields = Vec::new();
                 for (i, op) in ops.into_iter().enumerate() {
-                    debug!("op {:?}", i);
-                    let op_constraints =
+                    debug!("\n---op {:?}", i);
+                    let (op_constraints, maybe_fields) =
                         self.convert_op(istore, span, local_decls, cur_scope, op, destty);
                     debug!("op constraints: {:?}", op_constraints);
+                    // FIXME maybe_fields constraints are dropped
+                    debug!("maybe_fields: {:?}", maybe_fields);
 
                     let op_ty;
                     match op {
@@ -500,6 +550,7 @@ impl<'a> RvalConverter<'a> {
                         // field constraints
                         op_constraints,
                     ));
+                    debug!("---done op {:?}\n", i);
                 }
 
                 (
@@ -517,10 +568,14 @@ impl<'a> RvalConverter<'a> {
                 //debug!("tuple agg");
                 let mut inner_constraints = Vec::new();
                 for op in ops {
-                    unique_append(
-                        &mut inner_constraints,
-                        self.convert_op(istore, span, local_decls, cur_scope, op, destty),
-                    );
+                    let (op_constraints, maybe_fields) =
+                        self.convert_op(istore, span, local_decls, cur_scope, op, destty);
+                    debug!("op_constraints: {:?}", op_constraints.clone());
+                    unique_append(&mut inner_constraints, op_constraints);
+                    if let Some(fields) = maybe_fields {
+                        // FIXME
+                        debug!("TUPLE fields: {:?}", fields);
+                    }
                 }
                 (
                     vec![Constraint::new(
@@ -968,8 +1023,8 @@ impl<'a> RvalConverter<'a> {
         op2: &Operand,
         f: fn(i128, i128) -> i128,
     ) -> Constraint {
-        let c_op1 = self.convert_op(istore, span, local_decls, cur_scope, op1, destty);
-        let c_op2 = self.convert_op(istore, span, local_decls, cur_scope, op2, destty);
+        let (c_op1, _) = self.convert_op(istore, span, local_decls, cur_scope, op1, destty);
+        let (c_op2, _) = self.convert_op(istore, span, local_decls, cur_scope, op2, destty);
         if c_op1.len() != 1 || c_op2.len() != 1 {
             return Constraint::new(
                 None,
@@ -1083,7 +1138,7 @@ impl<'a> RvalConverter<'a> {
         op: &Operand,
         f: fn(i128) -> i128,
     ) -> Constraint {
-        let c_op = self.convert_op(istore, span, local_decls, cur_scope, op, destty);
+        let (c_op, _) = self.convert_op(istore, span, local_decls, cur_scope, op, destty);
         if c_op.len() != 1 {
             return Constraint::new(
                 None,

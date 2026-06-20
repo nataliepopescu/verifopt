@@ -45,6 +45,8 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
+pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
+
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
 pub type Constraints = Vec<Constraint>;
 
@@ -189,12 +191,16 @@ impl TraitObjTy {
     }
 }
 
+// These should only be Field ProjectionElems. The convention is that any time one of these
+// field projections is used, it will be prepended by a Deref ProjectionElem
+pub type FieldProjections = Vec<ProjectionElem>;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterpStore {
     pub cmap: HashMap<MapKey, Box<MapValue>>,
     pub wtos: HashMap<VOID, BBDeps>,
     // Map ADT places to their field places (projections) which have constraints in cmap
-    pub field_map: HashMap<(Place, VOID), Vec<ProjectionElem>>,
+    pub field_map: HashMap<(Place, VOID), FieldProjections>,
 }
 
 impl InterpStore {
@@ -211,6 +217,7 @@ impl InterpStore {
         adt_place_and_scope: &(Place, VOID),
         field_proj: &ProjectionElem,
     ) {
+        debug!("\nLINKING FIELD");
         match self.field_map.get_mut(adt_place_and_scope) {
             Some(field_projections) => {
                 debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
@@ -221,24 +228,27 @@ impl InterpStore {
                 for old_field_proj in field_projections.clone() {
                     // If this field projection is not an exact match, check the field idx - if
                     // that already exists in our fields, then overwrite with the new type
+                    debug!("old_field_proj: {:?}", old_field_proj);
                     match (old_field_proj.clone(), field_proj) {
                         (
                             ProjectionElem::Field(old_idx, _old_ty),
                             ProjectionElem::Field(new_idx, _new_ty),
                         ) => {
                             // Same FieldIdx, update type
-                            if old_idx == *new_idx {
+                            if *new_idx == old_idx {
                                 debug!("REPLACE OLD");
                                 new_field_projections.push(field_proj.clone());
                             // Different FieldIdx, keep type
                             } else {
-                                debug!("RETAIN OLD");
-                                new_field_projections.push(old_field_proj.clone());
+                                debug!("RETAIN OLD + ADD NEW");
+                                unique_push(&mut new_field_projections, old_field_proj.clone());
+                                unique_push(&mut new_field_projections, field_proj.clone());
                             }
                         }
                         _ => panic!("unexpected projection"),
                     }
                 }
+                debug!("NNEW FIELD PROJECTIONS: {:?}", new_field_projections);
                 *field_projections = new_field_projections;
             }
             None => {

@@ -370,10 +370,14 @@ impl<'a> InterpPass<'a> {
                         );
                         let field_place = Place {
                             local: place.local,
-                            projection: field_proj.0,
+                            projection: field_proj.0.clone(),
                         };
-                        debug!("final_op_constraints: {:?}", final_op_constraints);
+
+                        debug!("\nfinal_op_constraints: {:?}", final_op_constraints);
                         debug!("field_place: {:?}", field_place);
+                        istore
+                            .link_adt_field(&(place.clone(), cur_scope.clone()), &field_proj.0[1]);
+
                         istore.scoped_update(
                             cur_scope,
                             MapKey::Var(field_place),
@@ -960,12 +964,12 @@ impl<'a> InterpPass<'a> {
                 None
             } else {
                 let arg_ty = place.ty(body.locals()).unwrap();
-                //debug!("arg ty: {:?}", arg_ty);
+                debug!("arg ty: {:?}", arg_ty);
                 self.contains_dyn(&arg_ty)
             };
-            //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
+            debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
 
-            let arg_constraints = self.resolve_arg(
+            let (arg_constraints, maybe_fields) = self.resolve_arg(
                 istore,
                 term_span,
                 caller_scope,
@@ -981,6 +985,16 @@ impl<'a> InterpPass<'a> {
                 MapKey::Var(place),
                 Box::new(MapValue::Constraints(arg_constraints)),
             );
+
+            if let Some(fields) = maybe_fields {
+                debug!("setting fields: {:?}", fields);
+                for field in fields {
+                    new_substore.cmap.insert(
+                        MapKey::Var(field.0),
+                        Box::new(MapValue::Constraints(field.1)),
+                    );
+                }
+            }
         }
     }
 
@@ -997,35 +1011,94 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         arg: &Operand,
         is_closure: bool,
-    ) -> Constraints {
+    ) -> (Constraints, Option<Vec<(Place, Constraints)>>) {
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                // Getting stored constraints for this place
-                match istore.scoped_get(caller_scope, &MapKey::Var(place.clone()), is_closure) {
-                    Some(val) => match val {
-                        MapValue::Constraints(constraints_) => {
-                            //debug!("got constraints from cmap: {:?}", constraints_);
-                            //debug!("checking for traitobjs");
-                            let constraints = self
-                                .pull_traitobjs_from_constraints(maybe_trait_argty, constraints_);
-                            constraints
+                match self.get_place_constraints(
+                    istore,
+                    caller_scope,
+                    maybe_trait_argty,
+                    place,
+                    is_closure,
+                ) {
+                    Some(constraints) => {
+                        // Get any field projections
+                        debug!("place constraints: {:?}", constraints);
+                        match istore.field_map.get(&(place.clone(), caller_scope.clone())) {
+                            Some(field_projections) => {
+                                debug!("field projections: {:?}", field_projections);
+                                let mut fields = Vec::new();
+                                for field_proj in field_projections {
+                                    let field_place = Place {
+                                        local: place.local,
+                                        projection: vec![field_proj.clone()],
+                                    };
+                                    match self.get_place_constraints(
+                                        istore,
+                                        caller_scope,
+                                        maybe_trait_argty,
+                                        &field_place,
+                                        is_closure,
+                                    ) {
+                                        Some(field_constraints) => {
+                                            debug!("field_constraints: {:?}", field_constraints);
+                                            fields.push((
+                                                // field place
+                                                field_place.clone(),
+                                                // field constraints
+                                                field_constraints,
+                                            ));
+                                        }
+                                        // No fields
+                                        None => debug!("not a field"),
+                                    }
+                                }
+                                if fields.is_empty() {
+                                    (constraints, None)
+                                } else {
+                                    (constraints, Some(fields))
+                                }
+                            }
+                            None => {
+                                debug!("NO FIELDS @ ({:?}, {:?})", place, caller_scope);
+                                (constraints, None)
+                            }
                         }
-                        _ => panic!("arg is a scope"),
-                    },
+                    }
                     None => {
                         debug!("place {:?} DNE in cmap, widen to type", place);
                         let (_maybe_traitobjty, constraint) = self
                             .converter
                             .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
-                        vec![constraint]
+                        (vec![constraint], None)
                     }
                 }
             }
             // TODO can maybe get a more precise VORval depending on kind
-            Operand::Constant(const_op) => {
-                self.converter.convert_const(&Location::new(), &const_op)
-            }
+            Operand::Constant(const_op) => (
+                self.converter.convert_const(&Location::new(), &const_op),
+                None,
+            ),
             _ => todo!("runtime check arg"),
+        }
+    }
+
+    fn get_place_constraints(
+        &self,
+        istore: &InterpStore,
+        caller_scope: &VOID,
+        maybe_trait_argty: &Option<Vec<TraitObjTy>>,
+        place: &Place,
+        is_closure: bool,
+    ) -> Option<Constraints> {
+        match istore.scoped_get(caller_scope, &MapKey::Var(place.clone()), is_closure) {
+            Some(val) => match val {
+                MapValue::Constraints(constraints_) => {
+                    Some(self.pull_traitobjs_from_constraints(maybe_trait_argty, constraints_))
+                }
+                _ => panic!("arg is a scope"),
+            },
+            _ => None,
         }
     }
 

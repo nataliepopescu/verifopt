@@ -165,6 +165,15 @@ in the trait store
 Making map keys _places_ instead of _locals_ to maintain projection/field
 information
 
+When create an ADT, also store field projections
+
+Propagate field projections when
+- assign value of type w projs to another place
+- passing the type w projs as an argument to a func call
+
+Casting
+- Unlikely (?) that types are cast into ADTs (current assumption)
+
 
 
 

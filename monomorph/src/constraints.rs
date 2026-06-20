@@ -1,7 +1,7 @@
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
-use rustc_public::mir::Place;
 use rustc_public::mir::mono::Instance;
+use rustc_public::mir::{Place, ProjectionElem};
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef,
 };
@@ -11,7 +11,7 @@ use crate::error::Error;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-//use log::debug;
+use log::debug;
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -193,6 +193,8 @@ impl TraitObjTy {
 pub struct InterpStore {
     pub cmap: HashMap<MapKey, Box<MapValue>>,
     pub wtos: HashMap<VOID, BBDeps>,
+    // Map ADT places to their field places (projections) which have constraints in cmap
+    pub field_map: HashMap<(Place, VOID), Vec<ProjectionElem>>,
 }
 
 impl InterpStore {
@@ -200,22 +202,55 @@ impl InterpStore {
         Self {
             cmap: HashMap::default(),
             wtos: HashMap::default(),
+            field_map: HashMap::default(),
+        }
+    }
+
+    pub fn link_adt_field(
+        &mut self,
+        adt_place_and_scope: &(Place, VOID),
+        field_proj: &ProjectionElem,
+    ) {
+        match self.field_map.get_mut(adt_place_and_scope) {
+            Some(field_projections) => {
+                debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
+                debug!("old field projections: {:?}", field_projections);
+                debug!("new field projection: {:?}", field_proj);
+
+                let mut new_field_projections = Vec::new();
+                for old_field_proj in field_projections.clone() {
+                    // If this field projection is not an exact match, check the field idx - if
+                    // that already exists in our fields, then overwrite with the new type
+                    match (old_field_proj.clone(), field_proj) {
+                        (
+                            ProjectionElem::Field(old_idx, _old_ty),
+                            ProjectionElem::Field(new_idx, _new_ty),
+                        ) => {
+                            // Same FieldIdx, update type
+                            if old_idx == *new_idx {
+                                debug!("REPLACE OLD");
+                                new_field_projections.push(field_proj.clone());
+                            // Different FieldIdx, keep type
+                            } else {
+                                debug!("RETAIN OLD");
+                                new_field_projections.push(old_field_proj.clone());
+                            }
+                        }
+                        _ => panic!("unexpected projection"),
+                    }
+                }
+                *field_projections = new_field_projections;
+            }
+            None => {
+                debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
+                debug!("new field projection: {:?}", field_proj);
+                self.field_map
+                    .insert(adt_place_and_scope.clone(), vec![field_proj.clone()]);
+            }
         }
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
-        //debug!("IN SCOPED_GET");
-        //log_scope(&scope);
-        //debug!("key: {:?}", key);
-        //debug!("cmap: {:#?}", self.cmap);
-
-        //if scope.is_none() {
-        //    match self.cmap.get(key) {
-        //        Some(boxed) => return Some(*boxed.clone()),
-        //        None => return None,
-        //    }
-        //}
-
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scopes) => {
@@ -278,16 +313,6 @@ impl InterpStore {
     }
 
     pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
-        //if scope.is_none() {
-        //    if self.cmap.contains_key(&key) {
-        //        // FIXME MIR is not SSA
-        //        error!("symbol already exists: {:?}", key);
-        //    }
-
-        //    self.cmap.insert(key, value.clone());
-        //    return;
-        //}
-
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {

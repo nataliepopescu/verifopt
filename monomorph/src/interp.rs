@@ -983,15 +983,23 @@ impl<'a> InterpPass<'a> {
 
             // Copy found constraints into new scope cmap
             new_substore.cmap.insert(
-                MapKey::Var(place),
+                MapKey::Var(place.clone()),
                 Box::new(MapValue::Constraints(arg_constraints)),
             );
 
             if let Some(fields) = maybe_fields {
-                debug!("setting fields: {:?}", fields);
+                debug!("setting fields");
+                debug!("place: {:?}", place);
                 for field in fields {
+                    debug!("field.0: {:?}", field.0);
+                    debug!("field.1: {:?}", field.1);
+                    let field_place = Place {
+                        local: place.local,
+                        projection: field.0.projection,
+                    };
+                    debug!("field place: {:?}", field_place);
                     new_substore.cmap.insert(
-                        MapKey::Var(field.0),
+                        MapKey::Var(field_place),
                         Box::new(MapValue::Constraints(field.1)),
                     );
                 }

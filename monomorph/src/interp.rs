@@ -14,8 +14,8 @@ use log::{debug, error};
 use crate::VOLogger;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge,
-    RunningConstraintInner, TraitObjConstraint, TraitObjTy, VOID,
+    Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge, RunningConstraint,
+    TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{merge_stores, unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -473,7 +473,7 @@ impl<'a> InterpPass<'a> {
                         match constraint {
                             Constraint {
                                 toc: _,
-                                cfc: Some((_, cf)),
+                                cfc: Some(cf),
                             } => match self.interp_constraint_as_fn(
                                 logger,
                                 term_span,
@@ -527,11 +527,11 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
-        constraint: &RunningConstraintInner,
+        constraint: &RunningConstraint,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         match constraint {
-            RunningConstraintInner::FnDef(fndef, genargs) => self.interp_fn_def(
+            RunningConstraint::FnDef(fndef, genargs) => self.interp_fn_def(
                 logger,
                 term_span,
                 istore,
@@ -542,7 +542,7 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
-            RunningConstraintInner::FnPtr(sigval) => self.interp_fn_ptr(
+            RunningConstraint::FnPtr(sigval) => self.interp_fn_ptr(
                 logger,
                 term_span,
                 istore,
@@ -552,7 +552,7 @@ impl<'a> InterpPass<'a> {
                 sigval,
                 args,
             ),
-            RunningConstraintInner::Closure(cdef, genargs) => self.interp_closure(
+            RunningConstraint::Closure(cdef, genargs) => self.interp_closure(
                 logger,
                 term_span,
                 istore,
@@ -1467,21 +1467,21 @@ impl<'a> InterpPass<'a> {
             // looking inside CFC?
             Constraint {
                 toc: None,
-                cfc: Some((_, cfc)),
+                cfc: Some(cfc),
             } => {
                 //debug!("cfc: {:?}", cfc);
                 match cfc {
-                    RunningConstraintInner::Adt(adtdef, genargs) => {
+                    RunningConstraint::Adt(adtdef, genargs) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
-                    RunningConstraintInner::Closure(cdef, genargs) => {
+                    RunningConstraint::Closure(cdef, genargs) => {
                         (true, vec![(cdef.0, Some(genargs.clone()))])
                     }
-                    RunningConstraintInner::Scalar(_) => (false, vec![]),
+                    RunningConstraint::Scalar(_) => (false, vec![]),
                     // If this is truly a Dynamic constraint that we cannot resolve to any concrete
                     // types, then return nothing here so that if needed, we may fallback to
                     // another, coarser resolution mechanism
-                    RunningConstraintInner::Dynamic(_) => (false, vec![]),
+                    RunningConstraint::Dynamic(_) => (false, vec![]),
                     _ => todo!("{:?}", cfc),
                 }
             }
@@ -1769,7 +1769,7 @@ impl<'a> InterpPass<'a> {
             match constraint {
                 Constraint {
                     toc: _,
-                    cfc: Some((_, RunningConstraintInner::Scalar(num_opt))),
+                    cfc: Some(RunningConstraint::Scalar(num_opt)),
                 } => {
                     //debug!("scalar discr val: {:?}", num_opt);
 

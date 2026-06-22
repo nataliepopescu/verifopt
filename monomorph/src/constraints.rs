@@ -75,8 +75,8 @@ impl Constraint {
             return false;
         }
 
-        match self.cfc.as_ref().unwrap().1 {
-            RunningConstraintInner::Closure(..) => true,
+        match self.cfc.as_ref().unwrap() {
+            RunningConstraint::Closure(..) => true,
             _ => false,
         }
     }
@@ -104,10 +104,10 @@ impl Location {
 
 // Location portion corresponds to when this constraint was last set (at what span)
 // TODO maybe refine this a bit though
-pub type RunningConstraint = (Location, RunningConstraintInner);
+//pub type RunningConstraint = (Location, RunningConstraintInner);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum RunningConstraintInner {
+pub enum RunningConstraint {
     // primitive data types
     Scalar(Option<i128>),
 

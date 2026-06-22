@@ -7,7 +7,7 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Location, MapKey, MapValue, RunningConstraintInner,
+    ADTFields, Constraint, Constraints, Location, MapKey, MapValue, RunningConstraint,
     TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -121,7 +121,7 @@ impl<'a> RvalConverter<'a> {
                             RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
                                 vec![Constraint::new(
                                     None,
-                                    Some((span.clone(), RunningConstraintInner::Scalar(Some(val)))),
+                                    Some(RunningConstraint::Scalar(Some(val))),
                                 )]
                             }
                             _ => {
@@ -241,12 +241,12 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn convert_cfc_to_toc(&self, cfc: &RunningConstraintInner) -> TraitObjConstraint {
+    fn convert_cfc_to_toc(&self, cfc: &RunningConstraint) -> TraitObjConstraint {
         match cfc {
-            RunningConstraintInner::Adt(adtdef, genargs) => {
+            RunningConstraint::Adt(adtdef, genargs) => {
                 TraitObjConstraint::Adt(*adtdef, genargs.clone())
             }
-            RunningConstraintInner::Closure(cdef, genargs) => {
+            RunningConstraint::Closure(cdef, genargs) => {
                 TraitObjConstraint::Closure(*cdef, genargs.clone())
             }
             _ => panic!("unexpected cfc: {:?}", cfc),
@@ -279,16 +279,16 @@ impl<'a> RvalConverter<'a> {
                         // If no TOC but CFC exists, pull any CFC constraints that
                         // could be a traitobj for this traitobjty
                         let defid;
-                        match &cfc_.1 {
-                            RunningConstraintInner::Adt(adtdef, _) => defid = adtdef.0,
-                            RunningConstraintInner::Closure(cdef, _) => defid = cdef.0,
+                        match &cfc_ {
+                            RunningConstraint::Adt(adtdef, _) => defid = adtdef.0,
+                            RunningConstraint::Closure(cdef, _) => defid = cdef.0,
                             // FIXME this is a jumbled mess
-                            RunningConstraintInner::Idk(inner) => {
+                            RunningConstraint::Idk(inner) => {
                                 if inner.len() > 1 {
                                     todo!();
                                 }
-                                match &inner[0].cfc.as_ref().unwrap().1 {
-                                    RunningConstraintInner::Dynamic(tot_vec) => {
+                                match &inner[0].cfc.as_ref().unwrap() {
+                                    RunningConstraint::Dynamic(tot_vec) => {
                                         if tot_vec.len() > 1 {
                                             todo!();
                                         }
@@ -297,7 +297,7 @@ impl<'a> RvalConverter<'a> {
                                     _ => todo!(),
                                 }
                             }
-                            _ => todo!("cfc: {:?}", cfc_.1),
+                            _ => todo!("cfc: {:?}", cfc_),
                         }
                         //debug!("DEFID: {:?}", defid);
 
@@ -307,10 +307,7 @@ impl<'a> RvalConverter<'a> {
                                 if traits.contains(&traitobjty.def.0) {
                                     // pull relevant CFC into TOC
                                     let new_constraint = Constraint::new(
-                                        Some((
-                                            traitobjty.clone(),
-                                            self.convert_cfc_to_toc(&cfc_.1),
-                                        )),
+                                        Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
                                     );
                                     unique_push(&mut new_constraints, new_constraint);
@@ -330,10 +327,7 @@ impl<'a> RvalConverter<'a> {
                                     //debug!("fn trait / closure");
                                     // pull relevant CFC into TOC
                                     let new_constraint = Constraint::new(
-                                        Some((
-                                            traitobjty.clone(),
-                                            self.convert_cfc_to_toc(&cfc_.1),
-                                        )),
+                                        Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
                                     );
                                     unique_push(&mut new_constraints, new_constraint);
@@ -409,11 +403,11 @@ impl<'a> RvalConverter<'a> {
             }
             Constraint {
                 toc: None,
-                cfc: Some((_, maybe_to)),
+                cfc: Some(maybe_to),
             } => {
                 //debug!("MAYBE PULL TOC from {:?}", maybe_to);
                 match maybe_to {
-                    RunningConstraintInner::Adt(adtdef, adt_genargs) => {
+                    RunningConstraint::Adt(adtdef, adt_genargs) => {
                         // If we get Some, that means this struct/adt implements one or more
                         // traits, but that does _not_ mean that this is a trait object
                         match self.tstore.struct_traits.get(&adtdef.0) {
@@ -440,7 +434,7 @@ impl<'a> RvalConverter<'a> {
                             _ => {} //debug!("no possible traits?"),
                         }
                     }
-                    RunningConstraintInner::Closure(cdef, genargs) => {
+                    RunningConstraint::Closure(cdef, genargs) => {
                         // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
 
                         if let Some(trait_ty) = maybe_trait_ty {
@@ -570,10 +564,7 @@ impl<'a> RvalConverter<'a> {
                 (
                     vec![Constraint::new(
                         None,
-                        Some((
-                            span.clone(),
-                            RunningConstraintInner::Adt(*def, genargs.clone()),
-                        )),
+                        Some(RunningConstraint::Adt(*def, genargs.clone())),
                     )],
                     Some(fields),
                 )
@@ -594,10 +585,7 @@ impl<'a> RvalConverter<'a> {
                 (
                     vec![Constraint::new(
                         None,
-                        Some((
-                            span.clone(),
-                            RunningConstraintInner::Tuple(inner_constraints),
-                        )),
+                        Some(RunningConstraint::Tuple(inner_constraints)),
                     )],
                     None,
                 )
@@ -621,10 +609,7 @@ impl<'a> RvalConverter<'a> {
                 (
                     vec![Constraint::new(
                         None,
-                        Some((
-                            span.clone(),
-                            RunningConstraintInner::Ptr(Box::new(constraint)),
-                        )),
+                        Some(RunningConstraint::Ptr(Box::new(constraint))),
                     )],
                     None,
                 )
@@ -638,10 +623,7 @@ impl<'a> RvalConverter<'a> {
                 (
                     vec![Constraint::new(
                         None,
-                        Some((
-                            span.clone(),
-                            RunningConstraintInner::List(Box::new(constraint)),
-                        )),
+                        Some(RunningConstraint::List(Box::new(constraint))),
                     )],
                     None,
                 )
@@ -651,10 +633,7 @@ impl<'a> RvalConverter<'a> {
                 (
                     vec![Constraint::new(
                         None,
-                        Some((
-                            span.clone(),
-                            RunningConstraintInner::Closure(*def, genargs.clone()),
-                        )),
+                        Some(RunningConstraint::Closure(*def, genargs.clone())),
                     )],
                     None,
                 )
@@ -707,17 +686,11 @@ impl<'a> RvalConverter<'a> {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => (
                     None,
-                    Constraint::new(
-                        None,
-                        Some((span.clone(), RunningConstraintInner::Scalar(None))),
-                    ),
+                    Constraint::new(None, Some(RunningConstraint::Scalar(None))),
                 ),
                 RigidTy::Adt(def, genargs) => (
                     None,
-                    Constraint::new(
-                        None,
-                        Some((span.clone(), RunningConstraintInner::Adt(def, genargs))),
-                    ),
+                    Constraint::new(None, Some(RunningConstraint::Adt(def, genargs))),
                 ),
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
@@ -740,10 +713,7 @@ impl<'a> RvalConverter<'a> {
 
                     (
                         maybe_traitobjty,
-                        Constraint::new(
-                            None,
-                            Some((span.clone(), RunningConstraintInner::Idk(Box::new(inner)))),
-                        ),
+                        Constraint::new(None, Some(RunningConstraint::Idk(Box::new(inner)))),
                     )
                 }
                 RigidTy::Array(ty, _) | RigidTy::Slice(ty) => {
@@ -752,36 +722,24 @@ impl<'a> RvalConverter<'a> {
                         maybe_traitobj,
                         Constraint::new(
                             None,
-                            Some((
-                                span.clone(),
-                                RunningConstraintInner::Idk(Box::new(vec![constraint])),
-                            )),
+                            Some(RunningConstraint::Idk(Box::new(vec![constraint]))),
                         ),
                     )
                 }
                 RigidTy::Closure(def, genargs) => (
                     None,
-                    Constraint::new(
-                        None,
-                        Some((span.clone(), RunningConstraintInner::Closure(def, genargs))),
-                    ),
+                    Constraint::new(None, Some(RunningConstraint::Closure(def, genargs))),
                 ),
                 RigidTy::FnDef(def, genargs) => (
                     None,
-                    Constraint::new(
-                        None,
-                        Some((span.clone(), RunningConstraintInner::FnDef(def, genargs))),
-                    ),
+                    Constraint::new(None, Some(RunningConstraint::FnDef(def, genargs))),
                 ),
                 RigidTy::FnPtr(poly_fn_sig) => {
                     let sigval = SigVal::new_from_poly(&poly_fn_sig);
 
                     (
                         None,
-                        Constraint::new(
-                            None,
-                            Some((span.clone(), RunningConstraintInner::FnPtr(sigval))),
-                        ),
+                        Constraint::new(None, Some(RunningConstraint::FnPtr(sigval))),
                     )
                 }
                 RigidTy::Ref(_, ty, _) => self.convert_ty(span, &ty),
@@ -800,10 +758,7 @@ impl<'a> RvalConverter<'a> {
                     }
                     (
                         Some(traitobj_vec.clone()),
-                        Constraint::new(
-                            None,
-                            Some((span.clone(), RunningConstraintInner::Dynamic(traitobj_vec))),
-                        ),
+                        Constraint::new(None, Some(RunningConstraint::Dynamic(traitobj_vec))),
                     )
                 }
                 other @ _ => panic!("other rigidty: {:?}", other),
@@ -1017,10 +972,7 @@ impl<'a> RvalConverter<'a> {
                 },
             ),
             // TODO
-            BinOp::Offset => Constraint::new(
-                None,
-                Some((span.clone(), RunningConstraintInner::Idk(Box::new(vec![])))),
-            ),
+            BinOp::Offset => Constraint::new(None, Some(RunningConstraint::Idk(Box::new(vec![])))),
         };
 
         vec![constraint]
@@ -1040,79 +992,55 @@ impl<'a> RvalConverter<'a> {
         let (c_op1, _) = self.convert_op(istore, span, local_decls, cur_scope, op1, destty);
         let (c_op2, _) = self.convert_op(istore, span, local_decls, cur_scope, op2, destty);
         if c_op1.len() != 1 || c_op2.len() != 1 {
-            return Constraint::new(
-                None,
-                Some((span.clone(), RunningConstraintInner::Scalar(None))),
-            );
+            return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
         match (c_op1[0].clone(), c_op2[0].clone()) {
             (
                 Constraint {
                     toc: None,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(val1)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(val1))),
                 },
                 Constraint {
                     toc: None,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(val2)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(val2))),
                 },
-            ) => Constraint::new(
-                None,
-                Some((
-                    span.clone(),
-                    RunningConstraintInner::Scalar(Some(f(val1, val2))),
-                )),
-            ),
+            ) => Constraint::new(None, Some(RunningConstraint::Scalar(Some(f(val1, val2))))),
             (
                 Constraint {
                     toc: None,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(val1)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(val1))),
                 },
                 Constraint {
                     toc: to,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(val2)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(val2))),
                 },
-            ) => Constraint::new(
-                to,
-                Some((
-                    span.clone(),
-                    RunningConstraintInner::Scalar(Some(f(val1, val2))),
-                )),
-            ),
+            ) => Constraint::new(to, Some(RunningConstraint::Scalar(Some(f(val1, val2))))),
             (
                 Constraint {
                     toc: to,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(val1)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(val1))),
                 },
                 Constraint {
                     toc: None,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(val2)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(val2))),
                 },
-            ) => Constraint::new(
-                to,
-                Some((
-                    span.clone(),
-                    RunningConstraintInner::Scalar(Some(f(val1, val2))),
-                )),
-            ),
+            ) => Constraint::new(to, Some(RunningConstraint::Scalar(Some(f(val1, val2))))),
             (
                 Constraint {
                     toc: _to1,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(_val1)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(_val1))),
                 },
                 Constraint {
                     toc: _to2,
-                    cfc: Some((_, RunningConstraintInner::Scalar(Some(_val2)))),
+                    cfc: Some(RunningConstraint::Scalar(Some(_val2))),
                 },
             ) => {
                 todo!();
-                //(to, Some(RunningConstraintInner::Scalar(Some(f(
+                //(to, Some(RunningConstraint::Scalar(Some(f(
                 //    val1, val2,
                 //)))))
             }
-            _ => Constraint::new(
-                None,
-                Some((span.clone(), RunningConstraintInner::Scalar(None))),
-            ),
+            _ => Constraint::new(None, Some(RunningConstraint::Scalar(None))),
         }
     }
 
@@ -1133,10 +1061,9 @@ impl<'a> RvalConverter<'a> {
             UnOp::Not => {
                 self.convert_unop_helper(istore, span, local_decls, cur_scope, destty, op, |x| !x)
             }
-            UnOp::PtrMetadata => Constraint::new(
-                None,
-                Some((span.clone(), RunningConstraintInner::Idk(Box::new(vec![])))),
-            ),
+            UnOp::PtrMetadata => {
+                Constraint::new(None, Some(RunningConstraint::Idk(Box::new(vec![]))))
+            }
         };
 
         vec![constraint]
@@ -1154,23 +1081,16 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraint {
         let (c_op, _) = self.convert_op(istore, span, local_decls, cur_scope, op, destty);
         if c_op.len() != 1 {
-            return Constraint::new(
-                None,
-                Some((span.clone(), RunningConstraintInner::Scalar(None))),
-            );
+            return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
         match c_op[0].clone() {
             Constraint {
                 toc: to,
-                cfc: Some((_, RunningConstraintInner::Scalar(Some(val)))),
-            } => Constraint::new(
-                to,
-                Some((span.clone(), RunningConstraintInner::Scalar(Some(f(val))))),
-            ),
-            Constraint { toc: to, cfc: _ } => Constraint::new(
-                to,
-                Some((span.clone(), RunningConstraintInner::Scalar(None))),
-            ), //_ => Constraint::ControlFlow(Box::new(RunningConstraintInner::Scalar(None))),
+                cfc: Some(RunningConstraint::Scalar(Some(val))),
+            } => Constraint::new(to, Some(RunningConstraint::Scalar(Some(f(val))))),
+            Constraint { toc: to, cfc: _ } => {
+                Constraint::new(to, Some(RunningConstraint::Scalar(None)))
+            } //_ => Constraint::ControlFlow(Box::new(RunningConstraint::Scalar(None))),
         }
     }
 }

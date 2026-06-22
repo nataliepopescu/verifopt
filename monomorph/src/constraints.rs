@@ -110,6 +110,7 @@ impl Location {
 pub enum RunningConstraint {
     // primitive data types
     Scalar(Option<i128>),
+    Float,
 
     // more complex data types
     Adt(AdtDef, GenericArgs), //Option<VOGenargs>),

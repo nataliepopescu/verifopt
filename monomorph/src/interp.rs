@@ -1445,9 +1445,6 @@ impl<'a> InterpPass<'a> {
                 toc: Some(toc_),
                 cfc: _,
             } => {
-                //debug!("trait_defid: {:?}", trait_defid);
-                //debug!("TOC traitobjty: {:?}", toc_.0);
-                //debug!("TOC traitobj: {:?}", toc_.1);
                 if *trait_defid != toc_.0.def.0 {
                     todo!("traits don't match");
                 }
@@ -1457,8 +1454,6 @@ impl<'a> InterpPass<'a> {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
-                        //debug!("CDEF: {:?}", cdef);
-                        //debug!("CLOSURE GENARGS: {:?}", genargs);
                         (true, vec![(cdef.0, Some(genargs.clone()))])
                     }
                 }
@@ -1469,7 +1464,6 @@ impl<'a> InterpPass<'a> {
                 toc: None,
                 cfc: Some(cfc),
             } => {
-                //debug!("cfc: {:?}", cfc);
                 match cfc {
                     RunningConstraint::Adt(adtdef, genargs) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
@@ -1498,16 +1492,11 @@ impl<'a> InterpPass<'a> {
         adtdef: &AdtDef,
         genargs: &GenericArgs,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        //debug!("\nRESOLVE ADT HELPER");
-        //debug!("ADT DEF: {:?}", adtdef);
-        //debug!("ADT GENARGS: {:?}", genargs);
-
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {
             // Does this ADT implement the desired trait? If so, add to vec
             Some(traits) => {
                 if traits.contains(trait_defid) {
-                    //debug!("ADT HAS GENARGS: {:?}", genargs.clone());
                     unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
                 }
             }
@@ -1515,28 +1504,16 @@ impl<'a> InterpPass<'a> {
         }
 
         // Also search in genargs for an implementing type
-        //debug!("num genargs: {:?}", genargs.0.len());
         for genarg in &genargs.0 {
-            //debug!("\nGENARG: {:?}", genarg);
             match self.converter.convert_genarg(&Location::new(), &genarg) {
                 Some(genarg_constraint) => {
-                    //debug!("genarg constraint (repeat): {:?}", genarg_constraint);
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
-                    //debug!("ADT DEF (repeat): {:?}", adtdef);
-                    //debug!("genarg constraint (repeat): {:?}", genarg_constraint);
-                    //debug!("is_closure: {:?}", is_closure);
-                    //debug!("inner resvec: {:?}", inner_resvec);
                     unique_append(&mut resvec, inner_resvec);
-                    //debug!("updated resvec: {:?}", resvec);
                 }
-                _ => {
-                    //debug!("genarg is not a type, continuing");
-                }
+                _ => {}
             }
         }
-
-        //debug!("FINAL resvec: {:?}", resvec);
 
         (false, resvec)
     }

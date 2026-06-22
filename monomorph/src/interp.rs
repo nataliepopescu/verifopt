@@ -989,15 +989,11 @@ impl<'a> InterpPass<'a> {
 
             if let Some(fields) = maybe_fields {
                 debug!("setting fields");
-                debug!("place: {:?}", place);
                 for field in fields {
-                    debug!("field.0: {:?}", field.0);
-                    debug!("field.1: {:?}", field.1);
                     let field_place = Place {
                         local: place.local,
                         projection: field.0.projection,
                     };
-                    debug!("field place: {:?}", field_place);
                     new_substore.cmap.insert(
                         MapKey::Var(field_place),
                         Box::new(MapValue::Constraints(field.1)),

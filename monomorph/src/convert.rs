@@ -278,12 +278,26 @@ impl<'a> RvalConverter<'a> {
                     } => {
                         // If no TOC but CFC exists, pull any CFC constraints that
                         // could be a traitobj for this traitobjty
-                        //debug!("cfc_: {:?}", cfc_);
-                        let defid; // = None;
-                        match cfc_.1 {
+                        let defid;
+                        match &cfc_.1 {
                             RunningConstraintInner::Adt(adtdef, _) => defid = adtdef.0,
                             RunningConstraintInner::Closure(cdef, _) => defid = cdef.0,
-                            _ => todo!(),
+                            // FIXME this is a jumbled mess
+                            RunningConstraintInner::Idk(inner) => {
+                                if inner.len() > 1 {
+                                    todo!();
+                                }
+                                match &inner[0].cfc.as_ref().unwrap().1 {
+                                    RunningConstraintInner::Dynamic(tot_vec) => {
+                                        if tot_vec.len() > 1 {
+                                            todo!();
+                                        }
+                                        defid = tot_vec[0].def.0;
+                                    }
+                                    _ => todo!(),
+                                }
+                            }
+                            _ => todo!("cfc: {:?}", cfc_.1),
                         }
                         //debug!("DEFID: {:?}", defid);
 

@@ -174,8 +174,34 @@ Propagate field projections when
 Casting
 - Unlikely (?) that types are cast into ADTs (current assumption)
 
+#### Re-assigning Place w Projections (via converter)
 
 
+
+## Default Trait Method Implementations
+
+Only resolve to default implementation is _had_ candidate objects but none of
+those have an associated method implementation of their own
+
+Should _not_ resolve to default method implementation if there were no candidate
+objects to begin with, b/c this likely means we don't have enough info to know
+what to resolve to
+
+Interpretating the default impl path
+- similar to monomorphization
+- if we choose to execute a default implementation, we still need to have a
+  concrete type as `self`
+- b/c the default implementation may call a trait method that does _not_ have a
+  default implementation, in which case our analysis is stuck
+- calling the default implementation should not be used as a fallback for "idk
+  what concrete type this is" (unless the default method happens to not call any
+  other trait methods without default impls, which requires further analysis to
+  discern)
+- for now, we can solve this as follows:
+    - if a trait impl block does not override a trait's default method impl,
+      then we essentially "copy" over that implementation into the object's
+      local trait impl block space, essentially treating default impls just like
+      any other impl
 
 
 

@@ -376,6 +376,69 @@ For Write traitobj
 - using genargs from write_fmt func?
 
 
+### Debugging ripgrep `try_find_fwd` instance resolution error
+
+"aho_corasick::automaton::Automaton::match_kind"
+`let earliest = aut.match_kind().is_standard() || input.get_earliest();`
+
+what is aut?
+- TraitDef(Automaton)
+- arg was `&self` in the `trait Automaton` block
+- does that mean it is dyn, or that this is a static call?
+
+Automaton is a trait
+
+match_kind is a method on the Automaton trait
+- but it does not have a default implementation
+- so we cannot call it without a concrete Automaton type
+
+however, there is a concrete impl of it in this block:
+`unsafe impl<'a, A: Automaton + ?Sized> Automaton for &'a A { ... }`
+- this seems like the impl we should be using, but how do we get there?
+
+try_find_fwd has a generic param: `A: Automaton + ?Sized` 
+- this dictates the type of `aut`
+
+coming from the default implementation, `aut` is just `Automaton`, but when we
+call `try_find_fwd` that generic type constraint makes it an `&A`, i.e. an
+`&(Automaton + ?Sized)`
+- check arg resolution!
+- arg is an AcAutomaton - why?
+    - _3
+
+unsafe trait Automaton { ... }
+
+pub struct AhoCorasick {
+  aut: Arc<dyn AcAutomaton>,
+  kind, 
+  start_kind,
+}
+
+trait AcAutomaton: Automaton + Debug + ... {}
+
+impl AcAutomaton for A where A: Automaton + Debug + ... {}
+
+- according to comments, AcAutomaton == means for "practical" dynamic dispatch
+  for Automaton objects
+- wraps Automatons w helpful bounds
+
+unsafe impl Automaton for Arc<dyn AcAutomaton> {
+}
+
+- from claude: "The blanket impl<A> AcAutomaton for A where A: Automaton + Debug
+  + Send + Sync + ... means any concrete automaton struct automatically gets
+    AcAutomaton for free."
+
+
+think this is another default impl problem
+- if we go down the default impl path for a type, we are still restricted to
+  that type
+
+either that, OR, we are not monomorphizing a default impl's instance
+
+
+
+
 
 
 

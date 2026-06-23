@@ -14,7 +14,7 @@ use crate::constraints::{
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
 
-use log::debug;
+//use log::debug;
 
 pub struct RvalConverter<'a> {
     pub tstore: &'a TraitStore,
@@ -166,17 +166,17 @@ impl<'a> RvalConverter<'a> {
         //debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
         // TODO use current place ty instead of *just* getting existing place constraints
 
-        debug!("CONVERTING PLACE");
+        //debug!("CONVERTING PLACE");
         match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
-                    debug!("found constraints for place {:?}: {:?}", place, constraints);
-                    debug!("checking field projection constraints.....");
+                    //debug!("found constraints for place {:?}: {:?}", place, constraints);
+                    //debug!("checking field projection constraints.....");
 
                     // FIXME implementation is similar to interp::resolve_arg()
                     match istore.field_map.get(&(place.clone(), cur_scope.clone())) {
                         Some(field_projections) => {
-                            debug!("\n--FIELD projections: {:?}", field_projections);
+                            //debug!("\n--FIELD projections: {:?}", field_projections);
 
                             let mut fields = Vec::new();
                             for field_proj in field_projections {
@@ -184,7 +184,7 @@ impl<'a> RvalConverter<'a> {
                                     ProjectionElem::Field(_, ty) => ty,
                                     _ => panic!("unexpected proj elem: {:?}", field_proj),
                                 };
-                                debug!("\nfield_proj: {:?}", field_proj);
+                                //debug!("\nfield_proj: {:?}", field_proj);
                                 let proj = vec![ProjectionElem::Deref, field_proj.clone()];
                                 let field_place = Place {
                                     local: place.local,
@@ -199,7 +199,7 @@ impl<'a> RvalConverter<'a> {
                                     &field_place,
                                     field_ty,
                                 );
-                                debug!("[ConvertPlace] field_constraints: {:?}", field_constraints);
+                                //debug!("[ConvertPlace] field_constraints: {:?}", field_constraints);
                                 if field_fields.is_some() {
                                     todo!();
                                 }
@@ -212,7 +212,7 @@ impl<'a> RvalConverter<'a> {
                                     field_constraints,
                                 ))
                             }
-                            debug!("\n--DONE FIELD projections: {:?}\n", field_projections);
+                            //debug!("\n--DONE FIELD projections: {:?}\n", field_projections);
                             if fields.is_empty() {
                                 (constraints, None)
                             } else {
@@ -220,7 +220,7 @@ impl<'a> RvalConverter<'a> {
                             }
                         }
                         None => {
-                            debug!("NO FIELD CONSTRAINTS");
+                            //debug!("NO FIELD CONSTRAINTS");
                             (constraints, None)
                         }
                     }
@@ -228,10 +228,10 @@ impl<'a> RvalConverter<'a> {
                 _ => panic!("value should not be a scope"),
             },
             None => {
-                debug!("place {:?} has not been set, widen to type", place);
-                for proj in &place.projection {
-                    debug!("PROJ: {:?}", proj);
-                }
+                //debug!("place {:?} has not been set, widen to type", place);
+                //for proj in &place.projection {
+                //    //debug!("PROJ: {:?}", proj);
+                //}
                 let (_maybe_traitobj, constraint) = self.convert_ty(span, destty);
                 //debug!("constraint (from ty): {:?}", constraint);
                 //if let Some(traitobj) = maybe_traitobj {
@@ -280,21 +280,21 @@ impl<'a> RvalConverter<'a> {
         traitobjtys: &Vec<TraitObjTy>,
         constraints: &Constraints,
     ) -> Constraints {
-        debug!("CAST HELPER");
+        //debug!("CAST HELPER");
         let mut new_constraints = Vec::new();
 
         //debug!("\ntraitobjtys: {:?}", traitobjtys);
         for traitobjty in traitobjtys {
             for constraint in constraints {
-                debug!("\ntraitobjty: {:?}", traitobjty);
-                debug!("constraint: {:?}", constraint);
+                //debug!("\ntraitobjty: {:?}", traitobjty);
+                //debug!("constraint: {:?}", constraint);
                 match constraint {
                     Constraint {
-                        toc: Some((tot, toc)),
+                        toc: Some(_), //(tot, toc)),
                         ..
                     } => {
-                        debug!("tot: {:?}", tot);
-                        debug!("toc: {:?}", toc);
+                        //debug!("tot: {:?}", tot);
+                        //debug!("toc: {:?}", toc);
 
                         // Push old constraint unchanged
                         unique_push(&mut new_constraints, constraint.clone());
@@ -374,14 +374,14 @@ impl<'a> RvalConverter<'a> {
                 //debug!("CASTING existing place");
                 let (prev_constraints, maybe_fields) =
                     self.convert_place(istore, span, local_decls, cur_scope, place, ty);
-                debug!("FIELDS in CAST? {:?}", maybe_fields);
+                //debug!("FIELDS in CAST? {:?}", maybe_fields);
                 //if let Some(fields) = maybe_fields {
                 //    todo!("fields: {:?}", fields);
                 //}
 
-                debug!("PRE CAST constraints: {:?}", prev_constraints);
+                //debug!("PRE CAST constraints: {:?}", prev_constraints);
                 let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
-                debug!("POST CAST ty: {:?}", post_constraint);
+                //debug!("POST CAST ty: {:?}", post_constraint);
 
                 if let Some(traitobjtys) = maybe_traitobj {
                     (
@@ -527,23 +527,23 @@ impl<'a> RvalConverter<'a> {
         ops: &Vec<Operand>,
     ) -> (Constraints, Option<ADTFields>) {
         match kind {
-            AggregateKind::Adt(def, _variant_idx, genargs, _, field_idx) => {
-                debug!("ADT agg");
-                debug!("ops: {:?}", ops);
-                debug!("destty: {:?}", destty);
-                debug!("field_idx: {:?}", field_idx);
-                let ty = def.ty_with_args(genargs);
-                debug!("ty: {:?}", ty);
+            AggregateKind::Adt(def, _variant_idx, genargs, _, _field_idx) => {
+                //debug!("ADT agg");
+                //debug!("ops: {:?}", ops);
+                //debug!("destty: {:?}", destty);
+                //debug!("field_idx: {:?}", field_idx);
+                //let ty = def.ty_with_args(genargs);
+                //debug!("ty: {:?}", ty);
 
                 // Create projections here to simulate field initializers
                 let mut fields = Vec::new();
                 for (i, op) in ops.into_iter().enumerate() {
-                    debug!("\n---op {:?}", i);
-                    let (op_constraints, maybe_fields) =
+                    //debug!("\n---op {:?}", i);
+                    let (op_constraints, _maybe_fields) =
                         self.convert_op(istore, span, local_decls, cur_scope, op, destty);
-                    debug!("op constraints: {:?}", op_constraints);
+                    //debug!("op constraints: {:?}", op_constraints);
                     // FIXME maybe_fields constraints are dropped
-                    debug!("maybe_fields: {:?}", maybe_fields);
+                    //debug!("maybe_fields: {:?}", maybe_fields);
 
                     let op_ty;
                     match op {
@@ -557,14 +557,14 @@ impl<'a> RvalConverter<'a> {
                     }
 
                     let proj = vec![ProjectionElem::Deref, ProjectionElem::Field(i, op_ty)];
-                    debug!("PROJ: {:?}", proj);
+                    //debug!("PROJ: {:?}", proj);
                     fields.push((
                         // obj deref + field access
                         proj,
                         // field constraints
                         op_constraints,
                     ));
-                    debug!("---done op {:?}\n", i);
+                    //debug!("---done op {:?}\n", i);
                 }
 
                 (
@@ -581,11 +581,11 @@ impl<'a> RvalConverter<'a> {
                 for op in ops {
                     let (op_constraints, maybe_fields) =
                         self.convert_op(istore, span, local_decls, cur_scope, op, destty);
-                    debug!("op_constraints: {:?}", op_constraints.clone());
+                    //debug!("op_constraints: {:?}", op_constraints.clone());
                     unique_append(&mut inner_constraints, op_constraints);
-                    if let Some(fields) = maybe_fields {
+                    if let Some(_fields) = maybe_fields {
                         // FIXME
-                        debug!("TUPLE fields: {:?}", fields);
+                        //debug!("TUPLE fields: {:?}", fields);
                     }
                 }
                 (

@@ -11,7 +11,7 @@ use crate::error::Error;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-use log::debug;
+//use log::debug;
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -218,18 +218,18 @@ impl InterpStore {
         adt_place_and_scope: &(Place, VOID),
         field_proj: &ProjectionElem,
     ) {
-        debug!("\nLINKING FIELD");
+        //debug!("\nLINKING FIELD");
         match self.field_map.get_mut(adt_place_and_scope) {
             Some(field_projections) => {
-                debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
-                debug!("old field projections: {:?}", field_projections);
-                debug!("new field projection: {:?}", field_proj);
+                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
+                //debug!("old field projections: {:?}", field_projections);
+                //debug!("new field projection: {:?}", field_proj);
 
                 let mut new_field_projections = Vec::new();
                 for old_field_proj in field_projections.clone() {
                     // If this field projection is not an exact match, check the field idx - if
                     // that already exists in our fields, then overwrite with the new type
-                    debug!("old_field_proj: {:?}", old_field_proj);
+                    //debug!("old_field_proj: {:?}", old_field_proj);
                     match (old_field_proj.clone(), field_proj) {
                         (
                             ProjectionElem::Field(old_idx, _old_ty),
@@ -237,11 +237,11 @@ impl InterpStore {
                         ) => {
                             // Same FieldIdx, update type
                             if *new_idx == old_idx {
-                                debug!("REPLACE OLD");
+                                //debug!("REPLACE OLD");
                                 new_field_projections.push(field_proj.clone());
                             // Different FieldIdx, keep type
                             } else {
-                                debug!("RETAIN OLD + ADD NEW");
+                                //debug!("RETAIN OLD + ADD NEW");
                                 unique_push(&mut new_field_projections, old_field_proj.clone());
                                 unique_push(&mut new_field_projections, field_proj.clone());
                             }
@@ -249,12 +249,12 @@ impl InterpStore {
                         _ => panic!("unexpected projection"),
                     }
                 }
-                debug!("NNEW FIELD PROJECTIONS: {:?}", new_field_projections);
+                //debug!("NEW FIELD PROJECTIONS: {:?}", new_field_projections);
                 *field_projections = new_field_projections;
             }
             None => {
-                debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
-                debug!("new field projection: {:?}", field_proj);
+                //debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
+                //debug!("new field projection: {:?}", field_proj);
                 self.field_map
                     .insert(adt_place_and_scope.clone(), vec![field_proj.clone()]);
             }

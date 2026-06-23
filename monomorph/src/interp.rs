@@ -1180,7 +1180,11 @@ impl<'a> InterpPass<'a> {
         // Get every concrete type constraint's impl of this function
         // - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
         let assoc_fn_impls_cha = self.get_impls_cha(cur_scope, &fndef.0, &trait_defid);
-        debug!("CHA impls: {:?}", assoc_fn_impls_cha);
+        debug!(
+            "CHA impls (len={:?}): {:?}",
+            assoc_fn_impls_cha.len(),
+            assoc_fn_impls_cha
+        );
 
         for (cha_impl, _) in &assoc_fn_impls_cha {
             if *cha_impl == fndef.0 {
@@ -1197,7 +1201,11 @@ impl<'a> InterpPass<'a> {
             &fndef.0,
             args,
         );
-        debug!("FSA impls: {:?}", assoc_fn_impls_fsa);
+        debug!(
+            "FSA impls (len={:?}): {:?}",
+            assoc_fn_impls_fsa.len(),
+            assoc_fn_impls_fsa
+        );
 
         for fsa_impl in &assoc_fn_impls_fsa {
             if !assoc_fn_impls_cha.contains(&fsa_impl) {
@@ -1213,7 +1221,7 @@ impl<'a> InterpPass<'a> {
         // Log CHA vs FSA diffs
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\n\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
@@ -1221,16 +1229,14 @@ impl<'a> InterpPass<'a> {
             logger.update_diff(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         } else {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\n\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
             );
             logger.update_same(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         }
-        debug!("\tterm_span: {:?}", term_span);
-        //debug!("\tCHA: {:?}", assoc_fn_impls_cha.len());
-        //debug!("\tFSA: {:?}", assoc_fn_impls_fsa.len());
+        debug!("term_span: {:?}", term_span);
 
         self.simulate_static_calls(
             logger,
@@ -1265,23 +1271,13 @@ impl<'a> InterpPass<'a> {
         _cur_scope: &VOID,
         assoc_fn_defid: &DefId,
         constraint_defids: &Vec<(DefId, Option<GenericArgs>)>,
-        fsa: bool,
+        _fsa: bool,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
         //debug!("\nGETTING IMPL DEFIDS FROM TYPE DEFIDS");
 
         let mut assoc_fn_impls = Vec::new();
 
-        //if fsa && constraint_defids.is_empty() {
-        //    // Does this virtual function also point to a default impl?
-        //    if cur_scope.0.has_body() {
-        //        debug!("ADDING DEFAULT IMPL (FSA + no constraint defids)");
-        //        assoc_fn_impls.push((*assoc_fn_defid, None));
-        //    }
-        //    return assoc_fn_impls;
-        //}
-
-        // CHA-collected defid genargs are None, while FSA-collected defid genargs might be Some()
-        //
+        // CHA-collected defid genargs are None, while FSA-collected defid genargs might be Some().
         // Get every concrete type constraint's impl of this function
         for (_i, (defid, genargs)) in constraint_defids.iter().enumerate() {
             //debug!("i: {:?}", i);
@@ -1289,7 +1285,6 @@ impl<'a> InterpPass<'a> {
             //debug!("genargs: {:?}", genargs);
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
                 Some(assoc_fn_impl) => {
-                    //debug!("found assoc_fn_impl: {:?}", assoc_fn_impl);
                     unique_append(
                         &mut assoc_fn_impls,
                         assoc_fn_impl
@@ -1298,18 +1293,8 @@ impl<'a> InterpPass<'a> {
                             .map(|x| (x, genargs.clone()))
                             .collect(),
                     );
-                    //debug!(
-                    //    "updated assoc_fn_impls (len={:?}): {:?}",
-                    //    assoc_fn_impls.len(),
-                    //    assoc_fn_impls
-                    //);
                 }
                 None => {
-                    //debug!("did NOT find assoc_fn_impl");
-                    //debug!(
-                    //    "(STRUCT={:?}, ASSOC FN={:?}) pair does not point to assoc fn",
-                    //    defid, assoc_fn_defid
-                    //);
                     if FnDef(*defid).body().is_some() {
                         // This is a callable item, push the impl defid
                         //debug!("callable defid! {:?}", defid);
@@ -1322,10 +1307,10 @@ impl<'a> InterpPass<'a> {
         // If the supposedly-virtual function we want to call has a body, and there were some
         // candidate objects that do not implement said function, and this is FSA
         // OR if this is CHA, then add this "default" implmentation
-        if FnDef(*assoc_fn_defid).body().is_some() && (!constraint_defids.is_empty() || !fsa) {
-            debug!("ADDING DEFAULT IMPL");
-            unique_push(&mut assoc_fn_impls, (*assoc_fn_defid, None));
-        }
+        //if FnDef(*assoc_fn_defid).body().is_some() && (!constraint_defids.is_empty() || !fsa) {
+        //    debug!("ADDING DEFAULT IMPL");
+        //    unique_push(&mut assoc_fn_impls, (*assoc_fn_defid, None));
+        //}
 
         assoc_fn_impls
     }
@@ -1464,7 +1449,11 @@ impl<'a> InterpPass<'a> {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
-                        (true, vec![(cdef.0, Some(genargs.clone()))])
+                        if genargs.0.is_empty() {
+                            (true, vec![(cdef.0, None)])
+                        } else {
+                            (true, vec![(cdef.0, Some(genargs.clone()))])
+                        }
                     }
                 }
             }
@@ -1507,7 +1496,11 @@ impl<'a> InterpPass<'a> {
             // Does this ADT implement the desired trait? If so, add to vec
             Some(traits) => {
                 if traits.contains(trait_defid) {
-                    unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
+                    if genargs.0.is_empty() {
+                        unique_push(&mut resvec, (adtdef.0, None));
+                    } else {
+                        unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
+                    }
                 }
             }
             None => {}

@@ -202,6 +202,14 @@ Interpretating the default impl path
       then we essentially "copy" over that implementation into the object's
       local trait impl block space, essentially treating default impls just like
       any other impl
+    - so, we should never interpret a "general" default method
+
+    - HOWEVER, this could actually be bad for collapsing same implementations
+      for different types, maybe different implementation
+
+- funnily, this isn't enough for the `Default` trait (or maybe any derivable
+  traits?) - TODO
+
 
 
 

@@ -422,8 +422,13 @@ impl AcAutomaton for A where A: Automaton + Debug + ... {}
   for Automaton objects
 - wraps Automatons w helpful bounds
 
-unsafe impl Automaton for Arc<dyn AcAutomaton> {
-}
+unsafe impl Automaton for Arc<dyn AcAutomaton> { ... }
+- redirect to inside Arc, which should redirect to one of below impls
+
+unsafe impl Automaton for NFA { ... } (contiguous + noncontiguous)
+unsafe impl Automaton for DFA { ... }
+- all 3 impls amount to: self.match_kind (field)
+
 
 - from claude: "The blanket impl<A> AcAutomaton for A where A: Automaton + Debug
   + Send + Sync + ... means any concrete automaton struct automatically gets
@@ -436,6 +441,86 @@ think this is another default impl problem
 
 either that, OR, we are not monomorphizing a default impl's instance
 
+
+the problem in getting to the correct match_kind() impl is that we first pass
+through the default impl of try_find() which erases our info
+- well, we actually don't have any info to erase
+- we actually just don't have a way to get to _any_ of the match_kind() impls
+  from here it seems
+
+
+### PrefilterI::find() Dyn Dispatch
+
+/home/np/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-automata-0.4.13/src/util/prefilter/mod.rs
+find()
+
+pub struct Prefilter {
+  pre: Arc<dyn PrefilterI>,
+  ...
+}
+
+pub(crate) trait PrefilterI {
+  fn find(..);
+  ...
+}
+
+impl PrefilterI for [ByteSet, Memchr, Memchr2, Memchr3, Memmem, Teddy, AhoCorasick] { ... }
+
+when is the field set?
+- when is Prefilter created?
+
+- WHITESPACE_ANCHORED_FWD = Lazy<DFA>
+    - closure uses DFA::from_bytes
+        - dfa/dense.rs: 2340
+    - static slice, too
+
+- when have WHITESPACE_ANCHORED_FWD.method()
+    - go through Lazy::get
+    - which calls an atomic_load (via self.data.load())
+            - self.data = AtomicPtr<_>
+            - @ new() -> data: AtomicPtr::new(core::ptr::null_mut()),
+        - this checks initialization
+        - if not init, ret None
+        - if init, ret Some(init_val)
+
+    - so, first time called, will return None and thus will need to set by
+      calling the closure (containing DFA::from_bytes)
+
+    - the closure doesn't seem to be getting called correctly?
+        - yeah from_bytes is never called
+        - somehow the relevant instance doesn't have a body?
+        - where/how is it resolved?
+
+        - first arg is _4
+            - _4 = Ref(Region { kind: ReErased }, Shared, ((*_1).1: fn() -> regex_automata::dfa::dense::DFA<&[u32]>))
+
+            - _1 = resolved arg constraints: [Constraint { toc: None, cfc: Some(Adt(AdtDef(DefId { id: 47597, name: "regex_automata::dfa::dense::DFA" }), GenericArgs([Type(Ty { id: 84111, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 2091, kind: RigidTy(Slice(Ty { id: 589, kind: RigidTy(Uint(U32)) })) }, Not)) })]))) }]
+                - no field projections...
+                - even though it definitely has fields
+
+                - why??
+                - from _14 in enclosing
+
+        - in Lazy::get()
+            - _14 = Cast(PtrToPtr, Copy(_15), Ty { id: 114425, kind: RigidTy(RawPtr(Ty { id: 114428, kind: RigidTy(RawPtr(Ty { id: 114420, kind: RigidTy(Adt(AdtDef(DefId { id: 47597, name: "regex_automata::dfa::dense::DFA" }), GenericArgs([Type(Ty { id: 84111, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 2091, kind: RigidTy(Slice(Ty { id: 589, kind: RigidTy(Uint(U32)) })) }, Not)) })]))) }, Mut)) }, Not)) })
+
+            - _15 = AddressOf(Const, (((*_1).0: std::sync::atomic::AtomicPtr<regex_automata::dfa::dense::DFA<&[u32]>>).0: std::cell::UnsafeCell<*mut regex_automata::dfa::dense::DFA<&[u32]>>))
+
+            - _1 = resolved arg constraints: [Constraint { toc: None, cfc: Some(Adt(AdtDef(DefId { id: 48197, name: "regex_automata::util::lazy::lazy::Lazy" }), GenericArgs([Type(Ty { id: 114420, kind: RigidTy(Adt(AdtDef(DefId { id: 47597, name: "r        egex_automata::dfa::dense::DFA" }), GenericArgs([Type(Ty { id: 84111, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 2091, kind: RigidTy(Slice(Ty { id: 589, kind: RigidTy(Uint(U32)) })) }, Not)) })]))) }), Type(Ty { id: 11        4421, kind: RigidTy(FnPtr(Binder { value: FnSig { inputs_and_output: [Ty { id: 114420, kind: RigidTy(Adt(AdtDef(DefId { id: 47597, name: "regex_automata::dfa::dense::DFA" }), GenericArgs([Type(Ty { id: 84111, kind: RigidTy(Ref(Re        gion { kind: ReErased }, Ty { id: 2091, kind: RigidTy(Slice(Ty { id: 589, kind: RigidTy(Uint(U32)) })) }, Not)) })]))) }], c_variadic: false, safety: Safe, abi: Rust }, bound_vars: [] })) })]))) }]
+                - from _11 in enclosing
+
+        - in whitespace_len_fwd
+            - _11 = Ref(Region { kind: ReErased }, Shared, ((*_7).0: regex_automata::util::lazy::lazy::Lazy<regex_automata::dfa::dense::DFA<&[u32]>, fn() -> regex_automata::dfa::dense::DFA<&[u32]>>))
+
+            - _7 = Use(Constant(ConstOperand { span: Span { id: 6, repr: "no-location" }, user_ty: None, const_: MirConst { kind: Allocated(Allocation { bytes: [Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0), Some(0)], provenance: ProvenanceMap { ptrs: [(0, Prov(AllocId(357, ThreadLocalIndex)))] }, align: 8, mutability: Mut }), ty: Ty { id: 114410, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 114419, kind: RigidTy(Adt(AdtDef(DefId { id: 48195, name: "regex_automata::util::lazy::Lazy" }), GenericArgs([Type(Ty { id: 114420, kind: RigidTy(Adt(AdtDef(DefId { id: 47597, name: "regex_automata::dfa::dense::DFA" }), GenericArgs([Type(Ty { id: 84111, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 2091, kind: RigidTy(Slice(Ty { id: 589, kind: RigidTy(Uint(U32)) })) }, Not)) })]))) }), Type(Ty { id: 114421, kind: RigidTy(FnPtr(Binder { value: FnSig { inputs_and_output: [Ty { id: 114420, kind: RigidTy(Adt(AdtDef(DefId { id: 47597, name: "regex_automata::dfa::dense::DFA" }), GenericArgs([Type(Ty { id: 84111, kind: RigidTy(Ref(Region { kind: ReErased }, Ty { id: 2091, kind: RigidTy(Slice(Ty { id: 589, kind: RigidTy(Uint(U32)) })) }, Not)) })]))) }], c_variadic: false, safety: Safe, abi: Rust }, bound_vars: [] })) })]))) }, Not)) }, id: MirConstId(1630, ThreadLocalIndex) } }))
+                - Lazy<DFA<[u32]>, FnPtr<DFA<[u32]>>
+                    - FnPtr has no inputs
+
+
+going through:
+    - Ref
+    - AddressOf
+    - Cast
 
 
 

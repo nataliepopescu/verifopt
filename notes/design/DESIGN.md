@@ -41,6 +41,22 @@ tracking max set of types
   projections will remove things/possibilities from the type constraints, so if 
   we do not do that, we will never miss something that is valid (?)
 
+FIXME the tracking-but-not-fully is error prone! either fully track + align w
+types (when not dyn) or don't!
+- would be easier to omit constraints for any type that isn't dyn
+- omitting would also make field projections a lot easier
+    - UNLESS we have dyns in them, which i'm seeing a good amount of in ripgrep
+      at least
+
+trade-off tracking type-constraints (even if not dyn) vs not
+- tracking
+    - pros: less perf overhead if need to repeatedly convert the ty of the same
+      variable
+    - cons: storage, error-prone
+- not
+    - pros: less storage, less error-prone
+    - cons: overhead if need to repeatedly... (see above pro)
+
 ### High-level Structure/Interactions of `TraitObjTy`s and `TraitObjConstraint`s
 
 TODO
@@ -206,6 +222,8 @@ Interpretating the default impl path
 
     - HOWEVER, this could actually be bad for collapsing same implementations
       for different types, maybe different implementation
+    - mm but when we collect impls we ensure no duplicates, so this is actually
+      probably fine
 
 - funnily, this isn't enough for the `Default` trait (or maybe any derivable
   traits?) - TODO

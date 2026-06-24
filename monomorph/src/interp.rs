@@ -457,8 +457,8 @@ impl<'a> InterpPass<'a> {
 
         //debug!("CHECKING FOR DYN IN PLACE TY");
         let dest_ty = place.ty(local_decls).unwrap();
-        //debug!("lval ty: {:?}", dest_ty);
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
+        //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let mut ret_constraints = Vec::new();
@@ -694,10 +694,12 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
+        debug!("DIRECT CALL");
+
         //debug!("CHECKING FOR DYN IN PLACE TY");
         let dest_ty = destination.ty(local_decls).unwrap();
-        //debug!("lval ty: {:?}", dest_ty);
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
+        //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let ret_constraints = match co.const_.ty().kind() {
@@ -775,14 +777,47 @@ impl<'a> InterpPass<'a> {
         debug!("trying to resolve instance");
         debug!("fndef: {:?}", fndef);
         debug!("genargs: {:?}", genargs);
-        let instance = Instance::resolve(fndef, genargs).unwrap();
+        debug!("args: {:?}", args);
+        let instance = match Instance::resolve(fndef, genargs) {
+            Ok(instance_) => instance_,
+            Err(_) => {
+                // Support instances we can't resolve without more info
+                // (i.e. this is a declaration, not an implementation,
+                // We likely got here b/c we interpreted a trait func w a default implementation
+                // that calls a trait func without a default implementation)
+                //
+                // The "more info" being:
+                // - is this a trait method without an implementation?
+                // - if so, who implements it? execute those implementations
+                // This tends to be stuff that dynamic dispatch does for us anyway
+
+                //let trait_ = self.tstore.assoc_fn_traits.get(&fndef.0).unwrap();
+                //let structs = self.tstore.trait_structs.get(&trait_).unwrap();
+                //for struct_ in structs {
+                //    let impls = self.tstore.struct_assoc_fns.get(&(*struct_, fndef.0)).unwrap();
+                //    debug!("impls: {:?}", impls);
+                //}
+                return self.interp_virtual_call(
+                    logger,
+                    term_span,
+                    istore,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    &fndef,
+                    &genargs,
+                    args,
+                );
+            }
+        };
+
         let new_scope = (instance, genargs.clone());
         debug!("--- CALLING {:?}", fndef);
         log_scope(cur_scope);
         //debug!("FNDEF GENARGS: {:?}", genargs);
 
         if call_stack.contains(&new_scope) {
-            //debug!("recursive call (maybe)!");
+            debug!("\tpossible infinite call!");
             return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
@@ -810,7 +845,6 @@ impl<'a> InterpPass<'a> {
                     istore,
                     call_stack,
                     cur_scope,
-                    &new_scope,
                     local_decls,
                     &fndef,
                     &genargs,
@@ -857,6 +891,7 @@ impl<'a> InterpPass<'a> {
         debug!("genargs: {:?}", genargs);
 
         if cur_scope.0.has_body() {
+            debug!("HAS BODY");
             let body = self.get_body(cur_scope);
             self.prepare_call(call_stack, cur_scope);
             self.resolve_args(
@@ -873,6 +908,7 @@ impl<'a> InterpPass<'a> {
             self.visit_body(logger, istore, call_stack, cur_scope, &body)
         } else {
             // No body, so not visiting/updating call stack
+            debug!("NO BODY");
             self.retty_fallback_from_poly(fndef.fn_sig())
         }
     }
@@ -978,7 +1014,8 @@ impl<'a> InterpPass<'a> {
                 arg,
                 is_closure,
             );
-            debug!("resolved arg constraints: {:?}\n", arg_constraints);
+            debug!("resolved arg constraints: {:?}", arg_constraints);
+            debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
             new_substore.cmap.insert(
@@ -1158,15 +1195,15 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
-        callee_scope: &VOID,
-        cur_scope: &VOID,
+        caller_scope: &VOID,
+        //callee_scope: Option<VOID>,
         local_decls: &[LocalDecl],
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
         debug!("\nDYNAMIC CALL - fndef: {:?}\n", fndef);
-        log_scope(callee_scope);
+        log_scope(caller_scope);
         debug!("args: {:?}", args);
         debug!("genargs: {:?}", genargs);
 
@@ -1179,7 +1216,7 @@ impl<'a> InterpPass<'a> {
         // - istore (FSA) / tstore (CHA / RTA)
         // Get every concrete type constraint's impl of this function
         // - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
-        let assoc_fn_impls_cha = self.get_impls_cha(cur_scope, &fndef.0, &trait_defid);
+        let assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
         debug!(
             "CHA impls (len={:?}): {:?}",
             assoc_fn_impls_cha.len(),
@@ -1195,8 +1232,7 @@ impl<'a> InterpPass<'a> {
         let (is_closure, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
             istore,
             term_span,
-            callee_scope,
-            cur_scope,
+            caller_scope,
             &trait_defid,
             &fndef.0,
             args,
@@ -1221,18 +1257,20 @@ impl<'a> InterpPass<'a> {
         // Log CHA vs FSA diffs
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
+                fndef,
             );
             logger.update_diff(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         } else {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
+                fndef,
             );
             logger.update_same(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         }
@@ -1243,7 +1281,7 @@ impl<'a> InterpPass<'a> {
             term_span,
             istore,
             call_stack,
-            callee_scope,
+            caller_scope,
             local_decls,
             assoc_fn_impls_fsa,
             genargs,
@@ -1268,7 +1306,7 @@ impl<'a> InterpPass<'a> {
     /// For CHA, add the default implementation (if it exists) no matter what.
     fn get_impls_from_defids(
         &self,
-        _cur_scope: &VOID,
+        //_callee_scope: &VOID,
         assoc_fn_defid: &DefId,
         constraint_defids: &Vec<(DefId, Option<GenericArgs>)>,
         _fsa: bool,
@@ -1279,12 +1317,13 @@ impl<'a> InterpPass<'a> {
 
         // CHA-collected defid genargs are None, while FSA-collected defid genargs might be Some().
         // Get every concrete type constraint's impl of this function
-        for (_i, (defid, genargs)) in constraint_defids.iter().enumerate() {
-            //debug!("i: {:?}", i);
-            //debug!("defid: {:?}", defid);
-            //debug!("genargs: {:?}", genargs);
+        for (i, (defid, genargs)) in constraint_defids.iter().enumerate() {
+            debug!("i: {:?}", i);
+            debug!("defid: {:?}", defid);
+            debug!("genargs: {:?}", genargs);
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
                 Some(assoc_fn_impl) => {
+                    debug!("assoc_fn_impl: {:?}", assoc_fn_impl);
                     unique_append(
                         &mut assoc_fn_impls,
                         assoc_fn_impl
@@ -1297,7 +1336,7 @@ impl<'a> InterpPass<'a> {
                 None => {
                     if FnDef(*defid).body().is_some() {
                         // This is a callable item, push the impl defid
-                        //debug!("callable defid! {:?}", defid);
+                        debug!("callable defid! {:?}", defid);
                         unique_push(&mut assoc_fn_impls, (*defid, genargs.clone()));
                     }
                 }
@@ -1317,18 +1356,18 @@ impl<'a> InterpPass<'a> {
 
     fn get_impls_cha(
         &self,
-        cur_scope: &VOID,
+        //callee_scope: &VOID,
         assoc_fn_defid: &DefId,
         trait_defid: &DefId,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
         debug!("\n\nGETTING CHA IMPLS");
         let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
-        //debug!(
-        //    "constraint defids ({:?} total): {:?}",
-        //    constraint_defids.len(),
-        //    constraint_defids
-        //);
-        self.get_impls_from_defids(cur_scope, assoc_fn_defid, &constraint_defids, false)
+        debug!(
+            "constraint defids ({:?} total): {:?}",
+            constraint_defids.len(),
+            constraint_defids
+        );
+        self.get_impls_from_defids(assoc_fn_defid, &constraint_defids, false)
     }
 
     fn get_cha_tyconstraint_defids(
@@ -1349,8 +1388,8 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &InterpStore,
         term_span: &Span,
-        callee_scope: &VOID,
-        cur_scope: &VOID,
+        caller_scope: &VOID,
+        //callee_scope: &VOID,
         trait_defid: &DefId,
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
@@ -1358,7 +1397,7 @@ impl<'a> InterpPass<'a> {
         debug!("\n\nGETTING FSA IMPLS");
         let place = self.get_traitobj_place(args);
         debug!("traitobj place: {:?}", place);
-        let tyconstraints = self.get_fsa_tyconstraints(istore, callee_scope, place);
+        let tyconstraints = self.get_fsa_tyconstraints(istore, caller_scope, place);
         debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
@@ -1369,7 +1408,7 @@ impl<'a> InterpPass<'a> {
         );
         (
             is_closure,
-            self.get_impls_from_defids(cur_scope, assoc_fn_defid, &constraint_defids, true),
+            self.get_impls_from_defids(assoc_fn_defid, &constraint_defids, true),
         )
     }
 
@@ -1389,11 +1428,11 @@ impl<'a> InterpPass<'a> {
     fn get_fsa_tyconstraints(
         &self,
         istore: &InterpStore,
-        cur_scope: &VOID,
+        caller_scope: &VOID,
         place: Place,
     ) -> Constraints {
         // Get concrete type constraints for trait object
-        match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
+        match istore.scoped_get(caller_scope, &MapKey::Var(place.clone()), false) {
             Some(val) => match val {
                 MapValue::Constraints(tyconstraints) => tyconstraints,
                 MapValue::Store(..) => panic!("place {:?} refers to a scope", place),
@@ -1602,7 +1641,7 @@ impl<'a> InterpPass<'a> {
             let callee_scope = (instance, genargs.clone());
 
             if call_stack.contains(&callee_scope) {
-                debug!("recursive call (maybe)!");
+                debug!("\tpossible infinite call!");
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
             } else {
                 let mut istore_clone = istore.clone();

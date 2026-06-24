@@ -19,7 +19,6 @@ pub struct TraitStore {
     pub struct_assoc_fns: HashMap<(DefId, DefId), Vec<DefId>>,
     // HashMap<Trait, Vec<AssocFnDecl>>
     pub trait_fns: HashMap<DefId, Vec<DefId>>,
-    //// HashMap<(Trait, AssocFnDecl), AssocFnImpl>
     // HashMap<Trait, Vec<AssocFnImpl>>
     pub default_impls: HashMap<DefId, Vec<DefId>>,
 }

@@ -1,16 +1,23 @@
+//use crate::rustc_public_bridge::IndexedVal;
+//use rustc_public::DefId;
+use rustc_public::mir::Body;
+//use rustc_public::ty::AdtDef;
+
 use log::debug;
 
-use rustc_public::mir::Body;
-//use rustc_public::mir::mono::Instance;
-
 use crate::constraints::VOID;
+
+#[derive(Clone, Debug)]
+pub enum VerifOptType {
+    FlowSensitive,
+}
 
 pub fn log_scope(scope: &VOID) {
     debug!("CUR SCOPE: {:?}", scope.0.name()); //, scope);
 }
 
 pub fn log_call_stack(call_stack: &Vec<VOID>) {
-    debug!("CALL STACK\n[");
+    debug!("CALL STACK ({:?})\n[", call_stack.len());
     for instance in call_stack {
         debug!("\t{:?},", instance.0.name());
     }
@@ -56,10 +63,29 @@ pub fn log_mir(body: &Body) {
     */
 }
 
-#[derive(Clone, Debug)]
-pub enum VerifOptType {
-    FlowSensitive,
-}
+//pub fn is_wrapper_type(def: &AdtDef) -> bool {
+//    debug!("CHECKING IF DEFID IS A WRAPPER TYPE: {:?}", def);
+//
+//    // TODO extend to Option, Result, ...
+//    def.is_box() || is_option(&def.0)
+//}
+//
+//fn is_option(defid: &DefId) -> bool {
+//    let idx = defid.to_index();
+//    match idx {
+//        28539 => true,
+//        _ => false,
+//    }
+//}
+
+//fn is_box(defid: &DefId) -> bool {
+//    // FIXME why multiple defids for box?
+//    let idx = defid.to_index();
+//    match idx {
+//        11 | 12 | 14 | 18965 | 18968 | 18969 | 88530 | 88531 | 88533 | 88536 | 94645 => true,
+//        _ => false,
+//    }
+//}
 
 /*
 pub struct AnalysisContext<'tcx> {

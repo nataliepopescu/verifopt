@@ -1,2 +1,4 @@
 target
-log
+log.md
+stats
+*.mir

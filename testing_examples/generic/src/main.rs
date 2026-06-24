@@ -1,3 +1,5 @@
+use std::hint::black_box;
+
 trait Shape {
     fn area(&self) -> f32;
 }
@@ -13,7 +15,7 @@ struct Rect {
 
 impl Shape for Circle {
     fn area(&self) -> f32 {
-        3.14 * self.r.powi(2)
+        3.14 * self.r.powi(2) //as u32
     }
 }
 
@@ -34,13 +36,14 @@ fn foo<T: Shape>(s: &T) -> f32 {
 }
 
 fn main() {
-    let c = Circle { r: 2.0 };
+    let _c = Circle { r: 2.0 };
     let r = Rect { h: 3.0, w: 4.0 };
 
     noop();
     let res = foo(&r);
     noop();
+    black_box(res);
     //let res = foo(&c);
-    println!("res: {:?}", res);
+    //println!("res: {:?}", res);
 
 }

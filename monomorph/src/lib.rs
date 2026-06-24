@@ -21,7 +21,7 @@ pub mod convert;
 pub mod error;
 pub mod interp;
 pub mod logger;
-pub mod projection;
+//pub mod projection;
 pub mod rewrite;
 pub mod sig_collect;
 pub mod trait_collect;
@@ -37,29 +37,39 @@ use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     // TODO make log filename a cmdline option
-    let filename = "tool_effectiveness_log";
-    let mut logger = VOLogger::new(filename);
+    let f_filename = "found_ex";
+    let nf_filename = "notfound_ex";
+    let mut logger = VOLogger::new(f_filename, nf_filename);
 
-    let entry_fn = rustc_public::entry_fn().unwrap();
+    let entry_fn_opt = rustc_public::entry_fn();
+    if entry_fn_opt.is_none() {
+        panic!("no entry function");
+    }
+
+    let entry_fn = entry_fn_opt.unwrap();
     let entry_instance = Instance::try_from(entry_fn).unwrap();
 
-    // Collect function signatures for indirect calls
-    let mut sigstore = SigStore::new();
-    let sig_collect = SigCollectPass::new();
-    sig_collect.run(&mut sigstore);
-
     // Collect trait metadata
+    debug!("\n\nTRAIT PASS");
     let mut tstore = TraitStore::new();
     let trait_collect = TraitCollectPass::new();
     trait_collect.run(&mut tstore);
 
+    // Collect function signatures for indirect calls
+    debug!("\n\nSIG PASS");
+    let mut sigstore = SigStore::new();
+    let sig_collect = SigCollectPass::new(&tstore);
+    sig_collect.run(&mut sigstore);
+
     // Abstractly Interpret MIR
-    debug!("INTERP PASS");
+    debug!("\n\nINTERP PASS");
     let mut istore = InterpStore::new();
     let interp = InterpPass::new(&sigstore, &tstore);
     let _ = interp.run(&mut logger, &mut istore, entry_instance);
 
     // TODO Rewrite MIR
+
+    let _ = logger.log_stats();
 
     ControlFlow::Continue(())
 }

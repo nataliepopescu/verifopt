@@ -1,0 +1,6 @@
+[package]
+name = "casting_traitobj"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]

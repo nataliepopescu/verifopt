@@ -39,7 +39,7 @@ python tool.py -d <path>
 where `path` points to a single crate to search in. for example:
 
 ```sh
-python driver.py -d top_50_dl_crates/hashbrown-0.16.1
+python tool.py -d top_50_dl_crates/hashbrown-0.16.1
 ```
 
 ## Results

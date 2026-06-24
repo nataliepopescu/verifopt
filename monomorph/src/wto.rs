@@ -77,6 +77,7 @@ pub struct BBDeps {
     pub preds: HashMap<usize, Vec<usize>>,
     pub ordering: Vec<usize>,
     pub visited: Vec<usize>,
+    pub has_ret: bool,
 }
 
 impl BBDeps {
@@ -86,17 +87,18 @@ impl BBDeps {
             preds: HashMap::default(),
             ordering: Vec::new(),
             visited: Vec::new(),
+            has_ret: false,
         };
 
-        debug!("%%%%%");
-        debug!("total bbs: {:?}", body.blocks.len());
+        //debug!("%%%%%");
+        //debug!("total bbs: {:?}", body.blocks.len());
 
         // Get Successor edges
         for (bb, bb_data) in body.blocks.iter().enumerate() {
             bb_deps.get_deps(bb, bb_data);
         }
 
-        debug!("self.pred: {:?}", bb_deps.preds);
+        //debug!("self.pred: {:?}", bb_deps.preds);
 
         let mut ret_bb: usize = 0;
         let mut ret_set = false;
@@ -117,11 +119,17 @@ impl BBDeps {
                         unwind,
                     } => {
                         if let UnwindAction::Unreachable = unwind {
+                            //debug!("UNREACHABLE: {:?}", bbi);
                             return false;
                         }
-                        if let UnwindAction::Cleanup(_) = unwind {
-                            return false;
-                        }
+                        //if let UnwindAction::Continue = unwind {
+                        //    debug!("CONTINUE: {:?}", bbi);
+                        //    return false;
+                        //}
+                        //if let UnwindAction::Cleanup(_) = unwind {
+                        //    debug!("CLEANUP: {:?}", bbi);
+                        //    return false;
+                        //}
                     }
                     TerminatorKind::Unreachable => return false,
                     TerminatorKind::Resume => return false,
@@ -132,6 +140,7 @@ impl BBDeps {
                         if ret_set {
                             panic!("return block already visited");
                         }
+                        //debug!("RETURN: {:?}", bbi);
                         ret_bb = bbi.clone();
                         ret_found = true;
                         ret_set = true;
@@ -145,29 +154,31 @@ impl BBDeps {
             .collect();
 
         if !ret_found {
-            panic!("no return block?");
+            //debug!("no return block?");
+        } else {
+            bb_deps.has_ret = true;
         }
 
         // add return bb last
         bb_deps.ordering.push(ret_bb);
-        debug!("self.ordering: {:?}", bb_deps.ordering);
-        debug!("%%%%%");
+        //debug!("self.ordering: {:?}", bb_deps.ordering);
+        //debug!("%%%%%");
 
         bb_deps
     }
 
     fn reverse_postorder(&self) -> Vec<usize> {
         let mut rpo: Vec<_> = Postorder::new(&self.blocks, START_BLOCK).collect();
-        debug!("po: {:?}", rpo);
+        //debug!("po: {:?}", rpo);
         rpo.reverse();
-        debug!("rpo: {:?}", rpo);
+        //debug!("rpo: {:?}", rpo);
         rpo
     }
 
     pub fn prune(&mut self, _cur: usize, bb_root: usize) {
-        debug!("PRUNING from root basicblock: {:?}", bb_root);
-        debug!("self.preds: {:?}", self.preds);
-        debug!("self.ordering: {:?}", self.ordering);
+        //debug!("PRUNING from root basicblock: {:?}", bb_root);
+        //debug!("self.preds: {:?}", self.preds);
+        //debug!("self.ordering: {:?}", self.ordering);
 
         let mut to_remove = Vec::new();
         let mut worklist = Vec::new();
@@ -191,9 +202,9 @@ impl BBDeps {
 
         // update ordering
         self.ordering.retain(|x| !to_remove.contains(x));
-        debug!("self.preds: {:?}", self.preds);
-        debug!("to_remove: {:?}", to_remove);
-        debug!("self.ordering: {:?}", self.ordering);
+        //debug!("self.preds: {:?}", self.preds);
+        //debug!("to_remove: {:?}", to_remove);
+        //debug!("self.ordering: {:?}", self.ordering);
     }
 
     pub fn mark_visited(&mut self, bb: usize, cur_scope: &VOID) {
@@ -207,11 +218,11 @@ impl BBDeps {
         // what bbs is this bb a predecessor for?
         let successors: Vec<usize> = bb_data.terminator.successors().into_iter().collect();
         for successor in successors.iter() {
-            debug!("successor: {:?}", successor);
+            //debug!("successor: {:?}", successor);
             match self.preds.get_mut(successor) {
                 Some(preds_vec) => {
                     if preds_vec.contains(&bb) {
-                        debug!("skip adding (preds_vec already contains bb)");
+                        //debug!("skip adding (preds_vec already contains bb)");
                     } else {
                         preds_vec.push(bb);
                     }
@@ -228,22 +239,22 @@ impl BBDeps {
         let mut ordering = Vec::new();
 
         for (bb_key, preds_vec) in self.preds.iter() {
-            debug!("bb_key: {:?}", bb_key);
-            debug!("preds: {:?}", preds_vec);
+            //debug!("bb_key: {:?}", bb_key);
+            //debug!("preds: {:?}", preds_vec);
 
             for pred in preds_vec.iter() {
                 if !ordering.contains(pred) {
                     ordering.push(*pred);
-                    debug!("ordering: {:?}", ordering);
+                    //debug!("ordering: {:?}", ordering);
                 } else {
-                    debug!("ordering CONTAINS pred: {:?}", pred);
+                    //debug!("ordering CONTAINS pred: {:?}", pred);
                 }
             }
             if !ordering.contains(bb_key) {
                 ordering.push(*bb_key);
-                debug!("ordering: {:?}", ordering);
+                //debug!("ordering: {:?}", ordering);
             } else {
-                debug!("ordering CONTAINS key: {:?}", bb_key);
+                //debug!("ordering CONTAINS key: {:?}", bb_key);
             }
         }
 

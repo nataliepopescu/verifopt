@@ -38,6 +38,7 @@ fn main() {
         env_logger::Builder::new()
             .format(|buf, record| {
                 //writeln!(buf, "{}: {}", record.level(), record.args())
+                //writeln!(buf, "{}: {}", record.file().unwrap(), record.args())
                 writeln!(buf, "{}", record.args())
             })
             .parse_env(

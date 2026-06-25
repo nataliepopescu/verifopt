@@ -173,13 +173,13 @@ impl<'a> RvalConverter<'a> {
         match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
-                    //debug!("found constraints for place {:?}: {:?}", place, constraints);
-                    //debug!("checking field projection constraints.....");
+                    debug!("found constraints for place {:?}: {:?}", place, constraints);
+                    debug!("checking field projection constraints.....");
 
                     // FIXME implementation is similar to interp::resolve_arg()
                     match istore.field_map.get(&(place.clone(), cur_scope.clone())) {
                         Some(field_projections) => {
-                            //debug!("\n--FIELD projections: {:?}", field_projections);
+                            debug!("\n--FIELD projections: {:?}", field_projections);
 
                             let mut fields = Vec::new();
                             for field_proj in field_projections {
@@ -223,7 +223,7 @@ impl<'a> RvalConverter<'a> {
                             }
                         }
                         None => {
-                            //debug!("NO FIELD CONSTRAINTS");
+                            debug!("NO FIELD CONSTRAINTS");
                             (constraints, None)
                         }
                     }
@@ -231,10 +231,10 @@ impl<'a> RvalConverter<'a> {
                 _ => panic!("value should not be a scope"),
             },
             None => {
-                //debug!("place {:?} has not been set, widen to type", place);
-                //for proj in &place.projection {
-                //    //debug!("PROJ: {:?}", proj);
-                //}
+                debug!("place {:?} has not been set, widen to type", place);
+                for proj in &place.projection {
+                    debug!("PROJ: {:?}", proj);
+                }
                 let (_maybe_traitobj, constraint) = self.convert_ty(span, destty);
                 //debug!("constraint (from ty): {:?}", constraint);
                 //if let Some(traitobj) = maybe_traitobj {
@@ -380,6 +380,8 @@ impl<'a> RvalConverter<'a> {
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("CASTING existing place");
+                debug!("place: {:?}", place);
+
                 let (prev_constraints, maybe_fields) =
                     self.convert_place(istore, span, local_decls, cur_scope, place, ty);
                 debug!("FIELDS in CAST? {:?}", maybe_fields);
@@ -535,11 +537,12 @@ impl<'a> RvalConverter<'a> {
         kind: &AggregateKind,
         ops: &Vec<Operand>,
     ) -> (Constraints, Option<ADTFields>) {
+        debug!("AGG kind: {:?}", kind);
+        debug!("ops: {:?}", ops);
+        debug!("destty: {:?}", destty);
         match kind {
             AggregateKind::Adt(def, _variant_idx, genargs, _, _field_idx) => {
-                //debug!("ADT agg");
-                //debug!("ops: {:?}", ops);
-                //debug!("destty: {:?}", destty);
+                debug!("ADT agg");
                 //debug!("field_idx: {:?}", field_idx);
                 //let ty = def.ty_with_args(genargs);
                 //debug!("ty: {:?}", ty);
@@ -547,12 +550,12 @@ impl<'a> RvalConverter<'a> {
                 // Create projections here to simulate field initializers
                 let mut fields = Vec::new();
                 for (i, op) in ops.into_iter().enumerate() {
-                    //debug!("\n---op {:?}", i);
-                    let (op_constraints, _maybe_fields) =
+                    debug!("\n---op {:?}", i);
+                    let (op_constraints, maybe_fields) =
                         self.convert_op(istore, span, local_decls, cur_scope, op, destty);
-                    //debug!("op constraints: {:?}", op_constraints);
-                    // FIXME maybe_fields constraints are dropped
-                    //debug!("maybe_fields: {:?}", maybe_fields);
+                    debug!("op constraints: {:?}", op_constraints);
+                    // FIXME maybe_fields constraints are dropped (nested fields)
+                    debug!("maybe_fields: {:?}", maybe_fields);
 
                     let op_ty;
                     match op {
@@ -566,14 +569,14 @@ impl<'a> RvalConverter<'a> {
                     }
 
                     let proj = vec![ProjectionElem::Deref, ProjectionElem::Field(i, op_ty)];
-                    //debug!("PROJ: {:?}", proj);
+                    debug!("PROJ: {:?}", proj);
                     fields.push((
                         // obj deref + field access
                         proj,
                         // field constraints
                         op_constraints,
                     ));
-                    //debug!("---done op {:?}\n", i);
+                    debug!("---done op {:?}\n", i);
                 }
 
                 (
@@ -694,8 +697,8 @@ impl<'a> RvalConverter<'a> {
     }
 
     pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
-        debug!("CONVERTING TY");
-        debug!("ty: {:?}", ty);
+        //debug!("CONVERTING TY");
+        //debug!("ty: {:?}", ty);
 
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {

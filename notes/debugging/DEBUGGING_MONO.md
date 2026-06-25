@@ -566,8 +566,35 @@ FINAL (PULLED) CONSTRAINTS: [Constraint { toc: Some((TraitObjTy { def: TraitDef(
 - was not getting nested traitobj when converting ADT type
 
 
+now diff bug, in Box::new (after exchange_malloc)
+- not getting struct fields for Box
+
+- nor for NonNull
+    - even though an aggregate
+    - actually it is being stored upon assignment
+
+_3 = Cat
+_4 = NonNull<Cat>
+_5 = Unique<Cat>
+_0 = Box<Cat, Global>
+    - field 0: Unique<Cat> maintained
+
+- Unique also maintains fields (+ second Phantom field)
+
+problem: when the inside of a container is changed, not propagated to any of the
+things that might have that as a thing
+- so places should be able to point to other places...
+- i.e. a place == a ptr
+
+- maybe we should also store all intermediate projections?
+    - or, if an exact projection is not stored, can we search around somehow?
 
 
+back in main before speak()
+
+_11 = Cast(Transmute, Copy(((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>)), Ty { id: 77983, kind: RigidTy(RawPtr(Ty { id: 77996, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }, Not)) })
+
+"place ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) has not been set, widen to type"
 
 
 

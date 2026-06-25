@@ -49,7 +49,7 @@ impl Animal for Dog {
 fn main() {
     let x = 0;
     let animal = get_animal(x);
-    let cat = get_animal(0);
+    let _cat = get_animal(0);
     //let _animal_vtable = core::ptr::metadata(&*animal);
     //let _cat_vtable = core::ptr::metadata(&*cat);
     let res = animal.speak();

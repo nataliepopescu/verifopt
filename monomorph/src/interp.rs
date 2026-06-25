@@ -361,6 +361,8 @@ impl<'a> InterpPass<'a> {
                 );
 
                 if let Some(field_projections) = maybe_fields {
+                    debug!("STORING FIELD PROJECTIONS TOO: {:?}", field_projections);
+
                     // Store operand (field) constraints into projected places in istore
                     for field_proj in field_projections {
                         let final_op_constraints = self.pull_traitobjs_from_constraints(
@@ -747,9 +749,9 @@ impl<'a> InterpPass<'a> {
         };
 
         // Set destination local to value in cmap
-        //debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
-        //log_scope(cur_scope);
-        //debug!("destination: {:?}", destination);
+        debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
+        log_scope(cur_scope);
+        debug!("destination: {:?}", destination);
 
         match ret_constraints {
             Ok(Some(constraints_)) => {

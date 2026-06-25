@@ -4,7 +4,7 @@ use rustc_public::ty::{
 };
 use rustc_public::{CrateDefItems, DefId};
 
-use log::debug;
+//use log::debug;
 
 pub struct TraitVal {}
 
@@ -141,16 +141,20 @@ impl TraitCollectPass {
             // Add trait to list of traits that this struct impls
             match tstore.struct_traits.get_mut(&struct_defid) {
                 Some(trait_vec) => {
+                    //debug!("adding trait to existing vec: {:?}", trait_vec);
                     trait_vec.push(trait_defid);
                 }
                 None => {
+                    //debug!("init w trait");
                     tstore.struct_traits.insert(struct_defid, vec![trait_defid]);
                 }
             }
 
             // Add struct to list of structs that impl this trait
             match tstore.trait_structs.get_mut(&trait_defid) {
-                Some(struct_vec) => struct_vec.push(struct_defid),
+                Some(struct_vec) => {
+                    struct_vec.push(struct_defid);
+                }
                 None => {
                     tstore.trait_structs.insert(trait_defid, vec![struct_defid]);
                 }
@@ -188,7 +192,7 @@ impl TraitCollectPass {
                             if defaults.contains(missing) {
                                 assoc_fn_defids.push((**missing, **missing));
                             } else {
-                                debug!("NO DEFAULT!");
+                                //debug!("NO DEFAULT!");
                             }
                         }
                     }

@@ -522,6 +522,51 @@ going through:
     - AddressOf
     - Cast
 
+initial set has fields?
+    - constant
+
+### `two_variants_static` no longer get a win
+
+switchint pruning works
+
+constraint is incorrect
+
+returned constraints from Cat::new() is correct
+- Constraint { toc: None, cfc: Box<Cat, Global> }
+
+now in BB2
+- the cast is wrong: `_0 = move _2 as std::boxed::Box<dyn Animal> (PointerCoercion(Unsize, Implicit));`
+
+Cast(
+    PointerCoercion(Unsize), 
+    Move(_2), 
+    Ty {
+        id: 77990, 
+        kind: RigidTy(
+            Adt(
+                AdtDef(DefId { id: 21084, name: "std::boxed::Box" }),
+                GenericArgs([
+                    Type(Ty { id: 77997, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }),
+                    Type(Ty { id: 29, kind: RigidTy(Adt(AdtDef(DefId { id: 31158, name: "std::alloc::Global" }), GenericArgs([]))) })
+                ])
+            )
+        ) 
+    }
+)
+
+PRE CAST constraints: [Constraint { toc: None, cfc: Some(Adt(AdtDef(DefId { id: 21084, name: "std::boxed::Box" }), GenericArgs([Type(Ty { id: 0, kind: RigidTy(Adt(AdtDef(DefId { id: 20565, name: "two_variants_static::Cat" }), GenericArgs([]))) }), Type(Ty { id: 29, kind: RigidTy(Adt(AdtDef(DefId { id: 31158, name: "std::alloc::Global" }), GenericArgs([]))) })]))) }]
+- Box<Cat, Global>
+
+POST CAST ty: Constraint { toc: None, cfc: Some(Adt(AdtDef(DefId { id: 21084, name: "std::boxed::Box" }), GenericArgs([Type(Ty { id: 77996, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }), Type(Ty { id: 29, kind: RigidTy(Adt(AdtDef(DefId { id: 31158, name: "std::alloc::Global" }), GenericArgs([]))) })]))) }
+- Box<dyn Animal, Global>
+
+FINAL (PULLED) CONSTRAINTS: [Constraint { toc: Some((TraitObjTy { def: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), genargs: GenericArgs([]) }, Adt(AdtDef(DefId { id: 21084, name: "std::boxed::Box" }), GenericArgs([Type(Ty { id: 77996, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }), Type(Ty { id: 29, kind: RigidTy(Adt(AdtDef(DefId { id: 31158, name: "std::alloc::Global" }), GenericArgs([]))) })])))), cfc: Some(Adt(AdtDef(DefId { id: 21084, name: "std::boxed::Box" }), GenericArgs([Type(Ty { id: 77996, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }), Type(Ty { id: 29, kind: RigidTy(Adt(AdtDef(DefId { id: 31158, name: "std::alloc::Global" }), GenericArgs([]))) })]))) }]
+
+
+- was not getting nested traitobj when converting ADT type
+
+
+
 
 
 

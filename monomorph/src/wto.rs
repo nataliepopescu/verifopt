@@ -176,9 +176,8 @@ impl BBDeps {
     }
 
     pub fn prune(&mut self, _cur: usize, bb_root: usize) {
-        //debug!("PRUNING from root basicblock: {:?}", bb_root);
-        //debug!("self.preds: {:?}", self.preds);
-        //debug!("self.ordering: {:?}", self.ordering);
+        debug!("PRUNING from root basicblock: {:?}", bb_root);
+        //debug!("PRE self.ordering: {:?}", self.ordering);
 
         let mut to_remove = Vec::new();
         let mut worklist = Vec::new();
@@ -204,7 +203,7 @@ impl BBDeps {
         self.ordering.retain(|x| !to_remove.contains(x));
         //debug!("self.preds: {:?}", self.preds);
         //debug!("to_remove: {:?}", to_remove);
-        //debug!("self.ordering: {:?}", self.ordering);
+        //debug!("PST self.ordering: {:?}", self.ordering);
     }
 
     pub fn mark_visited(&mut self, bb: usize, cur_scope: &VOID) {

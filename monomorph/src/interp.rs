@@ -437,7 +437,20 @@ impl<'a> InterpPass<'a> {
             TerminatorKind::Assert { .. }
             | TerminatorKind::Drop { .. }
             | TerminatorKind::Goto { .. } => Ok(None),
-            _ => todo!("other term kind"),
+            iasm @ TerminatorKind::InlineAsm {
+                ..
+                //template,
+                //operands,
+                //options,
+                //line_spans,
+                //destination,
+                //unwind
+            } => {
+                debug!("iasm: {:#?}", iasm);
+                // TODO do not interp, try to get rettype
+                todo!("inline asm");
+            }
+            _ => todo!("other term kind: {:?}", &term.kind),
         }
     }
 

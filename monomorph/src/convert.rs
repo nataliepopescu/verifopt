@@ -14,7 +14,7 @@ use crate::constraints::{
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
 
-//use log::debug;
+use log::debug;
 
 pub struct RvalConverter<'a> {
     pub tstore: &'a TraitStore,
@@ -110,7 +110,7 @@ impl<'a> RvalConverter<'a> {
     }
 
     pub fn convert_const(&self, span: &Location, const_op: &ConstOperand) -> Constraints {
-        //debug!("CONVERTING CONST");
+        debug!("CONVERTING CONST");
         match const_op.const_.kind() {
             ConstantKind::Allocated(alloc) => match alloc.read_int() {
                 // FIXME
@@ -126,8 +126,11 @@ impl<'a> RvalConverter<'a> {
                                 )]
                             }
                             _ => {
-                                let (_maybe_traitobjty, constraint) =
+                                let (maybe_traitobjty, constraint) =
                                     self.convert_ty(span, &const_op.const_.ty());
+                                debug!("HERE");
+                                debug!("constraint: {:?}", constraint);
+                                debug!("maybe_traitobjty: {:?}", maybe_traitobjty);
                                 vec![constraint]
                             }
                         },
@@ -280,14 +283,14 @@ impl<'a> RvalConverter<'a> {
         traitobjtys: &Vec<TraitObjTy>,
         constraints: &Constraints,
     ) -> Constraints {
-        //debug!("CAST HELPER");
+        debug!("CAST HELPER");
         let mut new_constraints = Vec::new();
 
-        //debug!("\ntraitobjtys: {:?}", traitobjtys);
+        debug!("traitobjtys: {:?}\n", traitobjtys);
         for traitobjty in traitobjtys {
             for constraint in constraints {
-                //debug!("\ntraitobjty: {:?}", traitobjty);
-                //debug!("constraint: {:?}", constraint);
+                debug!("\ntraitobjty: {:?}", traitobjty);
+                debug!("constraint: {:?}", constraint);
                 match constraint {
                     Constraint {
                         toc: Some(_), //(tot, toc)),
@@ -295,6 +298,7 @@ impl<'a> RvalConverter<'a> {
                     } => {
                         //debug!("tot: {:?}", tot);
                         //debug!("toc: {:?}", toc);
+                        debug!("HERE");
 
                         // Push old constraint unchanged
                         unique_push(&mut new_constraints, constraint.clone());
@@ -306,13 +310,14 @@ impl<'a> RvalConverter<'a> {
                         // If no TOC but CFC exists, pull any CFC constraints that
                         // could be a traitobj for this traitobjty
                         let defid = self.get_defid_from_cfc(&cfc_);
-                        //debug!("DEFID: {:?}", defid);
+                        debug!("DEFID: {:?}", defid);
 
                         match self.tstore.struct_traits.get(&defid) {
                             Some(traits) => {
-                                //debug!("found traits");
+                                debug!("found traits");
                                 if traits.contains(&traitobjty.def.0) {
                                     // pull relevant CFC into TOC
+                                    debug!("HERE1");
                                     let new_constraint = Constraint::new(
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
@@ -320,6 +325,7 @@ impl<'a> RvalConverter<'a> {
                                     unique_push(&mut new_constraints, new_constraint);
                                 } else {
                                     // push old constraint unchanged
+                                    debug!("HERE2");
                                     unique_push(&mut new_constraints, constraint.clone());
                                 }
                             }
@@ -329,12 +335,14 @@ impl<'a> RvalConverter<'a> {
                                 // implemented and won't exist in our trait_store
                                 if constraint.is_cfc_closure() && traitobjty.is_fn_trait() {
                                     // Pull relevant CFC into TOC
+                                    debug!("HERE3");
                                     let new_constraint = Constraint::new(
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
                                     );
                                     unique_push(&mut new_constraints, new_constraint);
                                 } else {
+                                    todo!();
                                 }
                             }
                         }
@@ -371,17 +379,18 @@ impl<'a> RvalConverter<'a> {
                 (vec![constraint], None)
             }
             Operand::Copy(place) | Operand::Move(place) => {
-                //debug!("CASTING existing place");
+                debug!("CASTING existing place");
                 let (prev_constraints, maybe_fields) =
                     self.convert_place(istore, span, local_decls, cur_scope, place, ty);
-                //debug!("FIELDS in CAST? {:?}", maybe_fields);
+                debug!("FIELDS in CAST? {:?}", maybe_fields);
                 //if let Some(fields) = maybe_fields {
                 //    todo!("fields: {:?}", fields);
                 //}
 
-                //debug!("PRE CAST constraints: {:?}", prev_constraints);
+                debug!("PRE CAST constraints: {:?}", prev_constraints);
                 let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
-                //debug!("POST CAST ty: {:?}", post_constraint);
+                debug!("POST CAST ty: {:?}", post_constraint);
+                debug!("maybe_traitobj: {:?}", maybe_traitobj);
 
                 if let Some(traitobjtys) = maybe_traitobj {
                     (
@@ -685,8 +694,8 @@ impl<'a> RvalConverter<'a> {
     }
 
     pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
-        //debug!("CONVERTING TY");
-        //debug!("ty: {:?}", ty);
+        debug!("CONVERTING TY");
+        debug!("ty: {:?}", ty);
 
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
@@ -695,10 +704,34 @@ impl<'a> RvalConverter<'a> {
                     Constraint::new(None, Some(RunningConstraint::Scalar(None))),
                 ),
                 RigidTy::Float(_) => (None, Constraint::new(None, Some(RunningConstraint::Float))),
-                RigidTy::Adt(def, genargs) => (
-                    None,
-                    Constraint::new(None, Some(RunningConstraint::Adt(def, genargs))),
-                ),
+                RigidTy::Adt(def, genargs) => {
+                    let mut traitobjtys = Vec::new();
+                    for genarg in &genargs.0 {
+                        match genarg {
+                            GenericArgKind::Type(ty) => {
+                                let (tot, _) = self.convert_ty(span, &ty);
+                                match tot {
+                                    Some(tot) => unique_append(&mut traitobjtys, tot),
+                                    None => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if traitobjtys.is_empty() {
+                        debug!("NO TRAITOBJS");
+                        (
+                            None,
+                            Constraint::new(None, Some(RunningConstraint::Adt(def, genargs))),
+                        )
+                    } else {
+                        debug!("traitobjs!!!: {:?}", traitobjtys);
+                        (
+                            Some(traitobjtys),
+                            Constraint::new(None, Some(RunningConstraint::Adt(def, genargs))),
+                        )
+                    }
+                }
                 RigidTy::Tuple(ty_vec) => {
                     let mut inner = Vec::new();
                     let mut traitobj_vec = Vec::new();

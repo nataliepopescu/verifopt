@@ -18,12 +18,14 @@ use log::{debug, error};
 use crate::VOLogger;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ArgSet, Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge,
+    ArgSet, Constraint, Constraints, InterpStore, Location, MapKey, MapValue, 
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
 };
-use crate::constraints::{merge_stores, unique_append, unique_push};
+use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
 use crate::error::Error;
+use crate::merge::Merge;
+use crate::merge::merge_stores;
 use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
@@ -89,7 +91,7 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         istore: &mut InterpStore,
         start_instance: Instance,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         let start_scope = (start_instance, GenericArgs(vec![]));
         let mut call_stack = vec![start_scope.clone()];
 
@@ -124,7 +126,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         body: &Body,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         debug!("\n\n\n#############################");
         debug!(
             "###### INTERP-ING NEW BODY for func {:?}",
@@ -197,7 +199,7 @@ impl<'a> InterpPass<'a> {
         num_bbs: usize,
         bb: usize,
         data: &BasicBlock,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         //debug!("\n##########");
         debug!(
             "# visiting BASICBLOCK {:?} ({:?}/{:?}) for {:?}",
@@ -458,7 +460,7 @@ impl<'a> InterpPass<'a> {
         bb_deps: &mut BBDeps,
         bb: usize,
         term: &Terminator,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         debug!("TERM KIND: {:?}", &term.kind);
         match &term.kind {
             TerminatorKind::Call {
@@ -526,7 +528,7 @@ impl<'a> InterpPass<'a> {
         place: &Place,
         args: &Vec<Operand>,
         destination: &Place,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         //debug!("INTERPING INDIRECT CALL");
 
         //debug!("CHECKING FOR DYN IN PLACE TY");
@@ -535,7 +537,7 @@ impl<'a> InterpPass<'a> {
         //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-        let mut ret_constraints = Vec::new();
+        let mut ret_constraints = ConstraintsAndFields::new();
         match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
@@ -555,7 +557,7 @@ impl<'a> InterpPass<'a> {
                                 args,
                             ) {
                                 Ok(Some(constraints)) => {
-                                    unique_append(&mut ret_constraints, constraints)
+                                    ret_constraints.update(constraints);
                                 }
                                 Ok(None) => {}
                                 e @ Err(_) => {
@@ -579,7 +581,7 @@ impl<'a> InterpPass<'a> {
         //log_scope(cur_scope);
         //debug!("destination: {:?}", destination);
         let constraints =
-            self.pull_traitobjs_from_constraints(&maybe_trait_destty, ret_constraints);
+            self.pull_traitobjs_from_constraints(&maybe_trait_destty, ret_constraints.constraints);
         istore.scoped_update(
             cur_scope,
             MapKey::Var(destination.clone()),
@@ -599,7 +601,7 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         constraint: &RunningConstraint,
         args: &Vec<Operand>,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         match constraint {
             RunningConstraint::FnDef(fndef, genargs) => self.interp_fn_def(
                 logger,
@@ -647,7 +649,7 @@ impl<'a> InterpPass<'a> {
         _local_decls: &[LocalDecl],
         sigval: &SigVal,
         _args: &Vec<Operand>,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         //debug!("INTERPING FN PTR");
         //debug!("sigval!: {:?}", sigval);
         match self.sigstore.sigs.get(&sigval) {
@@ -709,7 +711,7 @@ impl<'a> InterpPass<'a> {
         cdef: ClosureDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         //debug!("INTERPING CLOSURE");
         //debug!("cdef: {:?}", cdef);
         //debug!("args: {:?}", args);
@@ -779,7 +781,7 @@ impl<'a> InterpPass<'a> {
         co: &ConstOperand,
         args: &Vec<Operand>,
         destination: &Place,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         debug!("DIRECT CALL");
 
         //debug!("CHECKING FOR DYN IN PLACE TY");
@@ -828,8 +830,8 @@ impl<'a> InterpPass<'a> {
             Ok(Some(constraints_)) => {
                 // Make sure that if we're widening the concrete type of a function's return value
                 // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
-                let constraints =
-                    self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints_);
+                let constraints = self
+                    .pull_traitobjs_from_constraints(&maybe_trait_destty, constraints_.constraints);
                 //debug!(
                 //    "SETTING CONSTRAINTS to local {:?}: \n\t{:?}",
                 //    destination.local, constraints
@@ -839,6 +841,11 @@ impl<'a> InterpPass<'a> {
                     MapKey::Var(destination.clone()),
                     Box::new(MapValue::Constraints(constraints)),
                 );
+
+                // Propagate field projections by getting projections from the return value in the
+                // CALLEE's scope
+                //match self.istore.field_map(
+                todo!("fields: {:?}", constraints_.fields);
             }
             Ok(None) => {}
             err @ Err(Error::RecurseLimit(_)) => return err,
@@ -859,7 +866,7 @@ impl<'a> InterpPass<'a> {
         fndef: FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         debug!("trying to resolve instance");
         debug!("fndef: {:?}", fndef);
         debug!("genargs: {:?}", genargs);
@@ -1381,25 +1388,33 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
+    fn retty_fallback_from_poly(
+        &self,
+        sig: PolyFnSig,
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         //debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         //debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
-        let ret_constraints = vec![];
-        Ok(Some(ret_constraints))
+        //let ret_constraints = vec![];
+        todo!();
+        //Ok(Some(ret_constraints))
     }
 
-    fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
+    fn retty_fallback_from_sigval(
+        &self,
+        sigval: &SigVal,
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         //debug!("sigval: {:?}", sigval);
         if !sigval.bound_tys.is_empty() {
             todo!();
         }
 
         // Return output type that matches type info (widening)
-        let ret_constraints = vec![];
-        Ok(Some(ret_constraints))
+        //let ret_constraints = vec![];
+        todo!();
+        //Ok(Some(ret_constraints))
     }
 
     /// Interpret dynamic dispatch.
@@ -1424,7 +1439,7 @@ impl<'a> InterpPass<'a> {
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         debug!("\nDYNAMIC CALL - fndef: {:?}\n", fndef);
         log_scope(caller_scope);
         debug!("args: {:?}", args);
@@ -1823,8 +1838,8 @@ impl<'a> InterpPass<'a> {
         method_genargs: &GenericArgs,
         args: &Vec<Operand>,
         is_closure: bool,
-    ) -> Result<Option<Constraints>, Error> {
-        let mut results = Vec::<Option<Constraints>>::new();
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
+        let mut results = Vec::<Option<ConstraintsAndFields>>::new();
         let mut istore_vec = Vec::new();
 
         debug!("\nSIMULATING STATIC CALL(S)");
@@ -1960,10 +1975,10 @@ impl<'a> InterpPass<'a> {
 
     fn merge_results_and_ret(
         &self,
-        results: &mut Vec<Option<Constraints>>,
-    ) -> Result<Option<Constraints>, Error> {
+        results: &mut Vec<Option<ConstraintsAndFields>>,
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         // Filter out None constraints and unwrap all Some options
-        let filtered_results: Vec<Constraints> = results
+        let filtered_results: Vec<ConstraintsAndFields> = results
             .into_iter()
             .filter(|option| option.is_some())
             .map(|x| x.clone().unwrap())
@@ -1987,7 +2002,7 @@ impl<'a> InterpPass<'a> {
         bb_deps: &mut BBDeps,
         discr: &Operand,
         targets: &SwitchTargets,
-    ) -> Result<Option<Constraints>, Error> {
+    ) -> Result<Option<ConstraintsAndFields>, Error> {
         //debug!("SWITCHINT");
         //debug!("discr: {:?}", discr);
         //debug!("targets: {:?}", targets);

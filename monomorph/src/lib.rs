@@ -23,6 +23,7 @@ pub mod convert;
 pub mod error;
 pub mod interp;
 pub mod logger;
+pub mod merge;
 //pub mod projection;
 pub mod rewrite;
 pub mod sig_collect;

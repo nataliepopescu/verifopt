@@ -1,8 +1,8 @@
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, ProjectionElem, Statement,
-    StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
+    BasicBlock, Body, ConstOperand, LocalDecl, Operand, Place, Statement, StatementKind,
+    Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
@@ -360,22 +360,21 @@ impl<'a> InterpPass<'a> {
                     Box::new(MapValue::Constraints(final_constraints)),
                 );
 
-                if let Some(field_projections) = maybe_fields {
-                    debug!("STORING FIELD PROJECTIONS TOO: {:?}", field_projections);
+                if let Some(field_places) = maybe_fields {
+                    debug!("STORING FIELD PROJECTIONS TOO: {:?}", field_places);
 
                     // Store operand (field) constraints into projected places in istore
-                    for field_proj in field_projections {
+                    for field_place in field_places {
                         let final_op_constraints = self.pull_traitobjs_from_constraints(
                             &maybe_trait_destty,
-                            field_proj.1.clone(),
+                            field_place.1.clone(),
                         );
                         let field_place = Place {
                             local: place.local,
-                            projection: field_proj.0.clone(),
+                            projection: field_place.0.clone(),
                         };
 
-                        istore
-                            .link_adt_field(&(place.clone(), cur_scope.clone()), &field_proj.0[1]);
+                        istore.link_adt_field(&(place.clone(), cur_scope.clone()), &field_place);
 
                         istore.scoped_update(
                             cur_scope,
@@ -1080,13 +1079,9 @@ impl<'a> InterpPass<'a> {
                     Some(constraints) => {
                         // Get any field projections
                         match istore.field_map.get(&(place.clone(), caller_scope.clone())) {
-                            Some(field_projections) => {
+                            Some(field_places) => {
                                 let mut fields = Vec::new();
-                                for field_proj in field_projections {
-                                    let field_place = Place {
-                                        local: place.local,
-                                        projection: vec![ProjectionElem::Deref, field_proj.clone()],
-                                    };
+                                for field_place in field_places {
                                     match self.get_place_constraints(
                                         istore,
                                         caller_scope,

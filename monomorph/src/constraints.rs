@@ -11,7 +11,7 @@ use crate::error::Error;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-//use log::debug;
+use log::debug;
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -194,14 +194,15 @@ impl TraitObjTy {
 
 // These should only be Field ProjectionElems. The convention is that any time one of these
 // field projections is used, it will be prepended by a Deref ProjectionElem
-pub type FieldProjections = Vec<ProjectionElem>;
+//pub type FieldProjections = Vec<ProjectionElem>;
+//pub type FieldPlace = Place;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InterpStore {
     pub cmap: HashMap<MapKey, Box<MapValue>>,
     pub wtos: HashMap<VOID, BBDeps>,
     // Map ADT places to their field places (projections) which have constraints in cmap
-    pub field_map: HashMap<(Place, VOID), FieldProjections>,
+    pub field_map: HashMap<(Place, VOID), Vec<Place>>,
 }
 
 impl InterpStore {
@@ -216,47 +217,30 @@ impl InterpStore {
     pub fn link_adt_field(
         &mut self,
         adt_place_and_scope: &(Place, VOID),
-        field_proj: &ProjectionElem,
+        field_place: &Place, //roj: &ProjectionElem,
     ) {
-        //debug!("\nLINKING FIELD");
-        match self.field_map.get_mut(adt_place_and_scope) {
-            Some(field_projections) => {
-                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("old field projections: {:?}", field_projections);
-                //debug!("new field projection: {:?}", field_proj);
+        debug!("\nLINKING FIELD");
+        debug!("new_field_place: {:?}", field_place);
 
-                let mut new_field_projections = Vec::new();
-                for old_field_proj in field_projections.clone() {
-                    // If this field projection is not an exact match, check the field idx - if
-                    // that already exists in our fields, then overwrite with the new type
-                    //debug!("old_field_proj: {:?}", old_field_proj);
-                    match (old_field_proj.clone(), field_proj) {
-                        (
-                            ProjectionElem::Field(old_idx, _old_ty),
-                            ProjectionElem::Field(new_idx, _new_ty),
-                        ) => {
-                            // Same FieldIdx, update type
-                            if *new_idx == old_idx {
-                                //debug!("REPLACE OLD");
-                                new_field_projections.push(field_proj.clone());
-                            // Different FieldIdx, keep type
-                            } else {
-                                //debug!("RETAIN OLD + ADD NEW");
-                                unique_push(&mut new_field_projections, old_field_proj.clone());
-                                unique_push(&mut new_field_projections, field_proj.clone());
-                            }
-                        }
-                        _ => panic!("unexpected projection"),
-                    }
+        match self.field_map.get_mut(adt_place_and_scope) {
+            Some(field_places) => {
+                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
+                //debug!("old field projections: {:?}", field_places);
+                //debug!("new field projection: {:?}", field_place);
+
+                let mut new_field_places = Vec::new();
+                for old_field_place in field_places.clone() {
+                    unique_push(&mut new_field_places, old_field_place.clone());
+                    unique_push(&mut new_field_places, field_place.clone());
                 }
-                //debug!("NEW FIELD PROJECTIONS: {:?}", new_field_projections);
-                *field_projections = new_field_projections;
+                debug!("NEW FIELD PROJECTIONS: {:?}", new_field_places);
+                *field_places = new_field_places;
             }
             None => {
                 //debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("new field projection: {:?}", field_proj);
+                //debug!("new field projection: {:?}", field_place);
                 self.field_map
-                    .insert(adt_place_and_scope.clone(), vec![field_proj.clone()]);
+                    .insert(adt_place_and_scope.clone(), vec![field_place.clone()]);
             }
         }
     }

@@ -178,21 +178,20 @@ impl<'a> RvalConverter<'a> {
 
                     // FIXME implementation is similar to interp::resolve_arg()
                     match istore.field_map.get(&(place.clone(), cur_scope.clone())) {
-                        Some(field_projections) => {
-                            debug!("\n--FIELD projections: {:?}", field_projections);
+                        Some(field_places) => {
+                            debug!("\n--FIELD projections: {:?}", field_places);
 
                             let mut fields = Vec::new();
-                            for field_proj in field_projections {
-                                let field_ty = match field_proj {
+                            for field_place in field_places {
+                                debug!("field_place: {:?}", field_place);
+                                debug!("projs: {:?}", field_place.projection);
+                                let field_ty = match field_place.projection
+                                    [field_place.projection.len() - 1]
+                                {
                                     ProjectionElem::Field(_, ty) => ty,
-                                    _ => panic!("unexpected proj elem: {:?}", field_proj),
+                                    _ => todo!(),
                                 };
-                                //debug!("\nfield_proj: {:?}", field_proj);
-                                let proj = vec![ProjectionElem::Deref, field_proj.clone()];
-                                let field_place = Place {
-                                    local: place.local,
-                                    projection: proj.clone(),
-                                };
+
                                 // get each field constraints
                                 let (field_constraints, field_fields) = self.convert_place(
                                     istore,
@@ -200,7 +199,7 @@ impl<'a> RvalConverter<'a> {
                                     local_decls,
                                     cur_scope,
                                     &field_place,
-                                    field_ty,
+                                    &field_ty,
                                 );
                                 //debug!("[ConvertPlace] field_constraints: {:?}", field_constraints);
                                 if field_fields.is_some() {
@@ -210,12 +209,12 @@ impl<'a> RvalConverter<'a> {
                                 // push into vec
                                 fields.push((
                                     // full projection
-                                    proj,
+                                    field_place.projection.clone(),
                                     // field constraints
                                     field_constraints,
                                 ))
                             }
-                            //debug!("\n--DONE FIELD projections: {:?}\n", field_projections);
+                            //debug!("\n--DONE FIELD places: {:?}\n", field_places);
                             if fields.is_empty() {
                                 (constraints, None)
                             } else {

@@ -190,6 +190,10 @@ Propagate field projections when
 Casting
 - Unlikely (?) that types are cast into ADTs (current assumption)
 
+TODO intermediate projections
+- intuition: if assign to a place with some projection, could feasibly access
+  any intermediate projection on that projection path that place as well
+
 #### Re-assigning Place w Projections (via converter)
 
 

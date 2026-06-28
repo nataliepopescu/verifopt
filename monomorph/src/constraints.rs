@@ -59,13 +59,27 @@ pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 pub struct ConstraintsAndFields {
     pub constraints: Vec<Constraint>,
     pub fields: Vec<Place>,
+    pub scope: VOID,
 }
 
 impl ConstraintsAndFields {
-    pub fn new() -> ConstraintsAndFields {
+    pub fn new(
+        constraints: Vec<Constraint>,
+        fields: Vec<Place>,
+        scope: VOID,
+    ) -> ConstraintsAndFields {
+        Self {
+            constraints,
+            fields,
+            scope,
+        }
+    }
+
+    pub fn empty(scope: VOID) -> ConstraintsAndFields {
         Self {
             constraints: Vec::new(),
             fields: Vec::new(),
+            scope,
         }
     }
 

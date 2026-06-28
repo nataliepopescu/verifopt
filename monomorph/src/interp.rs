@@ -480,7 +480,7 @@ impl<'a> InterpPass<'a> {
         //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-        let mut ret_constraints = ConstraintsAndFields::new();
+        let mut ret_constraints = ConstraintsAndFields::empty(cur_scope.clone());
         match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
@@ -761,21 +761,40 @@ impl<'a> InterpPass<'a> {
             Ok(Some(constraints_)) => {
                 // Make sure that if we're widening the concrete type of a function's return value
                 // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
-                let constraints = self
-                    .pull_traitobjs_from_constraints(&maybe_trait_destty, constraints_.constraints);
-                //debug!(
-                //    "SETTING CONSTRAINTS to local {:?}: \n\t{:?}",
-                //    destination.local, constraints
-                //);
+                let constraints = self.pull_traitobjs_from_constraints(
+                    &maybe_trait_destty,
+                    constraints_.constraints.clone(),
+                );
                 istore.scoped_update(
                     cur_scope,
                     MapKey::Var(destination.clone()),
                     Box::new(MapValue::Constraints(constraints)),
                 );
 
-                // Propagate field projections by getting projections from the return value in the
-                // CALLEE's scope
-                //match self.istore.field_map(
+                // Propagate field projections by getting projections from the return value in the CALLEE's scope
+                debug!("constraints.constraints: {:?}", constraints_.constraints);
+                for field in &constraints_.fields {
+                    debug!("field: {:?}", field);
+                    match istore
+                        .field_map
+                        .get(&(field.clone(), constraints_.scope.clone()))
+                    {
+                        Some(places) => {
+                            for place in places {
+                                debug!("place: {:?}", place);
+                                let field_constraints = istore
+                                    .scoped_get(
+                                        &constraints_.scope,
+                                        &MapKey::Var(field.clone()),
+                                        false,
+                                    )
+                                    .unwrap();
+                                debug!("field constraints: {:?}", field_constraints);
+                            }
+                        }
+                        None => todo!("ruh roh"),
+                    }
+                }
                 todo!("fields: {:?}", constraints_.fields);
             }
             Ok(None) => {}
@@ -1947,6 +1966,11 @@ impl<'a> InterpPass<'a> {
             local: 0,
             projection: vec![],
         };
+        let projections = istore
+            .field_map
+            .get(&(ret_place.clone(), cur_scope.clone()))
+            .unwrap();
+        debug!("projections?: {:?}", projections);
 
         // Get and "return" the constraints at Place(0)
         match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
@@ -1954,8 +1978,11 @@ impl<'a> InterpPass<'a> {
                 MapValue::Constraints(retval_constraints) => {
                     debug!("\n###### RETURNING constraints:");
                     debug!("\t{:?}\n\n", retval_constraints);
-                    todo!();
-                    //Ok(Some(retval_constraints))
+                    Ok(Some(ConstraintsAndFields::new(
+                        retval_constraints,
+                        projections.to_vec(),
+                        old_scope.clone().unwrap(),
+                    )))
                 }
                 _ => panic!("should not be returning a scope"),
             },

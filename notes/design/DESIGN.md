@@ -1,11 +1,68 @@
 # Design Doc
 
+## State
+
+```rust
+use rustc_public::mir::mono::Instance;
+use rustc_public::ty::GenericArgs;
+
+// VOID = VerifOpt ID
+type VOID = (Instance, GenericArgs);
+
+// Callers
+type EnclosingScopes = Option<Vec<VOID>>;
+
+struct InterpStore {
+  constraint_map: HashMap<MapKey, Box<MapValue>>,
+  field_map: HashMap<(Place, VOID), Vec<Place>>,
+  memoized_bb_orders: HashMap<VOID, Vec<BasicBlock>>,
+}
+
+enum MapKey {
+  Var(Place),
+  Scope(VOID),
+}
+
+enum MapValue {
+  Store(InterpStore, EnclosingScopes),
+  Constraints(Constraints),
+}
+
+impl InterpStore {
+    // TODO
+    fn link_adt_fields(&mut self, adt_scoped_place: &(Place, VOID), field: &Place) {
+        // if adt_scoped_place exists in field_map:
+        // - update w field place
+        // else:
+        // - initialize w field place
+    }
+
+    fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
+        // get store @ scope
+        // in store, get constraints @ key
+        // if closure, get in enclosing scope
+    }
+
+    fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
+        // get store @ scope
+        // in store, merge existing key's value with new value + set
+    }
+}
+```
+
 ## Modeling constraints
 
 ```rust
 type Constraints = Vec<Constraint>;
 
-type Constraint = (TraitObjConstraint, RunningConstraint);
+struct Constraint = {
+    traitobj: TraitObj, 
+    running: RunningConstraint,
+}
+
+type TraitObj = (TraitObjTy, TraitObjConstraint);
+
+type TraitObjTy = (TraitDef, GenericArgs);
 
 enum TraitObjConstraint {
     Adt(...),
@@ -22,7 +79,7 @@ enum RunningConstraint {
     FnDef(...),
     FnPtr(...),
     // other
-    Idk(...),
+    Other(...),
 }
 ```
 
@@ -59,20 +116,29 @@ trade-off tracking type-constraints (even if not dyn) vs not
 
 ### High-level Structure/Interactions of `TraitObjTy`s and `TraitObjConstraint`s
 
-TODO
+portion of constraints that associates any concrete constraints with a
+particular trait object
 
-#### How to get `TraitObjConstraint`s
+if an lval contains a `dyn`, will need to pull out fitting concrete constraints
+from `RunningConstraints`
+- lval can even contain a nested `dyn`, doesn't need to be top-level
+- still probe rval constraints for concrete types that are implementors of the
+  relevant trait
 
-everything can *potentially* flow into a traitobj
+TODO This design can also support nesting trait objects, e.g. `Box<dyn X<dyn Y>>` via (TraitObj would have to be a Vec)... but no evidence yet that this is necessary for Rust programs
+
+#### How to get `TraitObj`s
+
+when interpreting a program, must treat everything as if it might later flow into a traitobj
 
 it is important for `RunningConstraint`s to be kept accurate, because they are
-what ultimately flow into `TraitObjConstraint`s
+what would ultimately flow into `TraitObjConstraint`s
 - keep accurate without modeling/applying casts/projections
 
 if you have accurate `RunningConstraint`s, it is relatively
 straightforward to pull out `TraitObjConstraint`s
 - this needs to happen whenever changing a concrete type to a dynamic type (this is visible _in the type system_)
-- i.e. in the following places:
+- i.e. in the following places (things w lvals!):
     - when a function returns a traitobj
         - the actual retval may be concrete, while the type of destination place/var is dynamic
     - when a function takes in a traitobj
@@ -167,16 +233,25 @@ straightforward
 - if char/string/never, nothing
 
 
-## Getting Trait Object implementations
 
-### Closures
+## Interpretation
+
+### Context
+
+### Overall structure
+
+TODO
+
+### Getting Trait Object implementations
+
+#### Closures
 
 Implicitly implement Fn* traits, so don't show up in our collected set of traits
 in the trait store
 - but when we need to execute one of the `call*` functions for the Fn* traits,
   just interpret the closure body instead
 
-### Field Projections
+#### Field Projections
 
 Making map keys _places_ instead of _locals_ to maintain projection/field
 information
@@ -194,11 +269,11 @@ TODO intermediate projections
 - intuition: if assign to a place with some projection, could feasibly access
   any intermediate projection on that projection path that place as well
 
-#### Re-assigning Place w Projections (via converter)
+##### Re-assigning Place w Projections (via converter)
 
 
 
-## Default Trait Method Implementations
+### Default Trait Method Implementations
 
 Only resolve to default implementation is _had_ candidate objects but none of
 those have an associated method implementation of their own
@@ -237,6 +312,23 @@ Interpretating the default impl path
 
 
 
+
+
+
+
+
+## Clarifications / TODOs (for impl / cleaner design)
+
+- if an Instance is already monomorphized, why does VOID also need to include
+  generic args? shouldn't the Instance be enough?
+
+- EnclosingScopes (i.e. callers) can be used for call-site specialization
+    - maybe, each substore can specific to a *single* enclosing scope
+    - if identical bodies/substores, can merge -> vec<EnclosingScope>
+    - (impl)
+
+- wrap store operations in a cleaner API to encapsulate the dyn/traitobj +
+  projections complexity
 
 
 

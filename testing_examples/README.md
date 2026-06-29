@@ -46,45 +46,60 @@ FSA (1): [(DefId { id: 20565, name: "<casting_traitobj::Cat as casting_traitobj:
 - [x] default
 - [x] fnptrs
 - [x] generic
-- [x] one_variant
+- [ ] one_variant
+    - convert todo
 - [ ] rand_
-    - todo!() interp.rs:440
+    - inline asm (not handled yet)
 - [x] recursive
 - [x] shims
 - [x] switchint
-- [x] two_variants
-- [x] two_variants_rand
-- [x] two_variants_static
-- [x] two_variants_static_nonzst
+- [ ] two_variants
+    - convert todo
+- [ ] two_variants_rand
+    - inline asm (not handled yet)
+- [ ] two_variants_static
+    - convert todo
+- [ ] two_variants_static_nonzst
+    - convert todo
 
 ### Analyze fully/correctly
 
+#### Dyn Dispatch
+
 - [x] casting_traitobj
+    - FSA win!
+- [ ] one_variant
+    - convert todo
+- [ ] two_variants
+    - not really anything else to analyze b/c input cannot be statically known...
+    - convert todo
+- [ ] two_variants_rand
+    - inline asm (not handled yet)
+    - not really anything else to analyze otherwise b/c rand cannot be statically known...
+    - inline asm (not handled yet)
+- [ ] two_variants_static
+    - convert todo
+    - should be FSA win
+- [ ] two_variants_static_nonzst
+    - convert todo
+    - should be FSA win
+
+#### General Tool Dev/Debugging (No Dyn Dispatch)
+
 - [x] closures
-    - no dyn dispatch
 - [x] default
-    - no dyn dispatch
 - [x] fnptrs
 - [x] generic
     - Rect fields are not stored b/c specific to the Rect const allocation layout (maybe this is generalizable but have not yet thought about this)
-- [x] one_variant
 - [ ] rand_
-    - not really anything else to analyze
+    - inline asm (not handled yet)
+    - not really anything else to analyze otherwise
 - [x] recursive
-    - no dyn dispatch
-- [ ] shims
+- [x] shims
     - the candidate list of fns for the fnptr w the signature i32 -> i32 is too
       large, so we are currently falling back to return types
     - ideally we can narrow down this list a lot
     - the actual `add_one` value is assigned in a static, which we do not yet
       currently traverse
 - [x] switchint
-- [x] two_variants
-    - not really anything else to analyze b/c input cannot be statically known...
-- [ ] two_variants_rand
-    - todo!() interp.rs:440
-    - not really anything else to analyze b/c rand cannot be statically known...
-- [ ] two_variants_static
-    - bug!
-- [ ] two_variants_static_nonzst
-    - bug!
+

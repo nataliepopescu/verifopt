@@ -1,6 +1,26 @@
 # VerifOpt Design
 
-## State
+## Overview
+
+Dynamic dispatch exists to solve the problem of not knowing which concrete type
+a trait object might be at runtime, and thus not knowing which concrete
+implementation of a function to call. 
+
+Abstractly interpreting a program allows us to gather sets of possible
+concrete type constraints for each (trait)object, which enables transforming
+a dynamic dispatch call into a set of one of more static calls.
+
+VerifOpt operates in largely three phases: 
+- preprocess
+    - gather information needed in later phases
+- interpret
+    - flow-sensitive abstract interpretation -> collect all _reachable_ type
+      constraints for any given object
+- rewrite
+    - transform dynamic dispatch sites into a switch-table of static calls,
+      using constraints from the interpret phase
+
+## Interpreter State
 
 ```rust
 use rustc_public::mir::mono::Instance;
@@ -29,7 +49,6 @@ enum MapValue {
 }
 
 impl InterpStore {
-    // TODO
     fn link_adt_fields(&mut self, adt_scoped_place: &(Place, VOID), field: &Place) {
         // if adt_scoped_place exists in field_map:
         // - update w field place
@@ -176,8 +195,97 @@ constraints like so:
 }]
 ```
 
+These constraints are stored in the constraint map for MapKey::Var(Place { 0 }),
+and VerifOpt then proceeds to interpret the next statement or block. 
+
 ## Interpretation
 
+### General VerifOpt Flow
+
+Starting from the entry function specified by `rustc_public::entry_fn()`,
+VerifOpt traverses/interprets the MIR body. The blocks in each MIR body are
+interpreted in reverse-postorder, such that blocks are interpreted before any
+of their successor blocks are interpreted (TODO except for loops). This ensures
+that all variable dependencies are fulfilled, i.e. that an operation requiring
+constraints for some variable will have at least *some* constraints to work with
+(TODO loops will likely iteratively update these constraints).
+
+Each block in an MIR body has zero-or-more statements and a terminator.
+Statements can be of varioius kinds (e.g. storage markers, nops). VerifOpt only
+concerns itself with assignment statements, which affect the store in the
+currently-interpreting scope.
+
+motivate/explain why ignoring other statement kinds
+- setdiscriminant?
+    - might be useful if static info to reap
+- intrinsic?
+    - i.e. copy_nonoverlapping + assume
+- place mention?
+    - might need to interp (e.g. `let _ = expr` - don't want to ignore expr)
+- fakeread - seems to just be for the borrow checker
+- retag - seems to just be for memory model checkers
+- ascribe user type - used alongside type checking
+- coverage - for instrumentation
+- constevalcounter - for the compiler
+
+Similarly, there are several kinds of terminators. VerifOpt examines the
+following:
+- switchint
+    - can prune basic blocks based on statically-known information
+- call
+- return
+    - set retval (constraints) from callee scope back into caller scope
+- inlineasm? (coarsely)
+    - TODO
+- assert?
+    - TODO could give us more info
+
+Control flow in terminators are taken into account when prescribing the MIR body reverse-postorder. 
+
+Terminators that signal an error path (resume, abort, unreachable) are ignored as those
+will not return to a non-error path (execution/interpretation would diverge) and thus will not affect any subsequent dynamic dispatches in the non-error path.
+
+Storage-relevant terminators (drop) are also ignored as VerifOpt does not
+track/model (stack or heap) memory.
+
+### Function Calls
+
+Function calls can be:
+- direct (via constant)
+- indirect (via variable/constraint)
+- static
+- dynamic
+- via closures
+- via fn ptrs
+- intrinsics
+
+[Note: not sure the direct/indirect distinction is useful right now, but thats
+how the implementation is set up]
+
+All function calls largely follow this pattern:
+- get the (monomorphized) target MIR function body
+- resolve argument constraints (copy from caller to callee scope)
+- interpret body in new scope
+
+The difference is how each path decides which target MIR to get (i.e. how call graphs are resolved): 
+- static
+    - known constant, straightforward resolution to a monomorphized instance
+- closure 
+    - indirect only (via variable/constraint)
+- fnptr
+    - can be direct or indirect
+- intrinsics
+    - no MIR to interpret, set retval constraints to the return type of the intrinsic function
+
+#### Resolving Dynamic Function Call Targets
+
+TODO
+
+
+
+#### Misc
+
+TODO trait default implementations
 
 
 
@@ -186,8 +294,9 @@ constraints like so:
 
 
 
+## Rewriting
 
-
+TODO
 
 ## In-Flux Design Decisions
 
@@ -200,4 +309,8 @@ What to store for RunningConstraints
     - more precise variants (store even if match type system info)
         - more to track/interpret
         - potentially(?) greater info
+
+How do loops affect WTO/reverse post-order interpretation of blocks?
+
+Other statement kinds?
 

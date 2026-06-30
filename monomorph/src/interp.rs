@@ -415,21 +415,19 @@ impl<'a> InterpPass<'a> {
                     Box::new(MapValue::Constraints(final_constraints)),
                 );
 
-                if let Some(field_places) = maybe_fields {
-                    debug!("STORING FIELD PROJECTIONS TOO: {:?}", field_places);
+                if let Some(fields) = maybe_fields {
+                    debug!("STORING FIELD PROJECTIONS TOO: {:?}", fields);
 
                     // Store operand (field) constraints into projected places in istore
-                    for field_place in field_places {
-                        let final_op_constraints = self.pull_traitobjs_from_constraints(
-                            &maybe_trait_destty,
-                            field_place.1.clone(),
-                        );
+                    let mut field_places = Vec::new();
+                    for field in fields {
+                        let final_op_constraints = self
+                            .pull_traitobjs_from_constraints(&maybe_trait_destty, field.1.clone());
                         let field_place = Place {
                             local: place.local,
-                            projection: field_place.0.clone(),
+                            projection: field.0.clone(),
                         };
-
-                        istore.link_adt_field(&(place.clone(), cur_scope.clone()), &field_place);
+                        field_places.push(field_place.clone());
 
                         istore.scoped_update(
                             cur_scope,
@@ -437,6 +435,7 @@ impl<'a> InterpPass<'a> {
                             Box::new(MapValue::Constraints(final_op_constraints)),
                         );
                     }
+                    istore.link_adt_field(cur_scope, place, &field_places);
                 }
             }
             StatementKind::FakeRead(_, _)
@@ -827,13 +826,14 @@ impl<'a> InterpPass<'a> {
         debug!("destination: {:?}", destination);
 
         match ret_constraints {
-            Ok(Some(constraints_)) => {
+            Ok(Some(mut constraints_)) => {
                 // Make sure that if we're widening the concrete type of a function's return value
                 // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
                 let constraints = self.pull_traitobjs_from_constraints(
                     &maybe_trait_destty,
                     constraints_.constraints.clone(),
                 );
+                constraints_.constraints = constraints.clone();
                 istore.scoped_update(
                     cur_scope,
                     MapKey::Var(destination.clone()),
@@ -844,11 +844,9 @@ impl<'a> InterpPass<'a> {
                 debug!("constraints.constraints: {:?}", constraints_.constraints);
                 for field in &constraints_.fields {
                     debug!("field: {:?}", field);
-                    match istore
-                        .field_map
-                        .get(&(field.clone(), constraints_.scope.clone()))
+                    match istore.scoped_field_get(&constraints_.scope, &MapKey::Var(field.clone()))
                     {
-                        Some(places) => {
+                        Some(MapFieldValue::Fields(places)) => {
                             for place in places {
                                 debug!("place: {:?}", place);
                                 let field_constraints = istore
@@ -861,6 +859,7 @@ impl<'a> InterpPass<'a> {
                                 debug!("field constraints: {:?}", field_constraints);
                             }
                         }
+                        Some(_) => panic!("got store"),
                         None => todo!("ruh roh"),
                     }
                 }
@@ -1317,8 +1316,8 @@ impl<'a> InterpPass<'a> {
                 ) {
                     Some(constraints) => {
                         // Get any field projections
-                        match istore.field_map.get(&(place.clone(), caller_scope.clone())) {
-                            Some(field_places) => {
+                        match istore.scoped_field_get(caller_scope, &MapKey::Var(place.clone())) {
+                            Some(MapFieldValue::Fields(field_places)) => {
                                 let mut fields = Vec::new();
                                 for field_place in field_places {
                                     match self.get_place_constraints(
@@ -1350,6 +1349,7 @@ impl<'a> InterpPass<'a> {
                                     (constraints, Some(fields))
                                 }
                             }
+                            Some(_) => panic!("got a store"),
                             None => {
                                 //debug!("NO FIELDS @ ({:?}, {:?})", place, caller_scope);
                                 (constraints, None)
@@ -2245,10 +2245,26 @@ impl<'a> InterpPass<'a> {
             projection: vec![],
         };
         let projections = istore
-            .field_map
-            .get(&(ret_place.clone(), cur_scope.clone()))
+            .scoped_field_get(cur_scope, &MapKey::Var(ret_place.clone()))
             .unwrap();
         debug!("projections?: {:?}", projections);
+        if let MapFieldValue::Fields(field_places) = projections {
+            // Get and "return" the constraints at Place(0)
+            match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
+                Some(retval) => match retval {
+                    MapValue::Constraints(retval_constraints) => {
+                        debug!("\n###### RETURNING constraints:");
+                        debug!("\t{:?}\n\n", retval_constraints);
+                        Ok(Some(ConstraintsAndFields::new(
+                            retval_constraints,
+                            field_places,
+                            old_scope.clone().unwrap(),
+                        )))
+                    }
+                    _ => panic!("should not be returning a scope"),
+                },
+                None => {
+                    // TODO Double check that nothing _needs_ to be returned (for interp correctness)
 
         // Get and "return" the constraints at Place(0)
         let retval = match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
@@ -2324,6 +2340,8 @@ impl<'a> InterpPass<'a> {
                 *self.rec_depth.borrow_mut() -= 1;
                 return res;
             }
+        } else {
+            panic!();
         }
         *self.rec_depth.borrow_mut() -= 1;
 

@@ -8,8 +8,8 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Location, MapKey, MapValue, RunningConstraint,
-    TraitObjConstraint, TraitObjTy, VOID,
+    ADTFields, Constraint, Constraints, Location, MapFieldValue, MapKey, MapValue,
+    RunningConstraint, TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -196,8 +196,8 @@ impl<'a> RvalConverter<'a> {
                     debug!("checking field projection constraints.....");
 
                     // FIXME implementation is similar to interp::resolve_arg()
-                    match istore.field_map.get(&(place.clone(), cur_scope.clone())) {
-                        Some(field_places) => {
+                    match istore.scoped_field_get(cur_scope, &MapKey::Var(place.clone())) {
+                        Some(MapFieldValue::Fields(field_places)) => {
                             debug!("\n--FIELD projections: {:?}", field_places);
 
                             let mut fields = Vec::new();
@@ -240,6 +240,7 @@ impl<'a> RvalConverter<'a> {
                                 (constraints, Some(fields))
                             }
                         }
+                        Some(MapFieldValue::Store(_)) => panic!("got store"),
                         None => {
                             debug!("NO FIELD CONSTRAINTS");
                             (constraints, None)

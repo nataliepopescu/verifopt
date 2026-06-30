@@ -58,6 +58,12 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapFieldValue {
+    Store(InterpStore),
+    Fields(Vec<Place>),
+}
+
 pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -386,12 +392,21 @@ impl InterpStore {
 
     pub fn link_adt_field(
         &mut self,
-        adt_place_and_scope: &(Place, VOID),
-        field_place: &Place, //roj: &ProjectionElem,
+        //adt_place_and_scope: &(Place, VOID),
+        scope: &VOID,
+        place: &Place,
+        new_field_places: &Vec<Place>, //proj: &ProjectionElem,
     ) {
         debug!("\nLINKING FIELD");
-        debug!("new_field_place: {:?}", field_place);
+        debug!("new_field_places: {:?}", new_field_places);
 
+        self.scoped_field_update(
+            scope,
+            MapKey::Var(place.clone()),
+            Box::new(MapFieldValue::Fields(new_field_places.to_vec())),
+        );
+
+        /*
         match self.field_map.get_mut(adt_place_and_scope) {
             Some(field_places) => {
                 //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
@@ -413,6 +428,7 @@ impl InterpStore {
                     .insert(adt_place_and_scope.clone(), vec![field_place.clone()]);
             }
         }
+        */
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
@@ -485,6 +501,19 @@ impl InterpStore {
         all_constraints
     }
 
+    pub fn scoped_field_get(&self, scope: &VOID, key: &MapKey) -> Option<MapFieldValue> {
+        match self.field_map.get(&MapKey::ScopeId(scope.clone())) {
+            Some(vartype) => match *vartype.clone() {
+                MapFieldValue::Store(store) => match store.field_map.get(key) {
+                    Some(boxed) => Some(*boxed.clone()),
+                    None => None,
+                },
+                _ => panic!("not a scope: {:?}", scope),
+            },
+            None => None,
+        }
+    }
+
     pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
         let (scope, key) = match key {
             MapKey::Var(place) => {
@@ -514,6 +543,37 @@ impl InterpStore {
                     );
                 }
                 MapValue::Constraints(..) => {
+                    panic!("defid is not a scope: {:?}", scope);
+                }
+            },
+            None => panic!("undefined scope: {:?}", scope),
+        }
+    }
+
+    pub fn scoped_field_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapFieldValue>) {
+        match self.field_map.get(&MapKey::ScopeId(scope.clone())) {
+            Some(vartype) => match *vartype.clone() {
+                MapFieldValue::Store(mut store) => {
+                    let new_val = value.clone();
+                    let old_val = store.cmap.get(&key);
+                    match old_val {
+                        Some(old_val_) => {
+                            debug!("old val: {:?}", old_val_);
+                            debug!("new val: {:?}", new_val);
+                            todo!();
+                            //new_val = Box::new(merge_mapvals(old_val_, &value));
+                        }
+                        None => {}
+                    }
+
+                    // modify scope w new key/val
+                    store.field_map.insert(key, new_val);
+                    self.field_map.insert(
+                        MapKey::ScopeId(scope.clone()),
+                        Box::new(MapFieldValue::Store(store)),
+                    );
+                }
+                MapFieldValue::Fields(..) => {
                     panic!("defid is not a scope: {:?}", scope);
                 }
             },

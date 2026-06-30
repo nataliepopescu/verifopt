@@ -258,6 +258,7 @@ Function calls can be:
 - via closures
 - via fn ptrs
 - intrinsics
+- recursive
 
 [Note: not sure the direct/indirect distinction is useful right now, but thats
 how the implementation is set up]
@@ -270,6 +271,9 @@ All function calls largely follow this pattern:
 The difference is how each path decides which target MIR to get (i.e. how call graphs are resolved): 
 - static
     - known constant, straightforward resolution to a monomorphized instance
+- dynamic
+    - direct only
+    - unknown targets, use constraints (explained more below)
 - closure 
     - indirect only (via variable/constraint)
 - fnptr
@@ -279,13 +283,52 @@ The difference is how each path decides which target MIR to get (i.e. how call g
 
 #### Resolving Dynamic Function Call Targets
 
+Dynamic call targets are resolved largely by getting the relevant trait for the 
+current trait object, getting the concrete type constraints collected for the
+current trait object (located at the first argument to the virtual function)
+and collating each concrete type's implementation of the virtual function. This 
+makes the set of concrete call targets that FSA has resolved the virtual call to. 
+
+More precisely, dynamic call targets are resolved via the following (pseudo-code) 
+algorithm:
+
+```rust
+fn resolve_dynamic_targets(&self, traitobj: &Place, virt_func_id: &DefId) -> Vec<DefId> {
+    let impl_ids = Vec::new();
+
+    // get associated trait
+    let trait_id = self.trait_store.fns_to_traits.get(virt_func_id).unwrap();
+
+    // get traitobj current type constraints
+    let traitobj_constraints = self.constraint_store.get(traitobj).unwrap();
+
+    // get concrete implementation for each type constraint
+    for toc in traitobj_constraints {
+        impl_ids.push(self.trait_store.concrete_impls((toc, virt_func_id)).unwrap();
+    }
+
+    impl_ids
+}
+```
+
+TODO excluding GenericArgs, leave out or include?
+
+If FSA does not have enough information to determine any concrete
+implementations, then VerifOpt falls back to TODO technique for getting the
+target set. 
+
+Once the concrete/static call targets have been determined, VerifOpt loops
+through static invocation of each of them, as if the dynamic call was already
+transformed into a switch statement of static calls. 
+
+After this loop, both the InterpStores and result constraints should be merged
+into singular objects, so the separately-updated stores can exist in a single
+place and the virtual function can simulate returning a single result. Then
+execution proceeds as normal. 
+
+#### Recursive Calls
+
 TODO
-
-
-
-#### Misc
-
-TODO trait default implementations
 
 
 

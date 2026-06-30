@@ -384,7 +384,10 @@ impl<'a> InterpPass<'a> {
                     }
                 }
             }
-            _ => {}
+            StatementKind::FakeRead(_, _)
+            | StatementKind::StorageLive(_)
+            | StatementKind::StorageDead(_) => {}
+            _ => todo!("new statement kind: {:?}", &stmt.kind),
         }
     }
 
@@ -1510,8 +1513,10 @@ impl<'a> InterpPass<'a> {
             // looking inside CFC?
             Constraint {
                 toc: None,
-                cfc: Some(cfc),
+                cfc: Some(_cfc),
             } => {
+                todo!("TOC not correctly populated");
+                /*
                 match cfc {
                     RunningConstraint::Adt(adtdef, genargs) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
@@ -1526,6 +1531,7 @@ impl<'a> InterpPass<'a> {
                     RunningConstraint::Dynamic(_) => (false, vec![]),
                     _ => todo!("{:?}", cfc),
                 }
+                */
             }
             _ => {
                 panic!("no constraints");

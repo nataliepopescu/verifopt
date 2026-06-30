@@ -1,7 +1,7 @@
-use crate::constraints::unique_append;
 use crate::constraints::{
-    Constraints, ConstraintsAndFields, EnclosingScopes, InterpStore, MapValue,
+    Constraints, ConstraintsAndFields, EnclosingScopes, Fields, InterpStore, MapValue,
 };
+use crate::constraints::{unique_append, unique_push};
 use crate::error::Error;
 
 //use log::debug;
@@ -124,8 +124,50 @@ impl Merge<Constraints> for Vec<Constraints> {
     }
 }
 
+impl Merge<Fields> for Vec<Fields> {
+    fn merge(&self) -> Result<Option<Fields>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        todo!();
+    }
+}
+
 impl Merge<ConstraintsAndFields> for Vec<ConstraintsAndFields> {
     fn merge(&self) -> Result<Option<ConstraintsAndFields>, Error> {
-        todo!();
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut constraints = Vec::new();
+        let mut fields = Vec::new();
+        for caf in self.iter() {
+            unique_push(&mut constraints, caf.constraints.clone());
+            unique_push(&mut fields, caf.fields.clone());
+        }
+        let m_constraints = match constraints.merge() {
+            Ok(Some(merged)) => merged,
+            Ok(None) => todo!(),
+            _ => panic!(),
+        };
+        let m_fields = match fields.merge() {
+            Ok(Some(merged)) => merged,
+            Ok(None) => todo!(),
+            _ => panic!(),
+        };
+        Ok(Some(ConstraintsAndFields::new(
+            m_constraints,
+            m_fields,
+            self[0].scope.clone(),
+        )))
     }
 }

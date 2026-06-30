@@ -66,17 +66,20 @@ pub enum MapFieldValue {
 
 pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 
+pub type Fields = Vec<Field>;
+pub type Field = Place;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConstraintsAndFields {
     pub constraints: Vec<Constraint>,
-    pub fields: Vec<Place>,
+    pub fields: Vec<Field>,
     pub scope: VOID,
 }
 
 impl ConstraintsAndFields {
     pub fn new(
         constraints: Vec<Constraint>,
-        fields: Vec<Place>,
+        fields: Vec<Field>,
         scope: VOID,
     ) -> ConstraintsAndFields {
         Self {
@@ -390,13 +393,7 @@ impl InterpStore {
         cur
     }
 
-    pub fn link_adt_field(
-        &mut self,
-        //adt_place_and_scope: &(Place, VOID),
-        scope: &VOID,
-        place: &Place,
-        new_field_places: &Vec<Place>, //proj: &ProjectionElem,
-    ) {
+    pub fn link_adt_field(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
         debug!("\nLINKING FIELD");
         debug!("new_field_places: {:?}", new_field_places);
 

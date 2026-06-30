@@ -863,7 +863,15 @@ impl<'a> InterpPass<'a> {
                         None => todo!("ruh roh"),
                     }
                 }
-                todo!("fields: {:?}", constraints_.fields);
+                if constraints_.fields.is_empty() {
+                    return Ok(Some(ConstraintsAndFields::new(
+                        constraints_.constraints,
+                        vec![],
+                        constraints_.scope,
+                    )));
+                } else {
+                    todo!("fields: {:?}", constraints_.fields);
+                }
             }
             Ok(None) => {}
             err @ Err(Error::RecurseLimit(_)) => return err,
@@ -2244,27 +2252,16 @@ impl<'a> InterpPass<'a> {
             local: 0,
             projection: vec![],
         };
-        let projections = istore
-            .scoped_field_get(cur_scope, &MapKey::Var(ret_place.clone()))
-            .unwrap();
-        debug!("projections?: {:?}", projections);
-        if let MapFieldValue::Fields(field_places) = projections {
-            // Get and "return" the constraints at Place(0)
-            match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
-                Some(retval) => match retval {
-                    MapValue::Constraints(retval_constraints) => {
-                        debug!("\n###### RETURNING constraints:");
-                        debug!("\t{:?}\n\n", retval_constraints);
-                        Ok(Some(ConstraintsAndFields::new(
-                            retval_constraints,
-                            field_places,
-                            old_scope.clone().unwrap(),
-                        )))
-                    }
-                    _ => panic!("should not be returning a scope"),
-                },
-                None => {
-                    // TODO Double check that nothing _needs_ to be returned (for interp correctness)
+        // Get and "return" the constraints at Place(0)
+        match istore.scoped_get(
+            &old_scope.clone().unwrap(),
+            &MapKey::Var(ret_place.clone()),
+            false,
+        ) {
+            Some(retval) => match retval {
+                MapValue::Constraints(retval_constraints) => {
+                    debug!("\n###### RETURNING constraints:");
+                    debug!("\t{:?}\n\n", retval_constraints);
 
         // Get and "return" the constraints at Place(0)
         let retval = match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
@@ -2340,8 +2337,6 @@ impl<'a> InterpPass<'a> {
                 *self.rec_depth.borrow_mut() -= 1;
                 return res;
             }
-        } else {
-            panic!();
         }
         *self.rec_depth.borrow_mut() -= 1;
 

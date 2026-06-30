@@ -308,6 +308,45 @@ Interpretating the default impl path
   traits?) - TODO
 
 
+### Recursive Calls
+
+function summaries data structure
+- each entry consists of the following:
+    - function
+    - precise argument constraints
+    - maybe result constraints
+        - if result constraints exist -> this is a full entry
+        - if no constraints -> this is a partial entry
+
+- same functions w diff arg constraints = different entries in table
+- cap number of same-function versions at some point (~50), at which point we'd
+  fall back to the return type
+
+say we are interpreting f(a, b, c) where
+- a constraints = {A1, A2}
+- b constraints = {B}
+- c constraints = {C1, C2, C4}
+
+later in the function hit another call to f(...) (at line 3)
+- case 1:
+    - hit in func summaries table + full entry => use resolved result constraints
+- case 2: 
+    - miss in func summaries table, meaning we are calling the same function 
+      (still recursive) but with _different_ argument constraints
+- case 3:
+    - hit in func summaries table + partial entry: 
+        - add current line/skipped fn to work queue
+        - use return _types_ for initial estimate
+        - finish current function analysis w this estimate
+        - then, when done analyzing the function, process the work queue, which 
+          will either refine the result constraints of the function OR hit a fixpoint
+
+work queue example: 
+- rerun line 3 w newly updated constraints (found in function summaries table)
+
+guaranteed fixpoint b/c finite set of constraint combinations
+- not true with integers, for example
+
 
 
 

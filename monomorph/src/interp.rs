@@ -34,8 +34,10 @@ pub struct InterpPass<'a> {
     pub converter: RvalConverter<'a>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>)>>>,
     pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
-    pub finalized: RefCell<HashSet<SummaryKey>>,
+    pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
+    pub dispatch_targets: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
+    pub dispatch_cha: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
 }
 
 impl<'a> InterpPass<'a> {
@@ -46,8 +48,10 @@ impl<'a> InterpPass<'a> {
             converter: RvalConverter::new(tstore),
             wq: HashMap::new().into(),
             summaries: HashMap::new().into(),
-            finalized: HashSet::new().into(),
+            in_queue: HashSet::new().into(),
             key_stack: Vec::new().into(),
+            dispatch_targets: HashMap::new().into(),
+            dispatch_cha: HashMap::new().into(),
         }
     }
 
@@ -912,7 +916,6 @@ impl<'a> InterpPass<'a> {
 
             let cur_key = self.key_stack.borrow().last().cloned().unwrap();
 
-            let widened = widen_scalars(&new_cs);
             self.wq
                 .borrow_mut()
                 .entry(cur_key)
@@ -1430,7 +1433,6 @@ impl<'a> InterpPass<'a> {
                 assoc_fn_impls_fsa.len(),
                 fndef,
             );
-            logger.update_diff(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         } else {
             debug!(
                 "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\n",
@@ -1439,9 +1441,22 @@ impl<'a> InterpPass<'a> {
                 assoc_fn_impls_fsa.len(),
                 fndef,
             );
-            logger.update_same(term_span, &assoc_fn_impls_cha, &assoc_fn_impls_fsa);
         }
         debug!("term_span: {:?}", term_span);
+
+        self.dispatch_cha
+            .borrow_mut()
+            .entry(*term_span)
+            .or_insert_with(|| assoc_fn_impls_cha.clone());
+
+        // collect possible calls (mostly for recursion)
+        let mut dt = self.dispatch_targets.borrow_mut();
+        let entry = dt.entry(*term_span).or_default();
+        for f in &assoc_fn_impls_fsa {
+            if !entry.contains(f) {
+                entry.push(f.clone());
+            }
+        }
 
         self.simulate_static_calls(
             logger,
@@ -2155,16 +2170,14 @@ impl<'a> InterpPass<'a> {
 
         let queued = self.wq.borrow_mut().remove(&key).unwrap_or_default();
 
-        if self.finalized.borrow().contains(&key) || queued.is_empty() {
+        if self.in_queue.borrow().contains(&key) || queued.is_empty() {
             // use summary version OR
             // no recursive calls, no recursed interp needed
             return Ok(retval);
         }
 
-        // about to be finalized
-        self.finalized.borrow_mut().insert(key.clone());
-
-        let prev = logger.set_reinterp(true);
+        // about to be queueing, set to prevent infinite recursion
+        self.in_queue.borrow_mut().insert(key.clone());
 
         for (scope, constraints) in queued {
             debug!("\treinterp queued recursive {:?}", scope.0.name());
@@ -2177,7 +2190,6 @@ impl<'a> InterpPass<'a> {
         self.prepare_call(call_stack, &key);
         let res = self.visit_body(logger, istore, call_stack, cur_scope, &body);
 
-        logger.set_reinterp(prev);
         res
     }
 }

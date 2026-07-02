@@ -198,22 +198,21 @@ impl TraitObjTy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArgSet {
-    pub args: HashSet<Constraints>,
+    pub args: Vec<HashSet<Constraint>>,
 }
 
 impl ArgSet {
     pub fn new(constraints: &[Constraints]) -> Self {
-        let mut args = HashSet::new();
-
-        for cs in constraints {
-            let filtered = cs
-                .iter()
-                .filter(|c| !is_scalar(c))
-                .cloned()
-                .collect();
-
-            args.insert(filtered);
-        }
+        let args = constraints
+            .iter()
+            .map(|cs| {
+                cs
+                    .iter()
+                    .filter(|c| !is_scalar(c))
+                    .cloned()
+                    .collect::<HashSet<Constraint>>()
+            })
+            .collect();
 
         ArgSet { args }
     }
@@ -221,15 +220,17 @@ impl ArgSet {
 
 impl Hash for ArgSet {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let mut acc: u64 = 0;
+        for arg in &self.args {
+            let mut acc: u64 = 0;
 
-        for c in &self.args {
-            let mut h = DefaultHasher::new();
-            c.hash(&mut h);
-            acc = acc.wrapping_add(h.finish());
+            for c in arg {
+                let mut h = DefaultHasher::new();
+                c.hash(&mut h);
+                acc = acc.wrapping_add(h.finish());
+            }
+
+            acc.hash(state);
         }
-
-        acc.hash(state);
     }
 }
 

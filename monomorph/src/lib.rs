@@ -69,7 +69,10 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
 
     // TODO Rewrite MIR
 
-    let _ = logger.log_stats();
+    let _ = logger.log_stats(
+        &interp.dispatch_targets.borrow(),
+        &interp.dispatch_cha.borrow(),
+    );
 
     ControlFlow::Continue(())
 }

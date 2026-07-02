@@ -45,23 +45,24 @@ fn alternate(n: usize, cur: &dyn Animal, other: &dyn Animal) -> usize {
     }
 }
 
-// second path which only carries bird
+// second path which only carries one animal
 #[inline(never)]
-fn only_bird(n: usize, b: &dyn Animal) -> usize {
-    let here = b.speak();
+fn retain(n: usize, fixed: &dyn Animal) -> usize {
+    let here = fixed.speak();
     match n {
         0 => here,
-        _ => here + only_bird(n - 1, b),
+        _ => here + retain(n - 1, fixed),
     }
 }
 
 fn main() {
     let cat = Cat {};
-    let dog = Fish {};
+    let fish = Fish {};
     let bird = Bird {};
 
-    let a = alternate(3, &cat as &dyn Animal, &dog as &dyn Animal); // -> Cat
-    let b = only_bird(2, &bird as &dyn Animal); // -> Bird
+    let b = alternate(3, &fish as &dyn Animal, &cat as &dyn Animal); // -> Fish
+    let a = alternate(3, &cat as &dyn Animal, &fish as &dyn Animal); // -> Cat
+    let c = retain(2, &bird as &dyn Animal); // -> Bird
 
-    black_box(a + b);
+    black_box(a + b + c);
 }

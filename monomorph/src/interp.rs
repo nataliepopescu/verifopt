@@ -864,7 +864,8 @@ impl<'a> InterpPass<'a> {
         log_scope(cur_scope);
         //debug!("FNDEF GENARGS: {:?}", genargs);
 
-        if call_stack.len() > MAX_DEPTH {
+        // Want to allow non-recursive stack depths of > 50
+        if call_stack.contains(&new_scope) && call_stack.len() > MAX_DEPTH {
             debug!("depth limit ({}) reached while recursing", MAX_DEPTH);
             return self.retty_fallback_from_poly(fndef.fn_sig());
         }
@@ -1386,7 +1387,12 @@ impl<'a> InterpPass<'a> {
         // - istore (FSA) / tstore (CHA / RTA)
         // Get every concrete type constraint's impl of this function
         // - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
-        let assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
+        let assoc_fn_impls_cha;
+        if let Some(cha_impls) = self.dispatch_cha.borrow().get(term_span) {
+            assoc_fn_impls_cha = cha_impls.clone();
+        } else {
+            assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
+        }
         debug!(
             "CHA impls (len={:?}): {:?}",
             assoc_fn_impls_cha.len(),

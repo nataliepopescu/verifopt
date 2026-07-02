@@ -1,5 +1,6 @@
 use crate::constraints::{
-    Constraints, ConstraintsAndFields, EnclosingScopes, Fields, InterpStore, MapValue,
+    ConstraintStore, Constraints, ConstraintsAndFields, Context, EnclosingScopes, FieldStore,
+    Fields, MapValue,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::error::Error;
@@ -7,11 +8,11 @@ use crate::error::Error;
 //use log::debug;
 
 pub fn merge_stores(
-    cur_store: &InterpStore,
+    cur_store: &ConstraintStore,
     cur_es: &EnclosingScopes,
-    new_store: &InterpStore,
+    new_store: &ConstraintStore,
     new_es: &EnclosingScopes,
-) -> (InterpStore, EnclosingScopes) {
+) -> (ConstraintStore, EnclosingScopes) {
     let merged_es = match (cur_es, new_es) {
         (Some(cur_es_vec), Some(new_es_vec)) => {
             let mut merged_es_vec = cur_es_vec.clone();
@@ -32,7 +33,10 @@ pub fn merge_stores(
     (merged_store, merged_es)
 }
 
-fn merge_stores_helper(cur_store: &InterpStore, new_store: &InterpStore) -> InterpStore {
+fn merge_stores_helper(
+    cur_store: &ConstraintStore,
+    new_store: &ConstraintStore,
+) -> ConstraintStore {
     let vec = vec![cur_store.clone(), new_store.clone()];
     match vec.merge() {
         Ok(Some(merged)) => merged,
@@ -67,8 +71,8 @@ pub trait Merge<T> {
     fn merge(&self) -> Result<Option<T>, Error>;
 }
 
-impl Merge<InterpStore> for Vec<InterpStore> {
-    fn merge(&self) -> Result<Option<InterpStore>, Error> {
+impl Merge<ConstraintStore> for Vec<ConstraintStore> {
+    fn merge(&self) -> Result<Option<ConstraintStore>, Error> {
         //debug!("interp stores to merge: {:?}", self);
 
         if self.is_empty() {
@@ -124,6 +128,20 @@ impl Merge<Constraints> for Vec<Constraints> {
     }
 }
 
+impl Merge<FieldStore> for Vec<FieldStore> {
+    fn merge(&self) -> Result<Option<FieldStore>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        todo!();
+    }
+}
+
 impl Merge<Fields> for Vec<Fields> {
     fn merge(&self) -> Result<Option<Fields>, Error> {
         if self.is_empty() {
@@ -168,6 +186,41 @@ impl Merge<ConstraintsAndFields> for Vec<ConstraintsAndFields> {
             m_constraints,
             m_fields,
             self[0].scope.clone(),
+        )))
+    }
+}
+
+impl Merge<Context> for Vec<Context> {
+    fn merge(&self) -> Result<Option<Context>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut cstores = Vec::new();
+        let mut fstores = Vec::new();
+        for ctxt in self.iter() {
+            unique_push(&mut cstores, ctxt.cstore.clone());
+            unique_push(&mut fstores, ctxt.fstore.clone());
+        }
+        let m_cstores = match cstores.merge() {
+            Ok(Some(merged)) => merged,
+            Ok(None) => todo!(),
+            _ => panic!(),
+        };
+        let m_fstores = match fstores.merge() {
+            Ok(Some(merged)) => merged,
+            Ok(None) => todo!(),
+            _ => panic!(),
+        };
+
+        Ok(Some(Context::new(
+            m_cstores,
+            m_fstores,
+            self[0].wtos.clone(),
         )))
     }
 }

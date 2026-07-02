@@ -633,7 +633,9 @@ impl FieldStore {
                         Some(old_val_) => {
                             debug!("old val: {:?}", old_val_);
                             debug!("new val: {:?}", new_val);
-                            todo!();
+                            if *old_val_ != new_val {
+                                todo!();
+                            }
                             //new_val = Box::new(merge_mapvals(old_val_, &value));
                         }
                         None => {}
@@ -651,9 +653,14 @@ impl FieldStore {
                 }
             },
             None => {
-                // TODO initialize new scope w key/val
-                //let mut new_substore =
-                panic!("undefined scope: {:?} INIT NEW SUBSTORE", scope);
+                // initialize new scope w key/val
+                debug!("undefined scope: {:?} INIT NEW SUBSTORE", scope);
+                let mut new_store = FieldStore::new();
+                new_store.field_map.insert(key, value);
+                self.field_map.insert(
+                    MapKey::ScopeId(scope.clone()),
+                    Box::new(MapFieldValue::Store(new_store)),
+                );
             }
         }
     }

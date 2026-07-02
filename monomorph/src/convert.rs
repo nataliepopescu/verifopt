@@ -5,10 +5,10 @@ use rustc_public::mir::{
 };
 use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 
-use crate::InterpStore;
+//use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Location, MapFieldValue, MapKey, MapValue,
+    ADTFields, Constraint, Constraints, Context, Location, MapFieldValue, MapKey, MapValue,
     RunningConstraint, TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -27,7 +27,7 @@ impl<'a> RvalConverter<'a> {
 
     pub fn convert(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -35,76 +35,39 @@ impl<'a> RvalConverter<'a> {
         to_convert: &Rvalue,
     ) -> (Constraints, Option<ADTFields>) {
         match to_convert {
-            Rvalue::Use(op) => self.convert_op(istore, span, local_decls, cur_scope, op, destty),
+            Rvalue::Use(op) => self.convert_op(ctxt, span, local_decls, cur_scope, op, destty),
+            Rvalue::Ref(_region, _borrow_kind, place) => {
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+            }
             Rvalue::Discriminant(place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
             }
             Rvalue::CopyForDeref(place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
             }
             Rvalue::Cast(kind, op, ty) => {
-                self.convert_cast(istore, span, local_decls, cur_scope, kind, op, ty)
+                self.convert_cast(ctxt, span, local_decls, cur_scope, kind, op, ty)
             }
             Rvalue::Aggregate(kind, ops) => {
-                self.convert_agg(istore, span, local_decls, cur_scope, destty, kind, ops)
+                self.convert_agg(ctxt, span, local_decls, cur_scope, destty, kind, ops)
             }
             Rvalue::AddressOf(_rawptrkind, place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
             }
             Rvalue::UnaryOp(unop, op) => (
-                self.convert_unop(istore, span, local_decls, cur_scope, destty, unop, op),
+                self.convert_unop(ctxt, span, local_decls, cur_scope, destty, unop, op),
                 None,
             ),
             Rvalue::BinaryOp(binop, op1, op2) => (
-                self.convert_binop(
-                    istore,
-                    span,
-                    local_decls,
-                    cur_scope,
-                    destty,
-                    binop,
-                    op1,
-                    op2,
-                ),
+                self.convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2),
                 None,
             ),
-            Rvalue::CheckedBinaryOp(binop, op1, op2) => {
-                let inner = self
-                    .convert_binop(
-                        istore,
-                        span,
-                        local_decls,
-                        cur_scope,
-                        destty,
-                        binop,
-                        op1,
-                        op2,
-                    )
-                    .into_iter()
-                    .next()
-                    .unwrap_or_else(|| {
-                        Constraint::new(None, Some(RunningConstraint::Scalar(None)))
-                    });
-
-                let ty = match op1 {
-                    Operand::Copy(place) | Operand::Move(place) => place.ty(local_decls).unwrap(),
-                    Operand::Constant(co) => co.const_.ty(),
-                    _ => destty.clone(),
-                };
-
-                let field = (vec![ProjectionElem::Field(0, ty)], vec![inner.clone()]);
-                let cnstr = Constraint::new(
-                    None,
-                    Some(RunningConstraint::Tuple(vec![
-                        inner,
-                        Constraint::new(None, None),
-                    ])),
-                );
-
-                (vec![cnstr], Some(vec![field]))
-            }
+            Rvalue::CheckedBinaryOp(binop, op1, op2) => (
+                self.convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2),
+                None,
+            ),
             Rvalue::Repeat(op, _tyconst) => {
-                self.convert_op(istore, span, local_decls, cur_scope, op, destty)
+                self.convert_op(ctxt, span, local_decls, cur_scope, op, destty)
             }
             _ => todo!("other rval: {:?}", to_convert),
         }
@@ -112,7 +75,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_op(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -121,7 +84,7 @@ impl<'a> RvalConverter<'a> {
     ) -> (Constraints, Option<ADTFields>) {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
             }
             Operand::Constant(const_op) => (self.convert_const(span, &const_op), None),
             _ => todo!("runtime checks"),
@@ -178,7 +141,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_place(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -189,14 +152,20 @@ impl<'a> RvalConverter<'a> {
         // TODO use current place ty instead of *just* getting existing place constraints
 
         //debug!("CONVERTING PLACE");
-        match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
+        match ctxt
+            .cstore
+            .scoped_get(cur_scope, &MapKey::Var(place.clone()), false)
+        {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     debug!("found constraints for place {:?}: {:?}", place, constraints);
                     debug!("checking field projection constraints.....");
 
                     // FIXME implementation is similar to interp::resolve_arg()
-                    match istore.scoped_field_get(cur_scope, &MapKey::Var(place.clone())) {
+                    match ctxt
+                        .fstore
+                        .scoped_get(cur_scope, &MapKey::Var(place.clone()))
+                    {
                         Some(MapFieldValue::Fields(field_places)) => {
                             debug!("\n--FIELD projections: {:?}", field_places);
 
@@ -213,7 +182,7 @@ impl<'a> RvalConverter<'a> {
 
                                 // get each field constraints
                                 let (field_constraints, field_fields) = self.convert_place(
-                                    istore,
+                                    ctxt,
                                     span,
                                     local_decls,
                                     cur_scope,
@@ -382,7 +351,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_cast(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -403,7 +372,7 @@ impl<'a> RvalConverter<'a> {
                 debug!("place: {:?}", place);
 
                 let (prev_constraints, maybe_fields) =
-                    self.convert_place(istore, span, local_decls, cur_scope, place, ty);
+                    self.convert_place(ctxt, span, local_decls, cur_scope, place, ty);
                 debug!("FIELDS in CAST? {:?}", maybe_fields);
                 //if let Some(fields) = maybe_fields {
                 //    todo!("fields: {:?}", fields);
@@ -549,7 +518,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_agg(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -572,7 +541,7 @@ impl<'a> RvalConverter<'a> {
                 for (i, op) in ops.into_iter().enumerate() {
                     debug!("\n---op {:?}", i);
                     let (op_constraints, maybe_fields) =
-                        self.convert_op(istore, span, local_decls, cur_scope, op, destty);
+                        self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
                     debug!("op constraints: {:?}", op_constraints);
                     // FIXME maybe_fields constraints are dropped (nested fields)
                     debug!("maybe_fields: {:?}", maybe_fields);
@@ -612,7 +581,7 @@ impl<'a> RvalConverter<'a> {
                 let mut inner_constraints = Vec::new();
                 for op in ops {
                     let (op_constraints, maybe_fields) =
-                        self.convert_op(istore, span, local_decls, cur_scope, op, destty);
+                        self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
                     //debug!("op_constraints: {:?}", op_constraints.clone());
                     unique_append(&mut inner_constraints, op_constraints);
                     if let Some(_fields) = maybe_fields {
@@ -831,7 +800,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_binop(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -842,7 +811,7 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         let constraint = match binop {
             BinOp::Add | BinOp::AddUnchecked => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -852,7 +821,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x + y,
             ),
             BinOp::Sub | BinOp::SubUnchecked => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -862,7 +831,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x - y,
             ),
             BinOp::Mul | BinOp::MulUnchecked => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -872,7 +841,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x * y,
             ),
             BinOp::Div => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -882,7 +851,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x / y,
             ),
             BinOp::Rem => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -892,7 +861,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x % y,
             ),
             BinOp::Eq => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -904,7 +873,7 @@ impl<'a> RvalConverter<'a> {
                 },
             ),
             BinOp::Lt => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -916,7 +885,7 @@ impl<'a> RvalConverter<'a> {
                 },
             ),
             BinOp::Le => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -928,7 +897,7 @@ impl<'a> RvalConverter<'a> {
                 },
             ),
             BinOp::Ne => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -940,7 +909,7 @@ impl<'a> RvalConverter<'a> {
                 },
             ),
             BinOp::Ge => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -952,7 +921,7 @@ impl<'a> RvalConverter<'a> {
                 },
             ),
             BinOp::Gt => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -965,7 +934,7 @@ impl<'a> RvalConverter<'a> {
             ),
             // bit-level binops
             BinOp::Shl | BinOp::ShlUnchecked => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -975,7 +944,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x << y,
             ),
             BinOp::Shr | BinOp::ShrUnchecked => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -985,7 +954,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x >> y,
             ),
             BinOp::BitAnd => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -995,7 +964,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x & y,
             ),
             BinOp::BitOr => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -1005,7 +974,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| x | y,
             ),
             BinOp::BitXor => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -1016,7 +985,7 @@ impl<'a> RvalConverter<'a> {
             ),
             // This binop return Ord results
             BinOp::Cmp => self.convert_binop_helper(
-                istore,
+                ctxt,
                 span,
                 local_decls,
                 cur_scope,
@@ -1044,7 +1013,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_binop_helper(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -1053,8 +1022,8 @@ impl<'a> RvalConverter<'a> {
         op2: &Operand,
         f: fn(i128, i128) -> i128,
     ) -> Constraint {
-        let (c_op1, _) = self.convert_op(istore, span, local_decls, cur_scope, op1, destty);
-        let (c_op2, _) = self.convert_op(istore, span, local_decls, cur_scope, op2, destty);
+        let (c_op1, _) = self.convert_op(ctxt, span, local_decls, cur_scope, op1, destty);
+        let (c_op2, _) = self.convert_op(ctxt, span, local_decls, cur_scope, op2, destty);
         if c_op1.len() != 1 || c_op2.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
@@ -1110,7 +1079,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_unop(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -1120,10 +1089,10 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         let constraint = match unop {
             UnOp::Neg => {
-                self.convert_unop_helper(istore, span, local_decls, cur_scope, destty, op, |x| -x)
+                self.convert_unop_helper(ctxt, span, local_decls, cur_scope, destty, op, |x| -x)
             }
             UnOp::Not => {
-                self.convert_unop_helper(istore, span, local_decls, cur_scope, destty, op, |x| !x)
+                self.convert_unop_helper(ctxt, span, local_decls, cur_scope, destty, op, |x| !x)
             }
             UnOp::PtrMetadata => {
                 let (_, ty) = self.convert_ty(span, destty);
@@ -1136,7 +1105,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_unop_helper(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         span: &Location,
         local_decls: &[LocalDecl],
         cur_scope: &VOID,
@@ -1144,7 +1113,7 @@ impl<'a> RvalConverter<'a> {
         op: &Operand,
         f: fn(i128) -> i128,
     ) -> Constraint {
-        let (c_op, _) = self.convert_op(istore, span, local_decls, cur_scope, op, destty);
+        let (c_op, _) = self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
         if c_op.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }

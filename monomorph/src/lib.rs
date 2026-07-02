@@ -31,7 +31,7 @@ pub mod trait_collect;
 pub mod util;
 pub mod wto;
 
-use crate::constraints::InterpStore;
+use crate::constraints::Context;
 use crate::interp::InterpPass;
 use crate::logger::VOLogger;
 use crate::sig_collect::{SigCollectPass, SigStore};
@@ -66,9 +66,9 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
 
     // Abstractly Interpret MIR
     debug!("\n\nINTERP PASS");
-    let mut istore = InterpStore::new();
+    let mut ctxt = Context::empty();
     let interp = InterpPass::new(&sigstore, &tstore);
-    let _ = interp.run(&mut logger, &mut istore, entry_instance);
+    let _ = interp.run(&mut logger, &mut ctxt, entry_instance);
 
     // TODO Rewrite MIR
 

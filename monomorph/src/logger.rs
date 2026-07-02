@@ -15,9 +15,7 @@ impl VOLogger {
             .create(true)
             .open("stats")
             .expect("should be able to open file");
-        Self {
-            stats_file,
-        }
+        Self { stats_file }
     }
 
     pub fn log_stats(
@@ -50,7 +48,11 @@ impl VOLogger {
             write!(
                 &mut self.stats_file,
                 "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n\n",
-                span, cha.len(), cha, fsa.len(), fsa
+                span,
+                cha.len(),
+                cha,
+                fsa.len(),
+                fsa
             )?;
         }
 
@@ -59,7 +61,11 @@ impl VOLogger {
             write!(
                 &mut self.stats_file,
                 "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n",
-                span, cha.len(), cha, fsa.len(), fsa
+                span,
+                cha.len(),
+                cha,
+                fsa.len(),
+                fsa
             )?;
         }
 

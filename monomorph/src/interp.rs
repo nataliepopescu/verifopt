@@ -17,7 +17,9 @@ use log::{debug, error};
 use crate::VOLogger;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ArgSet, Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge, RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key, widen_scalars
+    ArgSet, Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge,
+    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
+    widen_scalars,
 };
 use crate::constraints::{merge_stores, unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -912,8 +914,12 @@ impl<'a> InterpPass<'a> {
 
             debug!("\trecursive call, queueing...");
 
-            let retty = self.retty_fallback_from_poly(fndef.fn_sig())?.unwrap_or_default();
-            self.summaries.borrow_mut().insert(new_key.clone(), retty.clone());
+            let retty = self
+                .retty_fallback_from_poly(fndef.fn_sig())?
+                .unwrap_or_default();
+            self.summaries
+                .borrow_mut()
+                .insert(new_key.clone(), retty.clone());
 
             let cur_key = self.key_stack.borrow().last().cloned().unwrap();
 
@@ -1138,17 +1144,15 @@ impl<'a> InterpPass<'a> {
             };
             //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
 
-            resolved.push(
-                self.resolve_arg(
-                    istore,
-                    term_span,
-                    caller_scope,
-                    &maybe_trait_argty,
-                    local_decls,
-                    arg,
-                    is_closure,
-                ),
-            );
+            resolved.push(self.resolve_arg(
+                istore,
+                term_span,
+                caller_scope,
+                &maybe_trait_argty,
+                local_decls,
+                arg,
+                is_closure,
+            ));
         }
 
         return resolved;

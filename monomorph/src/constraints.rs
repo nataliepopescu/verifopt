@@ -2,9 +2,9 @@ use crate::interp::InterpPass;
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
-use rustc_public::mir::{Place, ProjectionElem, LocalDecl, Operand, Body};
+use rustc_public::mir::{Body, LocalDecl, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
-    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef, Span,
+    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
 };
 
 //use crate::common::log_scope;
@@ -206,8 +206,7 @@ impl ArgSet {
         let args = constraints
             .iter()
             .map(|cs| {
-                cs
-                    .iter()
+                cs.iter()
                     .filter(|c| !is_scalar(c))
                     .cloned()
                     .collect::<HashSet<Constraint>>()
@@ -283,9 +282,10 @@ pub fn widen_scalars(constraints: &[Constraints]) -> Vec<Constraints> {
 
 fn widen_scalar(constraint: &Constraint) -> Constraint {
     match constraint {
-        Constraint { toc, cfc: Some(RunningConstraint::Scalar(Some(_))) } => {
-            Constraint::new(toc.clone(), Some(RunningConstraint::Scalar(None)))
-        }
+        Constraint {
+            toc,
+            cfc: Some(RunningConstraint::Scalar(Some(_))),
+        } => Constraint::new(toc.clone(), Some(RunningConstraint::Scalar(None))),
         _ => constraint.clone(),
     }
 }

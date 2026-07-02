@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
@@ -14,8 +17,7 @@ use log::{debug, error};
 use crate::VOLogger;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge, RunningConstraint,
-    TraitObjConstraint, TraitObjTy, VOID,
+    ArgSet, Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge, RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key, widen_scalars
 };
 use crate::constraints::{merge_stores, unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -24,10 +26,16 @@ use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 
+const MAX_DEPTH: usize = 50;
+
 pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
+    pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>)>>>,
+    pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
+    pub finalized: RefCell<HashSet<SummaryKey>>,
+    pub key_stack: RefCell<Vec<SummaryKey>>,
 }
 
 impl<'a> InterpPass<'a> {
@@ -36,6 +44,10 @@ impl<'a> InterpPass<'a> {
             sigstore,
             tstore,
             converter: RvalConverter::new(tstore),
+            wq: HashMap::new().into(),
+            summaries: HashMap::new().into(),
+            finalized: HashSet::new().into(),
+            key_stack: Vec::new().into(),
         }
     }
 
@@ -49,11 +61,13 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn prepare_call(&self, call_stack: &mut Vec<VOID>, new_scope: &VOID) {
-        call_stack.push(new_scope.clone());
+    fn prepare_call(&self, call_stack: &mut Vec<VOID>, key: &SummaryKey) {
+        call_stack.push(key.0.clone());
+        self.key_stack.borrow_mut().push(key.clone());
     }
 
     fn prepare_return(&self, call_stack: &mut Vec<VOID>) -> Option<VOID> {
+        self.key_stack.borrow_mut().pop();
         call_stack.pop()
     }
 
@@ -65,6 +79,10 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         let start_scope = (start_instance, GenericArgs(vec![]));
         let mut call_stack = vec![start_scope.clone()];
+
+        self.key_stack
+            .borrow_mut()
+            .push((start_scope.clone(), ArgSet::new(&[])));
 
         // Initialize InterpStore with entry_fn's substore
         let entry_fn_istore = InterpStore::new();
@@ -431,7 +449,7 @@ impl<'a> InterpPass<'a> {
                 ),
                 _ => todo!("calling runtime check operand?"),
             },
-            TerminatorKind::Return => self.interp_return(istore, call_stack, cur_scope),
+            TerminatorKind::Return => self.interp_return(logger, istore, call_stack, cur_scope),
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(istore, cur_scope, local_decls, bb, bb_deps, discr, targets)
             }
@@ -664,7 +682,18 @@ impl<'a> InterpPass<'a> {
             let body = self.get_body(&new_scope);
             // FIXME body vs _body?
 
-            self.prepare_call(call_stack, &new_scope);
+            let key = summary_key(
+                self,
+                new_scope.clone(),
+                istore,
+                term_span,
+                cur_scope,
+                &body,
+                local_decls,
+                args,
+                true,
+            );
+
             self.resolve_args(
                 istore,
                 term_span,
@@ -676,6 +705,7 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 true,
             );
+            self.prepare_call(call_stack, &key);
             self.visit_body(logger, istore, call_stack, &new_scope, &body)
         } else {
             todo!("closure has no body");
@@ -830,11 +860,99 @@ impl<'a> InterpPass<'a> {
         log_scope(cur_scope);
         //debug!("FNDEF GENARGS: {:?}", genargs);
 
-        if call_stack.contains(&new_scope) {
-            debug!("\tpossible infinite call!");
+        if call_stack.len() > MAX_DEPTH {
+            debug!("depth limit ({}) reached while recursing", MAX_DEPTH);
             return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
+        if !new_scope.0.has_body() {
+            return self.dispatch_call(
+                logger,
+                term_span,
+                istore,
+                call_stack,
+                cur_scope,
+                &new_scope,
+                local_decls,
+                fndef,
+                args,
+                genargs,
+                instance,
+                Vec::new(),
+            );
+        }
+
+        let new_cs: Vec<Constraints> = self
+            .collect_resolved_args(
+                istore,
+                term_span,
+                cur_scope,
+                &self.get_body(&new_scope),
+                local_decls,
+                args,
+                false,
+            )
+            .into_iter()
+            .map(|(cs, _)| cs)
+            .collect();
+
+        if call_stack.contains(&new_scope) {
+            let widened = widen_scalars(&new_cs);
+            let new_key = (new_scope.clone(), ArgSet::new(&widened));
+
+            if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
+                debug!("\trecursive call, hit summary");
+                return Ok(Some(cs));
+            }
+
+            debug!("\trecursive call, queueing...");
+
+            let retty = self.retty_fallback_from_poly(fndef.fn_sig())?.unwrap_or_default();
+            self.summaries.borrow_mut().insert(new_key.clone(), retty.clone());
+
+            let cur_key = self.key_stack.borrow().last().cloned().unwrap();
+
+            let widened = widen_scalars(&new_cs);
+            self.wq
+                .borrow_mut()
+                .entry(cur_key)
+                .or_default()
+                .push((new_scope.clone(), widened));
+
+            return Ok(Some(retty));
+        }
+
+        self.dispatch_call(
+            logger,
+            term_span,
+            istore,
+            call_stack,
+            cur_scope,
+            &new_scope,
+            local_decls,
+            fndef,
+            args,
+            genargs,
+            instance,
+            new_cs,
+        )
+    }
+
+    fn dispatch_call(
+        &self,
+        logger: &mut VOLogger,
+        term_span: &Span,
+        istore: &mut InterpStore,
+        call_stack: &mut Vec<VOID>,
+        cur_scope: &VOID,
+        new_scope: &VOID,
+        local_decls: &[LocalDecl],
+        fndef: FnDef,
+        args: &Vec<Operand>,
+        genargs: &GenericArgs,
+        instance: Instance,
+        new_cs: Vec<Constraints>,
+    ) -> Result<Option<Constraints>, Error> {
         match instance.kind {
             InstanceKind::Item => {
                 //debug!("regular static funccall");
@@ -849,6 +967,7 @@ impl<'a> InterpPass<'a> {
                     fndef,
                     args,
                     &genargs,
+                    &new_cs,
                 )
             }
             InstanceKind::Virtual { .. } => {
@@ -878,6 +997,7 @@ impl<'a> InterpPass<'a> {
                     fndef,
                     args,
                     &genargs,
+                    &new_cs,
                 )
             }
             InstanceKind::Intrinsic => {
@@ -899,6 +1019,7 @@ impl<'a> InterpPass<'a> {
         fndef: FnDef,
         args: &Vec<Operand>,
         genargs: &GenericArgs,
+        cur_cs: &Vec<Constraints>,
     ) -> Result<Option<Constraints>, Error> {
         debug!("INTERP STATIC CALL");
         debug!("fndef: {:?}", fndef);
@@ -907,7 +1028,7 @@ impl<'a> InterpPass<'a> {
         if cur_scope.0.has_body() {
             debug!("HAS BODY");
             let body = self.get_body(cur_scope);
-            self.prepare_call(call_stack, cur_scope);
+            let key = (cur_scope.clone(), ArgSet::new(cur_cs));
             self.resolve_args(
                 istore,
                 term_span,
@@ -919,6 +1040,7 @@ impl<'a> InterpPass<'a> {
                 genargs,
                 false,
             );
+            self.prepare_call(call_stack, &key);
             self.visit_body(logger, istore, call_stack, cur_scope, &body)
         } else {
             // No body, so not visiting/updating call stack
@@ -965,7 +1087,7 @@ impl<'a> InterpPass<'a> {
         match istore.cmap.get(&key) {
             Some(box MapValue::Store(old_substore, old_es)) => {
                 store = merge_stores(
-                    old_substore,
+                    &old_substore,
                     old_es,
                     &new_substore,
                     &Some(vec![caller_scope.clone()]),
@@ -979,6 +1101,53 @@ impl<'a> InterpPass<'a> {
         istore
             .cmap
             .insert(key, Box::new(MapValue::Store(store.0, store.1)));
+    }
+
+    pub fn collect_resolved_args(
+        &self,
+        istore: &InterpStore,
+        term_span: &Span,
+        caller_scope: &VOID,
+        body: &Body,
+        local_decls: &[LocalDecl],
+        args: &Vec<Operand>,
+        is_closure: bool,
+    ) -> Vec<(Constraints, Option<Vec<(Place, Constraints)>>)> {
+        let arg_count = body.arg_locals().len();
+        let mut resolved = Vec::new();
+
+        for (i, arg) in args.into_iter().enumerate() {
+            let local = if is_closure { i + 2 } else { i + 1 };
+            let place = Place {
+                local,
+                projection: vec![], // FIXME should this ever _not_ be empty?
+            };
+
+            //debug!("[CALL] CHECKING FOR DYN IN ARG TY");
+            let maybe_trait_argty = if i > arg_count - 1 {
+                //debug!("arg count is surpassed: {:?}", arg_count);
+                None
+            } else {
+                let arg_ty = place.ty(body.locals()).unwrap();
+                //debug!("arg ty: {:?}", arg_ty);
+                self.contains_dyn(&arg_ty)
+            };
+            //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
+
+            resolved.push(
+                self.resolve_arg(
+                    istore,
+                    term_span,
+                    caller_scope,
+                    &maybe_trait_argty,
+                    local_decls,
+                    arg,
+                    is_closure,
+                ),
+            );
+        }
+
+        return resolved;
     }
 
     /// For each argument:
@@ -998,43 +1167,31 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         is_closure: bool,
     ) {
-        let arg_count = body.arg_locals().len();
-        for (i, arg) in args.into_iter().enumerate() {
+        let resolved = self.collect_resolved_args(
+            istore,
+            term_span,
+            caller_scope,
+            body,
+            local_decls,
+            args,
+            is_closure,
+        );
+
+        for (i, (constraints, maybe_fields)) in resolved.into_iter().enumerate() {
             debug!("\narg position: {:?}", i);
-            debug!("arg: {:?}", arg);
             let local = if is_closure { i + 2 } else { i + 1 };
             let place = Place {
                 local,
                 projection: vec![], // FIXME should this ever _not_ be empty?
             };
 
-            //debug!("[CALL] CHECKING FOR DYN IN ARG TY");
-            let maybe_trait_argty = if i > arg_count - 1 {
-                //debug!("arg count is surpassed: {:?}", arg_count);
-                None
-            } else {
-                let arg_ty = place.ty(body.locals()).unwrap();
-                //debug!("arg ty: {:?}", arg_ty);
-                self.contains_dyn(&arg_ty)
-            };
-            //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
-
-            let (arg_constraints, maybe_fields) = self.resolve_arg(
-                istore,
-                term_span,
-                caller_scope,
-                &maybe_trait_argty,
-                local_decls,
-                arg,
-                is_closure,
-            );
-            debug!("resolved arg constraints: {:?}", arg_constraints);
+            debug!("resolved arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
             new_substore.cmap.insert(
                 MapKey::Var(place.clone()),
-                Box::new(MapValue::Constraints(arg_constraints)),
+                Box::new(MapValue::Constraints(constraints)),
             );
 
             if let Some(fields) = maybe_fields {
@@ -1669,7 +1826,18 @@ impl<'a> InterpPass<'a> {
                     self.get_body(&callee_scope)
                 };
 
-                self.prepare_call(&mut call_stack_clone, &callee_scope);
+                let key = summary_key(
+                    self,
+                    callee_scope.clone(),
+                    istore,
+                    term_span,
+                    cur_scope,
+                    &body,
+                    local_decls,
+                    args,
+                    is_closure,
+                );
+
                 self.resolve_args(
                     &mut istore_clone,
                     term_span,
@@ -1681,6 +1849,7 @@ impl<'a> InterpPass<'a> {
                     &genargs,
                     is_closure,
                 );
+                self.prepare_call(&mut call_stack_clone, &key);
                 results.push(self.visit_body(
                     logger,
                     &mut istore_clone,
@@ -1868,6 +2037,7 @@ impl<'a> InterpPass<'a> {
                 if keep_targets.contains(&prunable_target) {
                     continue;
                 }
+
                 bb_deps.prune(bb, prunable_target);
             }
         }
@@ -1903,20 +2073,50 @@ impl<'a> InterpPass<'a> {
         None
     }
 
+    fn reinterp_recursive(
+        &self,
+        logger: &mut VOLogger,
+        istore: &mut InterpStore,
+        call_stack: &mut Vec<VOID>,
+        callee_scope: &VOID,
+        callee_cs: &[Constraints],
+    ) -> Result<Option<Constraints>, Error> {
+        let mut substore = InterpStore::new();
+        for (i, cs) in callee_cs.iter().enumerate() {
+            let place = Place {
+                local: i + 1,
+                projection: vec![],
+            };
+            substore.cmap.insert(
+                MapKey::Var(place.clone()),
+                Box::new(MapValue::Constraints(cs.clone())),
+            );
+        }
+        istore.cmap.insert(
+            MapKey::ScopeId(callee_scope.clone()),
+            Box::new(MapValue::Store(substore, None)),
+        );
+
+        let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
+        self.prepare_call(call_stack, &key);
+        let body = self.get_body(callee_scope);
+        let refined = self.visit_body(logger, istore, call_stack, callee_scope, &body)?;
+
+        // publish refined summary for widened constraints
+        self.summaries
+            .borrow_mut()
+            .insert(key.clone(), refined.clone().unwrap_or_default());
+
+        Ok(refined)
+    }
+
     fn interp_return(
         &self,
+        logger: &mut VOLogger,
         istore: &mut InterpStore,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
-        let old_scope = self.prepare_return(call_stack);
-        if old_scope.clone().unwrap() != *cur_scope {
-            //debug!("\nold_scope: {:?}", old_scope.unwrap().0.name());
-            //debug!("cur_scope: {:?}", cur_scope.0.name());
-            log_call_stack(call_stack);
-            panic!("call stack out of sorts");
-        }
-
         debug!("\n\n\n#############################");
         debug!("RETURNING from scope {:?}...", cur_scope.0.name());
         log_call_stack(call_stack);
@@ -1928,20 +2128,56 @@ impl<'a> InterpPass<'a> {
         };
 
         // Get and "return" the constraints at Place(0)
-        match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
+        let retval = match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
             Some(retval) => match retval {
                 MapValue::Constraints(retval_constraints) => {
                     debug!("\n###### RETURNING constraints:");
                     debug!("\t{:?}\n\n", retval_constraints);
-                    Ok(Some(retval_constraints))
+                    Some(retval_constraints)
                 }
                 _ => panic!("should not be returning a scope"),
             },
             None => {
                 // TODO Double check that nothing _needs_ to be returned (for interp correctness)
-
-                Ok(None)
+                None
             }
+        };
+
+        let key = self.key_stack.borrow().last().cloned().unwrap();
+
+        let old_scope = self.prepare_return(call_stack);
+        if old_scope.clone().unwrap() != *cur_scope {
+            //debug!("\nold_scope: {:?}", old_scope.unwrap().0.name());
+            //debug!("cur_scope: {:?}", cur_scope.0.name());
+            log_call_stack(call_stack);
+            panic!("call stack out of sorts");
         }
+
+        let queued = self.wq.borrow_mut().remove(&key).unwrap_or_default();
+
+        if self.finalized.borrow().contains(&key) || queued.is_empty() {
+            // use summary version OR
+            // no recursive calls, no recursed interp needed
+            return Ok(retval);
+        }
+
+        // about to be finalized
+        self.finalized.borrow_mut().insert(key.clone());
+
+        let prev = logger.set_reinterp(true);
+
+        for (scope, constraints) in queued {
+            debug!("\treinterp queued recursive {:?}", scope.0.name());
+            // reevaluate recursive calls
+            self.reinterp_recursive(logger, istore, call_stack, &scope, &constraints)?;
+        }
+
+        // final traverse after recursive wq drained
+        let body = self.get_body(cur_scope);
+        self.prepare_call(call_stack, &key);
+        let res = self.visit_body(logger, istore, call_stack, cur_scope, &body);
+
+        logger.set_reinterp(prev);
+        res
     }
 }

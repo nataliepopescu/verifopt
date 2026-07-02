@@ -6,13 +6,16 @@ use std::io::Write;
 
 pub struct VOLogger {
     stats_file: File,
+    in_reinterp: bool,
     diff: Vec<(
         Span,
+        bool,
         Vec<(DefId, Option<GenericArgs>)>,
         Vec<(DefId, Option<GenericArgs>)>,
     )>,
     same: Vec<(
         Span,
+        bool,
         Vec<(DefId, Option<GenericArgs>)>,
         Vec<(DefId, Option<GenericArgs>)>,
     )>,
@@ -27,9 +30,16 @@ impl VOLogger {
             .expect("should be able to open file");
         Self {
             stats_file,
+            in_reinterp: false,
             diff: Vec::new(),
             same: Vec::new(),
         }
+    }
+
+    pub fn set_reinterp(&mut self, state: bool) -> bool {
+        let prev = self.in_reinterp;
+        self.in_reinterp = state;
+        prev
     }
 
     pub fn log_stats(&mut self) -> Result<(), std::io::Error> {
@@ -44,10 +54,11 @@ impl VOLogger {
 
         write!(&mut self.stats_file, "--MAYBE EXAMPLES--\n",)?;
 
-        for (term_span, cha, fsa) in &self.diff {
+        for (term_span, in_re, cha, fsa) in &self.diff {
             write!(
                 &mut self.stats_file,
-                "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n",
+                "Span [{}] {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n\n",
+                if *in_re { "RE-INTERP" } else { "REAL" },
                 term_span,
                 cha.len(),
                 cha,
@@ -58,10 +69,11 @@ impl VOLogger {
 
         write!(&mut self.stats_file, "--NOT EXAMPLES--\n",)?;
 
-        for (term_span, cha, fsa) in &self.same {
+        for (term_span, in_re, cha, fsa) in &self.same {
             write!(
                 &mut self.stats_file,
-                "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n",
+                "Span: [{}] {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n",
+                if *in_re { "RE-INTERP" } else { "REAL" },
                 term_span,
                 cha.len(),
                 cha,
@@ -81,6 +93,7 @@ impl VOLogger {
     ) {
         self.diff.push((
             *term_span,
+            self.in_reinterp,
             assoc_fn_impls_cha.to_vec(),
             assoc_fn_impls_fsa.to_vec(),
         ));
@@ -94,6 +107,7 @@ impl VOLogger {
     ) {
         self.same.push((
             *term_span,
+            self.in_reinterp,
             assoc_fn_impls_cha.to_vec(),
             assoc_fn_impls_fsa.to_vec(),
         ));

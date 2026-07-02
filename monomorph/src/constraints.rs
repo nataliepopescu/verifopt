@@ -1,9 +1,10 @@
+use crate::interp::InterpPass;
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
-use rustc_public::mir::{Place, ProjectionElem};
+use rustc_public::mir::{Place, ProjectionElem, LocalDecl, Operand, Body};
 use rustc_public::ty::{
-    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef,
+    AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, TraitDef, Span,
 };
 
 //use crate::common::log_scope;
@@ -12,6 +13,9 @@ use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
 use log::debug;
+
+use std::collections::HashSet;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -189,6 +193,99 @@ impl TraitObjTy {
             //debug!("NOT A FN TRAIT");
             false
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArgSet {
+    pub args: HashSet<Constraints>,
+}
+
+impl ArgSet {
+    pub fn new(constraints: &[Constraints]) -> Self {
+        let mut args = HashSet::new();
+
+        for cs in constraints {
+            let filtered = cs
+                .iter()
+                .filter(|c| !is_scalar(c))
+                .cloned()
+                .collect();
+
+            args.insert(filtered);
+        }
+
+        ArgSet { args }
+    }
+}
+
+impl Hash for ArgSet {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut acc: u64 = 0;
+
+        for c in &self.args {
+            let mut h = DefaultHasher::new();
+            c.hash(&mut h);
+            acc = acc.wrapping_add(h.finish());
+        }
+
+        acc.hash(state);
+    }
+}
+
+pub type SummaryKey = (VOID, ArgSet);
+
+pub fn summary_key(
+    ipass: &InterpPass,
+    scope: VOID,
+    istore: &InterpStore,
+    term_span: &Span,
+    caller_scope: &VOID,
+    body: &Body,
+    local_decls: &[LocalDecl],
+    args: &Vec<Operand>,
+    is_closure: bool,
+) -> SummaryKey {
+    let cs: Vec<Constraints> = ipass
+        .collect_resolved_args(
+            istore,
+            term_span,
+            caller_scope,
+            &body,
+            local_decls,
+            args,
+            is_closure,
+        )
+        .into_iter()
+        .map(|(cs, _)| cs)
+        .collect();
+
+    (scope, ArgSet::new(&cs))
+}
+
+fn is_scalar(c: &Constraint) -> bool {
+    matches!(
+        c,
+        Constraint {
+            toc: None,
+            cfc: Some(RunningConstraint::Scalar(_)),
+        },
+    )
+}
+
+pub fn widen_scalars(constraints: &[Constraints]) -> Vec<Constraints> {
+    constraints
+        .iter()
+        .map(|cs| cs.iter().map(widen_scalar).collect())
+        .collect()
+}
+
+fn widen_scalar(constraint: &Constraint) -> Constraint {
+    match constraint {
+        Constraint { toc, cfc: Some(RunningConstraint::Scalar(Some(_))) } => {
+            Constraint::new(toc.clone(), Some(RunningConstraint::Scalar(None)))
+        }
+        _ => constraint.clone(),
     }
 }
 

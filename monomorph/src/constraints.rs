@@ -1,6 +1,7 @@
 use crate::interp::InterpPass;
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
+use rustc_public::DefId;
 use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{Body, LocalDecl, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
@@ -39,6 +40,7 @@ pub type VOID = (Instance, GenericArgs);
 pub enum MapKey {
     Var(Place),
     ScopeId(VOID),
+    Static(DefId),
 }
 
 pub type EnclosingScopes = Option<Vec<VOID>>;

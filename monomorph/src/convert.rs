@@ -1,9 +1,9 @@
-use rustc_public::DefId;
 use rustc_public::mir::{
     AggregateKind, BinOp, CastKind, ConstOperand, LocalDecl, Operand, Place, ProjectionElem,
     Rvalue, UnOp,
 };
-use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
+use rustc_public::ty::{AdtDef, Allocation, ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
+use rustc_public::{CrateDef, DefId};
 
 use crate::InterpStore;
 use crate::TraitStore;
@@ -91,7 +91,7 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn convert_op(
+    pub fn convert_op(
         &self,
         istore: &InterpStore,
         span: &Location,
@@ -230,6 +230,32 @@ impl<'a> RvalConverter<'a> {
                 _ => panic!("value should not be a scope"),
             },
             None => {
+                if place.projection.len() == 1 && place.projection[0] == ProjectionElem::Deref {
+                    let base = Place {
+                        local: place.local,
+                        projection: vec![],
+                    };
+
+                    if let Some(MapValue::Constraints(cs)) =
+                        istore.scoped_get(cur_scope, &MapKey::Var(base), false)
+                    {
+                        let deref: Constraints = cs
+                            .into_iter()
+                            .map(|c| match c {
+                                Constraint {
+                                    toc: _,
+                                    cfc: Some(RunningConstraint::Ptr(inner)),
+                                } => {
+                                    *inner
+                                }
+                                other => other,
+                            })
+                            .collect();
+
+                        return (deref, None);
+                    }
+                }
+
                 debug!("place {:?} has not been set, widen to type", place);
                 for proj in &place.projection {
                     debug!("PROJ: {:?}", proj);
@@ -1135,6 +1161,89 @@ impl<'a> RvalConverter<'a> {
             Constraint { toc: to, cfc: _ } => {
                 Constraint::new(to, Some(RunningConstraint::Scalar(None)))
             } //_ => Constraint::ControlFlow(Box::new(RunningConstraint::Scalar(None))),
+        }
+    }
+
+    fn is_unsafe_cell(&self, def: &AdtDef) -> bool {
+        def.name().ends_with("UnsafeCell")
+    }
+
+    pub fn is_frozen(&self, ty: &Ty, seen: &mut Vec<Ty>) -> bool {
+        if seen.contains(ty) {
+            return true;
+        }
+        seen.push(*ty);
+
+        match ty.kind() {
+            TyKind::RigidTy(rty) => match rty {
+                RigidTy::Bool
+                | RigidTy::Int(_)
+                | RigidTy::Uint(_)
+                | RigidTy::Float(_)
+                | RigidTy::Char
+                | RigidTy::Str
+                | RigidTy::Never
+                | RigidTy::FnDef(..)
+                | RigidTy::FnPtr(_) => true,
+
+                RigidTy::Adt(adtdef, genargs) => {
+                    if self.is_unsafe_cell(&adtdef) {
+                        return false;
+                    }
+                    for var in adtdef.variants() {
+                        for field in var.fields() {
+                            let fty = field.ty_with_args(&genargs);
+                            if !self.is_frozen(&fty, seen) {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                }
+
+                RigidTy::Tuple(tys) => tys.iter().all(|t| self.is_frozen(t, seen)),
+                RigidTy::Array(t, _) | RigidTy::Slice(t) => self.is_frozen(&t, seen),
+
+                RigidTy::Ref(..) | RigidTy::RawPtr(..) => true,
+
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    pub fn convert_static_const(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        alloc: &Allocation,
+    ) -> Constraints {
+        let inner = self.inner_ty(ty);
+
+        match inner.kind() {
+            TyKind::RigidTy(RigidTy::Bool)
+            | TyKind::RigidTy(RigidTy::Int(_))
+            | TyKind::RigidTy(RigidTy::Uint(_)) => match alloc.read_int() {
+                Ok(val) => {
+                    return vec![Constraint::new(
+                        None,
+                        Some(RunningConstraint::Scalar(Some(val))),
+                    )];
+                }
+                Err(_) => {}
+            },
+            _ => {}
+        }
+
+        let (_, constraint) = self.convert_ty(span, ty);
+        vec![constraint]
+    }
+
+    fn inner_ty(&self, ty: &Ty) -> Ty {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Ref(_, inner, _))
+            | TyKind::RigidTy(RigidTy::RawPtr(inner, _)) => self.inner_ty(&inner),
+            _ => *ty,
         }
     }
 }

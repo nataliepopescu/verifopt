@@ -455,9 +455,6 @@ impl<'a> RvalConverter<'a> {
                                 // Once we know we are storing the result of this rval into a
                                 // traitobj, only _then_ can we populate the traitobj constraint field
                                 if let Some(trait_ty) = maybe_trait_ty {
-                                    //debug!("ADT (adtdef): {:?}", adtdef);
-                                    //debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
-                                    //debug!("trait_ty: {:?}", trait_ty);
                                     if trait_ty.len() > 1 {
                                         todo!();
                                     }
@@ -471,16 +468,13 @@ impl<'a> RvalConverter<'a> {
                                     ));
                                 }
                             }
-                            _ => {} //debug!("no possible traits?"),
+                            _ => {}
                         }
                     }
                     RunningConstraint::Closure(cdef, genargs) => {
                         // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
 
                         if let Some(trait_ty) = maybe_trait_ty {
-                            //debug!("CLOSURE (cdef): {:?}", cdef);
-                            //debug!("SETTING TOC: ({:?}, {:?})", cdef, genargs);
-                            //debug!("trait_ty: {:?}", trait_ty);
                             if trait_ty.len() > 1 {
                                 todo!();
                             }
@@ -491,10 +485,13 @@ impl<'a> RvalConverter<'a> {
                             ));
                         }
                     }
-                    _ => {} //debug!("another CFC kind"),
+                    RunningConstraint::FnPtr(sigval) => {
+                        todo!();
+                    }
+                    _ => todo!("another running constraint: {:?}", maybe_to),
                 }
             }
-            _ => {} //debug!("CFC is NONE"),
+            _ => {}
         }
 
         None

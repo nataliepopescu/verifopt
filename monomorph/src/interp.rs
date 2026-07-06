@@ -335,15 +335,12 @@ impl<'a> InterpPass<'a> {
     /// of the constraint, leaving the RunningConstraint field unchanged
     fn pull_traitobjs_from_constraints(
         &self,
-        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
+        maybe_trait_ty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
     ) -> Constraints {
         let mut constraints = Vec::new();
         for constraint in old_constraints {
-            match self
-                .converter
-                .get_any_traitobj(maybe_trait_destty, &constraint)
-            {
+            match self.converter.get_any_traitobj(maybe_trait_ty, &constraint) {
                 // Add into traitobj constraint
                 toc @ Some(_) => match constraint {
                     Constraint { toc: None, cfc } => {
@@ -1209,16 +1206,16 @@ impl<'a> InterpPass<'a> {
                 projection: vec![], // FIXME should this ever _not_ be empty?
             };
 
-            //debug!("[CALL] CHECKING FOR DYN IN ARG TY");
+            debug!("\n[CALL] CHECKING FOR DYN IN ARG TY (arg {:?})", i);
             let maybe_trait_argty = if i > arg_count - 1 {
-                //debug!("arg count is surpassed: {:?}", arg_count);
+                debug!("arg count is surpassed: {:?}", arg_count);
                 None
             } else {
                 let arg_ty = place.ty(body.locals()).unwrap();
-                //debug!("arg ty: {:?}", arg_ty);
+                debug!("arg ty: {:?}", arg_ty);
                 self.contains_dyn(&arg_ty)
             };
-            //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
+            debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
 
             resolved.push(self.resolve_arg(
                 istore,
@@ -1318,6 +1315,8 @@ impl<'a> InterpPass<'a> {
                     is_closure,
                 ) {
                     Some(constraints) => {
+                        debug!("got constraints: {:?}", constraints);
+
                         // Get any field projections
                         match istore.field_map.get(&(place.clone(), caller_scope.clone())) {
                             Some(field_places) => {
@@ -1359,7 +1358,7 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                     None => {
-                        //debug!("place {:?} DNE in cmap, widen to type", place);
+                        debug!("place {:?} DNE in cmap, widen to type", place);
                         let (_maybe_traitobjty, constraint) = self
                             .converter
                             .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
@@ -1770,7 +1769,7 @@ impl<'a> InterpPass<'a> {
                 toc: None,
                 cfc: Some(_cfc),
             } => {
-                todo!("TOC not correctly populated");
+                todo!("TOC empty, CFC: {:?}", _cfc);
                 /*
                 match cfc {
                     RunningConstraint::Adt(adtdef, genargs) => {

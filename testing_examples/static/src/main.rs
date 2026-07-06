@@ -22,7 +22,6 @@ impl Animal for Fish {
     }
 }
 
-
 static WHICH: u32 = 0;
 
 fn pick() -> &'static dyn Animal {

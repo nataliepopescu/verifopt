@@ -315,8 +315,7 @@ impl<'a> InterpPass<'a> {
         let alloc = StaticDef(defid).eval_initializer().unwrap();
 
         let constraints = if self.static_check_const(ty, &alloc) {
-            self
-                .converter
+            self.converter
                 .convert_static_const(&Location::new(), ty, &alloc)
         } else {
             let (_, c) = self.converter.convert_ty(&Location::new(), ty);

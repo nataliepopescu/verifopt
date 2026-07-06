@@ -245,9 +245,7 @@ impl<'a> RvalConverter<'a> {
                                 Constraint {
                                     toc: _,
                                     cfc: Some(RunningConstraint::Ptr(inner)),
-                                } => {
-                                    *inner
-                                }
+                                } => *inner,
                                 other => other,
                             })
                             .collect();

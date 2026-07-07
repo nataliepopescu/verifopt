@@ -26,7 +26,7 @@ impl Animal for Bird {
 }
 
 #[inline(never)]
-fn countdown(n: usize) -> usize {
+fn sum(n: usize) -> usize {
     if n == 0 {
         return 0;
     }
@@ -41,11 +41,18 @@ fn countdown(n: usize) -> usize {
     black_box(a.speak());
     let next = n - 1;
 
-    n + countdown(next)
+    n + sum(next)
 }
 
 fn main() {
-    let res = countdown(5);
+    let res = sum(50);
     black_box(res);
-    black_box(Bird {}.speak());
+
+    let x: &dyn Animal =
+        if res == 15 {
+            &Cat {}
+        } else {
+            &Bird {}
+        };
+    black_box(x.speak());
 }

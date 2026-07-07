@@ -16,6 +16,7 @@ impl VOLogger {
             .create(true)
             .open("stats")
             .expect("should be able to open file");
+
         Self { stats_file }
     }
 

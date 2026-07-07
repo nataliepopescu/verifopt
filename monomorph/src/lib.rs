@@ -71,10 +71,30 @@ pub fn start_verifopt(
     let interp = InterpPass::new(&sigstore, &tstore);
     let _ = interp.run(&mut logger, &mut istore, entry_instance);
 
-    let _ = logger.log_stats(
-        &interp.dispatch_targets.borrow(),
-        &interp.dispatch_cha.borrow(),
-    );
+    let incomplete = &interp.incomplete.borrow();
+    let confirmed: HashMap<Span, bool> = interp
+        .dependencies
+        .borrow()
+        .iter()
+        .map(|(&s, ds)| (s, !ds.iter().any(|d| incomplete.contains(d))))
+        .collect();
 
-    interp.dispatch_targets.borrow().clone()
+    let cha = &interp.dispatch_cha.borrow();
+
+    let fsa = interp
+        .dispatch_targets
+        .borrow()
+        .iter()
+        .map(|(&key, (span, impls))| {
+            if *confirmed.get(&span).unwrap() {
+                (key, (span.clone(), impls.clone()))
+            } else {
+                (key, (span.clone(), cha.get(&key).unwrap().clone().1))
+            }
+        })
+        .collect();
+
+    let _ = logger.log_stats(&fsa, cha);
+
+    fsa
 }

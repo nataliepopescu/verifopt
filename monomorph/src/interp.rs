@@ -2239,12 +2239,14 @@ impl<'a> InterpPass<'a> {
         // constrain arguments
         let mut substore = InterpStore::new();
         for (i, arg_set) in key.1.args.iter().enumerate() {
-            let place = Place { local: i + 1, projection: vec![] };
+            let place = Place {
+                local: i + 1,
+                projection: vec![],
+            };
             let cs: Constraints = arg_set.iter().cloned().collect();
-            substore.cmap.insert(
-                MapKey::Var(place),
-                Box::new(MapValue::Constraints(cs)),
-            );
+            substore
+                .cmap
+                .insert(MapKey::Var(place), Box::new(MapValue::Constraints(cs)));
         }
         istore.cmap.insert(
             MapKey::ScopeId(cur_scope.clone()),

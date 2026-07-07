@@ -23,13 +23,13 @@ impl VOLogger {
     pub fn log_stats(
         &mut self,
         dispatch_targets: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
-        dispatch_cha: &HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>,
+        dispatch_cha: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     ) -> Result<(), Error> {
         let mut diff = Vec::new();
         let mut same = Vec::new();
 
-        for (_, (span, fsa)) in dispatch_targets {
-            let cha = dispatch_cha.get(span).cloned().unwrap_or_default();
+        for (key, (span, fsa)) in dispatch_targets {
+            let cha = dispatch_cha.get(key).cloned().unwrap().1;
 
             if cha.len() == fsa.len() {
                 same.push((*span, cha, fsa.clone()));

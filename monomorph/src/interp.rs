@@ -1492,9 +1492,7 @@ impl<'a> InterpPass<'a> {
 
         // collect possible calls (mostly for recursion)
         let mut dt = self.dispatch_targets.borrow_mut();
-        let entry = dt
-            .entry(key)
-            .or_insert((*term_span, Vec::new()));
+        let entry = dt.entry(key).or_insert((*term_span, Vec::new()));
         for f in &assoc_fn_impls_fsa {
             if !entry.1.contains(f) {
                 entry.1.push(f.clone());

@@ -948,11 +948,11 @@ impl<'a> InterpPass<'a> {
 
             let cur_key = self.key_stack.borrow().last().cloned().unwrap();
 
-            self.wq.borrow_mut().entry(cur_key).or_default().push((
-                new_scope.clone(),
-                new_cs,
-                call_stack.clone(),
-            ));
+            self.wq
+                .borrow_mut()
+                .entry(cur_key)
+                .or_default()
+                .push((new_scope.clone(), new_cs, call_stack.clone()));
 
             return Ok(Some(retty));
         }

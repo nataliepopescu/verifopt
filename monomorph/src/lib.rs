@@ -11,9 +11,9 @@ extern crate rustc_public_bridge;
 
 //use rustc_public::CrateDef;
 use rustc_public::DefId;
+use std::collections::HashMap;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{GenericArgs, Span};
-use std::collections::HashMap;
 
 use log::debug;
 

@@ -10,6 +10,8 @@ extern crate rustc_public;
 extern crate rustc_public_bridge;
 
 //use rustc_public::CrateDef;
+use std::collections::HashMap;
+use rustc_public::ty::Span;
 use rustc_public::mir::mono::Instance;
 
 use log::debug;
@@ -69,10 +71,34 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
 
     // TODO Rewrite MIR
 
-    let _ = logger.log_stats(
-        &interp.dispatch_targets.borrow(),
-        &interp.dispatch_cha.borrow(),
-    );
+    let incomplete = &interp.incomplete.borrow();
+    let confirmed: HashMap<Span, bool> =
+        interp
+            .dependencies
+            .borrow()
+            .iter()
+            .map(|(&s, ds)| {
+                (s, !ds.iter().any(|d| incomplete.contains(d)))
+            })
+            .collect();
+
+    let cha = &interp.dispatch_cha.borrow();
+
+    let fsa =
+        &interp
+            .dispatch_targets
+            .borrow()
+            .iter()
+            .map(|(&span, impls)| {
+                if *confirmed.get(&span).unwrap() {
+                    (span, impls.clone())
+                } else {
+                    (span, cha.get(&span).unwrap().clone())
+                }
+            })
+            .collect();
+
+    let _ = logger.log_stats(fsa, cha);
 
     ControlFlow::Continue(())
 }

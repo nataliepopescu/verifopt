@@ -19,7 +19,6 @@ use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
     ArgSet, Constraint, Constraints, InterpStore, Location, MapKey, MapValue, Merge,
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
-    widen_scalars,
 };
 use crate::constraints::{merge_stores, unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -28,18 +27,22 @@ use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 
-const MAX_DEPTH: usize = 50;
+const MAX_DEPTH: u32 = 50;
 
 pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
-    pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>)>>>,
+    pub dispatch_targets: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
+    pub dispatch_cha: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
+
     pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
-    pub dispatch_targets: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
-    pub dispatch_cha: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
+    pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>)>>>,
+    pub rec_depth: RefCell<u32>,
+    pub dependencies: RefCell<HashMap<Span, HashSet<VOID>>>,
+    pub incomplete: RefCell<HashSet<VOID>>,
 }
 
 impl<'a> InterpPass<'a> {
@@ -48,12 +51,15 @@ impl<'a> InterpPass<'a> {
             sigstore,
             tstore,
             converter: RvalConverter::new(tstore),
+            dispatch_targets: HashMap::new().into(),
+            dispatch_cha: HashMap::new().into(),
             wq: HashMap::new().into(),
             summaries: HashMap::new().into(),
             in_queue: HashSet::new().into(),
             key_stack: Vec::new().into(),
-            dispatch_targets: HashMap::new().into(),
-            dispatch_cha: HashMap::new().into(),
+            rec_depth: 0.into(),
+            dependencies: HashMap::new().into(),
+            incomplete: HashSet::new().into(),
         }
     }
 
@@ -812,7 +818,7 @@ impl<'a> InterpPass<'a> {
                 );
             }
             Ok(None) => {}
-            _ => panic!("error in constraints"),
+            err @ Err(Error::RecurseLimit(_)) => return err,
         }
 
         Ok(None)
@@ -873,10 +879,10 @@ impl<'a> InterpPass<'a> {
         log_scope(cur_scope);
         //debug!("FNDEF GENARGS: {:?}", genargs);
 
-        // Want to allow non-recursive stack depths of > 50
-        if call_stack.contains(&new_scope) && call_stack.len() > MAX_DEPTH {
-            debug!("depth limit ({}) reached while recursing", MAX_DEPTH);
-            return self.retty_fallback_from_poly(fndef.fn_sig());
+        // checking for recursive stack depths of > 50
+        if *self.rec_depth.borrow() > MAX_DEPTH {
+            return Err(Error::RecurseLimit(MAX_DEPTH));
+            // return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
         if !new_scope.0.has_body() {
@@ -911,8 +917,7 @@ impl<'a> InterpPass<'a> {
             .collect();
 
         if call_stack.contains(&new_scope) {
-            let widened = widen_scalars(&new_cs);
-            let new_key = (new_scope.clone(), ArgSet::new(&widened));
+            let new_key = (new_scope.clone(), ArgSet::new(&new_cs));
 
             if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
                 debug!("\trecursive call, hit summary");
@@ -934,7 +939,7 @@ impl<'a> InterpPass<'a> {
                 .borrow_mut()
                 .entry(cur_key)
                 .or_default()
-                .push((new_scope.clone(), widened));
+                .push((new_scope.clone(), new_cs));
 
             return Ok(Some(retty));
         }
@@ -1467,12 +1472,18 @@ impl<'a> InterpPass<'a> {
             .or_insert_with(|| assoc_fn_impls_cha.clone());
 
         // collect possible calls (mostly for recursion)
-        let mut dt = self.dispatch_targets.borrow_mut();
+        let dt = &mut self.dispatch_targets.borrow_mut();
         let entry = dt.entry(*term_span).or_default();
         for f in &assoc_fn_impls_fsa {
             if !entry.contains(f) {
                 entry.push(f.clone());
             }
+        }
+
+        let ds = &mut self.dependencies.borrow_mut();
+        let entry = ds.entry(*term_span).or_default();
+        for c in call_stack.iter() {
+            entry.insert(c.clone());
         }
 
         self.simulate_static_calls(
@@ -1907,6 +1918,7 @@ impl<'a> InterpPass<'a> {
                 *istore = merged_istore;
             }
             Ok(None) => panic!("istores empty?"),
+            Err(_) => panic!(),
         }
     }
 
@@ -1926,6 +1938,7 @@ impl<'a> InterpPass<'a> {
                 return Ok(Some(merged_constraints));
             }
             Ok(None) => Ok(None),
+            Err(_) => panic!(),
         }
     }
 
@@ -2080,9 +2093,9 @@ impl<'a> InterpPass<'a> {
 
     fn get_prunable_indices(&self, discr_vals: &mut [u8]) -> Option<Vec<usize>> {
         // If the last value (otherwise branch) is > 0, cannot prune anything
-        if discr_vals[discr_vals.len() - 1] > 0 {
-            return None;
-        }
+        // if discr_vals[discr_vals.len() - 1] > 0 {
+        //     return None;
+        // }
 
         let mut poss_idxs = Vec::new();
         let mut imposs_idxs = Vec::new();
@@ -2199,14 +2212,45 @@ impl<'a> InterpPass<'a> {
         // about to be queueing, set to prevent infinite recursion
         self.in_queue.borrow_mut().insert(key.clone());
 
+        *self.rec_depth.borrow_mut() += 1;
         for (scope, constraints) in queued {
             debug!("\treinterp queued recursive {:?}", scope.0.name());
+
+            let depth = call_stack.len();
+
             // reevaluate recursive calls
-            self.reinterp_recursive(logger, istore, call_stack, &scope, &constraints)?;
+            let res = self.reinterp_recursive(logger, istore, call_stack, &scope, &constraints);
+
+            if matches!(res, Err(Error::RecurseLimit(_))) {
+                // truncate to before call on error
+                call_stack.truncate(depth);
+                self.key_stack.borrow_mut().truncate(depth);
+
+                self.incomplete.borrow_mut().insert(cur_scope.clone());
+
+                return res;
+            }
         }
+        *self.rec_depth.borrow_mut() -= 1;
 
         // final traverse after recursive wq drained
         let body = self.get_body(cur_scope);
+
+        // constrain arguments
+        let mut substore = InterpStore::new();
+        for (i, arg_set) in key.1.args.iter().enumerate() {
+            let place = Place { local: i + 1, projection: vec![] };
+            let cs: Constraints = arg_set.iter().cloned().collect();
+            substore.cmap.insert(
+                MapKey::Var(place),
+                Box::new(MapValue::Constraints(cs)),
+            );
+        }
+        istore.cmap.insert(
+            MapKey::ScopeId(cur_scope.clone()),
+            Box::new(MapValue::Store(substore, None)),
+        );
+
         self.prepare_call(call_stack, &key);
         let res = self.visit_body(logger, istore, call_stack, cur_scope, &body);
 

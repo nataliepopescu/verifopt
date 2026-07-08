@@ -446,9 +446,6 @@ impl Context {
         }
     }
 
-    // TODO when else should fields be gotten?
-    // - before/during assignment
-    // - i.e. replace above get_constraint() calls (missing fields)
     pub fn get_cafs(
         &self,
         scope: &VOID,

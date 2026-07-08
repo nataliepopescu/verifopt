@@ -102,10 +102,6 @@ impl ConstraintsAndFields {
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
 pub type Constraints = Vec<Constraint>;
 
-// Alias around VORval to make it semantically easier to tell when we are processing generic arguments
-//pub type VOGenargs = Vec<VOGenarg>;
-//pub type VOGenarg = VORval;
-
 // Maybe organize TraitObjConstraints by trait..? Like if we have two potentially obfuscating
 // dynamic calls (one for Option and one for inner TraitObj)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -134,12 +130,10 @@ impl Constraint {
     }
 }
 
-//pub type TraitObjConstraint = (AdtDef, GenericArgs);
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
     // more complex data types
-    Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
+    Adt(AdtDef, GenericArgs),
 
     // callable types
     Closure(ClosureDef, GenericArgs),
@@ -154,10 +148,6 @@ impl Location {
     }
 }
 
-// Location portion corresponds to when this constraint was last set (at what span)
-// TODO maybe refine this a bit though
-//pub type RunningConstraint = (Location, RunningConstraintInner);
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RunningConstraint {
     // primitive data types
@@ -165,7 +155,7 @@ pub enum RunningConstraint {
     Float,
 
     // more complex data types
-    Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
+    Adt(AdtDef, GenericArgs),
 
     // pointer types
     Ptr(Box<Constraint>),
@@ -174,7 +164,7 @@ pub enum RunningConstraint {
     // callable types
     Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, GenericArgs),
-    FnPtr(SigVal), //Box<Constraints>, FnSig),
+    FnPtr(SigVal),
 
     // dynamic types
     Dynamic(Vec<TraitObjTy>),
@@ -363,7 +353,7 @@ impl Context {
         self.wtos.insert(scope.clone(), bbdeps.clone());
     }
 
-    pub fn set_constraints(&mut self, place: &Place, constraints: Constraints) {
+    fn set_constraints(&mut self, place: &Place, constraints: Constraints) {
         self.cstore.cmap.insert(
             MapKey::Var(place.clone()),
             Box::new(MapValue::Constraints(constraints)),
@@ -371,6 +361,9 @@ impl Context {
     }
 
     // FIXME when is this safe to call without fields?
+    // - bundled with setting for fields -> port to CAF api
+    // - interp_indirect_call (setting call results) -> port to CAF api
+    // - interp_direct_call (setting call results) -> port to CAF api
     pub fn set_scoped_constraints(
         &mut self,
         scope: &VOID,
@@ -384,7 +377,7 @@ impl Context {
         );
     }
 
-    pub fn set_constraint_scope(
+    pub fn set_cstore_scope(
         &mut self,
         scope: &VOID,
         store: ConstraintStore,
@@ -410,11 +403,7 @@ impl Context {
         self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
     }
 
-    // called twice
-    // - interp::resolve_args: should get fields from calling scope (but maybe just get CAFs)
-    // - interp::interp_return: should get fields from called scope (but, again, maybe just get CAFs)
-    // - convert::convert_place: similar pattern for getting a CAF, but doing stuff to fields after
-    pub fn get_fields(&self, scope: &VOID, place: &Place) -> Option<MapFieldValue> {
+    fn get_fields(&self, scope: &VOID, place: &Place) -> Option<MapFieldValue> {
         self.fstore.scoped_get(scope, &MapKey::Var(place.clone()))
     }
 
@@ -432,8 +421,14 @@ impl Context {
     // - during arg res
     //   - resolve_args (~981)
 
-    // See code from interp: 355:373
-    pub fn update_cafs(&mut self, _cafs: ConstraintsAndFields) {
+    pub fn update_cafs(&mut self, base: (Place, Constraints), fields: Vec<(Place, Constraints)>) {
+        self.set_constraints(&base.0, base.1);
+        for field in fields {
+            self.set_constraints(&field.0, field.1);
+        }
+    }
+
+    pub fn update_scoped_cafs(&mut self, _scope: &VOID) {
         todo!();
     }
 

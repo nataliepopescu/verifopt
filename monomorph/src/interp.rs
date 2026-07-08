@@ -101,7 +101,7 @@ impl<'a> InterpPass<'a> {
 
         // Initialize Context with entry_fn's constraint substore
         let entry_fn_cstore = ConstraintStore::new();
-        ctxt.set_constraint_scope(&start_scope, entry_fn_cstore, None);
+        ctxt.set_cstore_scope(&start_scope, entry_fn_cstore, None);
 
         self.visit_body(
             logger,
@@ -397,11 +397,6 @@ impl<'a> InterpPass<'a> {
 
                 let final_constraints =
                     self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints.clone());
-                //if final_constraints != constraints {
-                //    debug!("pull success");
-                //} else {
-                //    debug!("pull not needed");
-                //}
                 debug!("FINAL (PULLED) CONSTRAINTS: {:?}", final_constraints);
 
                 // Add resolved constraints to ctxt
@@ -1147,7 +1142,7 @@ impl<'a> InterpPass<'a> {
         }
 
         // Add new substore in top-level store
-        ctxt.set_constraint_scope(callee_scope, store.0, store.1);
+        ctxt.set_cstore_scope(callee_scope, store.0, store.1);
     }
 
     pub fn collect_resolved_args(
@@ -1265,17 +1260,17 @@ impl<'a> InterpPass<'a> {
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
-            new_ctxt.set_constraints(&place, arg_constraints);
-
+            let mut field_place_constraints = Vec::new();
             if let Some(fields) = maybe_fields {
                 for field in fields {
                     let field_place = Place {
                         local: place.local,
                         projection: field.0.projection,
                     };
-                    new_ctxt.set_constraints(&field_place, field.1);
+                    field_place_constraints.push((field_place, field.1));
                 }
             }
+            new_ctxt.update_cafs((place, arg_constraints), field_place_constraints);
         }
     }
 

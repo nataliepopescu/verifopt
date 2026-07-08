@@ -551,17 +551,15 @@ impl<'a> InterpPass<'a> {
         }
 
         // Set destination local to value in cmap
-        //debug!(
-        //    "RET FROM INDIRECT FUNC CALL ret_constraints: {:?}",
-        //    ret_constraints
-        //);
-        //log_scope(cur_scope);
-        //debug!("destination: {:?}", destination);
+        debug!("RET FROM INDIRECT FUNC CALL ret_cafs: {:?}", ret_cafs);
+        log_scope(cur_scope);
+        debug!("destination: {:?}", destination);
 
         let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_cafs.constraints);
         if !ret_cafs.fields.is_empty() {
             todo!("what about constraint fields: {:?}", ret_cafs.fields);
         }
+        debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
         ctxt.update_scoped_cafs(cur_scope, (destination.clone(), constraints), vec![]);
 
         Ok(None)
@@ -823,13 +821,13 @@ impl<'a> InterpPass<'a> {
 
                 ctxt.update_scoped_cafs(cur_scope, (destination.clone(), constraints), fields);
 
+                debug!("\n\n####### RETURNED VAL (CAF): {:?}", cafs);
+
                 return Ok(Some(cafs));
             }
-            Ok(None) => {}
+            Ok(None) => Ok(None),
             err @ Err(Error::RecurseLimit(_)) => return err,
         }
-
-        Ok(None)
     }
 
     /// Interpret a function call from a FnDef object
@@ -1032,7 +1030,7 @@ impl<'a> InterpPass<'a> {
             }
             InstanceKind::Intrinsic => {
                 //debug!("intrinsic funccall");
-                self.retty_fallback_from_poly(fndef.fn_sig())
+                self.retty_fallback_from_poly(cur_scope, fndef.fn_sig())
             }
         }
     }
@@ -1075,7 +1073,7 @@ impl<'a> InterpPass<'a> {
         } else {
             // No body, so not visiting/updating call stack
             debug!("NO BODY");
-            self.retty_fallback_from_poly(fndef.fn_sig())
+            self.retty_fallback_from_poly(cur_scope, fndef.fn_sig())
         }
     }
 
@@ -1362,16 +1360,16 @@ impl<'a> InterpPass<'a> {
 
     fn retty_fallback_from_poly(
         &self,
+        scope: &VOID,
         sig: PolyFnSig,
     ) -> Result<Option<ConstraintsAndFields>, Error> {
-        //debug!("fn_sig: {:?}", sig);
+        debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
-        //debug!("output: {:?}", sig.value.output());
+        debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
-        //let ret_constraints = vec![];
-        todo!();
-        //Ok(Some(ret_constraints))
+        //todo!();
+        Ok(Some(ConstraintsAndFields::empty(scope.clone())))
     }
 
     fn retty_fallback_from_sigval(
@@ -1872,7 +1870,10 @@ impl<'a> InterpPass<'a> {
 
             if call_stack.contains(&callee_scope) {
                 debug!("\tpossible infinite call!");
-                results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                results.push(
+                    self.retty_fallback_from_poly(&callee_scope, fndef.fn_sig())
+                        .unwrap(),
+                );
             } else {
                 let mut ctxt_clone = ctxt.clone();
                 let mut call_stack_clone = call_stack.clone();

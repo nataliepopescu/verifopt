@@ -590,18 +590,23 @@ things that might have that as a thing
     - or, if an exact projection is not stored, can we search around somehow?
 
 
-//back in main before speak()
-//
-//_11 = Cast(Transmute, Copy(((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>)), Ty { id: 77983, kind: RigidTy(RawPtr(Ty { id: 77996, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }, Not)) })
-//
-//"place ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) has not been set, widen to type"
-
 
 when returning from `alloc_impl_runtime` into `exchange_malloc`
 - looking for field: ((*_0).0: std::ptr::NonNull<[u8]>)
 
 - wait, `((*_0).0: std::ptr::NonNull<[u8]>)` does exist in the cmap??
+- fixed and added CAF API
 
+
+
+NOW back in main before speak()
+
+_11 = Cast(Transmute, Copy(((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>)), Ty { id: 77983, kind: RigidTy(RawPtr(Ty { id: 77996, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }, Not)) })
+
+"place ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) has not been set, widen to type"
+
+statement: 
+_11 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
 
 
 

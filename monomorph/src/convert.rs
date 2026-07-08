@@ -187,7 +187,7 @@ impl<'a> RvalConverter<'a> {
             }
             None => {
                 for proj in &place.projection {
-                    debug!("PROJ: {:?}", proj);
+                    debug!("\nPROJ: {:?}", proj);
                 }
                 let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
                 if let Some(traitobj) = maybe_traitobj {

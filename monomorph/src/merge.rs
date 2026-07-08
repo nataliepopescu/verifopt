@@ -1,9 +1,10 @@
 use crate::constraints::{
     ConstraintStore, Constraints, ConstraintsAndFields, Context, EnclosingScopes, FieldStore,
-    Fields, MapValue,
+    MapValue,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::error::Error;
+use rustc_public::mir::Place;
 
 //use log::debug;
 
@@ -142,8 +143,8 @@ impl Merge<FieldStore> for Vec<FieldStore> {
     }
 }
 
-impl Merge<Fields> for Vec<Fields> {
-    fn merge(&self) -> Result<Option<Fields>, Error> {
+impl Merge<Vec<Place>> for Vec<Vec<Place>> {
+    fn merge(&self) -> Result<Option<Vec<Place>>, Error> {
         if self.is_empty() {
             return Ok(None);
         }

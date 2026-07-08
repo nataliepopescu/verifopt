@@ -400,26 +400,21 @@ impl<'a> InterpPass<'a> {
                 debug!("FINAL (PULLED) CONSTRAINTS: {:?}", final_constraints);
 
                 // Add resolved constraints to ctxt
-                ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
-
-                if let Some(fields) = maybe_fields {
-                    debug!("STORING FIELD PROJECTIONS TOO: {:?}", fields);
-
+                let mut fields = Vec::new();
+                if let Some(fields_) = maybe_fields {
                     // Store operand (field) constraints into projected places in ctxt
-                    let mut field_places = Vec::new();
-                    for field in fields {
+                    for field in fields_ {
                         let final_op_constraints = self
                             .pull_traitobjs_from_constraints(&maybe_trait_destty, field.1.clone());
                         let field_place = Place {
                             local: place.local,
                             projection: field.0.clone(),
                         };
-                        field_places.push(field_place.clone());
-
-                        ctxt.set_scoped_constraints(cur_scope, &field_place, final_op_constraints);
+                        fields.push((field_place, final_op_constraints));
                     }
-                    ctxt.add_fields(cur_scope, place, &field_places);
                 }
+
+                ctxt.update_scoped_cafs(cur_scope, (place.clone(), final_constraints), fields);
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -562,6 +557,7 @@ impl<'a> InterpPass<'a> {
         //);
         //log_scope(cur_scope);
         //debug!("destination: {:?}", destination);
+
         let constraints =
             self.pull_traitobjs_from_constraints(&maybe_trait_destty, ret_constraints.constraints);
         if !ret_constraints.fields.is_empty() {
@@ -1128,7 +1124,7 @@ impl<'a> InterpPass<'a> {
 
         // Merge new substore into existing substore at this scopeId
         let store;
-        match ctxt.get_constraint_scope(callee_scope) {
+        match ctxt.get_cstore_scope(callee_scope) {
             Some(box MapValue::Store(old_substore, old_es)) => {
                 store = merge_stores(
                     &old_substore,
@@ -1270,7 +1266,11 @@ impl<'a> InterpPass<'a> {
                     field_place_constraints.push((field_place, field.1));
                 }
             }
-            new_ctxt.update_cafs((place, arg_constraints), field_place_constraints);
+            new_ctxt.update_cafs(
+                callee_scope,
+                (place, arg_constraints),
+                field_place_constraints,
+            );
         }
     }
 

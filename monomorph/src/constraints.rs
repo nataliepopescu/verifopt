@@ -66,18 +66,15 @@ pub enum MapFieldValue {
 
 pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 
-pub type Fields = Vec<Field>;
-pub type Field = Place;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConstraintsAndFields {
     pub constraints: Constraints,
-    pub fields: Fields,
+    pub fields: Vec<Place>,
     pub scope: VOID,
 }
 
 impl ConstraintsAndFields {
-    pub fn new(constraints: Constraints, fields: Fields, scope: VOID) -> ConstraintsAndFields {
+    pub fn new(constraints: Constraints, fields: Vec<Place>, scope: VOID) -> ConstraintsAndFields {
         Self {
             constraints,
             fields,
@@ -360,21 +357,23 @@ impl Context {
         );
     }
 
-    // FIXME when is this safe to call without fields?
-    // - bundled with setting for fields -> port to CAF api
-    // - interp_indirect_call (setting call results) -> port to CAF api
-    // - interp_direct_call (setting call results) -> port to CAF api
-    pub fn set_scoped_constraints(
-        &mut self,
-        scope: &VOID,
-        place: &Place,
-        constraints: Constraints,
-    ) {
+    fn set_scoped_constraints(&mut self, scope: &VOID, place: &Place, constraints: Constraints) {
         self.cstore.scoped_update(
             scope,
             MapKey::Var(place.clone()),
             Box::new(MapValue::Constraints(constraints)),
         );
+    }
+
+    // FIXME when safe to get without fields?
+    pub fn get_constraints(
+        &self,
+        scope: &VOID,
+        place: &Place,
+        is_closure: bool,
+    ) -> Option<MapValue> {
+        self.cstore
+            .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
     }
 
     pub fn set_cstore_scope(
@@ -389,17 +388,7 @@ impl Context {
         );
     }
 
-    pub fn get_constraints(
-        &self,
-        scope: &VOID,
-        place: &Place,
-        is_closure: bool,
-    ) -> Option<MapValue> {
-        self.cstore
-            .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
-    }
-
-    pub fn get_constraint_scope(&self, scope: &VOID) -> Option<&Box<MapValue>> {
+    pub fn get_cstore_scope(&self, scope: &VOID) -> Option<&Box<MapValue>> {
         self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
     }
 
@@ -407,33 +396,56 @@ impl Context {
         self.fstore.scoped_get(scope, &MapKey::Var(place.clone()))
     }
 
-    pub fn add_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Fields) {
+    fn set_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
         self.fstore.link_adt_fields(scope, place, new_field_places);
     }
 
-    // FIXME when are fields set?
-    // - link_adt_field called during/after assignment (interp:355:373)
-    //
     // TODO when else should fields be set?
     // - after funccall (retval fields/propagations)
     //   - interp_indirect_call (~450)
     //   - interp_direct_call (~690)
-    // - during arg res
-    //   - resolve_args (~981)
 
-    pub fn update_cafs(&mut self, base: (Place, Constraints), fields: Vec<(Place, Constraints)>) {
+    pub fn update_cafs(
+        &mut self,
+        scope: &VOID,
+        base: (Place, Constraints),
+        fields: Vec<(Place, Constraints)>,
+    ) {
+        // add field mappings -> fieldStore
+        if !fields.is_empty() {
+            let field_places: Vec<Place> = fields.clone().into_iter().map(|(x, _)| x).collect();
+            self.set_fields(scope, &base.0, &field_places);
+        }
+
+        // add base + field constraints -> constraintStore
         self.set_constraints(&base.0, base.1);
         for field in fields {
             self.set_constraints(&field.0, field.1);
         }
     }
 
-    pub fn update_scoped_cafs(&mut self, _scope: &VOID) {
-        todo!();
+    pub fn update_scoped_cafs(
+        &mut self,
+        scope: &VOID,
+        base: (Place, Constraints),
+        fields: Vec<(Place, Constraints)>,
+    ) {
+        // add field mappings -> fieldStore
+        if !fields.is_empty() {
+            let field_places: Vec<Place> = fields.clone().into_iter().map(|(x, _)| x).collect();
+            self.set_fields(scope, &base.0, &field_places);
+        }
+
+        // add base + field constraints -> constraintStore
+        self.set_scoped_constraints(scope, &base.0, base.1);
+        for field in fields {
+            self.set_scoped_constraints(scope, &field.0, field.1);
+        }
     }
 
     // TODO when else should fields be gotten?
-    // - before/during assignment?
+    // - before/during assignment
+    // - i.e. replace above get_constraint() calls (missing fields)
     pub fn get_cafs(
         &self,
         scope: &VOID,
@@ -671,7 +683,7 @@ impl FieldStore {
         }
     }
 
-    pub fn link_adt_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Fields) {
+    pub fn link_adt_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
         debug!("\nLINKING FIELD");
         debug!("new_field_places: {:?}", new_field_places);
 

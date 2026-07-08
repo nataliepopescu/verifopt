@@ -443,21 +443,11 @@ impl Context {
         &self,
         scope: &VOID,
         place: &Place,
-        //maybe_traitty: &Option<Vec<TraitObjTy>>,
         is_closure: bool,
     ) -> Option<ConstraintsAndFields> {
         match self.get_constraints(scope, place, is_closure) {
             Some(ret) => match ret {
                 MapValue::Constraints(constraints) => {
-                    debug!("\n###### RETURNING constraints:");
-                    debug!("\t{:?}\n\n", constraints);
-
-                    //if let Some(_traitty) = maybe_traitty {
-                    // TODO possible to do this after returning CAF?
-                    // (in resolve_arg)
-                    //constraints = (interp) pull_traitobjs_from_constraints( , constraints);
-                    //}
-
                     let fields = match self.get_fields(scope, place) {
                         Some(MapFieldValue::Fields(fields_)) => fields_,
                         Some(_) => panic!("got scope"),

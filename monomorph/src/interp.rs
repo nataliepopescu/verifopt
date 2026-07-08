@@ -1296,60 +1296,40 @@ impl<'a> InterpPass<'a> {
         // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                match self.get_place_constraints(
-                    ctxt,
-                    caller_scope,
-                    maybe_trait_argty,
-                    place,
-                    is_closure,
-                ) {
-                    Some(constraints) => {
-                        // Get any field projections
-                        match ctxt.get_fields(caller_scope, place) {
-                            Some(MapFieldValue::Fields(field_places)) => {
-                                let mut fields = Vec::new();
-                                for field_place in field_places {
-                                    match self.get_place_constraints(
-                                        ctxt,
-                                        caller_scope,
-                                        maybe_trait_argty,
-                                        &field_place,
-                                        is_closure,
-                                    ) {
-                                        Some(field_constraints) => {
-                                            //debug!(
-                                            //    "[ResolveArg] field_constraints: {:?}",
-                                            //    field_constraints
-                                            //);
-                                            fields.push((
-                                                // field place
-                                                field_place.clone(),
-                                                // field constraints
-                                                field_constraints,
-                                            ));
-                                        }
-                                        // No fields
-                                        None => debug!("not a field"),
-                                    }
+                match ctxt.get_cafs(caller_scope, place, is_closure) {
+                    Some(cafs) => {
+                        let final_constraints = self
+                            .pull_traitobjs_from_constraints(maybe_trait_argty, cafs.constraints);
+
+                        let mut fields = Vec::new();
+                        for field_place in cafs.fields {
+                            match self.get_place_constraints(
+                                ctxt,
+                                caller_scope,
+                                maybe_trait_argty,
+                                &field_place,
+                                is_closure,
+                            ) {
+                                Some(field_constraints) => {
+                                    fields.push((field_place.clone(), field_constraints));
                                 }
-                                if fields.is_empty() {
-                                    (constraints, None)
-                                } else {
-                                    (constraints, Some(fields))
-                                }
+                                None => panic!("no constraints for field"),
                             }
-                            Some(_) => panic!("got a store"),
-                            None => {
-                                //debug!("NO FIELDS @ ({:?}, {:?})", place, caller_scope);
-                                (constraints, None)
-                            }
+                        }
+
+                        if fields.is_empty() {
+                            (final_constraints, None)
+                        } else {
+                            (final_constraints, Some(fields))
                         }
                     }
                     None => {
-                        //debug!("place {:?} DNE in cmap, widen to type", place);
-                        let (_maybe_traitobjty, constraint) = self
+                        let (maybe_traitobjty, constraint) = self
                             .converter
                             .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
+                        if let Some(_tot) = maybe_traitobjty {
+                            todo!();
+                        }
                         (vec![constraint], None)
                     }
                 }
@@ -2229,7 +2209,6 @@ impl<'a> InterpPass<'a> {
         };
 
         // Get and "return" the constraints at Place(0)
-<<<<<<< HEAD
         match ctxt.cstore.scoped_get(
             &old_scope.clone().unwrap(),
             &MapKey::Var(ret_place.clone()),
@@ -2352,11 +2331,5 @@ impl<'a> InterpPass<'a> {
         let res = self.visit_body(logger, istore, call_stack, cur_scope, &body);
 
         res
-//=======
-//        Ok(ctxt.get_cafs(&old_scope.clone().unwrap(), &ret_place, &None, false))
-//>>>>>>> b058b7c (update Context API to help simplify interp + clarify Constraints/Fields APIs)
-=======
-        Ok(ctxt.get_cafs(&old_scope.clone().unwrap(), &ret_place, false))
->>>>>>> 23d7891 (ensure all ctxt calls go through public API (instead of field accesses))
     }
 }

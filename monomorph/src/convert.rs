@@ -8,8 +8,8 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 //use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Context, Location, MapFieldValue, MapValue,
-    RunningConstraint, TraitObjConstraint, TraitObjTy, VOID,
+    ADTFields, Constraint, Constraints, Context, Location, RunningConstraint, TraitObjConstraint,
+    TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -151,78 +151,48 @@ impl<'a> RvalConverter<'a> {
         //debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
         // TODO use current place ty instead of *just* getting existing place constraints
 
-        //debug!("CONVERTING PLACE");
-        match ctxt.get_constraints(cur_scope, place, false) {
-            Some(val) => match val {
-                MapValue::Constraints(constraints) => {
-                    debug!("found constraints for place {:?}: {:?}", place, constraints);
-                    debug!("checking field projection constraints.....");
+        match ctxt.get_cafs(cur_scope, place, false) {
+            Some(cafs) => {
+                let mut fields = Vec::new();
+                for field_place in cafs.fields {
+                    debug!("field_place: {:?}", field_place);
+                    debug!("projs: {:?}", field_place.projection);
+                    let field_ty = match field_place.projection[field_place.projection.len() - 1] {
+                        ProjectionElem::Field(_, ty) => ty,
+                        _ => todo!(),
+                    };
 
-                    // FIXME implementation is similar to interp::resolve_arg()
-                    match ctxt.get_fields(cur_scope, place) {
-                        Some(MapFieldValue::Fields(field_places)) => {
-                            debug!("\n--FIELD projections: {:?}", field_places);
-
-                            let mut fields = Vec::new();
-                            for field_place in field_places {
-                                debug!("field_place: {:?}", field_place);
-                                debug!("projs: {:?}", field_place.projection);
-                                let field_ty = match field_place.projection
-                                    [field_place.projection.len() - 1]
-                                {
-                                    ProjectionElem::Field(_, ty) => ty,
-                                    _ => todo!(),
-                                };
-
-                                // get each field constraints
-                                let (field_constraints, field_fields) = self.convert_place(
-                                    ctxt,
-                                    span,
-                                    local_decls,
-                                    cur_scope,
-                                    &field_place,
-                                    &field_ty,
-                                );
-                                //debug!("[ConvertPlace] field_constraints: {:?}", field_constraints);
-                                if field_fields.is_some() {
-                                    todo!();
-                                }
-
-                                // push into vec
-                                fields.push((
-                                    // full projection
-                                    field_place.projection.clone(),
-                                    // field constraints
-                                    field_constraints,
-                                ))
-                            }
-                            //debug!("\n--DONE FIELD places: {:?}\n", field_places);
-                            if fields.is_empty() {
-                                (constraints, None)
-                            } else {
-                                (constraints, Some(fields))
-                            }
-                        }
-                        Some(MapFieldValue::Store(_)) => panic!("got store"),
-                        None => {
-                            debug!("NO FIELD CONSTRAINTS");
-                            (constraints, None)
-                        }
+                    // get each field constraints
+                    let (field_constraints, field_fields) = self.convert_place(
+                        ctxt,
+                        span,
+                        local_decls,
+                        cur_scope,
+                        &field_place,
+                        &field_ty,
+                    );
+                    //debug!("[ConvertPlace] field_constraints: {:?}", field_constraints);
+                    if field_fields.is_some() {
+                        todo!();
                     }
+
+                    // push into vec
+                    fields.push((field_place.projection.clone(), field_constraints))
                 }
-                _ => panic!("value should not be a scope"),
-            },
+                if fields.is_empty() {
+                    (cafs.constraints, None)
+                } else {
+                    (cafs.constraints, Some(fields))
+                }
+            }
             None => {
-                debug!("place {:?} has not been set, widen to type", place);
                 for proj in &place.projection {
                     debug!("PROJ: {:?}", proj);
                 }
-                let place_ty = place.ty(local_decls).unwrap_or(*destty);
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, &place_ty);
-                //debug!("constraint (from ty): {:?}", constraint);
-                //if let Some(traitobj) = maybe_traitobj {
-                //    todo!("place ty contains dyn {:?}", traitobj);
-                //}
+                let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
+                if let Some(traitobj) = maybe_traitobj {
+                    todo!("place ty contains dyn {:?}", traitobj);
+                }
                 (vec![constraint], None)
             }
         }

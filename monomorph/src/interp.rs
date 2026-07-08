@@ -101,10 +101,7 @@ impl<'a> InterpPass<'a> {
 
         // Initialize Context with entry_fn's constraint substore
         let entry_fn_cstore = ConstraintStore::new();
-        ctxt.cstore.cmap.insert(
-            MapKey::ScopeId(start_scope.clone()),
-            Box::new(MapValue::Store(entry_fn_cstore, None)),
-        );
+        ctxt.set_constraint_scope(&start_scope, entry_fn_cstore, None);
 
         self.visit_body(
             logger,
@@ -140,7 +137,7 @@ impl<'a> InterpPass<'a> {
 
         // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
-        if let Some(mem_bb_deps) = ctxt.wtos.get(cur_scope) {
+        if let Some(mem_bb_deps) = ctxt.get_wto(cur_scope) {
             bb_deps = mem_bb_deps.clone();
             if !bb_deps.has_ret {
                 // This block does not explicitly return - likely a panicker, thus we can skip
@@ -155,8 +152,7 @@ impl<'a> InterpPass<'a> {
                 self.prepare_return(call_stack);
                 return Ok(None);
             }
-            ctxt.wtos.insert(cur_scope.clone(), bb_deps.clone());
-            debug!("NEW ordering: {:?}", bb_deps.ordering);
+            ctxt.set_wto(cur_scope, &bb_deps);
         }
 
         // Loop through basic blocks in WTO
@@ -409,11 +405,7 @@ impl<'a> InterpPass<'a> {
                 debug!("FINAL (PULLED) CONSTRAINTS: {:?}", final_constraints);
 
                 // Add resolved constraints to ctxt
-                ctxt.cstore.scoped_update(
-                    cur_scope,
-                    MapKey::Var(place.clone()),
-                    Box::new(MapValue::Constraints(final_constraints)),
-                );
+                ctxt.set_constraints(cur_scope, place, final_constraints);
 
                 if let Some(fields) = maybe_fields {
                     debug!("STORING FIELD PROJECTIONS TOO: {:?}", fields);
@@ -429,11 +421,7 @@ impl<'a> InterpPass<'a> {
                         };
                         field_places.push(field_place.clone());
 
-                        ctxt.cstore.scoped_update(
-                            cur_scope,
-                            MapKey::Var(field_place),
-                            Box::new(MapValue::Constraints(final_op_constraints)),
-                        );
+                        ctxt.set_constraints(cur_scope, &field_place, final_op_constraints);
                     }
                     ctxt.fstore.link_adt_field(cur_scope, place, &field_places);
                 }
@@ -537,10 +525,7 @@ impl<'a> InterpPass<'a> {
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let mut ret_constraints = ConstraintsAndFields::empty(cur_scope.clone());
-        match ctxt
-            .cstore
-            .scoped_get(cur_scope, &MapKey::Var(place.clone()), false)
-        {
+        match ctxt.get_constraints(cur_scope, place, false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     for constraint in &constraints {
@@ -584,11 +569,10 @@ impl<'a> InterpPass<'a> {
         //debug!("destination: {:?}", destination);
         let constraints =
             self.pull_traitobjs_from_constraints(&maybe_trait_destty, ret_constraints.constraints);
-        ctxt.cstore.scoped_update(
-            cur_scope,
-            MapKey::Var(destination.clone()),
-            Box::new(MapValue::Constraints(constraints)),
-        );
+        if !ret_constraints.fields.is_empty() {
+            todo!("what about constraint fields: {:?}", ret_constraints.fields);
+        }
+        ctxt.set_constraints(cur_scope, destination, constraints);
 
         Ok(None)
     }
@@ -837,21 +821,13 @@ impl<'a> InterpPass<'a> {
                     constraints_.constraints.clone(),
                 );
                 constraints_.constraints = constraints.clone();
-                ctxt.cstore.scoped_update(
-                    cur_scope,
-                    MapKey::Var(destination.clone()),
-                    Box::new(MapValue::Constraints(constraints)),
-                );
+                ctxt.set_constraints(cur_scope, destination, constraints);
 
                 // Propagate field constraints from the CALLEE's scope (via the retval)
                 debug!("constraints.constraints: {:?}", constraints_.constraints);
                 for field in &constraints_.fields {
                     debug!("field: {:?}", field);
-                    match ctxt.cstore.scoped_get(
-                        &constraints_.scope,
-                        &MapKey::Var(field.clone()),
-                        false,
-                    ) {
+                    match ctxt.get_constraints(&constraints_.scope, field, false) {
                         Some(MapValue::Constraints(constraints)) => {
                             todo!("field constraints: {:?}", constraints);
                         }
@@ -1142,8 +1118,6 @@ impl<'a> InterpPass<'a> {
         //debug!("IS TARGET FN CLOSURE?: {}", is_closure);
 
         let mut new_ctxt = Context::empty();
-        let key = MapKey::ScopeId(callee_scope.clone());
-
         // Resolve generics + add arg values into new substore
         self.resolve_args_helper(
             ctxt,
@@ -1159,7 +1133,7 @@ impl<'a> InterpPass<'a> {
 
         // Merge new substore into existing substore at this scopeId
         let store;
-        match ctxt.cstore.cmap.get(&key) {
+        match ctxt.get_constraint_scope(callee_scope) {
             Some(box MapValue::Store(old_substore, old_es)) => {
                 store = merge_stores(
                     &old_substore,
@@ -1173,9 +1147,7 @@ impl<'a> InterpPass<'a> {
         }
 
         // Add new substore in top-level store
-        ctxt.cstore
-            .cmap
-            .insert(key, Box::new(MapValue::Store(store.0, store.1)));
+        ctxt.set_constraint_scope(callee_scope, store.0, store.1);
     }
 
     pub fn collect_resolved_args(
@@ -1339,10 +1311,7 @@ impl<'a> InterpPass<'a> {
                 ) {
                     Some(constraints) => {
                         // Get any field projections
-                        match ctxt
-                            .fstore
-                            .scoped_get(caller_scope, &MapKey::Var(place.clone()))
-                        {
+                        match ctxt.get_fields(caller_scope, place) {
                             Some(MapFieldValue::Fields(field_places)) => {
                                 let mut fields = Vec::new();
                                 for field_place in field_places {
@@ -1408,10 +1377,7 @@ impl<'a> InterpPass<'a> {
         place: &Place,
         is_closure: bool,
     ) -> Option<Constraints> {
-        match ctxt
-            .cstore
-            .scoped_get(caller_scope, &MapKey::Var(place.clone()), is_closure)
-        {
+        match ctxt.get_constraints(caller_scope, place, is_closure) {
             Some(val) => match val {
                 MapValue::Constraints(constraints_) => {
                     Some(self.pull_traitobjs_from_constraints(maybe_trait_argty, constraints_))
@@ -1735,10 +1701,7 @@ impl<'a> InterpPass<'a> {
         place: Place,
     ) -> Constraints {
         // Get concrete type constraints for trait object
-        match ctxt
-            .cstore
-            .scoped_get(caller_scope, &MapKey::Var(place.clone()), false)
-        {
+        match ctxt.get_constraints(caller_scope, &place, false) {
             Some(val) => match val {
                 MapValue::Constraints(tyconstraints) => tyconstraints,
                 MapValue::Store(..) => panic!("place {:?} refers to a scope", place),
@@ -2054,10 +2017,7 @@ impl<'a> InterpPass<'a> {
 
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt
-                    .cstore
-                    .scoped_get(cur_scope, &MapKey::Var(place.clone()), false)
-                {
+                match ctxt.get_constraints(cur_scope, place, false) {
                     Some(val) => match val {
                         MapValue::Constraints(constraints) => {
                             // Create a byte-map for finding statically-impossible successors
@@ -2273,6 +2233,7 @@ impl<'a> InterpPass<'a> {
             local: 0,
             projection: vec![],
         };
+
         // Get and "return" the constraints at Place(0)
         match ctxt.cstore.scoped_get(
             &old_scope.clone().unwrap(),
@@ -2396,5 +2357,8 @@ impl<'a> InterpPass<'a> {
         let res = self.visit_body(logger, istore, call_stack, cur_scope, &body);
 
         res
+//=======
+//        Ok(ctxt.get_cafs(&old_scope.clone().unwrap(), &ret_place, &None, false))
+//>>>>>>> b058b7c (update Context API to help simplify interp + clarify Constraints/Fields APIs)
     }
 }

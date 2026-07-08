@@ -71,17 +71,13 @@ pub type Field = Place;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ConstraintsAndFields {
-    pub constraints: Vec<Constraint>,
-    pub fields: Vec<Field>,
+    pub constraints: Constraints,
+    pub fields: Fields,
     pub scope: VOID,
 }
 
 impl ConstraintsAndFields {
-    pub fn new(
-        constraints: Vec<Constraint>,
-        fields: Vec<Field>,
-        scope: VOID,
-    ) -> ConstraintsAndFields {
+    pub fn new(constraints: Constraints, fields: Fields, scope: VOID) -> ConstraintsAndFields {
         Self {
             constraints,
             fields,
@@ -346,14 +342,115 @@ impl Context {
             wtos: HashMap::default(),
         }
     }
+
+    pub fn get_wto(&self, scope: &VOID) -> Option<&BBDeps> {
+        self.wtos.get(scope)
+    }
+
+    pub fn set_wto(&mut self, scope: &VOID, bbdeps: &BBDeps) {
+        self.wtos.insert(scope.clone(), bbdeps.clone());
+    }
+
+    // FIXME when is this safe to call without fields?
+    pub fn set_constraints(&mut self, scope: &VOID, place: &Place, constraints: Constraints) {
+        self.cstore.scoped_update(
+            scope,
+            MapKey::Var(place.clone()),
+            Box::new(MapValue::Constraints(constraints)),
+        );
+    }
+
+    pub fn set_constraint_scope(
+        &mut self,
+        scope: &VOID,
+        store: ConstraintStore,
+        enclosing_scope: EnclosingScopes,
+    ) {
+        self.cstore.cmap.insert(
+            MapKey::ScopeId(scope.clone()),
+            Box::new(MapValue::Store(store, enclosing_scope)),
+        );
+    }
+
+    pub fn get_constraints(
+        &self,
+        scope: &VOID,
+        place: &Place,
+        is_closure: bool,
+    ) -> Option<MapValue> {
+        self.cstore
+            .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
+    }
+
+    pub fn get_constraint_scope(&self, scope: &VOID) -> Option<&Box<MapValue>> {
+        self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
+    }
+
+    // called twice
+    // - resolve_args: should get fields from calling scope (but maybe just get CAFs)
+    // - interp_return: should get fields from called scope (but, again, maybe just get CAFs)
+    pub fn get_fields(&self, scope: &VOID, place: &Place) -> Option<MapFieldValue> {
+        self.fstore.scoped_get(scope, &MapKey::Var(place.clone()))
+    }
+
+    // FIXME when are fields set?
+    // - link_adt_field called during/after assignment (interp:355:373)
+    //
+    // TODO when else should fields be set?
+    // - after funccall (retval fields/propagations)
+    //   - interp_indirect_call (~450)
+    //   - interp_direct_call (~690)
+    // - during arg res
+    //   - resolve_args (~981)
+
+    // See code from interp: 355:373
+    pub fn update_cafs(&mut self, _cafs: ConstraintsAndFields) {
+        todo!();
+    }
+
+    // TODO when else should fields be gotten?
+    // - before/during assignment?
+    pub fn get_cafs(
+        &self,
+        scope: &VOID,
+        place: &Place,
+        maybe_traitty: &Option<Vec<TraitObjTy>>,
+        is_closure: bool,
+    ) -> Option<ConstraintsAndFields> {
+        match self.get_constraints(scope, place, is_closure) {
+            Some(ret) => match ret {
+                MapValue::Constraints(constraints) => {
+                    debug!("\n###### RETURNING constraints:");
+                    debug!("\t{:?}\n\n", constraints);
+
+                    if let Some(traitty) = maybe_traitty {
+                        // TODO possible to do this after returning CAF?
+                        // (in resolve_arg)
+                        //constraints = (interp) pull_traitobjs_from_constraints( , constraints);
+                    }
+
+                    let fields = match self.get_fields(scope, place) {
+                        Some(MapFieldValue::Fields(fields_)) => fields_,
+                        Some(_) => panic!("got scope"),
+                        None => vec![],
+                    };
+
+                    Some(ConstraintsAndFields::new(
+                        constraints,
+                        fields,
+                        scope.clone(),
+                    ))
+                }
+                _ => panic!("got scope"),
+            },
+            None => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintStore {
     pub cmap: HashMap<MapKey, Box<MapValue>>,
-    //pub wtos: HashMap<VOID, BBDeps>,
-    // Map ADT places to their field places (projections) which have constraints in cmap
-    //pub field_map: HashMap<MapKey, Box<MapFieldValue>>,
 }
 
 impl ConstraintStore {
@@ -474,27 +571,12 @@ impl ConstraintStore {
                     match store.cmap.get(&key) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
-                            //debug!("is_closure?: {:?}", is_closure);
-                            //debug!("enclosing_scope: {:?}", enclosing_scopes);
                             if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
                                 let constraints =
                                     self.get_from_enclosing_scopes(&enclosing_scopes, &key);
                                 Some(MapValue::Constraints(constraints))
                             } else {
-                                // If this is incorrectly labeled as _not_ a closure (meaning it
-                                // should be labeled a closure), can we get the needed value in the
-                                // enclosing scope?
-                                //debug!("SHOULD THIS SCOPE BE A CLOSURE?");
-                                //log_scope(&scope);
-
-                                //if enclosing_scopes.is_some() {
-                                //    let constraints = self.get_from_enclosing_scopes(&enclosing_scopes, key);
-                                //    debug!("got constraints from enclosing scope: {:?}", constraints);
-                                //} else {
-                                //    debug!("nope");
-                                //}
-
                                 None
                             }
                         }
@@ -584,30 +666,6 @@ impl FieldStore {
             MapKey::Var(place.clone()),
             Box::new(MapFieldValue::Fields(new_field_places.to_vec())),
         );
-
-        /*
-        match self.field_map.get_mut(adt_place_and_scope) {
-            Some(field_places) => {
-                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("old field projections: {:?}", field_places);
-                //debug!("new field projection: {:?}", field_place);
-
-                let mut new_field_places = Vec::new();
-                for old_field_place in field_places.clone() {
-                    unique_push(&mut new_field_places, old_field_place.clone());
-                    unique_push(&mut new_field_places, field_place.clone());
-                }
-                debug!("NEW FIELD PROJECTIONS: {:?}", new_field_places);
-                *field_places = new_field_places;
-            }
-            None => {
-                //debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("new field projection: {:?}", field_place);
-                self.field_map
-                    .insert(adt_place_and_scope.clone(), vec![field_place.clone()]);
-            }
-        }
-        */
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey) -> Option<MapFieldValue> {

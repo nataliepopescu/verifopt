@@ -302,7 +302,7 @@ impl<'a> InterpPass<'a> {
     /// If any of the constraints contain a type that implements one of the Traits listed in
     /// `maybe_trait_destty`, copy those types and put them into the TraitObjConstraint field
     /// of the constraint, leaving the RunningConstraint field unchanged
-    fn pull_traitobjs_from_constraints(
+    fn lift_traitobjtys(
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
@@ -396,7 +396,7 @@ impl<'a> InterpPass<'a> {
                     };
 
                 let final_constraints =
-                    self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints.clone());
+                    self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
                 debug!("FINAL (PULLED) CONSTRAINTS: {:?}", final_constraints);
 
                 // Add resolved constraints to ctxt
@@ -404,8 +404,8 @@ impl<'a> InterpPass<'a> {
                 if let Some(fields_) = maybe_fields {
                     // Store operand (field) constraints into projected places in ctxt
                     for field in fields_ {
-                        let final_op_constraints = self
-                            .pull_traitobjs_from_constraints(&maybe_trait_destty, field.1.clone());
+                        let final_op_constraints =
+                            self.lift_traitobjtys(&maybe_trait_destty, field.1.clone());
                         let field_place = Place {
                             local: place.local,
                             projection: field.0.clone(),
@@ -514,39 +514,39 @@ impl<'a> InterpPass<'a> {
         //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-        let mut ret_constraints = ConstraintsAndFields::empty(cur_scope.clone());
-        match ctxt.get_constraints(cur_scope, place, false) {
-            Some(val) => match val {
-                MapValue::Constraints(constraints) => {
-                    for constraint in &constraints {
-                        match constraint {
-                            Constraint {
-                                toc: _,
-                                cfc: Some(cf),
-                            } => match self.interp_constraint_as_fn(
-                                logger,
-                                term_span,
-                                ctxt,
-                                call_stack,
-                                cur_scope,
-                                local_decls,
-                                &cf,
-                                args,
-                            ) {
-                                Ok(Some(constraints)) => {
-                                    ret_constraints.update(constraints);
-                                }
-                                Ok(None) => {}
-                                e @ Err(_) => {
-                                    panic!("interping constraint as fn, got error: {:?}", e)
-                                }
-                            },
-                            _ => panic!("got traitobj when expected fn-type thing"),
-                        }
+        let mut ret_cafs = ConstraintsAndFields::empty(cur_scope.clone());
+        match ctxt.get_cafs(cur_scope, place, false) {
+            Some(cafs) => {
+                if !cafs.fields.is_empty() {
+                    todo!("calling indirect func on obj w fields: {:?}", cafs.fields);
+                }
+                for constraint in &cafs.constraints {
+                    match constraint {
+                        Constraint {
+                            toc: _,
+                            cfc: Some(cf),
+                        } => match self.interp_constraint_as_fn(
+                            logger,
+                            term_span,
+                            ctxt,
+                            call_stack,
+                            cur_scope,
+                            local_decls,
+                            &cf,
+                            args,
+                        ) {
+                            Ok(Some(new_cafs)) => {
+                                ret_cafs.update(new_cafs);
+                            }
+                            Ok(None) => {}
+                            e @ Err(_) => {
+                                panic!("interping constraint as fn, got error: {:?}", e)
+                            }
+                        },
+                        _ => panic!("got traitobj when expected fn-type thing"),
                     }
                 }
-                _ => panic!("trying to indirectly call a scope - invalid"),
-            },
+            }
             None => panic!("fnptr value not found in cmap"),
         }
 
@@ -558,12 +558,11 @@ impl<'a> InterpPass<'a> {
         //log_scope(cur_scope);
         //debug!("destination: {:?}", destination);
 
-        let constraints =
-            self.pull_traitobjs_from_constraints(&maybe_trait_destty, ret_constraints.constraints);
-        if !ret_constraints.fields.is_empty() {
-            todo!("what about constraint fields: {:?}", ret_constraints.fields);
+        let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_cafs.constraints);
+        if !ret_cafs.fields.is_empty() {
+            todo!("what about constraint fields: {:?}", ret_cafs.fields);
         }
-        ctxt.set_scoped_constraints(cur_scope, destination, constraints);
+        ctxt.update_scoped_cafs(cur_scope, (destination.clone(), constraints), vec![]);
 
         Ok(None)
     }
@@ -767,7 +766,7 @@ impl<'a> InterpPass<'a> {
         //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-        let ret_constraints = match co.const_.ty().kind() {
+        let ret_cafs = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
                     logger,
@@ -799,42 +798,32 @@ impl<'a> InterpPass<'a> {
         };
 
         // Set destination local to value in cmap
-        debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
+        debug!("RET FROM FUNC CALL ret_cafs: {:?}", ret_cafs);
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
 
-        match ret_constraints {
-            Ok(Some(mut constraints_)) => {
-                // Make sure that if we're widening the concrete type of a function's return value
-                // (e.g. assigning a Cat to a dyn Animal), we pull out the relevant traitobj info
-                let constraints = self.pull_traitobjs_from_constraints(
-                    &maybe_trait_destty,
-                    constraints_.constraints.clone(),
-                );
-                constraints_.constraints = constraints.clone();
-                ctxt.set_scoped_constraints(cur_scope, destination, constraints);
+        match ret_cafs {
+            Ok(Some(mut cafs)) => {
+                let constraints =
+                    self.lift_traitobjtys(&maybe_trait_destty, cafs.constraints.clone());
+                cafs.constraints = constraints.clone();
 
-                // Propagate field constraints from the CALLEE's scope (via the retval)
-                debug!("constraints.constraints: {:?}", constraints_.constraints);
-                for field in &constraints_.fields {
-                    debug!("field: {:?}", field);
-                    match ctxt.get_constraints(&constraints_.scope, field, false) {
-                        Some(MapValue::Constraints(constraints)) => {
-                            todo!("field constraints: {:?}", constraints);
+                let mut fields = Vec::new();
+                for field in &cafs.fields {
+                    match ctxt.get_constraints(&cafs.scope, field, false) {
+                        Some(MapValue::Constraints(constraints_)) => {
+                            let constraints =
+                                self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone());
+                            fields.push((field.clone(), constraints));
                         }
                         Some(_) => panic!("got store"),
                         None => todo!("ruh roh"),
                     }
                 }
-                if constraints_.fields.is_empty() {
-                    return Ok(Some(ConstraintsAndFields::new(
-                        constraints_.constraints,
-                        vec![],
-                        constraints_.scope,
-                    )));
-                } else {
-                    todo!("fields: {:?}", constraints_.fields);
-                }
+
+                ctxt.update_scoped_cafs(cur_scope, (destination.clone(), constraints), fields);
+
+                return Ok(Some(cafs));
             }
             Ok(None) => {}
             err @ Err(Error::RecurseLimit(_)) => return err,
@@ -1293,8 +1282,8 @@ impl<'a> InterpPass<'a> {
             Operand::Copy(place) | Operand::Move(place) => {
                 match ctxt.get_cafs(caller_scope, place, is_closure) {
                     Some(cafs) => {
-                        let final_constraints = self
-                            .pull_traitobjs_from_constraints(maybe_trait_argty, cafs.constraints);
+                        let final_constraints =
+                            self.lift_traitobjtys(maybe_trait_argty, cafs.constraints);
 
                         let mut fields = Vec::new();
                         for field_place in cafs.fields {
@@ -1349,7 +1338,7 @@ impl<'a> InterpPass<'a> {
         match ctxt.get_constraints(caller_scope, place, is_closure) {
             Some(val) => match val {
                 MapValue::Constraints(constraints_) => {
-                    Some(self.pull_traitobjs_from_constraints(maybe_trait_argty, constraints_))
+                    Some(self.lift_traitobjtys(maybe_trait_argty, constraints_))
                 }
                 _ => panic!("arg is a scope"),
             },

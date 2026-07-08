@@ -365,7 +365,15 @@ impl Context {
         );
     }
 
-    // FIXME when safe to get without fields?
+    // currently getting in:
+    // - interp_direct_call (getting field constraints + lifting TOC)
+    // - get_place_constraints (only used during arg res - also for getting field constraints + lifting TOC)
+    // - get_fsa_tyconstraints (get traitobj constraints)
+    // - interp_switchint (get discriminant constraints)
+    //
+    // above cases seem to be safe to access without CAF API b/c not using fields, only using the
+    // precise object asked about (with the ~exception of interp_direct_call and
+    // get_place_constraints, which could be merged/improved)
     pub fn get_constraints(
         &self,
         scope: &VOID,
@@ -399,11 +407,6 @@ impl Context {
     fn set_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
         self.fstore.link_adt_fields(scope, place, new_field_places);
     }
-
-    // TODO when else should fields be set?
-    // - after funccall (retval fields/propagations)
-    //   - interp_indirect_call (~450)
-    //   - interp_direct_call (~690)
 
     pub fn update_cafs(
         &mut self,

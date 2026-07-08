@@ -343,6 +343,18 @@ impl Context {
         }
     }
 
+    //pub fn cstore(&self) -> &ConstraintStore {
+    //    &self.cstore
+    //}
+
+    //pub fn fstore(&self) -> &FieldStore {
+    //    &self.fstore
+    //}
+
+    //pub fn wtos(&self) -> &HashMap<VOID, BBDeps> {
+    //    &self.wtos
+    //}
+
     pub fn get_wto(&self, scope: &VOID) -> Option<&BBDeps> {
         self.wtos.get(scope)
     }
@@ -351,8 +363,20 @@ impl Context {
         self.wtos.insert(scope.clone(), bbdeps.clone());
     }
 
+    pub fn set_constraints(&mut self, place: &Place, constraints: Constraints) {
+        self.cstore.cmap.insert(
+            MapKey::Var(place.clone()),
+            Box::new(MapValue::Constraints(constraints)),
+        );
+    }
+
     // FIXME when is this safe to call without fields?
-    pub fn set_constraints(&mut self, scope: &VOID, place: &Place, constraints: Constraints) {
+    pub fn set_scoped_constraints(
+        &mut self,
+        scope: &VOID,
+        place: &Place,
+        constraints: Constraints,
+    ) {
         self.cstore.scoped_update(
             scope,
             MapKey::Var(place.clone()),
@@ -387,10 +411,15 @@ impl Context {
     }
 
     // called twice
-    // - resolve_args: should get fields from calling scope (but maybe just get CAFs)
-    // - interp_return: should get fields from called scope (but, again, maybe just get CAFs)
+    // - interp::resolve_args: should get fields from calling scope (but maybe just get CAFs)
+    // - interp::interp_return: should get fields from called scope (but, again, maybe just get CAFs)
+    // - convert::convert_place: similar pattern for getting a CAF, but doing stuff to fields after
     pub fn get_fields(&self, scope: &VOID, place: &Place) -> Option<MapFieldValue> {
         self.fstore.scoped_get(scope, &MapKey::Var(place.clone()))
+    }
+
+    pub fn add_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Fields) {
+        self.fstore.link_adt_fields(scope, place, new_field_places);
     }
 
     // FIXME when are fields set?
@@ -414,7 +443,7 @@ impl Context {
         &self,
         scope: &VOID,
         place: &Place,
-        maybe_traitty: &Option<Vec<TraitObjTy>>,
+        //maybe_traitty: &Option<Vec<TraitObjTy>>,
         is_closure: bool,
     ) -> Option<ConstraintsAndFields> {
         match self.get_constraints(scope, place, is_closure) {
@@ -423,11 +452,11 @@ impl Context {
                     debug!("\n###### RETURNING constraints:");
                     debug!("\t{:?}\n\n", constraints);
 
-                    if let Some(traitty) = maybe_traitty {
-                        // TODO possible to do this after returning CAF?
-                        // (in resolve_arg)
-                        //constraints = (interp) pull_traitobjs_from_constraints( , constraints);
-                    }
+                    //if let Some(_traitty) = maybe_traitty {
+                    // TODO possible to do this after returning CAF?
+                    // (in resolve_arg)
+                    //constraints = (interp) pull_traitobjs_from_constraints( , constraints);
+                    //}
 
                     let fields = match self.get_fields(scope, place) {
                         Some(MapFieldValue::Fields(fields_)) => fields_,
@@ -657,7 +686,7 @@ impl FieldStore {
         }
     }
 
-    pub fn link_adt_field(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
+    pub fn link_adt_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Fields) {
         debug!("\nLINKING FIELD");
         debug!("new_field_places: {:?}", new_field_places);
 

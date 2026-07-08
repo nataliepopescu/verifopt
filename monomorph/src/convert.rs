@@ -8,7 +8,7 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 //use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Context, Location, MapFieldValue, MapKey, MapValue,
+    ADTFields, Constraint, Constraints, Context, Location, MapFieldValue, MapValue,
     RunningConstraint, TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -152,20 +152,14 @@ impl<'a> RvalConverter<'a> {
         // TODO use current place ty instead of *just* getting existing place constraints
 
         //debug!("CONVERTING PLACE");
-        match ctxt
-            .cstore
-            .scoped_get(cur_scope, &MapKey::Var(place.clone()), false)
-        {
+        match ctxt.get_constraints(cur_scope, place, false) {
             Some(val) => match val {
                 MapValue::Constraints(constraints) => {
                     debug!("found constraints for place {:?}: {:?}", place, constraints);
                     debug!("checking field projection constraints.....");
 
                     // FIXME implementation is similar to interp::resolve_arg()
-                    match ctxt
-                        .fstore
-                        .scoped_get(cur_scope, &MapKey::Var(place.clone()))
-                    {
+                    match ctxt.get_fields(cur_scope, place) {
                         Some(MapFieldValue::Fields(field_places)) => {
                             debug!("\n--FIELD projections: {:?}", field_places);
 

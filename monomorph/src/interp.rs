@@ -405,7 +405,7 @@ impl<'a> InterpPass<'a> {
                 debug!("FINAL (PULLED) CONSTRAINTS: {:?}", final_constraints);
 
                 // Add resolved constraints to ctxt
-                ctxt.set_constraints(cur_scope, place, final_constraints);
+                ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
 
                 if let Some(fields) = maybe_fields {
                     debug!("STORING FIELD PROJECTIONS TOO: {:?}", fields);
@@ -421,9 +421,9 @@ impl<'a> InterpPass<'a> {
                         };
                         field_places.push(field_place.clone());
 
-                        ctxt.set_constraints(cur_scope, &field_place, final_op_constraints);
+                        ctxt.set_scoped_constraints(cur_scope, &field_place, final_op_constraints);
                     }
-                    ctxt.fstore.link_adt_field(cur_scope, place, &field_places);
+                    ctxt.add_fields(cur_scope, place, &field_places);
                 }
             }
             StatementKind::FakeRead(_, _)
@@ -572,7 +572,7 @@ impl<'a> InterpPass<'a> {
         if !ret_constraints.fields.is_empty() {
             todo!("what about constraint fields: {:?}", ret_constraints.fields);
         }
-        ctxt.set_constraints(cur_scope, destination, constraints);
+        ctxt.set_scoped_constraints(cur_scope, destination, constraints);
 
         Ok(None)
     }
@@ -821,7 +821,7 @@ impl<'a> InterpPass<'a> {
                     constraints_.constraints.clone(),
                 );
                 constraints_.constraints = constraints.clone();
-                ctxt.set_constraints(cur_scope, destination, constraints);
+                ctxt.set_scoped_constraints(cur_scope, destination, constraints);
 
                 // Propagate field constraints from the CALLEE's scope (via the retval)
                 debug!("constraints.constraints: {:?}", constraints_.constraints);
@@ -1205,7 +1205,7 @@ impl<'a> InterpPass<'a> {
         &self,
         ctxt: &Context,
         term_span: &Span,
-        new_substore: &mut Context,
+        new_ctxt: &mut Context,
         caller_scope: &VOID,
         callee_scope: &VOID,
         body: &Body,
@@ -1265,10 +1265,7 @@ impl<'a> InterpPass<'a> {
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
-            new_substore.cstore.cmap.insert(
-                MapKey::Var(place.clone()),
-                Box::new(MapValue::Constraints(constraints)),
-            );
+            new_ctxt.set_constraints(&place, arg_constraints);
 
             if let Some(fields) = maybe_fields {
                 for field in fields {
@@ -1276,10 +1273,7 @@ impl<'a> InterpPass<'a> {
                         local: place.local,
                         projection: field.0.projection,
                     };
-                    new_substore.cstore.cmap.insert(
-                        MapKey::Var(field_place),
-                        Box::new(MapValue::Constraints(field.1)),
-                    );
+                    new_ctxt.set_constraints(&field_place, field.1);
                 }
             }
         }
@@ -2235,6 +2229,7 @@ impl<'a> InterpPass<'a> {
         };
 
         // Get and "return" the constraints at Place(0)
+<<<<<<< HEAD
         match ctxt.cstore.scoped_get(
             &old_scope.clone().unwrap(),
             &MapKey::Var(ret_place.clone()),
@@ -2360,5 +2355,8 @@ impl<'a> InterpPass<'a> {
 //=======
 //        Ok(ctxt.get_cafs(&old_scope.clone().unwrap(), &ret_place, &None, false))
 //>>>>>>> b058b7c (update Context API to help simplify interp + clarify Constraints/Fields APIs)
+=======
+        Ok(ctxt.get_cafs(&old_scope.clone().unwrap(), &ret_place, false))
+>>>>>>> 23d7891 (ensure all ctxt calls go through public API (instead of field accesses))
     }
 }

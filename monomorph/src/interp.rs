@@ -843,27 +843,17 @@ impl<'a> InterpPass<'a> {
                     Box::new(MapValue::Constraints(constraints)),
                 );
 
-                // Propagate field projections by getting projections from the return value in the CALLEE's scope
+                // Propagate field constraints from the CALLEE's scope (via the retval)
                 debug!("constraints.constraints: {:?}", constraints_.constraints);
                 for field in &constraints_.fields {
                     debug!("field: {:?}", field);
-                    match ctxt
-                        .fstore
-                        .scoped_get(&constraints_.scope, &MapKey::Var(field.clone()))
-                    {
-                        Some(MapFieldValue::Fields(places)) => {
-                            for place in places {
-                                debug!("place: {:?}", place);
-                                let field_constraints = ctxt
-                                    .cstore
-                                    .scoped_get(
-                                        &constraints_.scope,
-                                        &MapKey::Var(field.clone()),
-                                        false,
-                                    )
-                                    .unwrap();
-                                debug!("field constraints: {:?}", field_constraints);
-                            }
+                    match ctxt.cstore.scoped_get(
+                        &constraints_.scope,
+                        &MapKey::Var(field.clone()),
+                        false,
+                    ) {
+                        Some(MapValue::Constraints(constraints)) => {
+                            todo!("field constraints: {:?}", constraints);
                         }
                         Some(_) => panic!("got store"),
                         None => todo!("ruh roh"),

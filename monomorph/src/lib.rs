@@ -10,10 +10,12 @@ extern crate rustc_public;
 extern crate rustc_public_bridge;
 
 //use rustc_public::CrateDef;
+use rustc_public::DefId;
 use rustc_public::mir::mono::Instance;
+use rustc_public::ty::{GenericArgs, Span};
+use std::collections::HashMap;
 
 use log::debug;
-use std::ops::ControlFlow;
 
 pub mod common;
 pub mod constraints;
@@ -35,7 +37,9 @@ use crate::sig_collect::{SigCollectPass, SigStore};
 use crate::trait_collect::{TraitCollectPass, TraitStore};
 use crate::util::options::AnalysisOptions;
 
-pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
+pub fn start_verifopt(
+    _options: AnalysisOptions,
+) -> HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)> {
     // TODO make log filename a cmdline option
     let f_filename = "found_ex";
     let nf_filename = "notfound_ex";
@@ -67,12 +71,10 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     let interp = InterpPass::new(&sigstore, &tstore);
     let _ = interp.run(&mut logger, &mut istore, entry_instance);
 
-    // TODO Rewrite MIR
-
     let _ = logger.log_stats(
         &interp.dispatch_targets.borrow(),
         &interp.dispatch_cha.borrow(),
     );
 
-    ControlFlow::Continue(())
+    interp.dispatch_targets.borrow().clone()
 }

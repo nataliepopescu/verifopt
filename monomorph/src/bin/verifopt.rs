@@ -16,13 +16,11 @@ extern crate rustc_middle;
 extern crate rustc_public;
 extern crate rustc_session;
 
-use rustc_public::run;
-
 use log::*;
 use std::env;
 use std::io::Write;
 
-use monomorph::start_verifopt;
+use monomorph::rewrite::{FsaCallbacks, RewriteCallbacks};
 use monomorph::util;
 use monomorph::util::options::AnalysisOptions;
 
@@ -109,7 +107,17 @@ fn main() {
         //let mut callbacks = VerifOptCallbacks::new(options);
         //let compiler = rustc_driver::RunCompiler::new(&rustc_command_line_arguments, &mut callbacks);
         //compiler.run()
-        run!(&rustc_command_line_arguments, || start_verifopt(options))
+        let mut callbacks = FsaCallbacks { options };
+        rustc_driver::catch_fatal_errors(|| {
+            rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
+        })
+        .unwrap();
+
+        let mut callbacks = RewriteCallbacks;
+        rustc_driver::catch_fatal_errors(|| {
+            rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
+        })
+        .unwrap();
     });
 
     let exit_code = match result {

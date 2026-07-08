@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use rustc_public::CrateDef;
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
@@ -38,7 +39,8 @@ pub struct InterpPass<'a> {
     pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
-    pub dispatch_targets: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
+    pub dispatch_targets:
+        RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
     pub dispatch_cha: RefCell<HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>>,
 }
 
@@ -441,6 +443,7 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
+                    bb,
                     co,
                     args,
                     destination,
@@ -452,6 +455,7 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
+                    bb,
                     place,
                     args,
                     destination,
@@ -490,6 +494,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
+        bb: usize,
         place: &Place,
         args: &Vec<Operand>,
         destination: &Place,
@@ -518,6 +523,7 @@ impl<'a> InterpPass<'a> {
                                 call_stack,
                                 cur_scope,
                                 local_decls,
+                                bb,
                                 &cf,
                                 args,
                             ) {
@@ -564,6 +570,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
+        bb: usize,
         constraint: &RunningConstraint,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
@@ -575,6 +582,7 @@ impl<'a> InterpPass<'a> {
                 call_stack,
                 cur_scope,
                 local_decls,
+                bb,
                 *fndef,
                 &genargs,
                 args,
@@ -743,6 +751,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
+        bb: usize,
         co: &ConstOperand,
         args: &Vec<Operand>,
         destination: &Place,
@@ -764,6 +773,7 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
+                    bb,
                     fndef,
                     &genargs,
                     args,
@@ -823,6 +833,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
+        bb: usize,
         fndef: FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -857,6 +868,7 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
+                    bb,
                     &fndef,
                     &genargs,
                     args,
@@ -884,6 +896,7 @@ impl<'a> InterpPass<'a> {
                 cur_scope,
                 &new_scope,
                 local_decls,
+                bb,
                 fndef,
                 args,
                 genargs,
@@ -943,6 +956,7 @@ impl<'a> InterpPass<'a> {
             cur_scope,
             &new_scope,
             local_decls,
+            bb,
             fndef,
             args,
             genargs,
@@ -960,6 +974,7 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         new_scope: &VOID,
         local_decls: &[LocalDecl],
+        bb: usize,
         fndef: FnDef,
         args: &Vec<Operand>,
         genargs: &GenericArgs,
@@ -992,6 +1007,7 @@ impl<'a> InterpPass<'a> {
                     call_stack,
                     cur_scope,
                     local_decls,
+                    bb,
                     &fndef,
                     &genargs,
                     args,
@@ -1376,6 +1392,7 @@ impl<'a> InterpPass<'a> {
         caller_scope: &VOID,
         //callee_scope: Option<VOID>,
         local_decls: &[LocalDecl],
+        bb: usize,
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
@@ -1464,10 +1481,12 @@ impl<'a> InterpPass<'a> {
 
         // collect possible calls (mostly for recursion)
         let mut dt = self.dispatch_targets.borrow_mut();
-        let entry = dt.entry(*term_span).or_default();
+        let entry = dt
+            .entry((caller_scope.0.def.def_id(), bb))
+            .or_insert((*term_span, Vec::new()));
         for f in &assoc_fn_impls_fsa {
-            if !entry.contains(f) {
-                entry.push(f.clone());
+            if !entry.1.contains(f) {
+                entry.1.push(f.clone());
             }
         }
 
@@ -1903,6 +1922,7 @@ impl<'a> InterpPass<'a> {
                 *istore = merged_istore;
             }
             Ok(None) => panic!("istores empty?"),
+            Err(_) => panic!(),
         }
     }
 
@@ -1922,6 +1942,7 @@ impl<'a> InterpPass<'a> {
                 return Ok(Some(merged_constraints));
             }
             Ok(None) => Ok(None),
+            Err(_) => panic!(),
         }
     }
 

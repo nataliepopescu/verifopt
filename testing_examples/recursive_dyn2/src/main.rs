@@ -45,7 +45,7 @@ fn sum(n: usize) -> usize {
 }
 
 fn main() {
-    let res = sum(50);
+    let res = sum(5);
     black_box(res);
 
     let x: &dyn Animal =

@@ -2228,6 +2228,7 @@ impl<'a> InterpPass<'a> {
 
                 self.incomplete.borrow_mut().insert(cur_scope.clone());
 
+                *self.rec_depth.borrow_mut() -= 1;
                 return res;
             }
         }

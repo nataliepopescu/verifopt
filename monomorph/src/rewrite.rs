@@ -1,22 +1,28 @@
 extern crate rustc_driver;
-extern crate rustc_interface;
 extern crate rustc_hir;
+extern crate rustc_interface;
 extern crate rustc_middle;
 extern crate rustc_public;
 extern crate rustc_session;
 extern crate rustc_span;
 
-use rustc_middle::mir::{BasicBlock, BasicBlockData, Body, Const, ConstOperand, Operand, TerminatorKind, Statement, StatementKind, Rvalue, UnOp, LocalDecl, Place, CastKind, Mutability, BinOp, ProjectionElem, CoercionSource, Terminator, SwitchTargets};
+use rustc_middle::mir::{
+    BasicBlock, BasicBlockData, BinOp, Body, CastKind, CoercionSource, Const, ConstOperand,
+    LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
+    SwitchTargets, Terminator, TerminatorKind, UnOp,
+};
 use rustc_span::def_id::{DefPathHash, LocalDefId};
 
 use rustc_driver::{Callbacks, Compilation};
+use rustc_hir::Safety;
 use rustc_interface::interface::{Compiler, Config};
 use rustc_middle::mir::pretty::MirWriter;
-use rustc_middle::ty::{FnDef, Instance, TyCtxt, TypingEnv, GenericArg, List, Ty, TyKind, AssocKind, VtblEntry};
 use rustc_middle::ty::adjustment::PointerCoercion;
+use rustc_middle::ty::{
+    AssocKind, FnDef, GenericArg, Instance, List, Ty, TyCtxt, TyKind, TypingEnv, VtblEntry,
+};
 use rustc_public::rustc_internal;
 use rustc_span::Span;
-use rustc_hir::Safety;
 
 use std::io::{self, Write};
 
@@ -69,7 +75,8 @@ impl Callbacks for FsaCallbacks {
     }
 }
 
-static ORIGINAL: OnceLock<for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>> = OnceLock::new();
+static ORIGINAL: OnceLock<for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>> =
+    OnceLock::new();
 
 pub struct RewriteCallbacks;
 
@@ -138,13 +145,20 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
         let (defid, gen_args, args, dest, target, unwind, call_source, source_info, span) = {
             let term = bbs[bb].terminator();
             let TerminatorKind::Call {
-                func, args, destination, target, unwind, call_source, ..
-            } = &term.kind else {
+                func,
+                args,
+                destination,
+                target,
+                unwind,
+                call_source,
+                ..
+            } = &term.kind
+            else {
                 continue;
             };
             let (defid, gen_args) = match func {
                 Operand::Constant(c) => match c.const_.ty().kind() {
-                    FnDef(defid, a) => (*defid, *a),   // *a: &'tcx List is Copy
+                    FnDef(defid, a) => (*defid, *a), // *a: &'tcx List is Copy
                     _ => continue,
                 },
                 _ => continue,
@@ -180,7 +194,7 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                     TyKind::Dynamic(preds, _) => {
                         let principal = preds.principal().unwrap();
                         principal.with_self_ty(tcx, pointee_ty).skip_binder()
-                    },
+                    }
                     _ => panic!(),
                 };
 
@@ -193,7 +207,8 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                     .def_id;
 
                 // <dyn X as Pointee>::Metadata
-                let proj = Ty::new_projection(tcx, metadata_assoc, tcx.mk_args(&[pointee_ty.into()]));
+                let proj =
+                    Ty::new_projection(tcx, metadata_assoc, tcx.mk_args(&[pointee_ty.into()]));
 
                 let meta_ty = tcx.normalize_erasing_regions(TypingEnv::fully_monomorphized(), proj); // DynMetadata<dyn X>
                 let raw_ptr_ty = Ty::new_ptr(tcx, tcx.types.unit, Mutability::Not); // *const ()
@@ -209,23 +224,25 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 ));
 
                 // raw *const ()
-                let vt_ptr_place = Place::from(body.local_decls.push(LocalDecl::new(raw_ptr_ty, span)));
+                let vt_ptr_place =
+                    Place::from(body.local_decls.push(LocalDecl::new(raw_ptr_ty, span)));
                 bbs[bb].statements.push(Statement::new(
                     source_info,
                     StatementKind::Assign(Box::new((
                         vt_ptr_place,
-                        Rvalue::Cast(
-                            CastKind::Transmute,
-                            Operand::Move(meta_place),
-                            raw_ptr_ty,
-                        ),
+                        Rvalue::Cast(CastKind::Transmute, Operand::Move(meta_place), raw_ptr_ty),
                     ))),
                 ));
 
                 let entries = tcx.vtable_entries(trait_ref);
-                let slot_idx = entries.iter().position(|e| matches!(
-                    e, VtblEntry::Method(inst) if inst.def_id() == defid
-                )).unwrap();
+                let slot_idx = entries
+                    .iter()
+                    .position(|e| {
+                        matches!(
+                            e, VtblEntry::Method(inst) if inst.def_id() == defid
+                        )
+                    })
+                    .unwrap();
 
                 let VtblEntry::Method(vtable_instance) = &entries[slot_idx] else {
                     continue;
@@ -238,16 +255,13 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let vt_typed_ty = Ty::new_ptr(tcx, fn_ptr_ty, Mutability::Not);
 
                 // *const (fn ptr)
-                let vt_slots_place = Place::from(body.local_decls.push(LocalDecl::new(vt_typed_ty, span)));
+                let vt_slots_place =
+                    Place::from(body.local_decls.push(LocalDecl::new(vt_typed_ty, span)));
                 bbs[bb].statements.push(Statement::new(
                     source_info,
                     StatementKind::Assign(Box::new((
                         vt_slots_place,
-                        Rvalue::Cast(
-                            CastKind::PtrToPtr,
-                            Operand::Copy(vt_ptr_place),
-                            vt_typed_ty,
-                        ),
+                        Rvalue::Cast(CastKind::PtrToPtr, Operand::Copy(vt_ptr_place), vt_typed_ty),
                     ))),
                 ));
 
@@ -267,10 +281,7 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                         slot_ptr_place,
                         Rvalue::BinaryOp(
                             BinOp::Offset,
-                            Box::new((
-                                Operand::Copy(vt_slots_place),
-                                Operand::Constant(op),
-                            )),
+                            Box::new((Operand::Copy(vt_slots_place), Operand::Constant(op))),
                         ),
                     ))),
                 ));
@@ -281,7 +292,8 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 };
 
                 // loaded fn
-                let slot_fn_place = Place::from(body.local_decls.push(LocalDecl::new(fn_ptr_ty, span)));
+                let slot_fn_place =
+                    Place::from(body.local_decls.push(LocalDecl::new(fn_ptr_ty, span)));
                 bbs[bb].statements.push(Statement::new(
                     source_info,
                     StatementKind::Assign(Box::new((
@@ -316,7 +328,8 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                         continue;
                     };
 
-                    let cand_ptr_place = Place::from(body.local_decls.push(LocalDecl::new(fn_ptr_ty, span)));
+                    let cand_ptr_place =
+                        Place::from(body.local_decls.push(LocalDecl::new(fn_ptr_ty, span)));
                     bbs[bb].statements.push(Statement::new(
                         source_info,
                         StatementKind::Assign(Box::new((
@@ -332,7 +345,8 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                         ))),
                     ));
 
-                    let eq_place = Place::from(body.local_decls.push(LocalDecl::new(tcx.types.bool, span)));
+                    let eq_place =
+                        Place::from(body.local_decls.push(LocalDecl::new(tcx.types.bool, span)));
 
                     let eq_stmt = Statement::new(
                         source_info,
@@ -385,15 +399,11 @@ fn fn_op<'tcx>(
     span: Span,
 ) -> Result<Operand<'tcx>, ()> {
     let target_did = tcx.def_path_hash_to_def_id(hash).unwrap();
-    let instance = match Instance::try_resolve(
-        tcx,
-        TypingEnv::fully_monomorphized(),
-        target_did,
-        gen_args,
-    ) {
-        Ok(Some(inst)) => inst,
-        _ => return Err(()),
-    };
+    let instance =
+        match Instance::try_resolve(tcx, TypingEnv::fully_monomorphized(), target_did, gen_args) {
+            Ok(Some(inst)) => inst,
+            _ => return Err(()),
+        };
 
     let fn_ty = instance.ty(tcx, TypingEnv::fully_monomorphized());
     let new_const = Const::zero_sized(fn_ty);

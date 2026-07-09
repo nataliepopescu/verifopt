@@ -1,6 +1,5 @@
 use crate::constraints::{
-    ConstraintStore, Constraints, ConstraintsAndFields, Context, EnclosingScopes, FieldStore,
-    MapValue,
+    CAFs, ConstraintStore, Constraints, Context, EnclosingScopes, FieldStore, MapValue,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::error::Error;
@@ -157,8 +156,8 @@ impl Merge<Vec<Place>> for Vec<Vec<Place>> {
     }
 }
 
-impl Merge<ConstraintsAndFields> for Vec<ConstraintsAndFields> {
-    fn merge(&self) -> Result<Option<ConstraintsAndFields>, Error> {
+impl Merge<CAFs> for Vec<CAFs> {
+    fn merge(&self) -> Result<Option<CAFs>, Error> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -183,7 +182,7 @@ impl Merge<ConstraintsAndFields> for Vec<ConstraintsAndFields> {
             Ok(None) => todo!(),
             _ => panic!(),
         };
-        Ok(Some(ConstraintsAndFields::new(
+        Ok(Some(CAFs::new(
             m_constraints,
             m_fields,
             self[0].scope.clone(),

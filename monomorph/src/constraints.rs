@@ -67,14 +67,14 @@ pub enum MapFieldValue {
 pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ConstraintsAndFields {
+pub struct CAFs {
     pub constraints: Constraints,
     pub fields: Vec<Place>,
     pub scope: VOID,
 }
 
-impl ConstraintsAndFields {
-    pub fn new(constraints: Constraints, fields: Vec<Place>, scope: VOID) -> ConstraintsAndFields {
+impl CAFs {
+    pub fn new(constraints: Constraints, fields: Vec<Place>, scope: VOID) -> CAFs {
         Self {
             constraints,
             fields,
@@ -82,7 +82,7 @@ impl ConstraintsAndFields {
         }
     }
 
-    pub fn empty(scope: VOID) -> ConstraintsAndFields {
+    pub fn empty(scope: VOID) -> CAFs {
         Self {
             constraints: Vec::new(),
             fields: Vec::new(),
@@ -90,7 +90,7 @@ impl ConstraintsAndFields {
         }
     }
 
-    pub fn update(&mut self, new_cafs: ConstraintsAndFields) {
+    pub fn update(&mut self, new_cafs: CAFs) {
         unique_append(&mut self.constraints, new_cafs.constraints);
         unique_append(&mut self.fields, new_cafs.fields);
     }
@@ -446,12 +446,7 @@ impl Context {
         }
     }
 
-    pub fn get_cafs(
-        &self,
-        scope: &VOID,
-        place: &Place,
-        is_closure: bool,
-    ) -> Option<ConstraintsAndFields> {
+    pub fn get_cafs(&self, scope: &VOID, place: &Place, is_closure: bool) -> Option<CAFs> {
         match self.get_constraints(scope, place, is_closure) {
             Some(ret) => match ret {
                 MapValue::Constraints(constraints) => {
@@ -461,11 +456,7 @@ impl Context {
                         None => vec![],
                     };
 
-                    Some(ConstraintsAndFields::new(
-                        constraints,
-                        fields,
-                        scope.clone(),
-                    ))
+                    Some(CAFs::new(constraints, fields, scope.clone()))
                 }
                 _ => panic!("got scope"),
             },

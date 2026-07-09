@@ -91,7 +91,7 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         ctxt: &mut Context,
         start_instance: Instance,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         let start_scope = (start_instance, GenericArgs(vec![]));
         let mut call_stack = vec![start_scope.clone()];
 
@@ -123,7 +123,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         body: &Body,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         debug!("\n\n\n#############################");
         debug!(
             "###### INTERP-ING NEW BODY for func {:?}",
@@ -195,7 +195,7 @@ impl<'a> InterpPass<'a> {
         num_bbs: usize,
         bb: usize,
         data: &BasicBlock,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         //debug!("\n##########");
         debug!(
             "# visiting BASICBLOCK {:?} ({:?}/{:?}) for {:?}",
@@ -437,7 +437,7 @@ impl<'a> InterpPass<'a> {
         bb_deps: &mut BBDeps,
         bb: usize,
         term: &Terminator,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         debug!("TERM KIND: {:?}", &term.kind);
         match &term.kind {
             TerminatorKind::Call {
@@ -505,7 +505,7 @@ impl<'a> InterpPass<'a> {
         place: &Place,
         args: &Vec<Operand>,
         destination: &Place,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         //debug!("INTERPING INDIRECT CALL");
 
         //debug!("CHECKING FOR DYN IN PLACE TY");
@@ -514,7 +514,7 @@ impl<'a> InterpPass<'a> {
         //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-        let mut ret_cafs = ConstraintsAndFields::empty(cur_scope.clone());
+        let mut ret_cafs = CAFs::empty(cur_scope.clone());
         match ctxt.get_cafs(cur_scope, place, false) {
             Some(cafs) => {
                 if !cafs.fields.is_empty() {
@@ -575,7 +575,7 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         constraint: &RunningConstraint,
         args: &Vec<Operand>,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         match constraint {
             RunningConstraint::FnDef(fndef, genargs) => self.interp_fn_def(
                 logger,
@@ -623,7 +623,7 @@ impl<'a> InterpPass<'a> {
         _local_decls: &[LocalDecl],
         sigval: &SigVal,
         _args: &Vec<Operand>,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         //debug!("INTERPING FN PTR");
         //debug!("sigval!: {:?}", sigval);
         match self.sigstore.sigs.get(&sigval) {
@@ -685,7 +685,7 @@ impl<'a> InterpPass<'a> {
         cdef: ClosureDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         //debug!("INTERPING CLOSURE");
         //debug!("cdef: {:?}", cdef);
         //debug!("args: {:?}", args);
@@ -755,7 +755,7 @@ impl<'a> InterpPass<'a> {
         co: &ConstOperand,
         args: &Vec<Operand>,
         destination: &Place,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         debug!("DIRECT CALL");
 
         //debug!("CHECKING FOR DYN IN PLACE TY");
@@ -842,7 +842,7 @@ impl<'a> InterpPass<'a> {
         fndef: FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         debug!("trying to resolve instance");
         debug!("fndef: {:?}", fndef);
         debug!("genargs: {:?}", genargs);
@@ -1362,20 +1362,17 @@ impl<'a> InterpPass<'a> {
         &self,
         scope: &VOID,
         sig: PolyFnSig,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
         //todo!();
-        Ok(Some(ConstraintsAndFields::empty(scope.clone())))
+        Ok(Some(CAFs::empty(scope.clone())))
     }
 
-    fn retty_fallback_from_sigval(
-        &self,
-        sigval: &SigVal,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<CAFs>, Error> {
         //debug!("sigval: {:?}", sigval);
         if !sigval.bound_tys.is_empty() {
             todo!();
@@ -1409,7 +1406,7 @@ impl<'a> InterpPass<'a> {
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         debug!("\nDYNAMIC CALL - fndef: {:?}\n", fndef);
         log_scope(caller_scope);
         debug!("args: {:?}", args);
@@ -1802,8 +1799,8 @@ impl<'a> InterpPass<'a> {
         method_genargs: &GenericArgs,
         args: &Vec<Operand>,
         is_closure: bool,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
-        let mut results = Vec::<Option<ConstraintsAndFields>>::new();
+    ) -> Result<Option<CAFs>, Error> {
+        let mut results = Vec::<Option<CAFs>>::new();
         let mut ctxt_vec = Vec::new();
 
         debug!("\nSIMULATING STATIC CALL(S)");
@@ -1942,10 +1939,10 @@ impl<'a> InterpPass<'a> {
 
     fn merge_results_and_ret(
         &self,
-        results: &mut Vec<Option<ConstraintsAndFields>>,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+        results: &mut Vec<Option<CAFs>>,
+    ) -> Result<Option<CAFs>, Error> {
         // Filter out None constraints and unwrap all Some options
-        let filtered_results: Vec<ConstraintsAndFields> = results
+        let filtered_results: Vec<CAFs> = results
             .into_iter()
             .filter(|option| option.is_some())
             .map(|x| x.clone().unwrap())
@@ -1969,7 +1966,7 @@ impl<'a> InterpPass<'a> {
         bb_deps: &mut BBDeps,
         discr: &Operand,
         targets: &SwitchTargets,
-    ) -> Result<Option<ConstraintsAndFields>, Error> {
+    ) -> Result<Option<CAFs>, Error> {
         //debug!("SWITCHINT");
         //debug!("discr: {:?}", discr);
         //debug!("targets: {:?}", targets);

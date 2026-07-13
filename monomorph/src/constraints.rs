@@ -9,7 +9,7 @@ use rustc_public::ty::{
 };
 
 //use crate::common::log_scope;
-use crate::merge::merge_mapvals;
+use crate::merge::{merge_mapfieldvals, merge_mapvals};
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
@@ -64,6 +64,7 @@ pub enum MapFieldValue {
     Fields(Vec<Place>),
 }
 
+//pub type Fields = Vec<Place>;
 pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -130,7 +131,7 @@ impl Constraint {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
     // more complex data types
-    Adt(AdtDef, GenericArgs),
+    Adt(AdtDef, GenericArgs, Vec<Place>),
 
     // callable types
     Closure(ClosureDef, GenericArgs),
@@ -152,7 +153,7 @@ pub enum RunningConstraint {
     Float,
 
     // more complex data types
-    Adt(AdtDef, GenericArgs),
+    Adt(AdtDef, GenericArgs, Vec<Place>),
 
     // pointer types
     Ptr(Box<Constraint>),
@@ -702,16 +703,13 @@ impl FieldStore {
         match self.field_map.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapFieldValue::Store(mut store) => {
-                    let new_val = value.clone();
+                    let mut new_val = value.clone();
                     let old_val = store.field_map.get(&key);
                     match old_val {
                         Some(old_val_) => {
                             debug!("old val: {:?}", old_val_);
                             debug!("new val: {:?}", new_val);
-                            if *old_val_ != new_val {
-                                todo!();
-                            }
-                            //new_val = Box::new(merge_mapvals(old_val_, &value));
+                            new_val = Box::new(merge_mapfieldvals(old_val_, &value));
                         }
                         None => {}
                     }

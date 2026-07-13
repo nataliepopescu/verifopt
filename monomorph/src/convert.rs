@@ -200,8 +200,8 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_cfc_to_toc(&self, cfc: &RunningConstraint) -> TraitObjConstraint {
         match cfc {
-            RunningConstraint::Adt(adtdef, genargs) => {
-                TraitObjConstraint::Adt(*adtdef, genargs.clone())
+            RunningConstraint::Adt(adtdef, genargs, fields) => {
+                TraitObjConstraint::Adt(*adtdef, genargs.clone(), fields.to_vec())
             }
             RunningConstraint::Closure(cdef, genargs) => {
                 TraitObjConstraint::Closure(*cdef, genargs.clone())
@@ -212,7 +212,7 @@ impl<'a> RvalConverter<'a> {
 
     fn get_defid_from_cfc(&self, cfc: &RunningConstraint) -> DefId {
         match cfc {
-            RunningConstraint::Adt(adtdef, _) => adtdef.0,
+            RunningConstraint::Adt(adtdef, _, _) => adtdef.0,
             RunningConstraint::Closure(cdef, _) => cdef.0,
             // FIXME this is a jumbled mess
             RunningConstraint::Idk(inner) => {
@@ -377,7 +377,7 @@ impl<'a> RvalConverter<'a> {
             } => {
                 //debug!("MAYBE PULL TOC from {:?}", maybe_to);
                 match maybe_to {
-                    RunningConstraint::Adt(adtdef, adt_genargs) => {
+                    RunningConstraint::Adt(adtdef, adt_genargs, fields) => {
                         // If we get Some, that means this struct/adt implements one or more
                         // traits, but that does _not_ mean that this is a trait object
                         match self.tstore.struct_traits.get(&adtdef.0) {
@@ -397,6 +397,7 @@ impl<'a> RvalConverter<'a> {
                                         TraitObjConstraint::Adt(
                                             adtdef.clone(),
                                             adt_genargs.clone(),
+                                            fields.clone(),
                                         ),
                                     ));
                                 }
@@ -502,6 +503,7 @@ impl<'a> RvalConverter<'a> {
 
                 // Create projections here to simulate field initializers
                 let mut fields = Vec::new();
+                let field_places = Vec::new();
                 for (i, op) in ops.into_iter().enumerate() {
                     debug!("\n---op {:?}", i);
                     let (op_constraints, maybe_fields) =
@@ -535,7 +537,8 @@ impl<'a> RvalConverter<'a> {
                 (
                     vec![Constraint::new(
                         None,
-                        Some(RunningConstraint::Adt(*def, genargs.clone())),
+                        // FIXME field_places is empty
+                        Some(RunningConstraint::Adt(*def, genargs.clone(), field_places)),
                     )],
                     Some(fields),
                 )
@@ -678,13 +681,21 @@ impl<'a> RvalConverter<'a> {
                         debug!("NO TRAITOBJS");
                         (
                             None,
-                            Constraint::new(None, Some(RunningConstraint::Adt(def, genargs))),
+                            // FIXME fields is empty
+                            Constraint::new(
+                                None,
+                                Some(RunningConstraint::Adt(def, genargs, vec![])),
+                            ),
                         )
                     } else {
                         debug!("traitobjs!!!: {:?}", traitobjtys);
                         (
                             Some(traitobjtys),
-                            Constraint::new(None, Some(RunningConstraint::Adt(def, genargs))),
+                            // FIXME fields is empty
+                            Constraint::new(
+                                None,
+                                Some(RunningConstraint::Adt(def, genargs, vec![])),
+                            ),
                         )
                     }
                 }

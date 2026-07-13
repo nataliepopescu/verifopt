@@ -1,5 +1,6 @@
 use crate::constraints::{
-    CAFs, ConstraintStore, Constraints, Context, EnclosingScopes, FieldStore, MapValue,
+    CAFs, ConstraintStore, Constraints, Context, EnclosingScopes, FieldStore, MapFieldValue,
+    MapValue,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::error::Error;
@@ -33,10 +34,21 @@ pub fn merge_stores(
     (merged_store, merged_es)
 }
 
-fn merge_stores_helper(
-    cur_store: &ConstraintStore,
-    new_store: &ConstraintStore,
-) -> ConstraintStore {
+fn merge_field_stores(cur_store: &FieldStore, new_store: &FieldStore) -> FieldStore {
+    let merged_store = if *cur_store != *new_store {
+        merge_stores_helper(cur_store, new_store)
+    } else {
+        cur_store.clone()
+    };
+
+    merged_store
+}
+
+fn merge_stores_helper<T>(cur_store: &T, new_store: &T) -> T
+where
+    T: Clone + std::fmt::Debug,
+    Vec<T>: Merge<T>,
+{
     let vec = vec![cur_store.clone(), new_store.clone()];
     match vec.merge() {
         Ok(Some(merged)) => merged,
@@ -54,6 +66,14 @@ fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraint
     merged
 }
 
+fn merge_fields(cur_fields: &Vec<Place>, new_fields: &Vec<Place>) -> Vec<Place> {
+    let mut merged = cur_fields.clone();
+    if merged != *new_fields {
+        unique_append(&mut merged, new_fields.to_vec());
+    }
+    merged
+}
+
 pub fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
     match (cur_val.clone(), new_val.clone()) {
         (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
@@ -67,8 +87,57 @@ pub fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
     }
 }
 
+pub fn merge_mapfieldvals(cur_val: &MapFieldValue, new_val: &MapFieldValue) -> MapFieldValue {
+    match (cur_val.clone(), new_val.clone()) {
+        (MapFieldValue::Fields(cur_fields), MapFieldValue::Fields(new_fields)) => {
+            MapFieldValue::Fields(merge_fields(&cur_fields, &new_fields))
+        }
+        (MapFieldValue::Store(cur_store), MapFieldValue::Store(new_store)) => {
+            let store = merge_field_stores(&cur_store, &new_store);
+            MapFieldValue::Store(store)
+        }
+        _ => panic!("incomparable MapFieldValue types"),
+    }
+}
+
 pub trait Merge<T> {
     fn merge(&self) -> Result<Option<T>, Error>;
+}
+
+impl Merge<FieldStore> for Vec<FieldStore> {
+    fn merge(&self) -> Result<Option<FieldStore>, Error> {
+        if self.is_empty() {
+            return Ok(None);
+        }
+
+        if self.len() == 1 {
+            return Ok(Some(self[0].clone()));
+        }
+
+        let mut merged = self[0].clone();
+        let mut first = true;
+        for store in self.iter() {
+            if first {
+                first = false;
+                continue;
+            }
+            for (key, val) in store.clone().field_map.iter() {
+                match merged.field_map.get_mut(key) {
+                    Some(merged_val) => {
+                        let new_merged_val = merge_mapfieldvals(merged_val, val);
+                        merged
+                            .field_map
+                            .insert(key.clone(), Box::new(new_merged_val));
+                    }
+                    None => {
+                        merged.field_map.insert(key.clone(), val.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(Some(merged))
+    }
 }
 
 impl Merge<ConstraintStore> for Vec<ConstraintStore> {
@@ -125,20 +194,6 @@ impl Merge<Constraints> for Vec<Constraints> {
         }
 
         Ok(Some(merged_constraints))
-    }
-}
-
-impl Merge<FieldStore> for Vec<FieldStore> {
-    fn merge(&self) -> Result<Option<FieldStore>, Error> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        if self.len() == 1 {
-            return Ok(Some(self[0].clone()));
-        }
-
-        todo!();
     }
 }
 

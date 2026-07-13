@@ -1706,7 +1706,7 @@ impl<'a> InterpPass<'a> {
                 }
 
                 match toc_ {
-                    (_, TraitObjConstraint::Adt(adtdef, genargs)) => {
+                    (_, TraitObjConstraint::Adt(adtdef, genargs, _fields)) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
@@ -1754,6 +1754,7 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         adtdef: &AdtDef,
         genargs: &GenericArgs,
+        //fields: &Vec<Place>
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {

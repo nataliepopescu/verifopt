@@ -39,7 +39,7 @@ pub struct InterpPass<'a> {
     pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
-    pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>)>>>,
+    pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
     pub dependencies: RefCell<HashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<HashSet<VOID>>,
@@ -939,7 +939,7 @@ impl<'a> InterpPass<'a> {
                 .borrow_mut()
                 .entry(cur_key)
                 .or_default()
-                .push((new_scope.clone(), new_cs));
+                .push((new_scope.clone(), new_cs, call_stack.clone()));
 
             return Ok(Some(retty));
         }
@@ -2212,14 +2212,20 @@ impl<'a> InterpPass<'a> {
         // about to be queueing, set to prevent infinite recursion
         self.in_queue.borrow_mut().insert(key.clone());
 
+        // janky method to preserve stores conflicting on voids but not keys
+        let saved: Vec<(VOID, Option<Box<MapValue>>)> = queued.iter()
+            .map(|(scope, _, _)| (scope.clone(), istore.cmap.get(&MapKey::ScopeId(scope.clone())).cloned()))
+            .collect();
+
         *self.rec_depth.borrow_mut() += 1;
-        for (scope, constraints) in queued {
+        for (scope, constraints, stack) in queued {
             debug!("\treinterp queued recursive {:?}", scope.0.name());
 
             let depth = call_stack.len();
 
             // reevaluate recursive calls
-            let res = self.reinterp_recursive(logger, istore, call_stack, &scope, &constraints);
+            let restored = stack;
+            let res = self.reinterp_recursive(logger, istore, &mut restored.clone(), &scope, &constraints);
 
             if matches!(res, Err(Error::RecurseLimit(_))) {
                 // truncate to before call on error
@@ -2233,6 +2239,13 @@ impl<'a> InterpPass<'a> {
             }
         }
         *self.rec_depth.borrow_mut() -= 1;
+
+        for (scope, old) in saved {
+            match old {
+                Some(v) => { istore.cmap.insert(MapKey::ScopeId(scope), v); }
+                None => { istore.cmap.remove(&MapKey::ScopeId(scope)); }
+            }
+        }
 
         // final traverse after recursive wq drained
         let body = self.get_body(cur_scope);

@@ -2,7 +2,7 @@ use crate::interp::InterpPass;
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
-use rustc_public::mir::{Body, BorrowKind, LocalDecl, Operand, Place, ProjectionElem};
+use rustc_public::mir::{Body, LocalDecl, Mutability, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
 };
@@ -269,7 +269,7 @@ pub struct InterpStore {
     pub wtos: HashMap<VOID, BBDeps>,
     // Map ADT places to their field places (projections) which have constraints in cmap
     pub field_map: HashMap<(Place, VOID), Vec<Place>>,
-    pub refs: HashMap<(Place, VOID), ((Place, VOID), BorrowKind)>,
+    pub refs: HashMap<(Place, VOID), ((Place, VOID), Mutability)>,
 }
 
 impl InterpStore {
@@ -317,7 +317,7 @@ impl InterpStore {
         }
     }
 
-    pub fn add_ref(&mut self, from: (Place, VOID), to: (Place, VOID), bk: BorrowKind) {
+    pub fn add_ref(&mut self, from: (Place, VOID), to: (Place, VOID), bk: Mutability) {
         self.refs.insert(from, (to, bk));
     }
 
@@ -332,7 +332,7 @@ impl InterpStore {
     fn resolve_mut_ref(&self, place: Place, scope: VOID) -> (Place, VOID) {
         let mut cur = (place, scope);
         while let Some(((p, s), bk)) = self.refs.get(&cur) {
-            if matches!(bk, BorrowKind::Mut { .. }) {
+            if matches!(bk, Mutability::Mut) {
                 cur = (p.clone(), s.clone());
             } else {
                 return cur;

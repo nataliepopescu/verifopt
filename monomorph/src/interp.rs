@@ -371,7 +371,11 @@ impl<'a> InterpPass<'a> {
                         istore.add_ref(
                             (place.clone(), cur_scope.clone()),
                             (to, cur_scope.clone()),
-                            bk,
+                            if matches!(bk, BorrowKind::Mut { .. }) {
+                                Mutability::Mut
+                            } else {
+                                Mutability::Not
+                            },
                         );
                         (vec![], None)
                     } else {
@@ -1109,6 +1113,7 @@ impl<'a> InterpPass<'a> {
             term_span,
             &mut new_substore,
             caller_scope,
+            callee_scope,
             body,
             local_decls,
             args,
@@ -1189,10 +1194,11 @@ impl<'a> InterpPass<'a> {
     /// - update the substore for the callee
     fn resolve_args_helper(
         &self,
-        istore: &InterpStore,
+        istore: &mut InterpStore,
         term_span: &Span,
         new_substore: &mut InterpStore,
         caller_scope: &VOID,
+        callee_scope: &VOID,
         body: &Body,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
@@ -1215,6 +1221,17 @@ impl<'a> InterpPass<'a> {
                 local,
                 projection: vec![], // FIXME should this ever _not_ be empty?
             };
+
+            let arg_ty = place.ty(body.locals()).unwrap();
+            if let TyKind::RigidTy(RigidTy::Ref(_, _, mt)) = arg_ty.kind() {
+                if let Operand::Copy(caller_place) | Operand::Move(caller_place) = &args[i] {
+                    istore.add_ref(
+                        (place.clone(), callee_scope.clone()),
+                        (caller_place.clone(), caller_scope.clone()),
+                        mt,
+                    );
+                }
+            }
 
             debug!("resolved arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);

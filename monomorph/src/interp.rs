@@ -366,14 +366,25 @@ impl<'a> InterpPass<'a> {
                 //debug!("maybe_trait_destty? {:?}", maybe_trait_destty);
 
                 // convert MIR Rvalue to Constraint
-                let (constraints, maybe_fields) = self.converter.convert(
-                    istore,
-                    &Location::new(),
-                    local_decls,
-                    cur_scope,
-                    &dest_ty,
-                    rvalue,
-                );
+                let (constraints, maybe_fields) =
+                    if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
+                        istore.add_ref(
+                            (place.clone(), cur_scope.clone()),
+                            (to, cur_scope.clone()),
+                            bk,
+                        );
+                        (vec![], None)
+                    } else {
+                        self.converter.convert(
+                            istore,
+                            &Location::new(),
+                            local_decls,
+                            cur_scope,
+                            &dest_ty,
+                            rvalue,
+                        )
+                    };
+
                 let final_constraints =
                     self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints.clone());
                 //if final_constraints != constraints {

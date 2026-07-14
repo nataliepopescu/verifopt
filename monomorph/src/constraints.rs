@@ -2,7 +2,7 @@ use crate::interp::InterpPass;
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
-use rustc_public::mir::{Body, LocalDecl, Operand, Place, ProjectionElem};
+use rustc_public::mir::{Body, BorrowKind, LocalDecl, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
 };
@@ -269,6 +269,7 @@ pub struct InterpStore {
     pub wtos: HashMap<VOID, BBDeps>,
     // Map ADT places to their field places (projections) which have constraints in cmap
     pub field_map: HashMap<(Place, VOID), Vec<Place>>,
+    pub refs: HashMap<(Place, VOID), ((Place, VOID), BorrowKind)>,
 }
 
 impl InterpStore {
@@ -277,7 +278,67 @@ impl InterpStore {
             cmap: HashMap::default(),
             wtos: HashMap::default(),
             field_map: HashMap::default(),
+            refs: HashMap::default(),
         }
+    }
+
+    fn resolve(&self, place: Place, scope: VOID, for_mut: bool) -> (Place, VOID) {
+        if place.projection.first() == Some(&ProjectionElem::Deref) {
+            let base = Place {
+                local: place.local,
+                projection: vec![],
+            };
+            let rest = place.projection[1..].to_vec();
+
+            let (tplace, tscope) = if for_mut {
+                self.resolve_mut_ref(base.clone(), scope.clone())
+            } else {
+                self.resolve_ref(base.clone(), scope.clone())
+            };
+
+            if tplace == base && tscope == scope {
+                return (place, scope);
+            }
+
+            let mut projection = tplace.projection.clone();
+            projection.extend(rest);
+
+            (
+                Place {
+                    local: tplace.local,
+                    projection,
+                },
+                tscope,
+            )
+        } else if for_mut {
+            self.resolve_mut_ref(place, scope)
+        } else {
+            self.resolve_ref(place, scope)
+        }
+    }
+
+    pub fn add_ref(&mut self, from: (Place, VOID), to: (Place, VOID), bk: BorrowKind) {
+        self.refs.insert(from, (to, bk));
+    }
+
+    fn resolve_ref(&self, place: Place, scope: VOID) -> (Place, VOID) {
+        let mut cur = (place, scope);
+        while let Some(((p, s), _)) = self.refs.get(&cur) {
+            cur = (p.clone(), s.clone());
+        }
+        cur
+    }
+
+    fn resolve_mut_ref(&self, place: Place, scope: VOID) -> (Place, VOID) {
+        let mut cur = (place, scope);
+        while let Some(((p, s), bk)) = self.refs.get(&cur) {
+            if matches!(bk, BorrowKind::Mut { .. }) {
+                cur = (p.clone(), s.clone());
+            } else {
+                return cur;
+            }
+        }
+        cur
     }
 
     pub fn link_adt_field(
@@ -312,13 +373,21 @@ impl InterpStore {
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
+        let (scope, key) = match key {
+            MapKey::Var(place) => {
+                let (place, scope) = self.resolve(place.clone(), scope.clone(), false);
+                (scope, MapKey::Var(place))
+            }
+            MapKey::ScopeId(_) => (scope.clone(), key.clone()),
+        };
+
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scopes) => {
                     // Is key in inner_cmap? if not:
                     // - Is nested func: return None
                     // - Is closure: follow backptr to enclosing scope
-                    match store.cmap.get(key) {
+                    match store.cmap.get(&key) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
                             //debug!("is_closure?: {:?}", is_closure);
@@ -326,7 +395,7 @@ impl InterpStore {
                             if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
                                 let constraints =
-                                    self.get_from_enclosing_scopes(&enclosing_scopes, key);
+                                    self.get_from_enclosing_scopes(&enclosing_scopes, &key);
                                 Some(MapValue::Constraints(constraints))
                             } else {
                                 // If this is incorrectly labeled as _not_ a closure (meaning it
@@ -374,6 +443,14 @@ impl InterpStore {
     }
 
     pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
+        let (scope, key) = match key {
+            MapKey::Var(place) => {
+                let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
+                (scope, MapKey::Var(place))
+            }
+            MapKey::ScopeId(_) => (scope.clone(), key.clone()),
+        };
+
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {

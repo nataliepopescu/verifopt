@@ -36,9 +36,6 @@ impl<'a> RvalConverter<'a> {
     ) -> (Constraints, Option<ADTFields>) {
         match to_convert {
             Rvalue::Use(op) => self.convert_op(istore, span, local_decls, cur_scope, op, destty),
-            Rvalue::Ref(_region, _borrow_kind, place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
-            }
             Rvalue::Discriminant(place) => {
                 self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }

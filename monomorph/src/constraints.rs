@@ -2,6 +2,7 @@ use crate::interp::InterpPass;
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
+
 use rustc_public::mir::{Body, LocalDecl, Mutability, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,

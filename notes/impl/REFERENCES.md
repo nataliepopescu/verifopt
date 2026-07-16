@@ -1,0 +1,3 @@
+# references
+
+much like how they actually work, references are handled by having accessors and setters of constraints tie to the referenced value rather than interacting with the place itself in `scoped_get` and `scoped_update`. this is done through the `refs` field on `InterpStore`, which tracks a "from" `VOID` and `Place` and "target" `VOID` and `Place`. it also tracks `Mutability`, differentiating between `&` and `&mut` based on being able to affect the "target" place when dereferencing and assigning. values are added to this map whenever a `Rvalue::Ref` assignment happens or when a mutable reference is passed as an argument to another function. there are some other small fixes to work with this system, which mostly involved handling dereferencing.

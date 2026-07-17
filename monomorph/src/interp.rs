@@ -4,8 +4,7 @@ use std::collections::{HashMap, HashSet};
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, NonDivergingIntrinsic, Operand, Place, Statement,
-    StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
+    BasicBlock, Body, BorrowKind, ConstOperand, LocalDecl, NonDivergingIntrinsic, Mutability, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
@@ -368,6 +367,13 @@ impl<'a> InterpPass<'a> {
                 // convert MIR Rvalue to Constraint
                 let (constraints, maybe_fields) =
                     if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
+                        let to = match to.projection.as_slice() {
+                            [ProjectionElem::Deref] => Place {
+                                local: to.local,
+                                projection: vec![],
+                            },
+                            _ => to.clone(),
+                        };
                         istore.add_ref(
                             (place.clone(), cur_scope.clone()),
                             (to, cur_scope.clone()),

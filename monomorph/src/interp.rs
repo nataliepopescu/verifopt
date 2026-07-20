@@ -4,7 +4,9 @@ use std::collections::{HashMap, HashSet};
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, BorrowKind, ConstOperand, LocalDecl, NonDivergingIntrinsic, Mutability, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
+    BasicBlock, Body, BorrowKind, ConstOperand, LocalDecl, Mutability, NonDivergingIntrinsic,
+    Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind, Successors, SwitchTargets,
+    Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,

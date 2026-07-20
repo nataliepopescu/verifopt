@@ -33,18 +33,20 @@ cargo test --test dispatch_examples -- casting_traitobj --exact --nocapture
 `--nocapture` is useful because on failure the harness prints the tool's
 stdout/stderr and, for `Unclassified` fixtures, its normalized JSON output.
 
-## The three states (see `Expectation` in `support/mod.rs`)
+## The two states (see `Expectation` in `support/mod.rs`)
 
 - **`Passing`** — must compile under `cargo verifopt --release` *and* produce
-  dispatch results matching `tests/golden/<name>.json`.
-- **`KnownBroken`** — expected to currently fail to compile/analyze (matches
-  the "todo" items in `testing_examples/README.md`: unconverted MIR
-  constructs, unhandled inline asm, etc). The test asserts failure on
-  purpose — if one of these starts working, its test fails loudly instead of
-  the fix going unnoticed.
+  dispatch results matching `tests/golden/<name>.json`. This is used for
+  every fixture that has a defined "correct" answer, including the ones that
+  don't work yet (per the TODOs in `testing_examples/README.md`: unconverted
+  MIR constructs, unhandled inline asm, etc). Those tests are *expected to
+  fail* right now — that's an honest signal, not something to special-case
+  away, and the failure will go away on its own once the underlying tool
+  issue is fixed.
 - **`Unclassified`** — for fixtures nobody has characterized yet (currently
   `no_vtable_check`, `recursive_dyn`). Runs, prints the result, asserts
-  nothing.
+  nothing. Use this only while you're first figuring out what "correct"
+  output even looks like for a new fixture.
 
 ## Golden files
 
@@ -60,10 +62,14 @@ section — treat it as a starting point and re-bless it once you've run the
 suite locally, rather than assuming it's already verified against a live
 build.
 
-The other seven `Passing` fixtures (`closures`, `default`, `fnptrs`,
-`generic`, `recursive`, `shims`, `switchint`) don't have golden files yet.
-Running them will fail with a message pointing you at the bless command
-below — that's expected the first time.
+The other 13 `Passing` fixtures don't have golden files yet. Running them
+will fail — for `closures`, `default`, `fnptrs`, `generic`, `recursive`,
+`shims`, `switchint` that's just a missing-golden-file message pointing you
+at the bless command below; for `one_variant`, `rand_`, `two_variants`,
+`two_variants_rand`, `two_variants_static`, `two_variants_static_nonzst` it's
+a genuine compile/analysis failure in the tool (see
+`testing_examples/README.md`'s TODOs) and blessing won't help until that's
+fixed.
 
 ### Generating / updating a golden file
 

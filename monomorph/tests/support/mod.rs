@@ -12,9 +12,6 @@ use std::process::Command;
 pub enum Expectation {
     /// Must compile and match tests/golden/<name>.json exactly.
     Passing,
-    /// Must currently fail to compile/analyze. Fails loudly if it starts
-    /// succeeding, so a fix gets noticed and the fixture gets promoted.
-    KnownBroken,
     /// Not yet characterized: run it, print the normalized result, assert
     /// nothing.
     Unclassified,
@@ -194,18 +191,6 @@ pub fn run_example(name: &str, expectation: Expectation) {
     let outcome = run_verifopt(&dir);
 
     match expectation {
-        Expectation::KnownBroken => {
-            assert!(
-                !outcome.success,
-                "'{name}' is marked KnownBroken in dispatch_examples.rs but it just \
-                 compiled/ran successfully!\n\
-                 If this is a genuine fix: change its expectation to `Passing` in \
-                 dispatch_examples.rs and generate a golden file with:\n\
-                 \n    BLESS_GOLDEN=1 cargo test --test dispatch_examples -- {name}\n\n\
-                 stdout:\n{}\nstderr:\n{}",
-                outcome.stdout, outcome.stderr
-            );
-        }
         Expectation::Unclassified => {
             if outcome.success {
                 let stats = outcome.stats.unwrap_or_default();

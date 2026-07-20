@@ -5,7 +5,7 @@ use rustc_public::DefId;
 use rustc_public::mir::alloc::GlobalAlloc;
 use rustc_public::mir::mono::{Instance, InstanceKind, StaticDef};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, Mutability, NonDivergingIntrinsic, Operand, Place, Statement,
+    BasicBlock, Body, ConstOperand, LocalDecl, Mutability, NonDivergingIntrinsic, Operand, Rvalue, Place, Statement,
     StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{

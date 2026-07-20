@@ -110,7 +110,6 @@ impl<'a> RvalConverter<'a> {
                             _ => {
                                 let (maybe_traitobjty, constraint) =
                                     self.convert_ty(span, &const_op.const_.ty());
-                                debug!("HERE");
                                 debug!("constraint: {:?}", constraint);
                                 debug!("maybe_traitobjty: {:?}", maybe_traitobjty);
                                 vec![constraint]
@@ -251,7 +250,6 @@ impl<'a> RvalConverter<'a> {
                     } => {
                         //debug!("tot: {:?}", tot);
                         //debug!("toc: {:?}", toc);
-                        debug!("HERE");
 
                         // Push old constraint unchanged
                         unique_push(&mut new_constraints, constraint.clone());
@@ -270,7 +268,6 @@ impl<'a> RvalConverter<'a> {
                                 debug!("found traits");
                                 if traits.contains(&traitobjty.def.0) {
                                     // pull relevant CFC into TOC
-                                    debug!("HERE1");
                                     let new_constraint = Constraint::new(
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
@@ -278,7 +275,6 @@ impl<'a> RvalConverter<'a> {
                                     unique_push(&mut new_constraints, new_constraint);
                                 } else {
                                     // push old constraint unchanged
-                                    debug!("HERE2");
                                     unique_push(&mut new_constraints, constraint.clone());
                                 }
                             }
@@ -288,7 +284,6 @@ impl<'a> RvalConverter<'a> {
                                 // implemented and won't exist in our trait_store
                                 if constraint.is_cfc_closure() && traitobjty.is_fn_trait() {
                                     // Pull relevant CFC into TOC
-                                    debug!("HERE3");
                                     let new_constraint = Constraint::new(
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),

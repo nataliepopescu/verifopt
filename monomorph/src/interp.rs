@@ -421,7 +421,7 @@ impl<'a> InterpPass<'a> {
             | StatementKind::StorageDead(_) => {}
             StatementKind::Intrinsic(ndi) => match ndi {
                 NonDivergingIntrinsic::Assume(_) => {}
-                NonDivergingIntrinsic::CopyNonOverlapping(_) => todo!(),
+                NonDivergingIntrinsic::CopyNonOverlapping(_) => todo!("copy nonoverlapping"),
             },
             _ => todo!("new statement kind: {:?}", &stmt.kind),
         }

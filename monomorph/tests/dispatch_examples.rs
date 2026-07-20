@@ -81,7 +81,11 @@ example_test!(rand_, "rand_", Passing);
 example_test!(two_variants, "two_variants", Passing);
 example_test!(two_variants_rand, "two_variants_rand", Passing);
 example_test!(two_variants_static, "two_variants_static", Passing);
-example_test!(two_variants_static_nonzst, "two_variants_static_nonzst", Passing);
+example_test!(
+    two_variants_static_nonzst,
+    "two_variants_static_nonzst",
+    Passing
+);
 
 // Not yet characterized at all — run and report, don't assert.
 example_test!(no_vtable_check, "no_vtable_check", Unclassified);

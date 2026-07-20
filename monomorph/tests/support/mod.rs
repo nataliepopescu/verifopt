@@ -61,7 +61,8 @@ pub fn parse_stats(text: &str) -> ExampleResult {
         } else if line == "--NOT EXAMPLES--" {
             in_maybe_section = false;
         } else if let Some(rest) = line.strip_prefix("Span:") {
-            let span = extract_quoted_field(rest, "repr: \"").unwrap_or_else(|| rest.trim().to_string());
+            let span =
+                extract_quoted_field(rest, "repr: \"").unwrap_or_else(|| rest.trim().to_string());
             let cha_line = lines.next().unwrap_or("");
             let fsa_line = lines.next().unwrap_or("");
             let mut cha = extract_all_quoted_fields(cha_line, "name: \"");
@@ -117,7 +118,9 @@ fn example_dir(name: &str) -> PathBuf {
 }
 
 fn golden_path(name: &str) -> PathBuf {
-    manifest_dir().join("tests/golden").join(format!("{name}.json"))
+    manifest_dir()
+        .join("tests/golden")
+        .join(format!("{name}.json"))
 }
 
 /// Best-effort sysroot lookup so the child process can find `librustc_driver.so`
@@ -245,9 +248,8 @@ pub fn run_example(name: &str, expectation: Expectation) {
                     golden_file
                 )
             });
-            let expected: ExampleResult = serde_json::from_str(&expected_text).unwrap_or_else(|e| {
-                panic!("failed to parse golden file {:?}: {e}", golden_file)
-            });
+            let expected: ExampleResult = serde_json::from_str(&expected_text)
+                .unwrap_or_else(|e| panic!("failed to parse golden file {:?}: {e}", golden_file));
 
             assert_eq!(
                 actual, expected,

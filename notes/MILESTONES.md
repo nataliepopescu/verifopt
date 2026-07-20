@@ -57,8 +57,24 @@ by aug 1
 
 - merge ayush changes
 
+- make progress on general rewrite / vtable ptr changes
+
 by aug 14
 - run on 4 examples total
+- write summary/synthesis
+- general rewrite
+
+by aug 21
+- run on 7 examples total
+- write summary/synthesis
+- microbenchmarks
+
+by sept 4
+- impl RTA + Rupta baselines + test on existing examples
+- write summary/synthesis
+
+by sept 9
+- fill in paper
 
 ## Deadlines
 

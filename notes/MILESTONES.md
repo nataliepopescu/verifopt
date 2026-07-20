@@ -4,8 +4,8 @@
 
 - [ ] impl / design
     - [ ] FSA interp (DRIVEN BY EVAL)
-        - [ ] generalize function summaries
         - [ ] hierarchical field support
+        - [ ] generalize function summaries
         - [ ] inline asm
         - [ ] fn sig narrowing (scope?)
         - [ ] fn ptrs to nested fn decls

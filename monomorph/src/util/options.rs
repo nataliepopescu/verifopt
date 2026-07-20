@@ -48,10 +48,9 @@ fn make_options_parser() -> Command {
                 .help("The type of analysis.")
                 .long_help("Flow-sensitive analyses is supported now."),
         )
-        .arg(
-            Arg::new("INPUT")
-                .num_args(0..)
-                .help("The input file to be analyzed."),
+        .arg(Arg::new("INPUT")
+            .num_args(0..)
+            .help("The input file to be analyzed."),
         );
 
     //.arg(Arg::new("context-depth")

@@ -47,6 +47,10 @@ fn make_options_parser() -> Command {
                 .default_value("flow-sensitive")
                 .help("The type of analysis.")
                 .long_help("Flow-sensitive analyses is supported now."),
+        )
+        .arg(Arg::new("INPUT")
+            .num_args(0..)
+            .help("The input file to be analyzed."),
         );
 
     //.arg(Arg::new("context-depth")
@@ -78,10 +82,6 @@ fn make_options_parser() -> Command {
     //    .hide(true)
     //    .help("Dump resolved dynamic callsites with their corresponding call targets.")
     //    .long_help("Including both calls on dynamic trait objects and calls via function pointers"))
-    //.arg(Arg::new("INPUT")
-    //    .multiple(true)
-    //    .help("The input file to be analyzed.")
-    //);
     parser
 }
 

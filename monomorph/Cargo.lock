@@ -223,6 +223,7 @@ dependencies = [
  "itertools",
  "log",
  "rustc_tools_util",
+ "serde",
  "serde_json",
  "thiserror",
  "uniquevec",

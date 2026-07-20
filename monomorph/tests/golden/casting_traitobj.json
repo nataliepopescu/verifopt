@@ -1,0 +1,17 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:25:5: 25:19",
+      "is_maybe_example": true,
+      "cha": [
+        "<casting_traitobj::Cat as casting_traitobj::Animal>::speak",
+        "<casting_traitobj::Dog as casting_traitobj::Animal>::speak"
+      ],
+      "fsa": [
+        "<casting_traitobj::Cat as casting_traitobj::Animal>::speak"
+      ]
+    }
+  ]
+}

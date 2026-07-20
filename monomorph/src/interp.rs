@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, NonDivergingIntrinsic, Operand, Place, Statement, StatementKind,
-    Successors, SwitchTargets, Terminator, TerminatorKind,
+    BasicBlock, Body, ConstOperand, LocalDecl, NonDivergingIntrinsic, Operand, Place, Statement,
+    StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
@@ -411,10 +411,10 @@ impl<'a> InterpPass<'a> {
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
             | StatementKind::StorageDead(_) => {}
-            | StatementKind::Intrinsic(ndi) => match ndi {
-                NonDivergingIntrinsic::Assume(_) => {},
+            StatementKind::Intrinsic(ndi) => match ndi {
+                NonDivergingIntrinsic::Assume(_) => {}
                 NonDivergingIntrinsic::CopyNonOverlapping(_) => todo!(),
-            }
+            },
             _ => todo!("new statement kind: {:?}", &stmt.kind),
         }
     }

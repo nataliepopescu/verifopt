@@ -112,6 +112,9 @@ impl<'a> RvalConverter<'a> {
                                     self.convert_ty(span, &const_op.const_.ty());
                                 debug!("constraint: {:?}", constraint);
                                 debug!("maybe_traitobjty: {:?}", maybe_traitobjty);
+                                if let Some(traitobj) = maybe_traitobjty {
+                                    todo!("const contains dyn: {:?}", traitobj);
+                                }
                                 vec![constraint]
                             }
                         },
@@ -188,10 +191,14 @@ impl<'a> RvalConverter<'a> {
                 for proj in &place.projection {
                     debug!("\nPROJ: {:?}", proj);
                 }
+                debug!("DEST TY: {:?}", destty);
                 let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
+                debug!("CONSTRAINT: {:?}", constraint);
+
                 if let Some(traitobj) = maybe_traitobj {
                     todo!("place ty contains dyn {:?}", traitobj);
                 }
+
                 (vec![constraint], None)
             }
         }
@@ -289,6 +296,9 @@ impl<'a> RvalConverter<'a> {
                                         Some(cfc_.clone()),
                                     );
                                     unique_push(&mut new_constraints, new_constraint);
+                                } else if traitobjty.is_fn_trait() {
+                                    // Use collected constraints
+                                    todo!();
                                 } else {
                                     todo!();
                                 }

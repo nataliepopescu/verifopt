@@ -609,6 +609,23 @@ statement:
 _11 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
 
 
+### ripgrep hits todo! in convert:193
+
+in convert_place
+- get_cafs returns NONE
+    - nothing is set for this place yet
+    - so, converting from type
+    - type ends up containing a dyn (for the Log trait)
+
+in this case i think we might be incorrectly be ending up in the None branch?
+- commenting out TODO for now to see what happens
+
+yes incorrect, the LOGGER const is declared in a static, which we do not yet
+parse (ayush change)
+
+
+
+
 
 
 

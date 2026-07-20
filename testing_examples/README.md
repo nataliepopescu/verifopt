@@ -12,7 +12,7 @@ then `cd` into any of the example dirs (e.g.
 `testing_examples/casting_traitobj`) and run:
 
 ```sh
-cargo clean && VERIFOPT_LOG=debug cargo verifopt --release 2> log.md
+rm -f stats && cargo clean && VERIFOPT_LOG=debug cargo verifopt --release 2> log.md
 ```
 
 or just

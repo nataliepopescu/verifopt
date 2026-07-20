@@ -47,16 +47,17 @@ FSA (1): [(DefId { id: 20565, name: "<casting_traitobj::Cat as casting_traitobj:
 - [x] fnptrs
 - [x] generic
 - [ ] one_variant
-    - convert todo
+    - Intrinsic::Assume
 - [ ] rand_
-    - inline asm (not handled yet)
+    - Intrinsic::Assume
 - [x] recursive
+- [x] recursive_dyn
 - [x] shims
 - [x] switchint
 - [ ] two_variants
-    - convert todo
+    - Intrinsic::Assume
 - [ ] two_variants_rand
-    - inline asm (not handled yet)
+    - Intrinsic::Assume
 - [ ] two_variants_static
     - convert todo
 - [ ] two_variants_static_nonzst
@@ -69,14 +70,13 @@ FSA (1): [(DefId { id: 20565, name: "<casting_traitobj::Cat as casting_traitobj:
 - [x] casting_traitobj
     - FSA win!
 - [ ] one_variant
-    - convert todo
+    - Intrinsic::Assume
 - [ ] two_variants
     - not really anything else to analyze b/c input cannot be statically known...
-    - convert todo
+    - Intrinsic::Assume
 - [ ] two_variants_rand
-    - inline asm (not handled yet)
     - not really anything else to analyze otherwise b/c rand cannot be statically known...
-    - inline asm (not handled yet)
+    - Intrinsic::Assume
 - [ ] two_variants_static
     - convert todo
     - should be FSA win
@@ -92,9 +92,10 @@ FSA (1): [(DefId { id: 20565, name: "<casting_traitobj::Cat as casting_traitobj:
 - [x] generic
     - Rect fields are not stored b/c specific to the Rect const allocation layout (maybe this is generalizable but have not yet thought about this)
 - [ ] rand_
-    - inline asm (not handled yet)
     - not really anything else to analyze otherwise
+    - Intrinsic::Assume
 - [x] recursive
+- [ ] recursive_dyn
 - [x] shims
     - the candidate list of fns for the fnptr w the signature i32 -> i32 is too
       large, so we are currently falling back to return types

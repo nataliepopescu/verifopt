@@ -337,7 +337,6 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        //todo!("get for fields too?");
         constraints
     }
 
@@ -408,30 +407,31 @@ impl<'a> InterpPass<'a> {
                         local: place.local,
                         projection: vec![],
                     };
+                    debug!("\nPLACE: {:?}", place);
+                    debug!(
+                        "\nFULL constraints: {:?}",
+                        ctxt.get_constraints(cur_scope, place, false)
+                    );
+                    debug!("\nBASE: {:?}", base);
+                    debug!(
+                        "\nBASE constraints: {:?}",
+                        ctxt.get_constraints(cur_scope, &base, false)
+                    );
                     match ctxt.get_constraints(cur_scope, &base, false) {
-                        Some(MapValue::Constraints(mut base_constraints)) => {
+                        Some(mut base_constraints) => {
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
                         }
-                        _ => panic!("no constraints"),
+                        None => {
+                            debug!("no base constraints");
+                            let mut base_constraints = Constraints::new();
+                            base_constraints
+                                .write_field(place.projection.clone(), final_constraints);
+                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                        }
                     }
                 }
-
-                //// Add resolved constraints to ctxt
-                //let mut fields = Vec::new();
-                //if let Some(fields_) = maybe_fields {
-                //    // Store operand (field) constraints into projected places in ctxt
-                //    for field in fields_ {
-                //        let final_op_constraints =
-                //            self.lift_traitobjtys(&maybe_trait_destty, field.1.clone());
-                //        let field_place = Place {
-                //            local: place.local,
-                //            projection: field.0.clone(),
-                //        };
-                //        fields.push((field_place, final_op_constraints));
-                //    }
-                //}
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -533,7 +533,7 @@ impl<'a> InterpPass<'a> {
 
         let mut ret_constraints = Constraints::new();
         match ctxt.get_constraints(cur_scope, place, false) {
-            Some(MapValue::Constraints(constraints)) => {
+            Some(constraints) => {
                 for constraint in constraints.inner {
                     match constraint {
                         Constraint {
@@ -561,7 +561,6 @@ impl<'a> InterpPass<'a> {
                     }
                 }
             }
-            Some(MapValue::Store(_, _)) => panic!("got store instead of constraints"),
             None => panic!("fnptr value not found in cmap"),
         }
 
@@ -818,21 +817,6 @@ impl<'a> InterpPass<'a> {
         match ret_constraints {
             Ok(Some(constraints_)) => {
                 let constraints = self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone());
-
-                /*
-                let mut fields = Vec::new();
-                for field in &cafs.fields {
-                    match ctxt.get_constraints(&cafs.scope, field, false) {
-                        Some(MapValue::Constraints(constraints_)) => {
-                            let constraints =
-                                self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone());
-                            fields.push((field.clone(), constraints));
-                        }
-                        Some(_) => panic!("got store"),
-                        None => todo!("ruh roh"),
-                    }
-                }
-                */
 
                 ctxt.set_scoped_constraints(cur_scope, destination, constraints.clone());
 
@@ -1249,25 +1233,7 @@ impl<'a> InterpPass<'a> {
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
-            /*
-            let mut field_place_constraints = Vec::new();
-            if let Some(fields) = maybe_fields {
-                for field in fields {
-                    let field_place = Place {
-                        local: place.local,
-                        projection: field.0.projection,
-                    };
-                    field_place_constraints.push((field_place, field.1));
-                }
-            }
-            */
-
-            new_ctxt.set_scoped_constraints(
-                callee_scope,
-                &place,
-                arg_constraints,
-                //field_place_constraints,
-            );
+            new_ctxt.set_scoped_constraints(callee_scope, &place, arg_constraints);
         }
     }
 
@@ -1290,34 +1256,7 @@ impl<'a> InterpPass<'a> {
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
                 match ctxt.get_constraints(caller_scope, place, is_closure) {
-                    Some(MapValue::Constraints(constraints)) => {
-                        self.lift_traitobjtys(maybe_trait_argty, constraints)
-
-                        /*
-                        let mut fields = Vec::new();
-                        for field_place in cafs.fields {
-                            match self.get_place_constraints(
-                                ctxt,
-                                caller_scope,
-                                maybe_trait_argty,
-                                &field_place,
-                                is_closure,
-                            ) {
-                                Some(field_constraints) => {
-                                    fields.push((field_place.clone(), field_constraints));
-                                }
-                                None => panic!("no constraints for field"),
-                            }
-                        }
-
-                        if fields.is_empty() {
-                            (final_constraints, None)
-                        } else {
-                            (final_constraints, Some(fields))
-                        }
-                        */
-                    }
-                    Some(MapValue::Store(_, _)) => panic!("got store instead of constraints"),
+                    Some(constraints) => self.lift_traitobjtys(maybe_trait_argty, constraints),
                     None => {
                         let (maybe_traitobjty, constraint) = self
                             .converter
@@ -1668,10 +1607,7 @@ impl<'a> InterpPass<'a> {
     ) -> Constraints {
         // Get concrete type constraints for trait object
         match ctxt.get_constraints(caller_scope, &place, false) {
-            Some(val) => match val {
-                MapValue::Constraints(tyconstraints) => tyconstraints,
-                MapValue::Store(..) => panic!("place {:?} refers to a scope", place),
-            },
+            Some(constraints) => constraints,
             None => panic!("place {:?} has no constraints", place),
         }
     }
@@ -1987,31 +1923,27 @@ impl<'a> InterpPass<'a> {
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
                 match ctxt.get_constraints(cur_scope, place, false) {
-                    Some(val) => match val {
-                        MapValue::Constraints(constraints) => {
-                            // Create a byte-map for finding statically-impossible successors
-                            let mut discr_vals_uninit =
-                                Box::<[u8]>::new_zeroed_slice(targets.len());
-                            let discr_vals = discr_vals_uninit.write_filled(0);
-                            //debug!("PRE discr_vals: {:?}", discr_vals);
+                    Some(constraints) => {
+                        // Create a byte-map for finding statically-impossible successors
+                        let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(targets.len());
+                        let discr_vals = discr_vals_uninit.write_filled(0);
+                        //debug!("PRE discr_vals: {:?}", discr_vals);
 
-                            // Check expected type of discriminant
-                            //debug!("expected ty: {:?}", place.ty(local_decls));
-                            //debug!("constraints: {:?}", constraints);
+                        // Check expected type of discriminant
+                        //debug!("expected ty: {:?}", place.ty(local_decls));
+                        //debug!("constraints: {:?}", constraints);
 
-                            // Populate byte-map with possible branch values, based on constraints
-                            self.set_bytemap(&constraints, targets, discr_vals);
-                            //debug!("POST discr_vals: {:?}", discr_vals);
+                        // Populate byte-map with possible branch values, based on constraints
+                        self.set_bytemap(&constraints, targets, discr_vals);
+                        //debug!("POST discr_vals: {:?}", discr_vals);
 
-                            self.prune_switchint_targets(
-                                bb,
-                                bb_deps,
-                                &targets.all_targets(),
-                                discr_vals,
-                            );
-                        }
-                        _ => panic!("cannot switch on scope"),
-                    },
+                        self.prune_switchint_targets(
+                            bb,
+                            bb_deps,
+                            &targets.all_targets(),
+                            discr_vals,
+                        );
+                    }
                     None => {
                         //debug!("local DNE, cannot prune any targets");
                     }

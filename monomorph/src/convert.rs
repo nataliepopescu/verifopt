@@ -8,8 +8,8 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 //use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Context, Location, MapValue, RunningConstraint,
-    TraitObjConstraint, TraitObjTy, VOID,
+    ADTFields, Constraint, Constraints, Context, Location, RunningConstraint, TraitObjConstraint,
+    TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -150,63 +150,24 @@ impl<'a> RvalConverter<'a> {
         place: &Place,
         destty: &Ty,
     ) -> (Constraints, Option<ADTFields>) {
-        //debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
-        // TODO use current place ty instead of *just* getting existing place constraints
+        debug!("\nCONVERTING PLACE: {:?}", place);
 
         match ctxt.get_constraints(cur_scope, place, false) {
-            Some(MapValue::Constraints(constraints)) => {
+            Some(constraints) => {
                 debug!("CONSTRAINTS EXIST: {:?}", constraints);
                 (constraints, None)
-
-                /*
-                let mut fields = Vec::new();
-                for field_place in cafs.fields {
-                    debug!("field_place: {:?}", field_place);
-                    debug!("projs: {:?}", field_place.projection);
-                    let field_ty = match field_place.projection[field_place.projection.len() - 1] {
-                        ProjectionElem::Field(_, ty) => ty,
-                        _ => todo!(),
-                    };
-
-                    // get each field constraints
-                    let (field_constraints, field_fields) = self.convert_place(
-                        ctxt,
-                        span,
-                        local_decls,
-                        cur_scope,
-                        &field_place,
-                        &field_ty,
-                    );
-                    //debug!("[ConvertPlace] field_constraints: {:?}", field_constraints);
-                    if field_fields.is_some() {
-                        todo!();
-                    }
-
-                    // push into vec
-                    fields.push((field_place.projection.clone(), field_constraints))
-                }
-                if fields.is_empty() {
-                    (cafs.constraints, None)
-                } else {
-                    (cafs.constraints, Some(fields))
-                }
-                */
             }
-            Some(MapValue::Store(_, _)) => panic!("got store instead of constraints"),
             None => {
                 debug!("CONSTRAINTS DNE");
-                for proj in &place.projection {
-                    debug!("\nPROJ: {:?}", proj);
-                }
+                //for proj in &place.projection {
+                //    debug!("\nPROJ: {:?}", proj);
+                //}
                 debug!("DEST TY: {:?}", destty);
                 let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
                 debug!("CONSTRAINT: {:?}", constraint);
 
-                if let Some(traitobj) = maybe_traitobj {
-                    //debug!("\nSCOPE: {:?}", cur_scope);
-                    //debug!("cstore @ scope: {:?}", ctxt.get_cstore_scope(cur_scope));
-                    //debug!("fstore @ scope: {:?}", ctxt.get_fstore_scope(cur_scope));
-                    todo!("place ty contains dyn {:?}", traitobj);
+                if let Some(_traitobj) = maybe_traitobj {
+                    //todo!("place ty contains dyn {:?}", traitobj);
                 }
 
                 (Constraints::from(constraint), None)
@@ -279,6 +240,7 @@ impl<'a> RvalConverter<'a> {
                         // could be a traitobj for this traitobjty
                         let defid = self.get_defid_from_cfc(&cfc_);
                         debug!("DEFID: {:?}", defid);
+                        debug!("CFC: {:?}", cfc_);
 
                         match self.tstore.struct_traits.get(&defid) {
                             Some(traits) => {
@@ -306,9 +268,9 @@ impl<'a> RvalConverter<'a> {
                                         Some(cfc_.clone()),
                                     );
                                     new_constraints.push(new_constraint);
-                                } else if traitobjty.is_fn_trait() {
-                                    // Use collected constraints
-                                    todo!();
+                                //} else if traitobjty.is_fn_trait() {
+                                //    // Use collected constraints
+                                //    todo!();
                                 } else {
                                     todo!();
                                 }
@@ -537,7 +499,8 @@ impl<'a> RvalConverter<'a> {
                         _ => todo!("op: {:?}", op),
                     }
 
-                    let proj = vec![ProjectionElem::Deref, ProjectionElem::Field(i, op_ty)];
+                    //let proj = vec![ProjectionElem::Deref, ProjectionElem::Field(i, op_ty)];
+                    let proj = vec![ProjectionElem::Field(i, op_ty)];
                     debug!("PROJ: {:?}", proj);
                     fields.push((
                         // obj deref + field access

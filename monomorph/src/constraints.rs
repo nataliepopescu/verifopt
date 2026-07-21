@@ -13,7 +13,7 @@ use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-//use log::debug;
+use log::debug;
 
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -58,47 +58,7 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
-//#[derive(Debug, Clone, PartialEq)]
-//pub enum MapFieldValue {
-//    Store(FieldStore),
-//    Fields(Vec<Place>),
-//}
-
-/*
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct CAFs {
-    pub constraints: Constraints,
-    pub fields: Vec<Place>,
-    pub scope: VOID,
-}
-
-impl CAFs {
-    pub fn new(constraints: Constraints, fields: Vec<Place>, scope: VOID) -> CAFs {
-        Self {
-            constraints,
-            fields,
-            scope,
-        }
-    }
-
-    pub fn empty(scope: VOID) -> CAFs {
-        Self {
-            constraints: Vec::new(),
-            fields: Vec::new(),
-            scope,
-        }
-    }
-
-    pub fn update(&mut self, new_cafs: CAFs) {
-        unique_append(&mut self.constraints, new_cafs.constraints);
-        unique_append(&mut self.fields, new_cafs.fields);
-    }
-}
-*/
-
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-//pub type Constraints = Vec<Constraint>;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Constraints {
     pub inner: Vec<Constraint>,
@@ -139,8 +99,8 @@ impl Constraints {
         unique_append(&mut self.inner, new_constraints.inner);
     }
 
-    /// Read: union the field's value across every Adt disjunct that has it,
-    /// falling back to top/static-type for disjuncts that don't.
+    // Read: union the field's value across every Adt disjunct that has it,
+    // falling back to top/static-type for disjuncts that don't.
     pub fn read_field(&self, elem: &Vec<ProjectionElem>, fallback: &Constraints) -> Constraints {
         let mut out = Constraints::new();
         for c in &self.inner {
@@ -154,8 +114,8 @@ impl Constraints {
         out
     }
 
-    /// Write: strong-update the field within EVERY disjunct currently in scope.
-    /// This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
+    // Write: strong-update the field within EVERY disjunct currently in scope.
+    // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
     pub fn write_field(&mut self, elem: Vec<ProjectionElem>, new: Constraints) {
         for c in self.inner.iter_mut() {
             if let Some(RunningConstraint::Adt(_, _, fields)) = &mut c.cfc {
@@ -398,13 +358,6 @@ impl Context {
         self.wtos.insert(scope.clone(), bbdeps.clone());
     }
 
-    //fn set_constraints(&mut self, place: &Place, constraints: Constraints) {
-    //    self.cstore.cmap.insert(
-    //        MapKey::Var(place.clone()),
-    //        Box::new(MapValue::Constraints(constraints)),
-    //    );
-    //}
-
     pub fn set_scoped_constraints(
         &mut self,
         scope: &VOID,
@@ -423,9 +376,79 @@ impl Context {
         scope: &VOID,
         place: &Place,
         is_closure: bool,
-    ) -> Option<MapValue> {
-        self.cstore
-            .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
+    ) -> Option<Constraints> {
+        if place.projection.is_empty() {
+            match self
+                .cstore
+                .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
+            {
+                Some(MapValue::Constraints(constraints)) => Some(constraints),
+                None => None,
+                _ => panic!("got store instead of constraints"),
+            }
+        // Only one projection, not a field pattern
+        // TODO better filtering for different projection kinds
+        } else if place.projection.len() < 2 {
+            // i.e. ignore the Deref projection
+            let base = Place {
+                local: place.local,
+                projection: vec![],
+            };
+            match self.get_constraints(scope, &base, is_closure) {
+                Some(constraints) => Some(constraints),
+                None => None,
+            }
+        } else {
+            let base = Place {
+                local: place.local,
+                projection: vec![],
+            };
+            match self.get_constraints(scope, &base, is_closure) {
+                Some(base_constraints) => {
+                    debug!("\nBASE: {:?}", base);
+                    debug!("BASE CONSTRAINTS: {:?}", base_constraints);
+
+                    // Collect every matching projection in the set of constraints
+                    let mut proj_constraints = Constraints::new();
+                    for constraint in &base_constraints.inner {
+                        match constraint {
+                            Constraint {
+                                toc: _,
+                                cfc: Some(inner_cfc),
+                            } => match inner_cfc {
+                                RunningConstraint::Adt(_, _, fields) => {
+                                    debug!("\nPROJECTION: {:?}", place.projection);
+                                    let filtered_proj: Vec<ProjectionElem> = place
+                                        .projection
+                                        .clone()
+                                        .into_iter()
+                                        .filter(|x| match x {
+                                            ProjectionElem::Field(_, _) => true,
+                                            _ => false,
+                                        })
+                                        .collect();
+                                    debug!("\nFILTERED PROJECTION: {:?}", filtered_proj);
+
+                                    for (proj_set, field_constraints) in fields {
+                                        if *proj_set == filtered_proj {
+                                            proj_constraints.append(field_constraints.clone());
+                                        }
+                                    }
+                                }
+                                _ => panic!(
+                                    "unexpected running constraint type to have projections: {:?}",
+                                    inner_cfc
+                                ),
+                            },
+                            _ => panic!("cfc is None, cannot get projection/field constraints"),
+                        }
+                    }
+
+                    Some(proj_constraints)
+                }
+                None => None,
+            }
+        }
     }
 
     pub fn set_cstore_scope(
@@ -443,76 +466,6 @@ impl Context {
     pub fn get_cstore_scope(&self, scope: &VOID) -> Option<&Box<MapValue>> {
         self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
     }
-
-    //fn get_fields(&self, scope: &VOID, place: &Place) -> Option<MapFieldValue> {
-    //    self.fstore.scoped_get(scope, &MapKey::Var(place.clone()))
-    //}
-
-    //fn set_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
-    //    self.fstore.link_adt_fields(scope, place, new_field_places);
-    //}
-
-    //pub fn get_fstore_scope(&self, scope: &VOID) -> Option<&Box<MapFieldValue>> {
-    //    self.fstore.field_map.get(&MapKey::ScopeId(scope.clone()))
-    //}
-
-    /*
-    pub fn update_cafs(
-        &mut self,
-        scope: &VOID,
-        base: (Place, Constraints),
-        fields: Vec<(Place, Constraints)>,
-    ) {
-        // add field mappings -> fieldStore
-        if !fields.is_empty() {
-            let field_places: Vec<Place> = fields.clone().into_iter().map(|(x, _)| x).collect();
-            self.set_fields(scope, &base.0, &field_places);
-        }
-
-        // add base + field constraints -> constraintStore
-        self.set_constraints(&base.0, base.1);
-        for field in fields {
-            self.set_constraints(&field.0, field.1);
-        }
-    }
-
-    pub fn update_scoped_cafs(
-        &mut self,
-        scope: &VOID,
-        base: (Place, Constraints),
-        fields: Vec<(Place, Constraints)>,
-    ) {
-        // add field mappings -> fieldStore
-        if !fields.is_empty() {
-            let field_places: Vec<Place> = fields.clone().into_iter().map(|(x, _)| x).collect();
-            self.set_fields(scope, &base.0, &field_places);
-        }
-
-        // add base + field constraints -> constraintStore
-        self.set_scoped_constraints(scope, &base.0, base.1);
-        for field in fields {
-            self.set_scoped_constraints(scope, &field.0, field.1);
-        }
-    }
-
-    pub fn get_cafs(&self, scope: &VOID, place: &Place, is_closure: bool) -> Option<CAFs> {
-        match self.get_constraints(scope, place, is_closure) {
-            Some(ret) => match ret {
-                MapValue::Constraints(constraints) => {
-                    let fields = match self.get_fields(scope, place) {
-                        Some(MapFieldValue::Fields(fields_)) => fields_,
-                        Some(_) => panic!("got scope"),
-                        None => vec![],
-                    };
-
-                    Some(CAFs::new(constraints, fields, scope.clone()))
-                }
-                _ => panic!("got scope"),
-            },
-            None => None,
-        }
-    }
-    */
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -707,85 +660,16 @@ impl ConstraintStore {
                     panic!("defid is not a scope: {:?}", scope);
                 }
             },
-            None => panic!("undefined scope: {:?}", scope),
-        }
-    }
-}
-
-/*
-#[derive(Debug, Clone, PartialEq)]
-pub struct FieldStore {
-    pub field_map: HashMap<MapKey, Box<MapFieldValue>>,
-}
-
-impl FieldStore {
-    pub fn new() -> FieldStore {
-        Self {
-            field_map: HashMap::default(),
-        }
-    }
-
-    pub fn link_adt_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
-        debug!("\nLINKING FIELD");
-        debug!("new_field_places: {:?}", new_field_places);
-
-        self.scoped_update(
-            scope,
-            MapKey::Var(place.clone()),
-            Box::new(MapFieldValue::Fields(new_field_places.to_vec())),
-        );
-    }
-
-    pub fn scoped_get(&self, scope: &VOID, key: &MapKey) -> Option<MapFieldValue> {
-        match self.field_map.get(&MapKey::ScopeId(scope.clone())) {
-            Some(vartype) => match *vartype.clone() {
-                MapFieldValue::Store(store) => match store.field_map.get(key) {
-                    Some(boxed) => Some(*boxed.clone()),
-                    None => None,
-                },
-                _ => panic!("not a scope: {:?}", scope),
-            },
-            None => None,
-        }
-    }
-
-    pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapFieldValue>) {
-        match self.field_map.get(&MapKey::ScopeId(scope.clone())) {
-            Some(vartype) => match *vartype.clone() {
-                MapFieldValue::Store(mut store) => {
-                    let mut new_val = value.clone();
-                    let old_val = store.field_map.get(&key);
-                    match old_val {
-                        Some(old_val_) => {
-                            debug!("old val: {:?}", old_val_);
-                            debug!("new val: {:?}", new_val);
-                            new_val = Box::new(merge_mapfieldvals(old_val_, &value));
-                        }
-                        None => {}
-                    }
-
-                    // modify scope w new key/val
-                    store.field_map.insert(key, new_val);
-                    self.field_map.insert(
-                        MapKey::ScopeId(scope.clone()),
-                        Box::new(MapFieldValue::Store(store)),
-                    );
-                }
-                MapFieldValue::Fields(..) => {
-                    panic!("defid is not a scope: {:?}", scope);
-                }
-            },
             None => {
                 // initialize new scope w key/val
                 debug!("undefined scope: {:?} INIT NEW SUBSTORE", scope);
-                let mut new_store = FieldStore::new();
-                new_store.field_map.insert(key, value);
-                self.field_map.insert(
+                let mut new_store = ConstraintStore::new();
+                new_store.cmap.insert(key, value);
+                self.cmap.insert(
                     MapKey::ScopeId(scope.clone()),
-                    Box::new(MapFieldValue::Store(new_store)),
+                    Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
                 );
             }
         }
     }
 }
-*/

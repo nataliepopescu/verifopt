@@ -623,6 +623,53 @@ in this case i think we might be incorrectly be ending up in the None branch?
 yes incorrect, the LOGGER const is declared in a static, which we do not yet
 parse (ayush change)
 
+TODO
+
+
+
+
+
+### one_variant hits todo! in convert_place None branch (place ty contains dyn)
+
+how are we getting here?
+
+- get_animal passes
+- get_cat passes
+
+this MIR statement:
+
+_20 = copy ((_6.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+- _6 is the result of get_animal
+
+code path
+- claims the place (w the projections? idk) exists
+- yet when we try to get the CAFs it returns None
+
+- mm, ok so we expect something to exist, but it doesn't
+- likely the projections are messed up
+
+things are a bit out of whack, maybe a better design will help clear up the
+implementation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

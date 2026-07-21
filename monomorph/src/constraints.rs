@@ -9,11 +9,11 @@ use rustc_public::ty::{
 };
 
 //use crate::common::log_scope;
-use crate::merge::{merge_mapfieldvals, merge_mapvals};
+use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-use log::debug;
+//use log::debug;
 
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -58,15 +58,13 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum MapFieldValue {
-    Store(FieldStore),
-    Fields(Vec<Place>),
-}
+//#[derive(Debug, Clone, PartialEq)]
+//pub enum MapFieldValue {
+//    Store(FieldStore),
+//    Fields(Vec<Place>),
+//}
 
-//pub type Fields = Vec<Place>;
-pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
-
+/*
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CAFs {
     pub constraints: Constraints,
@@ -96,9 +94,77 @@ impl CAFs {
         unique_append(&mut self.fields, new_cafs.fields);
     }
 }
+*/
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-pub type Constraints = Vec<Constraint>;
+//pub type Constraints = Vec<Constraint>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Constraints {
+    pub inner: Vec<Constraint>,
+}
+
+impl Constraints {
+    pub fn new() -> Constraints {
+        Self { inner: Vec::new() }
+    }
+
+    pub fn from(constraint: Constraint) -> Constraints {
+        Self {
+            inner: vec![constraint],
+        }
+    }
+
+    pub fn from_vec(inner: Vec<Constraint>) -> Constraints {
+        Self { inner }
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.len() == 0
+    }
+
+    pub fn at(&self, idx: usize) -> &Constraint {
+        &self.inner[idx]
+    }
+
+    pub fn push(&mut self, new_constraint: Constraint) {
+        unique_push(&mut self.inner, new_constraint);
+    }
+
+    pub fn append(&mut self, new_constraints: Constraints) {
+        unique_append(&mut self.inner, new_constraints.inner);
+    }
+
+    /// Read: union the field's value across every Adt disjunct that has it,
+    /// falling back to top/static-type for disjuncts that don't.
+    pub fn read_field(&self, elem: &Vec<ProjectionElem>, fallback: &Constraints) -> Constraints {
+        let mut out = Constraints::new();
+        for c in &self.inner {
+            if let Some(RunningConstraint::Adt(_, _, fields)) = &c.cfc {
+                match fields.iter().find(|(e, _)| e == elem) {
+                    Some((_, cs)) => out.append(cs.clone()),
+                    None => out.append(fallback.clone()),
+                }
+            }
+        }
+        out
+    }
+
+    /// Write: strong-update the field within EVERY disjunct currently in scope.
+    /// This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
+    pub fn write_field(&mut self, elem: Vec<ProjectionElem>, new: Constraints) {
+        for c in self.inner.iter_mut() {
+            if let Some(RunningConstraint::Adt(_, _, fields)) = &mut c.cfc {
+                fields.retain(|(e, _)| e != &elem);
+                fields.push((elem.clone(), new.clone()));
+            }
+        }
+    }
+}
 
 // Maybe organize TraitObjConstraints by trait..? Like if we have two potentially obfuscating
 // dynamic calls (one for Option and one for inner TraitObj)
@@ -128,10 +194,13 @@ impl Constraint {
     }
 }
 
+pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
     // more complex data types
-    Adt(AdtDef, GenericArgs, Vec<Place>),
+    //Adt(AdtDef, GenericArgs, Vec<Place>),
+    Adt(AdtDef, GenericArgs, ADTFields),
 
     // callable types
     Closure(ClosureDef, GenericArgs),
@@ -153,7 +222,8 @@ pub enum RunningConstraint {
     Float,
 
     // more complex data types
-    Adt(AdtDef, GenericArgs, Vec<Place>),
+    //Adt(AdtDef, GenericArgs, Vec<Place>),
+    Adt(AdtDef, GenericArgs, ADTFields),
 
     // pointer types
     Ptr(Box<Constraint>),
@@ -170,7 +240,7 @@ pub enum RunningConstraint {
     // fallback types
     //IdkType(Ty),
     List(Box<Constraint>),
-    Tuple(Vec<Constraint>),
+    Tuple(Constraints),
     Idk(Box<Constraints>),
 }
 
@@ -302,7 +372,6 @@ pub fn summary_key(
 #[derive(Debug, Clone, PartialEq)]
 pub struct Context {
     pub cstore: ConstraintStore,
-    pub fstore: FieldStore,
     pub wtos: HashMap<VOID, BBDeps>,
     // Map ADT places to their field places (projections) which have constraints in cmap
     //pub field_map: HashMap<(Place, VOID), Vec<Place>>,
@@ -310,38 +379,16 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(
-        cstore: ConstraintStore,
-        fstore: FieldStore,
-        wtos: HashMap<VOID, BBDeps>,
-    ) -> Context {
-        Self {
-            cstore,
-            fstore,
-            wtos,
-            refs: HashMap::default(),
-        }
+    pub fn new(cstore: ConstraintStore, wtos: HashMap<VOID, BBDeps>) -> Context {
+        Self { cstore, wtos }
     }
 
     pub fn empty() -> Context {
         Self {
             cstore: ConstraintStore::new(),
-            fstore: FieldStore::new(),
             wtos: HashMap::default(),
         }
     }
-
-    //pub fn cstore(&self) -> &ConstraintStore {
-    //    &self.cstore
-    //}
-
-    //pub fn fstore(&self) -> &FieldStore {
-    //    &self.fstore
-    //}
-
-    //pub fn wtos(&self) -> &HashMap<VOID, BBDeps> {
-    //    &self.wtos
-    //}
 
     pub fn get_wto(&self, scope: &VOID) -> Option<&BBDeps> {
         self.wtos.get(scope)
@@ -351,14 +398,19 @@ impl Context {
         self.wtos.insert(scope.clone(), bbdeps.clone());
     }
 
-    fn set_constraints(&mut self, place: &Place, constraints: Constraints) {
-        self.cstore.cmap.insert(
-            MapKey::Var(place.clone()),
-            Box::new(MapValue::Constraints(constraints)),
-        );
-    }
+    //fn set_constraints(&mut self, place: &Place, constraints: Constraints) {
+    //    self.cstore.cmap.insert(
+    //        MapKey::Var(place.clone()),
+    //        Box::new(MapValue::Constraints(constraints)),
+    //    );
+    //}
 
-    fn set_scoped_constraints(&mut self, scope: &VOID, place: &Place, constraints: Constraints) {
+    pub fn set_scoped_constraints(
+        &mut self,
+        scope: &VOID,
+        place: &Place,
+        constraints: Constraints,
+    ) {
         self.cstore.scoped_update(
             scope,
             MapKey::Var(place.clone()),
@@ -366,15 +418,6 @@ impl Context {
         );
     }
 
-    // currently getting in:
-    // - interp_direct_call (getting field constraints + lifting TOC)
-    // - get_place_constraints (only used during arg res - also for getting field constraints + lifting TOC)
-    // - get_fsa_tyconstraints (get traitobj constraints)
-    // - interp_switchint (get discriminant constraints)
-    //
-    // above cases seem to be safe to access without CAF API b/c not using fields, only using the
-    // precise object asked about (with the ~exception of interp_direct_call and
-    // get_place_constraints, which could be merged/improved)
     pub fn get_constraints(
         &self,
         scope: &VOID,
@@ -401,14 +444,19 @@ impl Context {
         self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
     }
 
-    fn get_fields(&self, scope: &VOID, place: &Place) -> Option<MapFieldValue> {
-        self.fstore.scoped_get(scope, &MapKey::Var(place.clone()))
-    }
+    //fn get_fields(&self, scope: &VOID, place: &Place) -> Option<MapFieldValue> {
+    //    self.fstore.scoped_get(scope, &MapKey::Var(place.clone()))
+    //}
 
-    fn set_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
-        self.fstore.link_adt_fields(scope, place, new_field_places);
-    }
+    //fn set_fields(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
+    //    self.fstore.link_adt_fields(scope, place, new_field_places);
+    //}
 
+    //pub fn get_fstore_scope(&self, scope: &VOID) -> Option<&Box<MapFieldValue>> {
+    //    self.fstore.field_map.get(&MapKey::ScopeId(scope.clone()))
+    //}
+
+    /*
     pub fn update_cafs(
         &mut self,
         scope: &VOID,
@@ -464,6 +512,7 @@ impl Context {
             None => None,
         }
     }
+    */
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -611,12 +660,12 @@ impl ConstraintStore {
         enclosing_scopes: &EnclosingScopes,
         key: &MapKey,
     ) -> Constraints {
-        let mut all_constraints = Vec::new();
+        let mut all_constraints = Constraints::new();
         for enclosing_scope in enclosing_scopes.as_ref().unwrap() {
             match self.scoped_get(&enclosing_scope, key, false) {
                 Some(val) => match val {
                     MapValue::Constraints(constraints) => {
-                        unique_append(&mut all_constraints, constraints)
+                        all_constraints.append(constraints);
                     }
                     _ => panic!("got scope"),
                 },
@@ -663,6 +712,7 @@ impl ConstraintStore {
     }
 }
 
+/*
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldStore {
     pub field_map: HashMap<MapKey, Box<MapFieldValue>>,
@@ -738,3 +788,4 @@ impl FieldStore {
         }
     }
 }
+*/

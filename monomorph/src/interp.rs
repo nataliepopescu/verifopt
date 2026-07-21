@@ -91,7 +91,7 @@ impl<'a> InterpPass<'a> {
         logger: &mut VOLogger,
         ctxt: &mut Context,
         start_instance: Instance,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         let start_scope = (start_instance, GenericArgs(vec![]));
         let mut call_stack = vec![start_scope.clone()];
 
@@ -123,7 +123,7 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         body: &Body,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         debug!("\n\n\n#############################");
         debug!(
             "###### INTERP-ING NEW BODY for func {:?}",
@@ -195,7 +195,7 @@ impl<'a> InterpPass<'a> {
         num_bbs: usize,
         bb: usize,
         data: &BasicBlock,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         //debug!("\n##########");
         debug!(
             "# visiting BASICBLOCK {:?} ({:?}/{:?}) for {:?}",
@@ -307,8 +307,8 @@ impl<'a> InterpPass<'a> {
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
     ) -> Constraints {
-        let mut constraints = Vec::new();
-        for constraint in old_constraints {
+        let mut constraints = Constraints::new();
+        for constraint in old_constraints.inner {
             match self
                 .converter
                 .get_any_traitobj(maybe_trait_destty, &constraint)
@@ -336,6 +336,8 @@ impl<'a> InterpPass<'a> {
                 }
             }
         }
+
+        //todo!("get for fields too?");
         constraints
     }
 
@@ -399,22 +401,37 @@ impl<'a> InterpPass<'a> {
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
                 debug!("FINAL (PULLED) CONSTRAINTS: {:?}", final_constraints);
 
-                // Add resolved constraints to ctxt
-                let mut fields = Vec::new();
-                if let Some(fields_) = maybe_fields {
-                    // Store operand (field) constraints into projected places in ctxt
-                    for field in fields_ {
-                        let final_op_constraints =
-                            self.lift_traitobjtys(&maybe_trait_destty, field.1.clone());
-                        let field_place = Place {
-                            local: place.local,
-                            projection: field.0.clone(),
-                        };
-                        fields.push((field_place, final_op_constraints));
+                if place.projection.is_empty() {
+                    ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
+                } else {
+                    let base = Place {
+                        local: place.local,
+                        projection: vec![],
+                    };
+                    match ctxt.get_constraints(cur_scope, &base, false) {
+                        Some(MapValue::Constraints(mut base_constraints)) => {
+                            base_constraints
+                                .write_field(place.projection.clone(), final_constraints);
+                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                        }
+                        _ => panic!("no constraints"),
                     }
                 }
 
-                ctxt.update_scoped_cafs(cur_scope, (place.clone(), final_constraints), fields);
+                //// Add resolved constraints to ctxt
+                //let mut fields = Vec::new();
+                //if let Some(fields_) = maybe_fields {
+                //    // Store operand (field) constraints into projected places in ctxt
+                //    for field in fields_ {
+                //        let final_op_constraints =
+                //            self.lift_traitobjtys(&maybe_trait_destty, field.1.clone());
+                //        let field_place = Place {
+                //            local: place.local,
+                //            projection: field.0.clone(),
+                //        };
+                //        fields.push((field_place, final_op_constraints));
+                //    }
+                //}
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -437,7 +454,7 @@ impl<'a> InterpPass<'a> {
         bb_deps: &mut BBDeps,
         bb: usize,
         term: &Terminator,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         debug!("TERM KIND: {:?}", &term.kind);
         match &term.kind {
             TerminatorKind::Call {
@@ -505,7 +522,7 @@ impl<'a> InterpPass<'a> {
         place: &Place,
         args: &Vec<Operand>,
         destination: &Place,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         //debug!("INTERPING INDIRECT CALL");
 
         //debug!("CHECKING FOR DYN IN PLACE TY");
@@ -514,13 +531,10 @@ impl<'a> InterpPass<'a> {
         //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-        let mut ret_cafs = CAFs::empty(cur_scope.clone());
-        match ctxt.get_cafs(cur_scope, place, false) {
-            Some(cafs) => {
-                if !cafs.fields.is_empty() {
-                    todo!("calling indirect func on obj w fields: {:?}", cafs.fields);
-                }
-                for constraint in &cafs.constraints {
+        let mut ret_constraints = Constraints::new();
+        match ctxt.get_constraints(cur_scope, place, false) {
+            Some(MapValue::Constraints(constraints)) => {
+                for constraint in constraints.inner {
                     match constraint {
                         Constraint {
                             toc: _,
@@ -535,8 +549,8 @@ impl<'a> InterpPass<'a> {
                             &cf,
                             args,
                         ) {
-                            Ok(Some(new_cafs)) => {
-                                ret_cafs.update(new_cafs);
+                            Ok(Some(new_constraints)) => {
+                                ret_constraints.append(new_constraints);
                             }
                             Ok(None) => {}
                             e @ Err(_) => {
@@ -547,20 +561,21 @@ impl<'a> InterpPass<'a> {
                     }
                 }
             }
+            Some(MapValue::Store(_, _)) => panic!("got store instead of constraints"),
             None => panic!("fnptr value not found in cmap"),
         }
 
         // Set destination local to value in cmap
-        debug!("RET FROM INDIRECT FUNC CALL ret_cafs: {:?}", ret_cafs);
+        debug!(
+            "RET FROM INDIRECT FUNC CALL ret_constraints: {:?}",
+            ret_constraints
+        );
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
 
-        let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_cafs.constraints);
-        if !ret_cafs.fields.is_empty() {
-            todo!("what about constraint fields: {:?}", ret_cafs.fields);
-        }
+        let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints);
         debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
-        ctxt.update_scoped_cafs(cur_scope, (destination.clone(), constraints), vec![]);
+        ctxt.set_scoped_constraints(cur_scope, destination, constraints);
 
         Ok(None)
     }
@@ -575,7 +590,7 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         constraint: &RunningConstraint,
         args: &Vec<Operand>,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         match constraint {
             RunningConstraint::FnDef(fndef, genargs) => self.interp_fn_def(
                 logger,
@@ -623,7 +638,7 @@ impl<'a> InterpPass<'a> {
         _local_decls: &[LocalDecl],
         sigval: &SigVal,
         _args: &Vec<Operand>,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         //debug!("INTERPING FN PTR");
         //debug!("sigval!: {:?}", sigval);
         match self.sigstore.sigs.get(&sigval) {
@@ -685,7 +700,7 @@ impl<'a> InterpPass<'a> {
         cdef: ClosureDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         //debug!("INTERPING CLOSURE");
         //debug!("cdef: {:?}", cdef);
         //debug!("args: {:?}", args);
@@ -755,7 +770,7 @@ impl<'a> InterpPass<'a> {
         co: &ConstOperand,
         args: &Vec<Operand>,
         destination: &Place,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         debug!("DIRECT CALL");
 
         //debug!("CHECKING FOR DYN IN PLACE TY");
@@ -764,7 +779,7 @@ impl<'a> InterpPass<'a> {
         //debug!("lval ty: {:?}", dest_ty);
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
-        let ret_cafs = match co.const_.ty().kind() {
+        let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
                     logger,
@@ -796,16 +811,15 @@ impl<'a> InterpPass<'a> {
         };
 
         // Set destination local to value in cmap
-        debug!("RET FROM FUNC CALL ret_cafs: {:?}", ret_cafs);
+        debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
 
-        match ret_cafs {
-            Ok(Some(mut cafs)) => {
-                let constraints =
-                    self.lift_traitobjtys(&maybe_trait_destty, cafs.constraints.clone());
-                cafs.constraints = constraints.clone();
+        match ret_constraints {
+            Ok(Some(constraints_)) => {
+                let constraints = self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone());
 
+                /*
                 let mut fields = Vec::new();
                 for field in &cafs.fields {
                     match ctxt.get_constraints(&cafs.scope, field, false) {
@@ -818,12 +832,13 @@ impl<'a> InterpPass<'a> {
                         None => todo!("ruh roh"),
                     }
                 }
+                */
 
-                ctxt.update_scoped_cafs(cur_scope, (destination.clone(), constraints), fields);
+                ctxt.set_scoped_constraints(cur_scope, destination, constraints.clone());
 
-                debug!("\n\n####### RETURNED VAL (CAF): {:?}", cafs);
+                debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
 
-                return Ok(Some(cafs));
+                return Ok(Some(constraints));
             }
             Ok(None) => Ok(None),
             err @ Err(Error::RecurseLimit(_)) => return err,
@@ -842,7 +857,7 @@ impl<'a> InterpPass<'a> {
         fndef: FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         debug!("trying to resolve instance");
         debug!("fndef: {:?}", fndef);
         debug!("genargs: {:?}", genargs);
@@ -1220,18 +1235,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
-            ////debug!("[CALL] CHECKING FOR DYN IN ARG TY");
-            //let maybe_trait_argty = if i > arg_count - 1 {
-            //    //debug!("arg count is surpassed: {:?}", arg_count);
-            //    None
-            //} else {
-            //    let arg_ty = place.ty(body.locals()).unwrap();
-            //    //debug!("arg ty: {:?}", arg_ty);
-            //    self.contains_dyn(&arg_ty)
-            //};
-            ////debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
-
-            //let (arg_constraints, maybe_fields) = self.resolve_arg(
+            //let arg_constraints = self.resolve_arg(
             //    ctxt,
             //    term_span,
             //    caller_scope,
@@ -1240,9 +1244,12 @@ impl<'a> InterpPass<'a> {
             //    arg,
             //    is_closure,
             //);
+            //debug!("resolved arg constraints: {:?}", arg_constraints);
+
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
+            /*
             let mut field_place_constraints = Vec::new();
             if let Some(fields) = maybe_fields {
                 for field in fields {
@@ -1253,10 +1260,13 @@ impl<'a> InterpPass<'a> {
                     field_place_constraints.push((field_place, field.1));
                 }
             }
-            new_ctxt.update_cafs(
+            */
+
+            new_ctxt.set_scoped_constraints(
                 callee_scope,
-                (place, arg_constraints),
-                field_place_constraints,
+                &place,
+                arg_constraints,
+                //field_place_constraints,
             );
         }
     }
@@ -1274,15 +1284,16 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         arg: &Operand,
         is_closure: bool,
-    ) -> (Constraints, Option<Vec<(Place, Constraints)>>) {
+    ) -> Constraints {
+        //) -> (Constraints, Option<Vec<(Place, Constraints)>>) {
         // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_cafs(caller_scope, place, is_closure) {
-                    Some(cafs) => {
-                        let final_constraints =
-                            self.lift_traitobjtys(maybe_trait_argty, cafs.constraints);
+                match ctxt.get_constraints(caller_scope, place, is_closure) {
+                    Some(MapValue::Constraints(constraints)) => {
+                        self.lift_traitobjtys(maybe_trait_argty, constraints)
 
+                        /*
                         let mut fields = Vec::new();
                         for field_place in cafs.fields {
                             match self.get_place_constraints(
@@ -1304,7 +1315,9 @@ impl<'a> InterpPass<'a> {
                         } else {
                             (final_constraints, Some(fields))
                         }
+                        */
                     }
+                    Some(MapValue::Store(_, _)) => panic!("got store instead of constraints"),
                     None => {
                         let (maybe_traitobjty, constraint) = self
                             .converter
@@ -1312,19 +1325,19 @@ impl<'a> InterpPass<'a> {
                         if let Some(_tot) = maybe_traitobjty {
                             todo!();
                         }
-                        (vec![constraint], None)
+                        Constraints::from(constraint)
                     }
                 }
             }
             // TODO can maybe get a more precise VORval depending on kind
-            Operand::Constant(const_op) => (
-                self.converter.convert_const(&Location::new(), &const_op),
-                None,
-            ),
+            Operand::Constant(const_op) => {
+                self.converter.convert_const(&Location::new(), &const_op)
+            }
             _ => todo!("runtime check arg"),
         }
     }
 
+    /*
     fn get_place_constraints(
         &self,
         ctxt: &Context,
@@ -1343,6 +1356,7 @@ impl<'a> InterpPass<'a> {
             _ => None,
         }
     }
+    */
 
     fn check_sig_boundvars(&self, sig: &PolyFnSig) {
         if !sig.bound_vars.is_empty() {
@@ -1360,19 +1374,18 @@ impl<'a> InterpPass<'a> {
 
     fn retty_fallback_from_poly(
         &self,
-        scope: &VOID,
+        _scope: &VOID,
         sig: PolyFnSig,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
-        //todo!();
-        Ok(Some(CAFs::empty(scope.clone())))
+        Ok(Some(Constraints::new()))
     }
 
-    fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<CAFs>, Error> {
+    fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
         //debug!("sigval: {:?}", sigval);
         if !sigval.bound_tys.is_empty() {
             todo!();
@@ -1406,7 +1419,7 @@ impl<'a> InterpPass<'a> {
         fndef: &FnDef,
         genargs: &GenericArgs,
         args: &Vec<Operand>,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         debug!("\nDYNAMIC CALL - fndef: {:?}\n", fndef);
         log_scope(caller_scope);
         debug!("args: {:?}", args);
@@ -1676,9 +1689,8 @@ impl<'a> InterpPass<'a> {
         let mut defids = Vec::new();
         let mut is_closure = false;
         //debug!("\nGETTING CONSTRAINT DEFIDS");
-        for constraint in tyconstraints {
-            //debug!("constraint: {:?}", constraint);
-            let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, constraint);
+        for constraint in &tyconstraints.inner {
+            let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, &constraint);
             is_closure = is_closure_;
             unique_append(&mut defids, res);
         }
@@ -1800,8 +1812,8 @@ impl<'a> InterpPass<'a> {
         method_genargs: &GenericArgs,
         args: &Vec<Operand>,
         is_closure: bool,
-    ) -> Result<Option<CAFs>, Error> {
-        let mut results = Vec::<Option<CAFs>>::new();
+    ) -> Result<Option<Constraints>, Error> {
+        let mut results = Vec::<Option<Constraints>>::new();
         let mut ctxt_vec = Vec::new();
 
         debug!("\nSIMULATING STATIC CALL(S)");
@@ -1940,10 +1952,10 @@ impl<'a> InterpPass<'a> {
 
     fn merge_results_and_ret(
         &self,
-        results: &mut Vec<Option<CAFs>>,
-    ) -> Result<Option<CAFs>, Error> {
+        results: &mut Vec<Option<Constraints>>,
+    ) -> Result<Option<Constraints>, Error> {
         // Filter out None constraints and unwrap all Some options
-        let filtered_results: Vec<CAFs> = results
+        let filtered_results: Vec<Constraints> = results
             .into_iter()
             .filter(|option| option.is_some())
             .map(|x| x.clone().unwrap())
@@ -1967,7 +1979,7 @@ impl<'a> InterpPass<'a> {
         bb_deps: &mut BBDeps,
         discr: &Operand,
         targets: &SwitchTargets,
-    ) -> Result<Option<CAFs>, Error> {
+    ) -> Result<Option<Constraints>, Error> {
         //debug!("SWITCHINT");
         //debug!("discr: {:?}", discr);
         //debug!("targets: {:?}", targets);
@@ -2029,7 +2041,7 @@ impl<'a> InterpPass<'a> {
         }
 
         //debug!("USING CONSTRAINTS TO SET BYTEMAP");
-        for constraint in constraints {
+        for constraint in &constraints.inner {
             //debug!("setting bytemap for constraint: {:?}", constraint);
             match constraint {
                 Constraint {
@@ -2042,7 +2054,8 @@ impl<'a> InterpPass<'a> {
                         // Increment matching branch counters
                         let mut set = false;
                         for (i, (val, _bb)) in targets.branches().enumerate() {
-                            if *num == val.try_into().unwrap() {
+                            if *num == <u128 as TryInto<i128>>::try_into(val).unwrap() {
+                                //if num == val.try_into().unwrap() {
                                 discr_vals[usize::try_from(i).unwrap()] += 1;
                                 set = true;
                             }

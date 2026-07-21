@@ -8,8 +8,8 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 //use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Context, Location, RunningConstraint, TraitObjConstraint,
-    TraitObjTy, VOID,
+    ADTFields, Constraint, Constraints, Context, Location, MapValue, RunningConstraint,
+    TraitObjConstraint, TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -102,10 +102,10 @@ impl<'a> RvalConverter<'a> {
                     match const_op.const_.ty().kind() {
                         TyKind::RigidTy(rigidty) => match rigidty {
                             RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
-                                vec![Constraint::new(
+                                Constraints::from(Constraint::new(
                                     None,
                                     Some(RunningConstraint::Scalar(Some(val))),
-                                )]
+                                ))
                             }
                             _ => {
                                 let (maybe_traitobjty, constraint) =
@@ -115,7 +115,7 @@ impl<'a> RvalConverter<'a> {
                                 if let Some(traitobj) = maybe_traitobjty {
                                     todo!("const contains dyn: {:?}", traitobj);
                                 }
-                                vec![constraint]
+                                Constraints::from(constraint)
                             }
                         },
                         _ => todo!(),
@@ -126,7 +126,7 @@ impl<'a> RvalConverter<'a> {
                     if maybe_traitobj.is_some() {
                         todo!("const contains dyn");
                     }
-                    vec![constraint]
+                    Constraints::from(constraint)
                 }
             },
             ConstantKind::ZeroSized => {
@@ -135,7 +135,7 @@ impl<'a> RvalConverter<'a> {
                     //debug!("traitobjty: {:?}", traitobjty);
                     todo!("const contains dyn");
                 }
-                vec![constraint]
+                Constraints::from(constraint)
             }
             other @ _ => todo!("arg is another constant kind: {:?}", other),
         }
@@ -145,7 +145,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         ctxt: &Context,
         span: &Location,
-        local_decls: &[LocalDecl],
+        _local_decls: &[LocalDecl],
         cur_scope: &VOID,
         place: &Place,
         destty: &Ty,
@@ -153,8 +153,12 @@ impl<'a> RvalConverter<'a> {
         //debug!("current place ty: {:?}", place.ty(local_decls).unwrap());
         // TODO use current place ty instead of *just* getting existing place constraints
 
-        match ctxt.get_cafs(cur_scope, place, false) {
-            Some(cafs) => {
+        match ctxt.get_constraints(cur_scope, place, false) {
+            Some(MapValue::Constraints(constraints)) => {
+                debug!("CONSTRAINTS EXIST: {:?}", constraints);
+                (constraints, None)
+
+                /*
                 let mut fields = Vec::new();
                 for field_place in cafs.fields {
                     debug!("field_place: {:?}", field_place);
@@ -186,8 +190,11 @@ impl<'a> RvalConverter<'a> {
                 } else {
                     (cafs.constraints, Some(fields))
                 }
+                */
             }
+            Some(MapValue::Store(_, _)) => panic!("got store instead of constraints"),
             None => {
+                debug!("CONSTRAINTS DNE");
                 for proj in &place.projection {
                     debug!("\nPROJ: {:?}", proj);
                 }
@@ -196,10 +203,13 @@ impl<'a> RvalConverter<'a> {
                 debug!("CONSTRAINT: {:?}", constraint);
 
                 if let Some(traitobj) = maybe_traitobj {
+                    //debug!("\nSCOPE: {:?}", cur_scope);
+                    //debug!("cstore @ scope: {:?}", ctxt.get_cstore_scope(cur_scope));
+                    //debug!("fstore @ scope: {:?}", ctxt.get_fstore_scope(cur_scope));
                     todo!("place ty contains dyn {:?}", traitobj);
                 }
 
-                (vec![constraint], None)
+                (Constraints::from(constraint), None)
             }
         }
     }
@@ -225,7 +235,7 @@ impl<'a> RvalConverter<'a> {
                 if inner.len() > 1 {
                     todo!();
                 }
-                self.get_defid_from_cfc(&inner[0].cfc.as_ref().unwrap())
+                self.get_defid_from_cfc(&inner.at(0).cfc.as_ref().unwrap())
             }
             RunningConstraint::Dynamic(tot_vec) => {
                 if tot_vec.len() > 1 {
@@ -243,11 +253,11 @@ impl<'a> RvalConverter<'a> {
         constraints: &Constraints,
     ) -> Constraints {
         debug!("CAST HELPER");
-        let mut new_constraints = Vec::new();
+        let mut new_constraints = Constraints::new();
 
         debug!("traitobjtys: {:?}\n", traitobjtys);
         for traitobjty in traitobjtys {
-            for constraint in constraints {
+            for constraint in &constraints.inner {
                 debug!("\ntraitobjty: {:?}", traitobjty);
                 debug!("constraint: {:?}", constraint);
                 match constraint {
@@ -259,7 +269,7 @@ impl<'a> RvalConverter<'a> {
                         //debug!("toc: {:?}", toc);
 
                         // Push old constraint unchanged
-                        unique_push(&mut new_constraints, constraint.clone());
+                        new_constraints.push(constraint.clone());
                     }
                     Constraint {
                         toc: None,
@@ -279,10 +289,10 @@ impl<'a> RvalConverter<'a> {
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
                                     );
-                                    unique_push(&mut new_constraints, new_constraint);
+                                    new_constraints.push(new_constraint);
                                 } else {
                                     // push old constraint unchanged
-                                    unique_push(&mut new_constraints, constraint.clone());
+                                    new_constraints.push(constraint.clone());
                                 }
                             }
                             None => {
@@ -295,7 +305,7 @@ impl<'a> RvalConverter<'a> {
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
                                     );
-                                    unique_push(&mut new_constraints, new_constraint);
+                                    new_constraints.push(new_constraint);
                                 } else if traitobjty.is_fn_trait() {
                                     // Use collected constraints
                                     todo!();
@@ -307,7 +317,7 @@ impl<'a> RvalConverter<'a> {
                     }
                     _ => {
                         // push old constraint unchanged
-                        unique_push(&mut new_constraints, constraint.clone());
+                        new_constraints.push(constraint.clone());
                     }
                 }
             }
@@ -334,7 +344,7 @@ impl<'a> RvalConverter<'a> {
                 if maybe_traitobj.is_some() {
                     todo!("cast const contains dyn");
                 }
-                (vec![constraint], None)
+                (Constraints::from(constraint), None)
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("CASTING existing place");
@@ -358,7 +368,7 @@ impl<'a> RvalConverter<'a> {
                         maybe_fields,
                     )
                 } else {
-                    (vec![post_constraint], maybe_fields)
+                    (Constraints::from(post_constraint), maybe_fields)
                 }
             }
             _ => todo!("runtime checks"),
@@ -508,7 +518,6 @@ impl<'a> RvalConverter<'a> {
 
                 // Create projections here to simulate field initializers
                 let mut fields = Vec::new();
-                let field_places = Vec::new();
                 for (i, op) in ops.into_iter().enumerate() {
                     debug!("\n---op {:?}", i);
                     let (op_constraints, maybe_fields) =
@@ -540,32 +549,32 @@ impl<'a> RvalConverter<'a> {
                 }
 
                 (
-                    vec![Constraint::new(
+                    Constraints::from(Constraint::new(
                         None,
-                        // FIXME field_places is empty
-                        Some(RunningConstraint::Adt(*def, genargs.clone(), field_places)),
-                    )],
-                    Some(fields),
+                        Some(RunningConstraint::Adt(*def, genargs.clone(), fields)),
+                    )),
+                    None,
                 )
             }
             AggregateKind::Tuple => {
                 //debug!("tuple agg");
-                let mut inner_constraints = Vec::new();
+                let mut inner_constraints = Constraints::new();
                 for op in ops {
                     let (op_constraints, maybe_fields) =
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
                     //debug!("op_constraints: {:?}", op_constraints.clone());
-                    unique_append(&mut inner_constraints, op_constraints);
+                    inner_constraints.append(op_constraints);
                     if let Some(_fields) = maybe_fields {
                         // FIXME
                         //debug!("TUPLE fields: {:?}", fields);
+                        todo!();
                     }
                 }
                 (
-                    vec![Constraint::new(
+                    Constraints::from(Constraint::new(
                         None,
                         Some(RunningConstraint::Tuple(inner_constraints)),
-                    )],
+                    )),
                     None,
                 )
             }
@@ -586,10 +595,10 @@ impl<'a> RvalConverter<'a> {
                 }
 
                 (
-                    vec![Constraint::new(
+                    Constraints::from(Constraint::new(
                         None,
                         Some(RunningConstraint::Ptr(Box::new(constraint))),
-                    )],
+                    )),
                     None,
                 )
             }
@@ -600,20 +609,20 @@ impl<'a> RvalConverter<'a> {
                     todo!("array contains dyn");
                 }
                 (
-                    vec![Constraint::new(
+                    Constraints::from(Constraint::new(
                         None,
                         Some(RunningConstraint::List(Box::new(constraint))),
-                    )],
+                    )),
                     None,
                 )
             }
             AggregateKind::Closure(def, genargs) => {
                 //debug!("closure agg");
                 (
-                    vec![Constraint::new(
+                    Constraints::from(Constraint::new(
                         None,
                         Some(RunningConstraint::Closure(*def, genargs.clone())),
-                    )],
+                    )),
                     None,
                 )
             }
@@ -725,7 +734,12 @@ impl<'a> RvalConverter<'a> {
 
                     (
                         maybe_traitobjty,
-                        Constraint::new(None, Some(RunningConstraint::Idk(Box::new(inner)))),
+                        Constraint::new(
+                            None,
+                            Some(RunningConstraint::Idk(Box::new(Constraints::from_vec(
+                                inner,
+                            )))),
+                        ),
                     )
                 }
                 RigidTy::Array(ty, _) | RigidTy::Slice(ty) => {
@@ -734,7 +748,9 @@ impl<'a> RvalConverter<'a> {
                         maybe_traitobj,
                         Constraint::new(
                             None,
-                            Some(RunningConstraint::Idk(Box::new(vec![constraint]))),
+                            Some(RunningConstraint::Idk(Box::new(Constraints::from(
+                                constraint,
+                            )))),
                         ),
                     )
                 }
@@ -988,7 +1004,7 @@ impl<'a> RvalConverter<'a> {
             }
         };
 
-        vec![constraint]
+        Constraints::from(constraint)
     }
 
     fn convert_binop_helper(
@@ -1007,7 +1023,7 @@ impl<'a> RvalConverter<'a> {
         if c_op1.len() != 1 || c_op2.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
-        match (c_op1[0].clone(), c_op2[0].clone()) {
+        match (c_op1.at(0).clone(), c_op2.at(0).clone()) {
             (
                 Constraint {
                     toc: None,
@@ -1080,7 +1096,7 @@ impl<'a> RvalConverter<'a> {
             }
         };
 
-        vec![constraint]
+        Constraints::from(constraint)
     }
 
     fn convert_unop_helper(
@@ -1097,7 +1113,7 @@ impl<'a> RvalConverter<'a> {
         if c_op.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
-        match c_op[0].clone() {
+        match c_op.at(0).clone() {
             Constraint {
                 toc: to,
                 cfc: Some(RunningConstraint::Scalar(Some(val))),

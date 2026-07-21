@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:43:15: 43:24",
+      "is_maybe_example": true,
+      "cha": [
+        "<mut_refs::Bird as mut_refs::Animal>::speak",
+        "<mut_refs::Cat as mut_refs::Animal>::speak",
+        "<mut_refs::Dog as mut_refs::Animal>::speak"
+      ],
+      "fsa": [
+        "<mut_refs::Cat as mut_refs::Animal>::speak",
+        "<mut_refs::Dog as mut_refs::Animal>::speak"
+      ]
+    }
+  ]
+}

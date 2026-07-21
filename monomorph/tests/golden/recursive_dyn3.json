@@ -1,0 +1,18 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:75:15: 75:24",
+      "is_maybe_example": true,
+      "cha": [
+        "<recursive_dyn3::Bird as recursive_dyn3::Animal>::speak",
+        "<recursive_dyn3::Cat as recursive_dyn3::Animal>::speak",
+        "<recursive_dyn3::Fish as recursive_dyn3::Animal>::speak"
+      ],
+      "fsa": [
+        "<recursive_dyn3::Cat as recursive_dyn3::Animal>::speak"
+      ]
+    }
+  ]
+}

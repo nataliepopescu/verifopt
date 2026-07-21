@@ -87,6 +87,13 @@ example_test!(
     Passing
 );
 
+example_test!(recursive_dyn, "recursive_dyn", Passing);
+example_test!(recursive_dyn2, "recursive_dyn2", Passing);
+example_test!(recursive_dyn3, "recursive_dyn3", Passing);
+example_test!(mut_refs, "mut_refs", Passing);
+example_test!(mut_refs2, "mut_refs2", Passing);
+example_test!(simple, "simple", Passing);
+example_test!(simple_single, "simple_single", Passing);
+
 // Not yet characterized at all — run and report, don't assert.
 example_test!(no_vtable_check, "no_vtable_check", Unclassified);
-example_test!(recursive_dyn, "recursive_dyn", Unclassified);

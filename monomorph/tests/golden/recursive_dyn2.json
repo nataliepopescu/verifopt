@@ -1,0 +1,31 @@
+{
+  "maybe_count": 2,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:41:15: 41:24",
+      "is_maybe_example": true,
+      "cha": [
+        "<recursive_dyn2::Bird as recursive_dyn2::Animal>::speak",
+        "<recursive_dyn2::Cat as recursive_dyn2::Animal>::speak",
+        "<recursive_dyn2::Fish as recursive_dyn2::Animal>::speak"
+      ],
+      "fsa": [
+        "<recursive_dyn2::Cat as recursive_dyn2::Animal>::speak",
+        "<recursive_dyn2::Fish as recursive_dyn2::Animal>::speak"
+      ]
+    },
+    {
+      "span": "src/main.rs:57:15: 57:24",
+      "is_maybe_example": true,
+      "cha": [
+        "<recursive_dyn2::Bird as recursive_dyn2::Animal>::speak",
+        "<recursive_dyn2::Cat as recursive_dyn2::Animal>::speak",
+        "<recursive_dyn2::Fish as recursive_dyn2::Animal>::speak"
+      ],
+      "fsa": [
+        "<recursive_dyn2::Cat as recursive_dyn2::Animal>::speak"
+      ]
+    }
+  ]
+}

@@ -205,12 +205,7 @@ impl ArgSet {
     pub fn new(constraints: &[Constraints]) -> Self {
         let args = constraints
             .iter()
-            .map(|cs| {
-                cs.iter()
-                    .filter(|c| !is_scalar(c))
-                    .cloned()
-                    .collect::<HashSet<Constraint>>()
-            })
+            .map(|cs| cs.iter().cloned().collect::<HashSet<Constraint>>())
             .collect();
 
         ArgSet { args }
@@ -261,33 +256,6 @@ pub fn summary_key(
         .collect();
 
     (scope, ArgSet::new(&cs))
-}
-
-fn is_scalar(c: &Constraint) -> bool {
-    matches!(
-        c,
-        Constraint {
-            toc: None,
-            cfc: Some(RunningConstraint::Scalar(_)),
-        },
-    )
-}
-
-pub fn widen_scalars(constraints: &[Constraints]) -> Vec<Constraints> {
-    constraints
-        .iter()
-        .map(|cs| cs.iter().map(widen_scalar).collect())
-        .collect()
-}
-
-fn widen_scalar(constraint: &Constraint) -> Constraint {
-    match constraint {
-        Constraint {
-            toc,
-            cfc: Some(RunningConstraint::Scalar(Some(_))),
-        } => Constraint::new(toc.clone(), Some(RunningConstraint::Scalar(None))),
-        _ => constraint.clone(),
-    }
 }
 
 // These should only be Field ProjectionElems. The convention is that any time one of these

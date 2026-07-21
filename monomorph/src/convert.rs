@@ -72,13 +72,22 @@ impl<'a> RvalConverter<'a> {
                 None,
             ),
             Rvalue::CheckedBinaryOp(binop, op1, op2) => {
-                let inner =
-                    self.convert_binop(
-                        istore, span, local_decls, cur_scope, destty, binop, op1, op2,
+                let inner = self
+                    .convert_binop(
+                        istore,
+                        span,
+                        local_decls,
+                        cur_scope,
+                        destty,
+                        binop,
+                        op1,
+                        op2,
                     )
                     .into_iter()
                     .next()
-                    .unwrap_or_else(|| Constraint::new(None, Some(RunningConstraint::Scalar(None))));
+                    .unwrap_or_else(|| {
+                        Constraint::new(None, Some(RunningConstraint::Scalar(None)))
+                    });
 
                 let ty = match op1 {
                     Operand::Copy(place) | Operand::Move(place) => place.ty(local_decls).unwrap(),
@@ -86,13 +95,13 @@ impl<'a> RvalConverter<'a> {
                     _ => destty.clone(),
                 };
 
-                let field = (
-                    vec![ProjectionElem::Field(0, ty)],
-                    vec![inner.clone()],
-                );
+                let field = (vec![ProjectionElem::Field(0, ty)], vec![inner.clone()]);
                 let cnstr = Constraint::new(
                     None,
-                    Some(RunningConstraint::Tuple(vec![inner, Constraint::new(None, None)])),
+                    Some(RunningConstraint::Tuple(vec![
+                        inner,
+                        Constraint::new(None, None),
+                    ])),
                 );
 
                 (vec![cnstr], Some(vec![field]))

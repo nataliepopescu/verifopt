@@ -485,7 +485,7 @@ impl<'a> RvalConverter<'a> {
                             ));
                         }
                     }
-                    RunningConstraint::FnPtr(sigval) => {
+                    RunningConstraint::FnPtr(_) => {
                         todo!();
                     }
                     _ => todo!("another running constraint: {:?}", maybe_to),

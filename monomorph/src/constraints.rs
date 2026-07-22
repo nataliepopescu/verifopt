@@ -200,7 +200,7 @@ pub enum RunningConstraint {
     // fallback types
     //IdkType(Ty),
     List(Box<Constraint>),
-    Tuple(Constraints),
+    Tuple(Vec<Constraint>),
     Idk(Box<Constraints>),
 }
 
@@ -371,6 +371,94 @@ impl Context {
         );
     }
 
+    fn contains_fields(&self, projection: &Vec<ProjectionElem>) -> bool {
+        for p in projection {
+            match p {
+                ProjectionElem::Field(_, _) => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    fn get_fields(&self, projection: &Vec<ProjectionElem>) -> Vec<ProjectionElem> {
+        projection
+            .clone()
+            .into_iter()
+            .filter(|x| match x {
+                ProjectionElem::Field(_, _) => true,
+                _ => false,
+            })
+            .collect()
+    }
+
+    fn get_projection_constraints(
+        &self,
+        scope: &VOID,
+        place: &Place,
+        constraint: &Constraint,
+    ) -> Constraints {
+        let mut proj_constraints = Constraints::new();
+        match constraint {
+            Constraint {
+                toc: _,
+                cfc: Some(inner_cfc),
+            } => match inner_cfc {
+                RunningConstraint::Adt(_, _, fields) => {
+                    debug!("\nPROJECTION: {:?}", place.projection);
+                    let filtered_proj = self.get_fields(&place.projection);
+                    debug!("\nFILTERED PROJECTION: {:?}", filtered_proj);
+
+                    for (proj_set, field_constraints) in fields {
+                        if *proj_set == filtered_proj {
+                            proj_constraints.append(field_constraints.clone());
+                        }
+                    }
+                }
+                RunningConstraint::Tuple(inner) => {
+                    debug!("\nPROJECTION: {:?}", place.projection);
+                    let filtered_proj = self.get_fields(&place.projection);
+                    debug!("\nFILTERED PROJECTION: {:?}", filtered_proj);
+                    debug!("inner: {:?}", inner);
+                    if filtered_proj.len() > 1 {
+                        todo!("tuple has multiple fields - how to handle");
+                    }
+
+                    match filtered_proj[0] {
+                        // add the tuple constraint at this field idx/offset
+                        ProjectionElem::Field(idx, _) => {
+                            proj_constraints.push(inner[idx].clone());
+                        }
+                        _ => {}
+                    }
+                }
+                RunningConstraint::Ptr(box inner_constraint) => {
+                    proj_constraints.append(self.get_projection_constraints(
+                        scope,
+                        place,
+                        inner_constraint,
+                    ));
+                }
+                RunningConstraint::Idk(box inner_constraints) => {
+                    for inner_constraint in &inner_constraints.inner {
+                        proj_constraints.append(self.get_projection_constraints(
+                            scope,
+                            place,
+                            &inner_constraint,
+                        ));
+                    }
+                }
+                _ => panic!(
+                    "unexpected running constraint type to have projections: {:?}",
+                    inner_cfc
+                ),
+            },
+            _ => panic!("cfc is None, cannot get projection/field constraints"),
+        }
+
+        proj_constraints
+    }
+
     pub fn get_constraints(
         &self,
         scope: &VOID,
@@ -386,10 +474,8 @@ impl Context {
                 None => None,
                 _ => panic!("got store instead of constraints"),
             }
-        // Only one projection, not a field pattern
-        // TODO better filtering for different projection kinds
-        } else if place.projection.len() < 2 {
-            // i.e. ignore the Deref projection
+        // Ignore non-field projections
+        } else if !self.contains_fields(&place.projection) {
             let base = Place {
                 local: place.local,
                 projection: vec![],
@@ -407,41 +493,13 @@ impl Context {
                 Some(base_constraints) => {
                     debug!("\nBASE: {:?}", base);
                     debug!("BASE CONSTRAINTS: {:?}", base_constraints);
+                    debug!("PROJECTION: {:?}", place.projection);
 
                     // Collect every matching projection in the set of constraints
                     let mut proj_constraints = Constraints::new();
                     for constraint in &base_constraints.inner {
-                        match constraint {
-                            Constraint {
-                                toc: _,
-                                cfc: Some(inner_cfc),
-                            } => match inner_cfc {
-                                RunningConstraint::Adt(_, _, fields) => {
-                                    debug!("\nPROJECTION: {:?}", place.projection);
-                                    let filtered_proj: Vec<ProjectionElem> = place
-                                        .projection
-                                        .clone()
-                                        .into_iter()
-                                        .filter(|x| match x {
-                                            ProjectionElem::Field(_, _) => true,
-                                            _ => false,
-                                        })
-                                        .collect();
-                                    debug!("\nFILTERED PROJECTION: {:?}", filtered_proj);
-
-                                    for (proj_set, field_constraints) in fields {
-                                        if *proj_set == filtered_proj {
-                                            proj_constraints.append(field_constraints.clone());
-                                        }
-                                    }
-                                }
-                                _ => panic!(
-                                    "unexpected running constraint type to have projections: {:?}",
-                                    inner_cfc
-                                ),
-                            },
-                            _ => panic!("cfc is None, cannot get projection/field constraints"),
-                        }
+                        proj_constraints
+                            .append(self.get_projection_constraints(scope, place, constraint));
                     }
 
                     Some(proj_constraints)

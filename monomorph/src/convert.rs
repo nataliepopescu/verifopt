@@ -63,7 +63,16 @@ impl<'a> RvalConverter<'a> {
                 None,
             ),
             Rvalue::CheckedBinaryOp(binop, op1, op2) => (
-                self.convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2),
+                self.convert_checked_binop(
+                    ctxt,
+                    span,
+                    local_decls,
+                    cur_scope,
+                    destty,
+                    binop,
+                    op1,
+                    op2,
+                ),
                 None,
             ),
             Rvalue::Repeat(op, _tyconst) => {
@@ -521,12 +530,12 @@ impl<'a> RvalConverter<'a> {
             }
             AggregateKind::Tuple => {
                 //debug!("tuple agg");
-                let mut inner_constraints = Constraints::new();
+                let mut inner_constraints = Vec::new();
                 for op in ops {
                     let (op_constraints, maybe_fields) =
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
                     //debug!("op_constraints: {:?}", op_constraints.clone());
-                    inner_constraints.append(op_constraints);
+                    unique_append(&mut inner_constraints, op_constraints.inner);
                     if let Some(_fields) = maybe_fields {
                         // FIXME
                         //debug!("TUPLE fields: {:?}", fields);
@@ -755,6 +764,28 @@ impl<'a> RvalConverter<'a> {
             },
             other @ _ => panic!("other ty kind: {:?}", other),
         }
+    }
+
+    fn convert_checked_binop(
+        &self,
+        ctxt: &Context,
+        span: &Location,
+        local_decls: &[LocalDecl],
+        cur_scope: &VOID,
+        destty: &Ty,
+        binop: &BinOp,
+        op1: &Operand,
+        op2: &Operand,
+    ) -> Constraints {
+        let first = self
+            .convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2)
+            .at(0)
+            .clone();
+
+        let second = Constraint::new(None, Some(RunningConstraint::Scalar(None)));
+
+        let constraint = Constraint::new(None, Some(RunningConstraint::Tuple(vec![first, second])));
+        Constraints::from(constraint)
     }
 
     fn convert_binop(

@@ -370,27 +370,77 @@ impl Context {
         );
     }
 
-    fn contains_fields(&self, projection: &Vec<ProjectionElem>) -> bool {
-        for p in projection {
-            match p {
-                ProjectionElem::Field(_, _) => return true,
-                _ => {}
-            }
+    //fn contains_fields(&self, projection: &Vec<ProjectionElem>) -> bool {
+    //    for p in projection {
+    //        match p {
+    //            ProjectionElem::Field(_, _) => return true,
+    //            _ => {}
+    //        }
+    //    }
+    //    false
+    //}
+
+    //fn get_fields(&self, projection: &Vec<ProjectionElem>) -> Vec<ProjectionElem> {
+    //    projection
+    //        .clone()
+    //        .into_iter()
+    //        .filter(|x| match x {
+    //            ProjectionElem::Field(_, _) => true,
+    //            _ => false,
+    //        })
+    //        .collect()
+    //}
+
+    fn step_field(
+        &self,
+        scope: &VOID,
+        constraints: &Constraints,
+        elem: &ProjectionElem,
+    ) -> Constraints {
+        debug!("\n---IN STEP_FIELD");
+        debug!("scope: {:?}", scope);
+        debug!("constraints: {:?}", constraints);
+        debug!("proj elem: {:?}", elem);
+        let mut out = Constraints::new();
+        for constraint in &constraints.inner {
+            out.append(self.step_field_one(scope, constraint, elem));
+            debug!("\nCONSTRAINTS - POST APPEND (in step_field): {:?}", out);
         }
-        false
+        out
     }
 
-    fn get_fields(&self, projection: &Vec<ProjectionElem>) -> Vec<ProjectionElem> {
-        projection
-            .clone()
-            .into_iter()
-            .filter(|x| match x {
-                ProjectionElem::Field(_, _) => true,
-                _ => false,
-            })
-            .collect()
+    fn step_field_one(
+        &self,
+        scope: &VOID,
+        constraint: &Constraint,
+        elem: &ProjectionElem,
+    ) -> Constraints {
+        match &constraint.cfc {
+            Some(RunningConstraint::Adt(_, _, fields)) => fields
+                .iter()
+                .find(|(key, _)| key.len() == 1 && key[0] == *elem)
+                .map(|(_, cs)| cs.clone())
+                .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
+            Some(RunningConstraint::Tuple(inner)) => match elem {
+                ProjectionElem::Field(idx, _) => Constraints::from(inner[*idx].clone()),
+                _ => Constraints::new(),
+            },
+            Some(RunningConstraint::Ptr(box inner)) => self.step_field_one(scope, inner, elem),
+            Some(RunningConstraint::Idk(box inner_cs)) => {
+                let mut out = Constraints::new();
+                for ic in &inner_cs.inner {
+                    out.append(self.step_field_one(scope, ic, elem));
+                }
+                out
+            }
+            _ => panic!(
+                "unexpected running constraint type to have projections: {:?}",
+                constraint.cfc
+            ),
+        }
     }
 
+    /*
     fn get_projection_constraints(
         &self,
         scope: &VOID,
@@ -404,9 +454,7 @@ impl Context {
                 cfc: Some(inner_cfc),
             } => match inner_cfc {
                 RunningConstraint::Adt(_, _, fields) => {
-                    debug!("\nPROJECTION: {:?}", place.projection);
                     let filtered_proj = self.get_fields(&place.projection);
-                    debug!("\nFILTERED PROJECTION: {:?}", filtered_proj);
 
                     for (proj_set, field_constraints) in fields {
                         if *proj_set == filtered_proj {
@@ -415,10 +463,7 @@ impl Context {
                     }
                 }
                 RunningConstraint::Tuple(inner) => {
-                    debug!("\nPROJECTION: {:?}", place.projection);
                     let filtered_proj = self.get_fields(&place.projection);
-                    debug!("\nFILTERED PROJECTION: {:?}", filtered_proj);
-                    debug!("inner: {:?}", inner);
                     if filtered_proj.len() > 1 {
                         todo!("tuple has multiple fields - how to handle");
                     }
@@ -457,6 +502,7 @@ impl Context {
 
         proj_constraints
     }
+    */
 
     pub fn get_constraints(
         &self,
@@ -473,16 +519,6 @@ impl Context {
                 None => None,
                 _ => panic!("got store instead of constraints"),
             }
-        // Ignore non-field projections
-        } else if !self.contains_fields(&place.projection) {
-            let base = Place {
-                local: place.local,
-                projection: vec![],
-            };
-            match self.get_constraints(scope, &base, is_closure) {
-                Some(constraints) => Some(constraints),
-                None => None,
-            }
         } else {
             let base = Place {
                 local: place.local,
@@ -494,12 +530,20 @@ impl Context {
                     debug!("BASE CONSTRAINTS: {:?}", base_constraints);
                     debug!("PROJECTION: {:?}", place.projection);
 
-                    // Collect every matching projection in the set of constraints
                     let mut proj_constraints = Constraints::new();
-                    for constraint in &base_constraints.inner {
-                        proj_constraints
-                            .append(self.get_projection_constraints(scope, place, constraint));
+
+                    // Collect every matching projection in the set of constraints
+                    for elem in &place.projection {
+                        // Ignore non-field projections
+                        if matches!(elem, ProjectionElem::Field(..)) {
+                            proj_constraints = self.step_field(scope, &base_constraints, elem);
+                        }
                     }
+
+                    //for constraint in &base_constraints.inner {
+                    //    proj_constraints
+                    //        .append(self.get_projection_constraints(scope, place, constraint));
+                    //}
 
                     Some(proj_constraints)
                 }

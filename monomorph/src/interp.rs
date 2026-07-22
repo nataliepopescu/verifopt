@@ -15,10 +15,9 @@ use rustc_public::ty::{
 
 use log::{debug, error};
 
-use crate::VOLogger;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ArgSet, Constraint, Constraints, InterpStore, Location, MapKey, MapValue, 
+    ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -29,6 +28,7 @@ use crate::merge::merge_stores;
 use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
+use crate::{Context, VOLogger};
 
 const MAX_DEPTH: u32 = 50;
 
@@ -717,7 +717,7 @@ impl<'a> InterpPass<'a> {
             let key = summary_key(
                 self,
                 new_scope.clone(),
-                istore,
+                ctxt,
                 term_span,
                 cur_scope,
                 &body,
@@ -894,7 +894,7 @@ impl<'a> InterpPass<'a> {
             return self.dispatch_call(
                 logger,
                 term_span,
-                istore,
+                ctxt,
                 call_stack,
                 cur_scope,
                 &new_scope,
@@ -907,19 +907,18 @@ impl<'a> InterpPass<'a> {
             );
         }
 
-        let new_cs: Vec<Constraints> = self
-            .collect_resolved_args(
-                istore,
-                term_span,
-                cur_scope,
-                &self.get_body(&new_scope),
-                local_decls,
-                args,
-                false,
-            )
-            .into_iter()
-            .map(|(cs, _)| cs)
-            .collect();
+        let new_cs: Vec<Constraints> = self.collect_resolved_args(
+            ctxt,
+            term_span,
+            cur_scope,
+            &self.get_body(&new_scope),
+            local_decls,
+            args,
+            false,
+        );
+        //.into_iter()
+        //.map(|(cs, _)| cs)
+        //.collect();
 
         if call_stack.contains(&new_scope) {
             let new_key = (new_scope.clone(), ArgSet::new(&new_cs));
@@ -952,7 +951,7 @@ impl<'a> InterpPass<'a> {
         self.dispatch_call(
             logger,
             term_span,
-            istore,
+            ctxt,
             call_stack,
             cur_scope,
             &new_scope,
@@ -969,7 +968,7 @@ impl<'a> InterpPass<'a> {
         &self,
         logger: &mut VOLogger,
         term_span: &Span,
-        istore: &mut InterpStore,
+        ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
         new_scope: &VOID,
@@ -1029,7 +1028,7 @@ impl<'a> InterpPass<'a> {
             }
             InstanceKind::Intrinsic => {
                 //debug!("intrinsic funccall");
-                self.retty_fallback_from_poly(cur_scope, fndef.fn_sig())
+                self.retty_fallback_from_poly(fndef.fn_sig())
             }
         }
     }
@@ -1072,7 +1071,7 @@ impl<'a> InterpPass<'a> {
         } else {
             // No body, so not visiting/updating call stack
             debug!("NO BODY");
-            self.retty_fallback_from_poly(cur_scope, fndef.fn_sig())
+            self.retty_fallback_from_poly(fndef.fn_sig())
         }
     }
 
@@ -1129,14 +1128,14 @@ impl<'a> InterpPass<'a> {
 
     pub fn collect_resolved_args(
         &self,
-        istore: &InterpStore,
+        ctxt: &Context,
         term_span: &Span,
         caller_scope: &VOID,
         body: &Body,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
         is_closure: bool,
-    ) -> Vec<(Constraints, Option<Vec<(Place, Constraints)>>)> {
+    ) -> Vec<Constraints> {
         let arg_count = body.arg_locals().len();
         let mut resolved = Vec::new();
 
@@ -1159,7 +1158,7 @@ impl<'a> InterpPass<'a> {
             //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
 
             resolved.push(self.resolve_arg(
-                istore,
+                ctxt,
                 term_span,
                 caller_scope,
                 &maybe_trait_argty,
@@ -1184,14 +1183,14 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         new_ctxt: &mut Context,
         caller_scope: &VOID,
-        callee_scope: &VOID,
+        _callee_scope: &VOID,
         body: &Body,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
         is_closure: bool,
     ) {
         let resolved = self.collect_resolved_args(
-            istore,
+            ctxt,
             term_span,
             caller_scope,
             body,
@@ -1200,7 +1199,7 @@ impl<'a> InterpPass<'a> {
             is_closure,
         );
 
-        for (i, (constraints, maybe_fields)) in resolved.into_iter().enumerate() {
+        for (i, constraints) in resolved.into_iter().enumerate() {
             debug!("\narg position: {:?}", i);
             let local = if is_closure { i + 2 } else { i + 1 };
             let place = Place {
@@ -1219,6 +1218,14 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
+            debug!("arg place in new scope: {:?}\n", place);
+
+            // Copy found constraints into new scope cmap
+            new_ctxt.cstore.cmap.insert(
+                MapKey::Var(place.clone()),
+                Box::new(MapValue::Constraints(constraints)),
+            );
+
             //let arg_constraints = self.resolve_arg(
             //    ctxt,
             //    term_span,
@@ -1229,11 +1236,10 @@ impl<'a> InterpPass<'a> {
             //    is_closure,
             //);
             //debug!("resolved arg constraints: {:?}", arg_constraints);
+            //debug!("arg place in new scope: {:?}\n", place);
 
-            debug!("arg place in new scope: {:?}\n", place);
-
-            // Copy found constraints into new scope cmap
-            new_ctxt.set_scoped_constraints(callee_scope, &place, arg_constraints);
+            //// Copy found constraints into new scope cmap
+            //new_ctxt.set_scoped_constraints(callee_scope, &place, arg_constraints);
         }
     }
 
@@ -1311,11 +1317,7 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn retty_fallback_from_poly(
-        &self,
-        _scope: &VOID,
-        sig: PolyFnSig,
-    ) -> Result<Option<Constraints>, Error> {
+    fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
         debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         debug!("output: {:?}", sig.value.output());
@@ -1816,10 +1818,7 @@ impl<'a> InterpPass<'a> {
 
             if call_stack.contains(&callee_scope) {
                 debug!("\tpossible infinite call!");
-                results.push(
-                    self.retty_fallback_from_poly(&callee_scope, fndef.fn_sig())
-                        .unwrap(),
-                );
+                results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
             } else {
                 let mut ctxt_clone = ctxt.clone();
                 let mut call_stack_clone = call_stack.clone();
@@ -1839,7 +1838,7 @@ impl<'a> InterpPass<'a> {
                 let key = summary_key(
                     self,
                     callee_scope.clone(),
-                    istore,
+                    ctxt,
                     term_span,
                     cur_scope,
                     &body,
@@ -2085,12 +2084,12 @@ impl<'a> InterpPass<'a> {
     fn reinterp_recursive(
         &self,
         logger: &mut VOLogger,
-        istore: &mut InterpStore,
+        ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         callee_scope: &VOID,
         callee_cs: &[Constraints],
     ) -> Result<Option<Constraints>, Error> {
-        let mut substore = InterpStore::new();
+        let mut substore = ConstraintStore::new();
         for (i, cs) in callee_cs.iter().enumerate() {
             let place = Place {
                 local: i + 1,
@@ -2101,7 +2100,7 @@ impl<'a> InterpPass<'a> {
                 Box::new(MapValue::Constraints(cs.clone())),
             );
         }
-        istore.cmap.insert(
+        ctxt.cstore.cmap.insert(
             MapKey::ScopeId(callee_scope.clone()),
             Box::new(MapValue::Store(substore, None)),
         );
@@ -2109,7 +2108,7 @@ impl<'a> InterpPass<'a> {
         let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
         self.prepare_call(call_stack, &key);
         let body = self.get_body(callee_scope);
-        let refined = self.visit_body(logger, istore, call_stack, callee_scope, &body)?;
+        let refined = self.visit_body(logger, ctxt, call_stack, callee_scope, &body)?;
 
         // publish refined summary for widened constraints
         self.summaries
@@ -2137,18 +2136,10 @@ impl<'a> InterpPass<'a> {
         };
 
         // Get and "return" the constraints at Place(0)
-        match ctxt.cstore.scoped_get(
-            &old_scope.clone().unwrap(),
-            &MapKey::Var(ret_place.clone()),
-            false,
-        ) {
-            Some(retval) => match retval {
-                MapValue::Constraints(retval_constraints) => {
-                    debug!("\n###### RETURNING constraints:");
-                    debug!("\t{:?}\n\n", retval_constraints);
-
-        // Get and "return" the constraints at Place(0)
-        let retval = match istore.scoped_get(cur_scope, &MapKey::Var(ret_place), false) {
+        let retval = match ctxt
+            .cstore
+            .scoped_get(cur_scope, &MapKey::Var(ret_place), false)
+        {
             Some(retval) => match retval {
                 MapValue::Constraints(retval_constraints) => {
                     debug!("\n###### RETURNING constraints:");
@@ -2190,7 +2181,10 @@ impl<'a> InterpPass<'a> {
             .map(|(scope, _, _)| {
                 (
                     scope.clone(),
-                    istore.cmap.get(&MapKey::ScopeId(scope.clone())).cloned(),
+                    ctxt.cstore
+                        .cmap
+                        .get(&MapKey::ScopeId(scope.clone()))
+                        .cloned(),
                 )
             })
             .collect();
@@ -2203,13 +2197,8 @@ impl<'a> InterpPass<'a> {
 
             // reevaluate recursive calls
             let restored = stack;
-            let res = self.reinterp_recursive(
-                logger,
-                istore,
-                &mut restored.clone(),
-                &scope,
-                &constraints,
-            );
+            let res =
+                self.reinterp_recursive(logger, ctxt, &mut restored.clone(), &scope, &constraints);
 
             if matches!(res, Err(Error::RecurseLimit(_))) {
                 // truncate to before call on error
@@ -2227,10 +2216,10 @@ impl<'a> InterpPass<'a> {
         for (scope, old) in saved {
             match old {
                 Some(v) => {
-                    istore.cmap.insert(MapKey::ScopeId(scope), v);
+                    ctxt.cstore.cmap.insert(MapKey::ScopeId(scope), v);
                 }
                 None => {
-                    istore.cmap.remove(&MapKey::ScopeId(scope));
+                    ctxt.cstore.cmap.remove(&MapKey::ScopeId(scope));
                 }
             }
         }
@@ -2239,24 +2228,24 @@ impl<'a> InterpPass<'a> {
         let body = self.get_body(cur_scope);
 
         // constrain arguments
-        let mut substore = InterpStore::new();
+        let mut substore = ConstraintStore::new();
         for (i, arg_set) in key.1.args.iter().enumerate() {
             let place = Place {
                 local: i + 1,
                 projection: vec![],
             };
-            let cs: Constraints = arg_set.iter().cloned().collect();
+            let cs: Constraints = Constraints::from_vec(arg_set.iter().cloned().collect());
             substore
                 .cmap
                 .insert(MapKey::Var(place), Box::new(MapValue::Constraints(cs)));
         }
-        istore.cmap.insert(
+        ctxt.cstore.cmap.insert(
             MapKey::ScopeId(cur_scope.clone()),
             Box::new(MapValue::Store(substore, None)),
         );
 
         self.prepare_call(call_stack, &key);
-        let res = self.visit_body(logger, istore, call_stack, cur_scope, &body);
+        let res = self.visit_body(logger, ctxt, call_stack, cur_scope, &body);
 
         res
     }

@@ -59,7 +59,7 @@ pub enum MapValue {
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Constraints {
     pub inner: Vec<Constraint>,
 }
@@ -271,7 +271,7 @@ impl ArgSet {
     pub fn new(constraints: &[Constraints]) -> Self {
         let args = constraints
             .iter()
-            .map(|cs| cs.iter().cloned().collect::<HashSet<Constraint>>())
+            .map(|cs| cs.inner.iter().cloned().collect::<HashSet<Constraint>>())
             .collect();
 
         ArgSet { args }
@@ -299,7 +299,7 @@ pub type SummaryKey = (VOID, ArgSet);
 pub fn summary_key(
     ipass: &InterpPass,
     scope: VOID,
-    istore: &InterpStore,
+    ctxt: &Context,
     term_span: &Span,
     caller_scope: &VOID,
     body: &Body,
@@ -307,19 +307,18 @@ pub fn summary_key(
     args: &Vec<Operand>,
     is_closure: bool,
 ) -> SummaryKey {
-    let cs: Vec<Constraints> = ipass
-        .collect_resolved_args(
-            istore,
-            term_span,
-            caller_scope,
-            &body,
-            local_decls,
-            args,
-            is_closure,
-        )
-        .into_iter()
-        .map(|(cs, _)| cs)
-        .collect();
+    let cs: Vec<Constraints> = ipass.collect_resolved_args(
+        ctxt,
+        term_span,
+        caller_scope,
+        &body,
+        local_decls,
+        args,
+        is_closure,
+    );
+    //.into_iter()
+    //.map(|(cs, _)| cs)
+    //.collect();
 
     (scope, ArgSet::new(&cs))
 }

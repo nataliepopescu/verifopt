@@ -8,8 +8,8 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 //use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, Context, Location, RunningConstraint, TraitObjConstraint,
-    TraitObjTy, VOID,
+    Constraint, Constraints, Context, Location, RunningConstraint, TraitObjConstraint, TraitObjTy,
+    VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -33,7 +33,7 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         destty: &Ty,
         to_convert: &Rvalue,
-    ) -> (Constraints, Option<ADTFields>) {
+    ) -> Constraints {
         match to_convert {
             Rvalue::Use(op) => self.convert_op(ctxt, span, local_decls, cur_scope, op, destty),
             Rvalue::Ref(_region, _borrow_kind, place) => {
@@ -54,9 +54,21 @@ impl<'a> RvalConverter<'a> {
             Rvalue::AddressOf(_rawptrkind, place) => {
                 self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
             }
-            Rvalue::UnaryOp(unop, op) => (
-                self.convert_unop(ctxt, span, local_decls, cur_scope, destty, unop, op),
-                None,
+            Rvalue::UnaryOp(unop, op) => {
+                self.convert_unop(ctxt, span, local_decls, cur_scope, destty, unop, op)
+            }
+            Rvalue::BinaryOp(binop, op1, op2) => {
+                self.convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2)
+            }
+            Rvalue::CheckedBinaryOp(binop, op1, op2) => self.convert_checked_binop(
+                ctxt,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                binop,
+                op1,
+                op2,
             ),
             Rvalue::BinaryOp(binop, op1, op2) => (
                 self.convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2),
@@ -90,12 +102,12 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         op: &Operand,
         destty: &Ty,
-    ) -> (Constraints, Option<ADTFields>) {
+    ) -> Constraints {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
             }
-            Operand::Constant(const_op) => (self.convert_const(span, &const_op), None),
+            Operand::Constant(const_op) => self.convert_const(span, &const_op),
             _ => todo!("runtime checks"),
         }
     }
@@ -158,13 +170,13 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         place: &Place,
         destty: &Ty,
-    ) -> (Constraints, Option<ADTFields>) {
+    ) -> Constraints {
         debug!("\nCONVERTING PLACE: {:?}", place);
 
         match ctxt.get_constraints(cur_scope, place, false) {
             Some(constraints) => {
                 debug!("CONSTRAINTS EXIST: {:?}", constraints);
-                (constraints, None)
+                constraints
             }
             None => {
                 debug!("CONSTRAINTS DNE");
@@ -179,7 +191,7 @@ impl<'a> RvalConverter<'a> {
                     //todo!("place ty contains dyn {:?}", traitobj);
                 }
 
-                (Constraints::from(constraint), None)
+                Constraints::from(constraint)
             }
         }
     }
@@ -308,25 +320,21 @@ impl<'a> RvalConverter<'a> {
         _kind: &CastKind,
         op: &Operand,
         ty: &Ty,
-    ) -> (Constraints, Option<ADTFields>) {
+    ) -> Constraints {
         match op {
             Operand::Constant(const_op) => {
                 let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
                 if maybe_traitobj.is_some() {
                     todo!("cast const contains dyn");
                 }
-                (Constraints::from(constraint), None)
+                Constraints::from(constraint)
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("CASTING existing place");
                 debug!("place: {:?}", place);
 
-                let (prev_constraints, maybe_fields) =
+                let prev_constraints =
                     self.convert_place(ctxt, span, local_decls, cur_scope, place, ty);
-                debug!("FIELDS in CAST? {:?}", maybe_fields);
-                //if let Some(fields) = maybe_fields {
-                //    todo!("fields: {:?}", fields);
-                //}
 
                 debug!("PRE CAST constraints: {:?}", prev_constraints);
                 let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
@@ -334,12 +342,9 @@ impl<'a> RvalConverter<'a> {
                 debug!("maybe_traitobj: {:?}", maybe_traitobj);
 
                 if let Some(traitobjtys) = maybe_traitobj {
-                    (
-                        self.convert_cast_helper(&traitobjtys, &prev_constraints),
-                        maybe_fields,
-                    )
+                    self.convert_cast_helper(&traitobjtys, &prev_constraints)
                 } else {
-                    (Constraints::from(post_constraint), maybe_fields)
+                    Constraints::from(post_constraint)
                 }
             }
             _ => todo!("runtime checks"),
@@ -476,7 +481,7 @@ impl<'a> RvalConverter<'a> {
         destty: &Ty,
         kind: &AggregateKind,
         ops: &Vec<Operand>,
-    ) -> (Constraints, Option<ADTFields>) {
+    ) -> Constraints {
         debug!("AGG kind: {:?}", kind);
         debug!("ops: {:?}", ops);
         debug!("destty: {:?}", destty);
@@ -491,11 +496,9 @@ impl<'a> RvalConverter<'a> {
                 let mut fields = Vec::new();
                 for (i, op) in ops.into_iter().enumerate() {
                     debug!("\n---op {:?}", i);
-                    let (op_constraints, maybe_fields) =
+                    let op_constraints =
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
                     debug!("op constraints: {:?}", op_constraints);
-                    // FIXME maybe_fields constraints are dropped (nested fields)
-                    debug!("maybe_fields: {:?}", maybe_fields);
 
                     let op_ty;
                     match op {
@@ -520,35 +523,24 @@ impl<'a> RvalConverter<'a> {
                     debug!("---done op {:?}\n", i);
                 }
 
-                (
-                    Constraints::from(Constraint::new(
-                        None,
-                        Some(RunningConstraint::Adt(*def, genargs.clone(), fields)),
-                    )),
+                Constraints::from(Constraint::new(
                     None,
-                )
+                    Some(RunningConstraint::Adt(*def, genargs.clone(), fields)),
+                ))
             }
             AggregateKind::Tuple => {
                 //debug!("tuple agg");
                 let mut inner_constraints = Vec::new();
                 for op in ops {
-                    let (op_constraints, maybe_fields) =
+                    let op_constraints =
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
                     //debug!("op_constraints: {:?}", op_constraints.clone());
                     unique_append(&mut inner_constraints, op_constraints.inner);
-                    if let Some(_fields) = maybe_fields {
-                        // FIXME
-                        //debug!("TUPLE fields: {:?}", fields);
-                        todo!();
-                    }
                 }
-                (
-                    Constraints::from(Constraint::new(
-                        None,
-                        Some(RunningConstraint::Tuple(inner_constraints)),
-                    )),
+                Constraints::from(Constraint::new(
                     None,
-                )
+                    Some(RunningConstraint::Tuple(inner_constraints)),
+                ))
             }
             AggregateKind::RawPtr(ty, _mut) => {
                 //debug!("rawptr agg");
@@ -566,13 +558,10 @@ impl<'a> RvalConverter<'a> {
                     todo!("rawptr contains dyn");
                 }
 
-                (
-                    Constraints::from(Constraint::new(
-                        None,
-                        Some(RunningConstraint::Ptr(Box::new(constraint))),
-                    )),
+                Constraints::from(Constraint::new(
                     None,
-                )
+                    Some(RunningConstraint::Ptr(Box::new(constraint))),
+                ))
             }
             AggregateKind::Array(ty) => {
                 //debug!("array agg");
@@ -580,23 +569,17 @@ impl<'a> RvalConverter<'a> {
                 if maybe_traitobj.is_some() {
                     todo!("array contains dyn");
                 }
-                (
-                    Constraints::from(Constraint::new(
-                        None,
-                        Some(RunningConstraint::List(Box::new(constraint))),
-                    )),
+                Constraints::from(Constraint::new(
                     None,
-                )
+                    Some(RunningConstraint::List(Box::new(constraint))),
+                ))
             }
             AggregateKind::Closure(def, genargs) => {
                 //debug!("closure agg");
-                (
-                    Constraints::from(Constraint::new(
-                        None,
-                        Some(RunningConstraint::Closure(*def, genargs.clone())),
-                    )),
+                Constraints::from(Constraint::new(
                     None,
-                )
+                    Some(RunningConstraint::Closure(*def, genargs.clone())),
+                ))
             }
             _ => todo!("other agg kind: {:?}", kind),
         }
@@ -1012,8 +995,8 @@ impl<'a> RvalConverter<'a> {
         op2: &Operand,
         f: fn(i128, i128) -> i128,
     ) -> Constraint {
-        let (c_op1, _) = self.convert_op(ctxt, span, local_decls, cur_scope, op1, destty);
-        let (c_op2, _) = self.convert_op(ctxt, span, local_decls, cur_scope, op2, destty);
+        let c_op1 = self.convert_op(ctxt, span, local_decls, cur_scope, op1, destty);
+        let c_op2 = self.convert_op(ctxt, span, local_decls, cur_scope, op2, destty);
         if c_op1.len() != 1 || c_op2.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
@@ -1103,7 +1086,7 @@ impl<'a> RvalConverter<'a> {
         op: &Operand,
         f: fn(i128) -> i128,
     ) -> Constraint {
-        let (c_op, _) = self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
+        let c_op = self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
         if c_op.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }

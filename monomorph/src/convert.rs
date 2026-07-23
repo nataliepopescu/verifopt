@@ -244,12 +244,9 @@ impl<'a> RvalConverter<'a> {
                 debug!("constraint: {:?}", constraint);
                 match constraint {
                     Constraint {
-                        toc: Some(_), //(tot, toc)),
+                        toc: Some(_),
                         ..
                     } => {
-                        //debug!("tot: {:?}", tot);
-                        //debug!("toc: {:?}", toc);
-
                         // Push old constraint unchanged
                         new_constraints.push(constraint.clone());
                     }
@@ -336,7 +333,7 @@ impl<'a> RvalConverter<'a> {
                 let prev_constraints =
                     self.convert_place(ctxt, span, local_decls, cur_scope, place, ty);
 
-                debug!("PRE CAST constraints: {:?}", prev_constraints);
+                debug!("\n\nPRE CAST constraints: {:?}", prev_constraints);
                 let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
                 debug!("POST CAST ty: {:?}", post_constraint);
                 debug!("maybe_traitobj: {:?}", maybe_traitobj);
@@ -609,9 +606,11 @@ impl<'a> RvalConverter<'a> {
     */
 
     pub fn convert_genarg(&self, span: &Location, genarg: &GenericArgKind) -> Option<Constraint> {
+        debug!("\nCONVERTING GENARG: {:?}", genarg);
         match genarg {
             GenericArgKind::Type(ty) => {
                 let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
+                debug!("genarg constraint: {:?}", constraint);
                 if maybe_traitobj.is_some() {
                     todo!("genarg contains dyn");
                 }
@@ -622,9 +621,6 @@ impl<'a> RvalConverter<'a> {
     }
 
     pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
-        //debug!("CONVERTING TY");
-        //debug!("ty: {:?}", ty);
-
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => (
@@ -647,7 +643,7 @@ impl<'a> RvalConverter<'a> {
                         }
                     }
                     if traitobjtys.is_empty() {
-                        debug!("NO TRAITOBJS");
+                        debug!("NO TRAITOBJS in fields");
                         (
                             None,
                             // FIXME fields is empty
@@ -657,7 +653,7 @@ impl<'a> RvalConverter<'a> {
                             ),
                         )
                     } else {
-                        debug!("traitobjs!!!: {:?}", traitobjtys);
+                        debug!("traitobjs in fields!!!: {:?}", traitobjtys);
                         (
                             Some(traitobjtys),
                             // FIXME fields is empty

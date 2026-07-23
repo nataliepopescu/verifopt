@@ -1626,7 +1626,6 @@ impl<'a> InterpPass<'a> {
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         let mut defids = Vec::new();
         let mut is_closure = false;
-        //debug!("\nGETTING CONSTRAINT DEFIDS");
         for constraint in &tyconstraints.inner {
             let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, &constraint);
             is_closure = is_closure_;
@@ -1645,7 +1644,6 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         constraint: &Constraint,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        //debug!("\nRESOLVE DEFID");
         match constraint {
             Constraint {
                 toc: Some(toc_),
@@ -1668,29 +1666,28 @@ impl<'a> InterpPass<'a> {
                     }
                 }
             }
-            // FIXME by the time we get here, shouldn't TOC be correctly populated? why are we
-            // looking inside CFC?
             Constraint {
                 toc: None,
-                cfc: Some(_cfc),
+                cfc: Some(cfc),
             } => {
-                todo!("TOC not correctly populated");
-                /*
                 match cfc {
-                    RunningConstraint::Adt(adtdef, genargs) => {
+                    RunningConstraint::Adt(adtdef, genargs, _fields) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     RunningConstraint::Closure(cdef, genargs) => {
-                        (true, vec![(cdef.0, Some(genargs.clone()))])
+                        if genargs.0.is_empty() {
+                            (true, vec![(cdef.0, None)])
+                        } else {
+                            (true, vec![(cdef.0, Some(genargs.clone()))])
+                        }
                     }
-                    RunningConstraint::Scalar(_) => (false, vec![]),
+                    RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
                     // If this is truly a Dynamic constraint that we cannot resolve to any concrete
                     // types, then return nothing here so that if needed, we may fallback to
                     // another, coarser resolution mechanism
                     RunningConstraint::Dynamic(_) => (false, vec![]),
                     _ => todo!("{:?}", cfc),
                 }
-                */
             }
             _ => {
                 panic!("no constraints");
@@ -1721,10 +1718,16 @@ impl<'a> InterpPass<'a> {
             None => {}
         }
 
+        // FIXME search in fields instead of genargs b/c we also have the constraints + don't need
+        // to reconstruct them; however, this poses a termination problem - maybe only search in
+        // fields for types that are known to essentially be "wrappers" (e.g. Box, NonNull, Unique, etc)
+        //
         // Also search in genargs for an implementing type
         for genarg in &genargs.0 {
             match self.converter.convert_genarg(&Location::new(), &genarg) {
                 Some(genarg_constraint) => {
+                    debug!("\nrecursing");
+                    debug!("genarg_constraint: {:?}", genarg_constraint);
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
                     unique_append(&mut resvec, inner_resvec);

@@ -99,21 +99,6 @@ impl Constraints {
         unique_append(&mut self.inner, new_constraints.inner);
     }
 
-    // Read: union the field's value across every Adt disjunct that has it,
-    // falling back to top/static-type for disjuncts that don't.
-    pub fn read_field(&self, elem: &Vec<ProjectionElem>, fallback: &Constraints) -> Constraints {
-        let mut out = Constraints::new();
-        for c in &self.inner {
-            if let Some(RunningConstraint::Adt(_, _, fields)) = &c.cfc {
-                match fields.iter().find(|(e, _)| e == elem) {
-                    Some((_, cs)) => out.append(cs.clone()),
-                    None => out.append(fallback.clone()),
-                }
-            }
-        }
-        out
-    }
-
     // Write: strong-update the field within EVERY disjunct currently in scope.
     // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
     pub fn write_field(&mut self, elem: Vec<ProjectionElem>, new: Constraints) {
@@ -397,18 +382,19 @@ impl Context {
         constraints: &Constraints,
         elem: &ProjectionElem,
     ) -> Constraints {
-        debug!("\n---IN STEP_FIELD");
-        debug!("scope: {:?}", scope);
-        debug!("constraints: {:?}", constraints);
-        debug!("proj elem: {:?}", elem);
         let mut out = Constraints::new();
         for constraint in &constraints.inner {
             out.append(self.step_field_one(scope, constraint, elem));
-            debug!("\nCONSTRAINTS - POST APPEND (in step_field): {:?}", out);
         }
         out
     }
 
+    fn field_idx(&self, elem: &ProjectionElem) -> usize {
+        match elem {
+            ProjectionElem::Field(idx, _) => *idx,
+            _ => panic!("expected Field projection: {:?}", elem),
+        }
+    }
     fn step_field_one(
         &self,
         scope: &VOID,
@@ -418,7 +404,7 @@ impl Context {
         match &constraint.cfc {
             Some(RunningConstraint::Adt(_, _, fields)) => fields
                 .iter()
-                .find(|(key, _)| key.len() == 1 && key[0] == *elem)
+                .find(|(key, _)| key.len() == 1 && self.field_idx(&key[0]) == self.field_idx(elem))
                 .map(|(_, cs)| cs.clone())
                 .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
             Some(RunningConstraint::Tuple(inner)) => match elem {
@@ -439,70 +425,6 @@ impl Context {
             ),
         }
     }
-
-    /*
-    fn get_projection_constraints(
-        &self,
-        scope: &VOID,
-        place: &Place,
-        constraint: &Constraint,
-    ) -> Constraints {
-        let mut proj_constraints = Constraints::new();
-        match constraint {
-            Constraint {
-                toc: _,
-                cfc: Some(inner_cfc),
-            } => match inner_cfc {
-                RunningConstraint::Adt(_, _, fields) => {
-                    let filtered_proj = self.get_fields(&place.projection);
-
-                    for (proj_set, field_constraints) in fields {
-                        if *proj_set == filtered_proj {
-                            proj_constraints.append(field_constraints.clone());
-                        }
-                    }
-                }
-                RunningConstraint::Tuple(inner) => {
-                    let filtered_proj = self.get_fields(&place.projection);
-                    if filtered_proj.len() > 1 {
-                        todo!("tuple has multiple fields - how to handle");
-                    }
-
-                    match filtered_proj[0] {
-                        // add the tuple constraint at this field idx/offset
-                        ProjectionElem::Field(idx, _) => {
-                            proj_constraints.push(inner[idx].clone());
-                        }
-                        _ => {}
-                    }
-                }
-                RunningConstraint::Ptr(box inner_constraint) => {
-                    proj_constraints.append(self.get_projection_constraints(
-                        scope,
-                        place,
-                        inner_constraint,
-                    ));
-                }
-                RunningConstraint::Idk(box inner_constraints) => {
-                    for inner_constraint in &inner_constraints.inner {
-                        proj_constraints.append(self.get_projection_constraints(
-                            scope,
-                            place,
-                            &inner_constraint,
-                        ));
-                    }
-                }
-                _ => panic!(
-                    "unexpected running constraint type to have projections: {:?}",
-                    inner_cfc
-                ),
-            },
-            _ => panic!("cfc is None, cannot get projection/field constraints"),
-        }
-
-        proj_constraints
-    }
-    */
 
     pub fn get_constraints(
         &self,
@@ -530,22 +452,16 @@ impl Context {
                     debug!("BASE CONSTRAINTS: {:?}", base_constraints);
                     debug!("PROJECTION: {:?}", place.projection);
 
-                    let mut proj_constraints = Constraints::new();
-
                     // Collect every matching projection in the set of constraints
+                    let mut cur = base_constraints;
                     for elem in &place.projection {
                         // Ignore non-field projections
                         if matches!(elem, ProjectionElem::Field(..)) {
-                            proj_constraints = self.step_field(scope, &base_constraints, elem);
+                            cur = self.step_field(scope, &cur, elem);
                         }
                     }
 
-                    //for constraint in &base_constraints.inner {
-                    //    proj_constraints
-                    //        .append(self.get_projection_constraints(scope, place, constraint));
-                    //}
-
-                    Some(proj_constraints)
+                    Some(cur)
                 }
                 None => None,
             }

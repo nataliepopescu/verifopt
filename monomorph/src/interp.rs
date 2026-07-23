@@ -2,14 +2,15 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use rustc_public::DefId;
-use rustc_public::mir::mono::{Instance, InstanceKind};
+use rustc_public::mir::alloc::GlobalAlloc;
+use rustc_public::mir::mono::{Instance, InstanceKind, StaticDef};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, NonDivergingIntrinsic, Operand, Place, Statement,
+    BasicBlock, Body, ConstOperand, LocalDecl, Mutability, NonDivergingIntrinsic, Operand, Rvalue, Place, Statement,
     StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
-    AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
-    PolyFnSig, RigidTy, Span, Ty, TyKind,
+    AdtDef, Allocation, BoundVariableKind, ClosureDef, ClosureKind, ConstantKind, FnDef,
+    GenericArgKind, GenericArgs, IntTy, PolyFnSig, Prov, RigidTy, Span, Ty, TyKind,
 };
 
 use log::{debug, error};
@@ -300,20 +301,52 @@ impl<'a> InterpPass<'a> {
         None
     }
 
+    fn static_check_const(&self, ty: &Ty, alloc: &Allocation) -> bool {
+        let mut seen = Vec::new();
+
+        matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(ty, &mut seen)
+    }
+
+    fn static_get_constraints(
+        &self,
+        istore: &mut InterpStore,
+        defid: DefId,
+        ty: &Ty,
+    ) -> Constraints {
+        let key = MapKey::Static(defid);
+        if let Some(box MapValue::Constraints(c)) = istore.cmap.get(&key) {
+            return c.clone();
+        }
+
+        let alloc = StaticDef(defid).eval_initializer().unwrap();
+
+        let constraints = if self.static_check_const(ty, &alloc) {
+            self.converter
+                .convert_static_const(&Location::new(), ty, &alloc)
+        } else {
+            let (_, c) = self.converter.convert_ty(&Location::new(), ty);
+            vec![c]
+        };
+
+        istore.cmap.insert(
+            MapKey::Static(defid),
+            Box::new(MapValue::Constraints(constraints.clone())),
+        );
+
+        constraints
+    }
+
     /// If any of the constraints contain a type that implements one of the Traits listed in
     /// `maybe_trait_destty`, copy those types and put them into the TraitObjConstraint field
     /// of the constraint, leaving the RunningConstraint field unchanged
     fn pull_traitobjs_from_constraints(
         &self,
-        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
+        maybe_trait_ty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
     ) -> Constraints {
         let mut constraints = Vec::new();
         for constraint in old_constraints {
-            match self
-                .converter
-                .get_any_traitobj(maybe_trait_destty, &constraint)
-            {
+            match self.converter.get_any_traitobj(maybe_trait_ty, &constraint) {
                 // Add into traitobj constraint
                 toc @ Some(_) => match constraint {
                     Constraint { toc: None, cfc } => {
@@ -364,6 +397,22 @@ impl<'a> InterpPass<'a> {
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
                 //debug!("lval ty: {:?}", dest_ty);
                 //debug!("maybe_trait_destty? {:?}", maybe_trait_destty);
+
+                if let Some((defid, ty)) = self.static_rvalue(rvalue) {
+                    let constraints = self.static_get_constraints(istore, defid, &ty);
+
+                    let dest_ty = place.ty(local_decls).unwrap();
+                    let maybe_trait_destty = self.contains_dyn(&dest_ty);
+                    let final_cs =
+                        self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints);
+
+                    istore.scoped_update(
+                        cur_scope,
+                        MapKey::Var(place.clone()),
+                        Box::new(MapValue::Constraints(final_cs)),
+                    );
+                    return;
+                }
 
                 // convert MIR Rvalue to Constraint
                 let (constraints, maybe_fields) = self.converter.convert(
@@ -423,6 +472,27 @@ impl<'a> InterpPass<'a> {
             },
             _ => todo!("new statement kind: {:?}", &stmt.kind),
         }
+    }
+
+    fn static_rvalue(&self, rval: &Rvalue) -> Option<(DefId, Ty)> {
+        let op = match rval {
+            Rvalue::Use(op) => op,
+            Rvalue::Cast(_, op, _) => op,
+            _ => return None,
+        };
+
+        if let Operand::Constant(co) = op
+            && let ConstantKind::Allocated(alloc) = co.const_.kind()
+        {
+            for (_off, Prov(aid)) in alloc.provenance.ptrs.iter() {
+                if let GlobalAlloc::Static(StaticDef(defid)) = GlobalAlloc::from(*aid) {
+                    let ty = co.const_.ty();
+                    return Some((defid, ty));
+                }
+            }
+        }
+
+        None
     }
 
     fn visit_terminator(
@@ -1145,16 +1215,16 @@ impl<'a> InterpPass<'a> {
                 projection: vec![], // FIXME should this ever _not_ be empty?
             };
 
-            //debug!("[CALL] CHECKING FOR DYN IN ARG TY");
+            debug!("\n[CALL] CHECKING FOR DYN IN ARG TY (arg {:?})", i);
             let maybe_trait_argty = if i > arg_count - 1 {
-                //debug!("arg count is surpassed: {:?}", arg_count);
+                debug!("arg count is surpassed: {:?}", arg_count);
                 None
             } else {
                 let arg_ty = place.ty(body.locals()).unwrap();
-                //debug!("arg ty: {:?}", arg_ty);
+                debug!("arg ty: {:?}", arg_ty);
                 self.contains_dyn(&arg_ty)
             };
-            //debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
+            debug!("(call) dyn arg ty? {:?}", maybe_trait_argty);
 
             resolved.push(self.resolve_arg(
                 istore,
@@ -1254,6 +1324,8 @@ impl<'a> InterpPass<'a> {
                     is_closure,
                 ) {
                     Some(constraints) => {
+                        debug!("got constraints: {:?}", constraints);
+
                         // Get any field projections
                         match istore.field_map.get(&(place.clone(), caller_scope.clone())) {
                             Some(field_places) => {
@@ -1295,7 +1367,7 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                     None => {
-                        //debug!("place {:?} DNE in cmap, widen to type", place);
+                        debug!("place {:?} DNE in cmap, widen to type", place);
                         let (_maybe_traitobjty, constraint) = self
                             .converter
                             .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
@@ -1712,7 +1784,7 @@ impl<'a> InterpPass<'a> {
                 toc: None,
                 cfc: Some(_cfc),
             } => {
-                todo!("TOC not correctly populated");
+                todo!("TOC empty, CFC: {:?}", _cfc);
                 /*
                 match cfc {
                     RunningConstraint::Adt(adtdef, genargs) => {
@@ -1946,7 +2018,7 @@ impl<'a> InterpPass<'a> {
         &self,
         istore: &mut InterpStore,
         cur_scope: &VOID,
-        _local_decls: &[LocalDecl],
+        local_decls: &[LocalDecl],
         bb: usize,
         bb_deps: &mut BBDeps,
         discr: &Operand,
@@ -1956,44 +2028,39 @@ impl<'a> InterpPass<'a> {
         //debug!("discr: {:?}", discr);
         //debug!("targets: {:?}", targets);
 
-        match discr {
-            Operand::Copy(place) | Operand::Move(place) => {
-                match istore.scoped_get(cur_scope, &MapKey::Var(place.clone()), false) {
-                    Some(val) => match val {
-                        MapValue::Constraints(constraints) => {
-                            // Create a byte-map for finding statically-impossible successors
-                            let mut discr_vals_uninit =
-                                Box::<[u8]>::new_zeroed_slice(targets.len());
-                            let discr_vals = discr_vals_uninit.write_filled(0);
-                            //debug!("PRE discr_vals: {:?}", discr_vals);
+        let (constraints, _) = self.converter.convert_op(
+            istore,
+            &Location::new(),
+            local_decls,
+            cur_scope,
+            discr,
+            &self.discr_ty(local_decls, discr),
+        );
 
-                            // Check expected type of discriminant
-                            //debug!("expected ty: {:?}", place.ty(local_decls));
-                            //debug!("constraints: {:?}", constraints);
+        // Create a byte-map for finding statically-impossible successors
+        let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(targets.len());
+        let discr_vals = discr_vals_uninit.write_filled(0);
+        //debug!("PRE discr_vals: {:?}", discr_vals);
 
-                            // Populate byte-map with possible branch values, based on constraints
-                            self.set_bytemap(&constraints, targets, discr_vals);
-                            //debug!("POST discr_vals: {:?}", discr_vals);
+        // Check expected type of discriminant
+        //debug!("expected ty: {:?}", place.ty(local_decls));
+        //debug!("constraints: {:?}", constraints);
 
-                            self.prune_switchint_targets(
-                                bb,
-                                bb_deps,
-                                &targets.all_targets(),
-                                discr_vals,
-                            );
-                        }
-                        _ => panic!("cannot switch on scope"),
-                    },
-                    None => {
-                        //debug!("local DNE, cannot prune any targets");
-                    }
-                }
-            }
-            Operand::Constant(_co) => {}
-            _ => {} //debug!("runtime checks op (ignoring)"),
-        }
+        // Populate byte-map with possible branch values, based on constraints
+        self.set_bytemap(&constraints, targets, discr_vals);
+        //debug!("POST discr_vals: {:?}", discr_vals);
+
+        self.prune_switchint_targets(bb, bb_deps, &targets.all_targets(), discr_vals);
 
         Ok(None)
+    }
+
+    fn discr_ty(&self, local_decls: &[LocalDecl], discr: &Operand) -> Ty {
+        match discr {
+            Operand::Copy(p) | Operand::Move(p) => p.ty(local_decls).unwrap(),
+            Operand::Constant(co) => co.const_.ty(),
+            _ => unreachable!(),
+        }
     }
 
     fn set_bytemap(

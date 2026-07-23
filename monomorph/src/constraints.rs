@@ -419,10 +419,15 @@ impl Context {
                 }
                 out
             }
-            _ => panic!(
-                "unexpected running constraint type to have projections: {:?}",
-                constraint.cfc
-            ),
+            // Scalar/Float/Dynamic/Closure/etc: this disjunct has no field structure at all,
+            // so it contributes no information to the projection — not an error.
+            _ => {
+                debug!(
+                    "unexpected running constraint type to have projections: {:?}",
+                    constraint.cfc
+                );
+                Constraints::new()
+            }
         }
     }
 

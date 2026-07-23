@@ -243,10 +243,7 @@ impl<'a> RvalConverter<'a> {
                 debug!("\ntraitobjty: {:?}", traitobjty);
                 debug!("constraint: {:?}", constraint);
                 match constraint {
-                    Constraint {
-                        toc: Some(_),
-                        ..
-                    } => {
+                    Constraint { toc: Some(_), .. } => {
                         // Push old constraint unchanged
                         new_constraints.push(constraint.clone());
                     }

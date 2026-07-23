@@ -149,7 +149,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         ctxt: &Context,
         span: &Location,
-        _local_decls: &[LocalDecl],
+        local_decls: &[LocalDecl],
         cur_scope: &VOID,
         place: &Place,
         destty: &Ty,
@@ -167,7 +167,9 @@ impl<'a> RvalConverter<'a> {
                 //    debug!("\nPROJ: {:?}", proj);
                 //}
                 debug!("DEST TY: {:?}", destty);
-                let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
+                //let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
+                let place_ty = place.ty(local_decls).unwrap_or(*destty);
+                let (maybe_traitobj, constraint) = self.convert_ty(span, &place_ty);
                 debug!("CONSTRAINT: {:?}", constraint);
 
                 if let Some(_traitobj) = maybe_traitobj {

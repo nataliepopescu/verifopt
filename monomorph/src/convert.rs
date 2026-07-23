@@ -253,7 +253,8 @@ impl<'a> RvalConverter<'a> {
                 for proj in &place.projection {
                     debug!("PROJ: {:?}", proj);
                 }
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, destty);
+                let place_ty = place.ty(local_decls).unwrap_or(*destty);
+                let (_maybe_traitobj, constraint) = self.convert_ty(span, &place_ty);
                 //debug!("constraint (from ty): {:?}", constraint);
                 //if let Some(traitobj) = maybe_traitobj {
                 //    todo!("place ty contains dyn {:?}", traitobj);

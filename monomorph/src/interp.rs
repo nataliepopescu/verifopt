@@ -4,8 +4,9 @@ use std::collections::{HashMap, HashSet};
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, ConstOperand, LocalDecl, NonDivergingIntrinsic, Operand, Place, Statement,
-    StatementKind, Successors, SwitchTargets, Terminator, TerminatorKind,
+    BasicBlock, Body, BorrowKind, ConstOperand, LocalDecl, Mutability, NonDivergingIntrinsic,
+    Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind, Successors, SwitchTargets,
+    Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
@@ -366,14 +367,36 @@ impl<'a> InterpPass<'a> {
                 //debug!("maybe_trait_destty? {:?}", maybe_trait_destty);
 
                 // convert MIR Rvalue to Constraint
-                let (constraints, maybe_fields) = self.converter.convert(
-                    istore,
-                    &Location::new(),
-                    local_decls,
-                    cur_scope,
-                    &dest_ty,
-                    rvalue,
-                );
+                let (constraints, maybe_fields) =
+                    if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
+                        let to = match to.projection.as_slice() {
+                            [ProjectionElem::Deref] => Place {
+                                local: to.local,
+                                projection: vec![],
+                            },
+                            _ => to.clone(),
+                        };
+                        istore.add_ref(
+                            (place.clone(), cur_scope.clone()),
+                            (to, cur_scope.clone()),
+                            if matches!(bk, BorrowKind::Mut { .. }) {
+                                Mutability::Mut
+                            } else {
+                                Mutability::Not
+                            },
+                        );
+                        (vec![], None)
+                    } else {
+                        self.converter.convert(
+                            istore,
+                            &Location::new(),
+                            local_decls,
+                            cur_scope,
+                            &dest_ty,
+                            rvalue,
+                        )
+                    };
+
                 let final_constraints =
                     self.pull_traitobjs_from_constraints(&maybe_trait_destty, constraints.clone());
                 //if final_constraints != constraints {
@@ -1098,6 +1121,7 @@ impl<'a> InterpPass<'a> {
             term_span,
             &mut new_substore,
             caller_scope,
+            callee_scope,
             body,
             local_decls,
             args,
@@ -1178,10 +1202,11 @@ impl<'a> InterpPass<'a> {
     /// - update the substore for the callee
     fn resolve_args_helper(
         &self,
-        istore: &InterpStore,
+        istore: &mut InterpStore,
         term_span: &Span,
         new_substore: &mut InterpStore,
         caller_scope: &VOID,
+        callee_scope: &VOID,
         body: &Body,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
@@ -1204,6 +1229,17 @@ impl<'a> InterpPass<'a> {
                 local,
                 projection: vec![], // FIXME should this ever _not_ be empty?
             };
+
+            let arg_ty = place.ty(body.locals()).unwrap();
+            if let TyKind::RigidTy(RigidTy::Ref(_, _, mt)) = arg_ty.kind() {
+                if let Operand::Copy(caller_place) | Operand::Move(caller_place) = &args[i] {
+                    istore.add_ref(
+                        (place.clone(), callee_scope.clone()),
+                        (caller_place.clone(), caller_scope.clone()),
+                        mt,
+                    );
+                }
+            }
 
             debug!("resolved arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);

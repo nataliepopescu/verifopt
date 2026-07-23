@@ -36,9 +36,6 @@ impl<'a> RvalConverter<'a> {
     ) -> (Constraints, Option<ADTFields>) {
         match to_convert {
             Rvalue::Use(op) => self.convert_op(istore, span, local_decls, cur_scope, op, destty),
-            Rvalue::Ref(_region, _borrow_kind, place) => {
-                self.convert_place(istore, span, local_decls, cur_scope, place, destty)
-            }
             Rvalue::Discriminant(place) => {
                 self.convert_place(istore, span, local_decls, cur_scope, place, destty)
             }
@@ -256,7 +253,8 @@ impl<'a> RvalConverter<'a> {
                 for proj in &place.projection {
                     debug!("PROJ: {:?}", proj);
                 }
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, destty);
+                let place_ty = place.ty(local_decls).unwrap_or(*destty);
+                let (_maybe_traitobj, constraint) = self.convert_ty(span, &place_ty);
                 //debug!("constraint (from ty): {:?}", constraint);
                 //if let Some(traitobj) = maybe_traitobj {
                 //    todo!("place ty contains dyn {:?}", traitobj);

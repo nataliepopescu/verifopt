@@ -230,6 +230,14 @@ impl<'a> RvalConverter<'a> {
                         // Push old constraint unchanged
                         new_constraints.push(constraint.clone());
                     }
+                    //Constraint {
+                    //    toc: None,
+                    //    cfc: Some(RunningConstraint::Dynamic(existing_tots)),
+                    //} => {
+                    //    // Already the trait object we're casting to (or a compatible one) —
+                    //    // nothing further to resolve, push through unchanged.
+                    //    new_constraints.push(constraint.clone());
+                    //}
                     Constraint {
                         toc: None,
                         cfc: Some(cfc_),

@@ -70,23 +70,6 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
             ),
-            Rvalue::BinaryOp(binop, op1, op2) => (
-                self.convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2),
-                None,
-            ),
-            Rvalue::CheckedBinaryOp(binop, op1, op2) => (
-                self.convert_checked_binop(
-                    ctxt,
-                    span,
-                    local_decls,
-                    cur_scope,
-                    destty,
-                    binop,
-                    op1,
-                    op2,
-                ),
-                None,
-            ),
             Rvalue::Repeat(op, _tyconst) => {
                 self.convert_op(ctxt, span, local_decls, cur_scope, op, destty)
             }

@@ -366,35 +366,34 @@ impl<'a> InterpPass<'a> {
                 //debug!("maybe_trait_destty? {:?}", maybe_trait_destty);
 
                 // convert MIR Rvalue to Constraint
-                let (constraints, maybe_fields) =
-                    if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
-                        let to = match to.projection.as_slice() {
-                            [ProjectionElem::Deref] => Place {
-                                local: to.local,
-                                projection: vec![],
-                            },
-                            _ => to.clone(),
-                        };
-                        istore.add_ref(
-                            (place.clone(), cur_scope.clone()),
-                            (to, cur_scope.clone()),
-                            if matches!(bk, BorrowKind::Mut { .. }) {
-                                Mutability::Mut
-                            } else {
-                                Mutability::Not
-                            },
-                        );
-                        (vec![], None)
-                    } else {
-                        self.converter.convert(
-                            istore,
-                            &Location::new(),
-                            local_decls,
-                            cur_scope,
-                            &dest_ty,
-                            rvalue,
-                        )
+                let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
+                    let to = match to.projection.as_slice() {
+                        [ProjectionElem::Deref] => Place {
+                            local: to.local,
+                            projection: vec![],
+                        },
+                        _ => to.clone(),
                     };
+                    ctxt.cstore.add_ref(
+                        (place.clone(), cur_scope.clone()),
+                        (to, cur_scope.clone()),
+                        if matches!(bk, BorrowKind::Mut { .. }) {
+                            Mutability::Mut
+                        } else {
+                            Mutability::Not
+                        },
+                    );
+                    Constraints::new()
+                } else {
+                    self.converter.convert(
+                        ctxt,
+                        &Location::new(),
+                        local_decls,
+                        cur_scope,
+                        &dest_ty,
+                        rvalue,
+                    )
+                };
 
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
@@ -1179,11 +1178,11 @@ impl<'a> InterpPass<'a> {
     /// - update the substore for the callee
     fn resolve_args_helper(
         &self,
-        ctxt: &Context,
+        ctxt: &mut Context,
         term_span: &Span,
         new_ctxt: &mut Context,
         caller_scope: &VOID,
-        _callee_scope: &VOID,
+        callee_scope: &VOID,
         body: &Body,
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
@@ -1210,7 +1209,7 @@ impl<'a> InterpPass<'a> {
             let arg_ty = place.ty(body.locals()).unwrap();
             if let TyKind::RigidTy(RigidTy::Ref(_, _, mt)) = arg_ty.kind() {
                 if let Operand::Copy(caller_place) | Operand::Move(caller_place) = &args[i] {
-                    istore.add_ref(
+                    ctxt.cstore.add_ref(
                         (place.clone(), callee_scope.clone()),
                         (caller_place.clone(), caller_scope.clone()),
                         mt,

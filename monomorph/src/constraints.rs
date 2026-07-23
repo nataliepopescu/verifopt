@@ -317,9 +317,6 @@ pub fn summary_key(
 pub struct Context {
     pub cstore: ConstraintStore,
     pub wtos: HashMap<VOID, BBDeps>,
-    // Map ADT places to their field places (projections) which have constraints in cmap
-    //pub field_map: HashMap<(Place, VOID), Vec<Place>>,
-    pub refs: HashMap<(Place, VOID), ((Place, VOID), Mutability)>,
 }
 
 impl Context {
@@ -354,27 +351,6 @@ impl Context {
             Box::new(MapValue::Constraints(constraints)),
         );
     }
-
-    //fn contains_fields(&self, projection: &Vec<ProjectionElem>) -> bool {
-    //    for p in projection {
-    //        match p {
-    //            ProjectionElem::Field(_, _) => return true,
-    //            _ => {}
-    //        }
-    //    }
-    //    false
-    //}
-
-    //fn get_fields(&self, projection: &Vec<ProjectionElem>) -> Vec<ProjectionElem> {
-    //    projection
-    //        .clone()
-    //        .into_iter()
-    //        .filter(|x| match x {
-    //            ProjectionElem::Field(_, _) => true,
-    //            _ => false,
-    //        })
-    //        .collect()
-    //}
 
     fn step_field(
         &self,
@@ -493,14 +469,51 @@ impl Context {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintStore {
     pub cmap: HashMap<MapKey, Box<MapValue>>,
+    pub refs: HashMap<(Place, VOID), ((Place, VOID), Mutability)>,
 }
 
 impl ConstraintStore {
     pub fn new() -> ConstraintStore {
         Self {
             cmap: HashMap::default(),
+            refs: HashMap::default(),
         }
     }
+
+    /*
+    pub fn link_adt_field(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
+        debug!("\nLINKING FIELD");
+        debug!("new_field_places: {:?}", new_field_places);
+
+        self.scoped_field_update(
+            scope,
+            MapKey::Var(place.clone()),
+            Box::new(MapFieldValue::Fields(new_field_places.to_vec())),
+        );
+
+        match self.field_map.get_mut(adt_place_and_scope) {
+            Some(field_places) => {
+                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
+                //debug!("old field projections: {:?}", field_places);
+                //debug!("new field projection: {:?}", field_place);
+
+                let mut new_field_places = Vec::new();
+                for old_field_place in field_places.clone() {
+                    unique_push(&mut new_field_places, old_field_place.clone());
+                    unique_push(&mut new_field_places, field_place.clone());
+                }
+                debug!("NEW FIELD PROJECTIONS: {:?}", new_field_places);
+                *field_places = new_field_places;
+            }
+            None => {
+                //debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
+                //debug!("new field projection: {:?}", field_place);
+                self.field_map
+                    .insert(adt_place_and_scope.clone(), vec![field_place.clone()]);
+            }
+        }
+    }
+    */
 
     fn resolve(&self, place: Place, scope: VOID, for_mut: bool) -> (Place, VOID) {
         if place.projection.first() == Some(&ProjectionElem::Deref) {
@@ -559,40 +572,6 @@ impl ConstraintStore {
             }
         }
         cur
-    }
-
-    pub fn link_adt_field(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
-        debug!("\nLINKING FIELD");
-        debug!("new_field_places: {:?}", new_field_places);
-
-        self.scoped_field_update(
-            scope,
-            MapKey::Var(place.clone()),
-            Box::new(MapFieldValue::Fields(new_field_places.to_vec())),
-        );
-
-        /*
-        match self.field_map.get_mut(adt_place_and_scope) {
-            Some(field_places) => {
-                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("old field projections: {:?}", field_places);
-                //debug!("new field projection: {:?}", field_place);
-
-                let mut new_field_places = Vec::new();
-                for old_field_place in field_places.clone() {
-                    unique_push(&mut new_field_places, old_field_place.clone());
-                    unique_push(&mut new_field_places, field_place.clone());
-                }
-                debug!("NEW FIELD PROJECTIONS: {:?}", new_field_places);
-                *field_places = new_field_places;
-            }
-            None => {
-                //debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("new field projection: {:?}", field_place);
-                self.field_map
-                    .insert(adt_place_and_scope.clone(), vec![field_place.clone()]);
-            }
-        }
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {

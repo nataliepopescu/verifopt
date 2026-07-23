@@ -70,6 +70,7 @@ FSA (1): [(DefId { id: 20565, name: "<casting_traitobj::Cat as casting_traitobj:
 - [x] casting_traitobj
     - FSA win!
 - [x] recursive_dyn
+- [x] recursive_dyn2
 - [x] static
 - [ ] static2
     - panicking, should work

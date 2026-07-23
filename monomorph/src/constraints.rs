@@ -6,6 +6,7 @@ use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{Body, LocalDecl, Mutability, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
+    VariantIdx,
 };
 
 //use crate::common::log_scope;
@@ -103,11 +104,26 @@ impl Constraints {
     // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
     pub fn write_field(&mut self, elem: Vec<ProjectionElem>, new: Constraints) {
         for c in self.inner.iter_mut() {
-            if let Some(RunningConstraint::Adt(_, _, fields)) = &mut c.cfc {
+            if let Some(RunningConstraint::Adt(_, _, _, fields)) = &mut c.cfc {
                 fields.retain(|(e, _)| e != &elem);
                 fields.push((elem.clone(), new.clone()));
             }
         }
+    }
+
+    pub fn filter_variant(&self, vidx: VariantIdx) -> Constraints {
+        let mut out = Constraints::new();
+        for c in &self.inner {
+            match &c.cfc {
+                Some(RunningConstraint::Adt(_, _, variant, _)) => {
+                    if variant.is_none() || *variant == Some(vidx) {
+                        out.push(c.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
     }
 }
 
@@ -144,8 +160,7 @@ pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
     // more complex data types
-    //Adt(AdtDef, GenericArgs, Vec<Place>),
-    Adt(AdtDef, GenericArgs, ADTFields),
+    Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
 
     // callable types
     Closure(ClosureDef, GenericArgs),
@@ -167,8 +182,7 @@ pub enum RunningConstraint {
     Float,
 
     // more complex data types
-    //Adt(AdtDef, GenericArgs, Vec<Place>),
-    Adt(AdtDef, GenericArgs, ADTFields),
+    Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
 
     // pointer types
     Ptr(Box<Constraint>),
@@ -185,7 +199,7 @@ pub enum RunningConstraint {
     // fallback types
     //IdkType(Ty),
     List(Box<Constraint>),
-    Tuple(Vec<Constraint>),
+    Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),
 }
 
@@ -378,13 +392,15 @@ impl Context {
         elem: &ProjectionElem,
     ) -> Constraints {
         match &constraint.cfc {
-            Some(RunningConstraint::Adt(_, _, fields)) => fields
+            Some(RunningConstraint::Adt(_, _, _, fields)) => fields
                 .iter()
                 .find(|(key, _)| key.len() == 1 && self.field_idx(&key[0]) == self.field_idx(elem))
                 .map(|(_, cs)| cs.clone())
                 .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
             Some(RunningConstraint::Tuple(inner)) => match elem {
-                ProjectionElem::Field(idx, _) => Constraints::from(inner[*idx].clone()),
+                ProjectionElem::Field(idx, _) => {
+                    inner.get(*idx).cloned().unwrap_or_else(Constraints::new)
+                }
                 _ => Constraints::new(),
             },
             Some(RunningConstraint::Ptr(box inner)) => self.step_field_one(scope, inner, elem),
@@ -436,9 +452,14 @@ impl Context {
                     // Collect every matching projection in the set of constraints
                     let mut cur = base_constraints;
                     for elem in &place.projection {
-                        // Ignore non-field projections
-                        if matches!(elem, ProjectionElem::Field(..)) {
-                            cur = self.step_field(scope, &cur, elem);
+                        match elem {
+                            ProjectionElem::Downcast(vidx) => {
+                                cur = cur.filter_variant(*vidx);
+                            }
+                            ProjectionElem::Field(..) => {
+                                cur = self.step_field(scope, &cur, elem);
+                            }
+                            _ => {}
                         }
                     }
 
@@ -479,41 +500,6 @@ impl ConstraintStore {
             refs: HashMap::default(),
         }
     }
-
-    /*
-    pub fn link_adt_field(&mut self, scope: &VOID, place: &Place, new_field_places: &Vec<Place>) {
-        debug!("\nLINKING FIELD");
-        debug!("new_field_places: {:?}", new_field_places);
-
-        self.scoped_field_update(
-            scope,
-            MapKey::Var(place.clone()),
-            Box::new(MapFieldValue::Fields(new_field_places.to_vec())),
-        );
-
-        match self.field_map.get_mut(adt_place_and_scope) {
-            Some(field_places) => {
-                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("old field projections: {:?}", field_places);
-                //debug!("new field projection: {:?}", field_place);
-
-                let mut new_field_places = Vec::new();
-                for old_field_place in field_places.clone() {
-                    unique_push(&mut new_field_places, old_field_place.clone());
-                    unique_push(&mut new_field_places, field_place.clone());
-                }
-                debug!("NEW FIELD PROJECTIONS: {:?}", new_field_places);
-                *field_places = new_field_places;
-            }
-            None => {
-                //debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("new field projection: {:?}", field_place);
-                self.field_map
-                    .insert(adt_place_and_scope.clone(), vec![field_place.clone()]);
-            }
-        }
-    }
-    */
 
     fn resolve(&self, place: Place, scope: VOID, for_mut: bool) -> (Place, VOID) {
         if place.projection.first() == Some(&ProjectionElem::Deref) {

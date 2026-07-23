@@ -1653,7 +1653,7 @@ impl<'a> InterpPass<'a> {
                 }
 
                 match toc_ {
-                    (_, TraitObjConstraint::Adt(adtdef, genargs, _fields)) => {
+                    (_, TraitObjConstraint::Adt(adtdef, genargs, _, _fields)) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
@@ -1670,7 +1670,7 @@ impl<'a> InterpPass<'a> {
                 cfc: Some(cfc),
             } => {
                 match cfc {
-                    RunningConstraint::Adt(adtdef, genargs, _fields) => {
+                    RunningConstraint::Adt(adtdef, genargs, _, _fields) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
                     }
                     RunningConstraint::Closure(cdef, genargs) => {

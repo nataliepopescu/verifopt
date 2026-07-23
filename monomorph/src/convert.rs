@@ -183,8 +183,8 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_cfc_to_toc(&self, cfc: &RunningConstraint) -> TraitObjConstraint {
         match cfc {
-            RunningConstraint::Adt(adtdef, genargs, fields) => {
-                TraitObjConstraint::Adt(*adtdef, genargs.clone(), fields.to_vec())
+            RunningConstraint::Adt(adtdef, genargs, variant_idx, fields) => {
+                TraitObjConstraint::Adt(*adtdef, genargs.clone(), *variant_idx, fields.to_vec())
             }
             RunningConstraint::Closure(cdef, genargs) => {
                 TraitObjConstraint::Closure(*cdef, genargs.clone())
@@ -195,7 +195,7 @@ impl<'a> RvalConverter<'a> {
 
     fn get_defid_from_cfc(&self, cfc: &RunningConstraint) -> DefId {
         match cfc {
-            RunningConstraint::Adt(adtdef, _, _) => adtdef.0,
+            RunningConstraint::Adt(adtdef, _, _, _) => adtdef.0,
             RunningConstraint::Closure(cdef, _) => cdef.0,
             // FIXME this is a jumbled mess
             RunningConstraint::Idk(inner) => {
@@ -343,19 +343,16 @@ impl<'a> RvalConverter<'a> {
         maybe_trait_ty: &Option<Vec<TraitObjTy>>,
         constraint: &Constraint,
     ) -> Option<(TraitObjTy, TraitObjConstraint)> {
-        //debug!("maybe_trait_ty: {:?}", maybe_trait_ty);
         match constraint {
             Constraint { toc: Some(to_), .. } => {
-                //debug!("PROPAGATING TOC: {:?}", to_);
                 return Some(to_.clone());
             }
             Constraint {
                 toc: None,
                 cfc: Some(maybe_to),
             } => {
-                //debug!("MAYBE PULL TOC from {:?}", maybe_to);
                 match maybe_to {
-                    RunningConstraint::Adt(adtdef, adt_genargs, fields) => {
+                    RunningConstraint::Adt(adtdef, adt_genargs, variant_idx, fields) => {
                         // If we get Some, that means this struct/adt implements one or more
                         // traits, but that does _not_ mean that this is a trait object
                         match self.tstore.struct_traits.get(&adtdef.0) {
@@ -363,9 +360,6 @@ impl<'a> RvalConverter<'a> {
                                 // Once we know we are storing the result of this rval into a
                                 // traitobj, only _then_ can we populate the traitobj constraint field
                                 if let Some(trait_ty) = maybe_trait_ty {
-                                    //debug!("ADT (adtdef): {:?}", adtdef);
-                                    //debug!("SETTING TOC: ({:?}, {:?})", adtdef, adt_genargs);
-                                    //debug!("trait_ty: {:?}", trait_ty);
                                     if trait_ty.len() > 1 {
                                         todo!();
                                     }
@@ -375,21 +369,18 @@ impl<'a> RvalConverter<'a> {
                                         TraitObjConstraint::Adt(
                                             adtdef.clone(),
                                             adt_genargs.clone(),
+                                            variant_idx.clone(),
                                             fields.clone(),
                                         ),
                                     ));
                                 }
                             }
-                            _ => {} //debug!("no possible traits?"),
+                            _ => {}
                         }
                     }
                     RunningConstraint::Closure(cdef, genargs) => {
                         // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
-
                         if let Some(trait_ty) = maybe_trait_ty {
-                            //debug!("CLOSURE (cdef): {:?}", cdef);
-                            //debug!("SETTING TOC: ({:?}, {:?})", cdef, genargs);
-                            //debug!("trait_ty: {:?}", trait_ty);
                             if trait_ty.len() > 1 {
                                 todo!();
                             }
@@ -400,10 +391,10 @@ impl<'a> RvalConverter<'a> {
                             ));
                         }
                     }
-                    _ => {} //debug!("another CFC kind"),
+                    _ => {}
                 }
             }
-            _ => {} //debug!("CFC is NONE"),
+            _ => {}
         }
 
         None
@@ -473,11 +464,8 @@ impl<'a> RvalConverter<'a> {
         debug!("ops: {:?}", ops);
         debug!("destty: {:?}", destty);
         match kind {
-            AggregateKind::Adt(def, _variant_idx, genargs, _, _field_idx) => {
+            AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
                 debug!("ADT agg");
-                //debug!("field_idx: {:?}", field_idx);
-                //let ty = def.ty_with_args(genargs);
-                //debug!("ty: {:?}", ty);
 
                 // Create projections here to simulate field initializers
                 let mut fields = Vec::new();
@@ -498,7 +486,6 @@ impl<'a> RvalConverter<'a> {
                         _ => todo!("op: {:?}", op),
                     }
 
-                    //let proj = vec![ProjectionElem::Deref, ProjectionElem::Field(i, op_ty)];
                     let proj = vec![ProjectionElem::Field(i, op_ty)];
                     debug!("PROJ: {:?}", proj);
                     fields.push((
@@ -512,17 +499,20 @@ impl<'a> RvalConverter<'a> {
 
                 Constraints::from(Constraint::new(
                     None,
-                    Some(RunningConstraint::Adt(*def, genargs.clone(), fields)),
+                    Some(RunningConstraint::Adt(
+                        *def,
+                        genargs.clone(),
+                        Some(*variant_idx),
+                        fields,
+                    )),
                 ))
             }
             AggregateKind::Tuple => {
-                //debug!("tuple agg");
                 let mut inner_constraints = Vec::new();
                 for op in ops {
                     let op_constraints =
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
-                    //debug!("op_constraints: {:?}", op_constraints.clone());
-                    unique_append(&mut inner_constraints, op_constraints.inner);
+                    inner_constraints.push(op_constraints); // preserve position; no merging across slots
                 }
                 Constraints::from(Constraint::new(
                     None,
@@ -530,9 +520,6 @@ impl<'a> RvalConverter<'a> {
                 ))
             }
             AggregateKind::RawPtr(ty, _mut) => {
-                //debug!("rawptr agg");
-                //debug!("ty: {:?}", ty);
-
                 match ops.len() {
                     0 => todo!("no operands"),
                     1 => todo!("thin ptr (1 operand)"),
@@ -639,7 +626,7 @@ impl<'a> RvalConverter<'a> {
                             // FIXME fields is empty
                             Constraint::new(
                                 None,
-                                Some(RunningConstraint::Adt(def, genargs, vec![])),
+                                Some(RunningConstraint::Adt(def, genargs, None, vec![])),
                             ),
                         )
                     } else {
@@ -649,7 +636,7 @@ impl<'a> RvalConverter<'a> {
                             // FIXME fields is empty
                             Constraint::new(
                                 None,
-                                Some(RunningConstraint::Adt(def, genargs, vec![])),
+                                Some(RunningConstraint::Adt(def, genargs, None, vec![])),
                             ),
                         )
                     }
@@ -753,7 +740,13 @@ impl<'a> RvalConverter<'a> {
 
         let second = Constraint::new(None, Some(RunningConstraint::Scalar(None)));
 
-        let constraint = Constraint::new(None, Some(RunningConstraint::Tuple(vec![first, second])));
+        let constraint = Constraint::new(
+            None,
+            Some(RunningConstraint::Tuple(vec![
+                Constraints::from(first),
+                Constraints::from(second),
+            ])),
+        );
         Constraints::from(constraint)
     }
 

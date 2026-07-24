@@ -550,6 +550,7 @@ impl<'a> InterpPass<'a> {
                             call_stack,
                             cur_scope,
                             local_decls,
+                            bb,
                             &cf,
                             args,
                         ) {

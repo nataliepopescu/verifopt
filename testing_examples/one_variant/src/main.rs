@@ -1,6 +1,8 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
+use std::hint::black_box;
+
 pub trait Animal {
     fn speak(&self) -> usize;
     fn walk(&self) -> usize;
@@ -43,12 +45,12 @@ fn main() {
         1 => println!("Pass in a number and see what happens!"),
         _ => {
             let animal = get_animal(args[1].parse().unwrap());
-            let cat = get_cat();
-            let _animal_vtable = core::ptr::metadata(&*animal);
-            let _cat_vtable = core::ptr::metadata(&*cat);
+            //let _cat = get_cat();
+            //let _animal_vtable = core::ptr::metadata(&*animal);
+            //let _cat_vtable = core::ptr::metadata(&*cat);
             //let res = wrap_dyn_call(&animal);
-            let res = animal.speak();
-            println!("res: {:?}", res);
+            black_box(animal.speak());
+            //println!("res: {:?}", res);
         }
     }
 }

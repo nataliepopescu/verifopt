@@ -23,6 +23,7 @@ pub mod convert;
 pub mod error;
 pub mod interp;
 pub mod logger;
+pub mod merge;
 //pub mod projection;
 pub mod rewrite;
 pub mod sig_collect;
@@ -30,7 +31,7 @@ pub mod trait_collect;
 pub mod util;
 pub mod wto;
 
-use crate::constraints::InterpStore;
+use crate::constraints::Context;
 use crate::interp::InterpPass;
 use crate::logger::VOLogger;
 use crate::sig_collect::{SigCollectPass, SigStore};
@@ -67,9 +68,9 @@ pub fn start_verifopt(
 
     // Abstractly Interpret MIR
     debug!("\n\nINTERP PASS");
-    let mut istore = InterpStore::new();
+    let mut ctxt = Context::empty();
     let interp = InterpPass::new(&sigstore, &tstore);
-    let _ = interp.run(&mut logger, &mut istore, entry_instance);
+    let _ = interp.run(&mut logger, &mut ctxt, entry_instance);
 
     let incomplete = &interp.incomplete.borrow();
     let confirmed: HashMap<Span, bool> = interp

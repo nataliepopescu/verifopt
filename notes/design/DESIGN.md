@@ -256,11 +256,19 @@ in the trait store
 Making map keys _places_ instead of _locals_ to maintain projection/field
 information
 
-When create an ADT, also store field projections
+abstraction for getting/setting values/constraints in context now also includes
+FIELDS
+- CAFs = ConstrantsAndFields
 
-Propagate field projections when
-- assign value of type w projs to another place
-- passing the type w projs as an argument to a func call
+- should be set during:
+    - [x] assignment / creation
+    - [ ] function return - retval
+        - [ ] direct
+        - [ ] indirect
+    - [x] function call (specifically, during arg resolution)
+    - [ ] also, if function args are mutable, function return - argval(s)
+
+- similar "inflection points" to where we check for TOC
 
 Casting
 - Unlikely (?) that types are cast into ADTs (current assumption)
@@ -268,8 +276,9 @@ Casting
 TODO intermediate projections
 - intuition: if assign to a place with some projection, could feasibly access
   any intermediate projection on that projection path that place as well
+- unclear that this is useful yet though
 
-##### Re-assigning Place w Projections (via converter)
+//##### Re-assigning Place w Projections (via converter)
 
 
 

@@ -6,10 +6,11 @@ use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{Body, LocalDecl, Mutability, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
+    VariantIdx,
 };
 
 //use crate::common::log_scope;
-use crate::error::Error;
+use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
@@ -17,6 +18,14 @@ use log::debug;
 
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
+
+//pub fn unique_update(ret: ConstraintsAndFields, new: ConstraintsAndFields) -> ConstraintsAndFields {
+//    let (mut old_constraints, mut old_fields) = ret;
+//    let (new_constraints, new_fields) = new;
+//    unique_append(&mut old_constraints, new_constraints.to_vec());
+//    unique_append(&mut old_fields, new_fields.to_vec());
+//    (old_constraints, old_fields)
+//}
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -46,18 +55,77 @@ pub type EnclosingScopes = Option<Vec<VOID>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
-    Store(InterpStore, EnclosingScopes),
+    Store(ConstraintStore, EnclosingScopes),
     Constraints(Constraints),
 }
 
-pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
-
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-pub type Constraints = Vec<Constraint>;
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub struct Constraints {
+    pub inner: Vec<Constraint>,
+}
 
-// Alias around VORval to make it semantically easier to tell when we are processing generic arguments
-//pub type VOGenargs = Vec<VOGenarg>;
-//pub type VOGenarg = VORval;
+impl Constraints {
+    pub fn new() -> Constraints {
+        Self { inner: Vec::new() }
+    }
+
+    pub fn from(constraint: Constraint) -> Constraints {
+        Self {
+            inner: vec![constraint],
+        }
+    }
+
+    pub fn from_vec(inner: Vec<Constraint>) -> Constraints {
+        Self { inner }
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.len() == 0
+    }
+
+    pub fn at(&self, idx: usize) -> &Constraint {
+        &self.inner[idx]
+    }
+
+    pub fn push(&mut self, new_constraint: Constraint) {
+        unique_push(&mut self.inner, new_constraint);
+    }
+
+    pub fn append(&mut self, new_constraints: Constraints) {
+        unique_append(&mut self.inner, new_constraints.inner);
+    }
+
+    // Write: strong-update the field within EVERY disjunct currently in scope.
+    // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
+    pub fn write_field(&mut self, elem: Vec<ProjectionElem>, new: Constraints) {
+        for c in self.inner.iter_mut() {
+            if let Some(RunningConstraint::Adt(_, _, _, fields)) = &mut c.cfc {
+                fields.retain(|(e, _)| e != &elem);
+                fields.push((elem.clone(), new.clone()));
+            }
+        }
+    }
+
+    pub fn filter_variant(&self, vidx: VariantIdx) -> Constraints {
+        let mut out = Constraints::new();
+        for c in &self.inner {
+            match &c.cfc {
+                Some(RunningConstraint::Adt(_, _, variant, _)) => {
+                    if variant.is_none() || *variant == Some(vidx) {
+                        out.push(c.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+}
 
 // Maybe organize TraitObjConstraints by trait..? Like if we have two potentially obfuscating
 // dynamic calls (one for Option and one for inner TraitObj)
@@ -87,12 +155,12 @@ impl Constraint {
     }
 }
 
-//pub type TraitObjConstraint = (AdtDef, GenericArgs);
+pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
     // more complex data types
-    Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
+    Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
 
     // callable types
     Closure(ClosureDef, GenericArgs),
@@ -107,10 +175,6 @@ impl Location {
     }
 }
 
-// Location portion corresponds to when this constraint was last set (at what span)
-// TODO maybe refine this a bit though
-//pub type RunningConstraint = (Location, RunningConstraintInner);
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RunningConstraint {
     // primitive data types
@@ -118,7 +182,7 @@ pub enum RunningConstraint {
     Float,
 
     // more complex data types
-    Adt(AdtDef, GenericArgs), //Option<VOGenargs>),
+    Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
 
     // pointer types
     Ptr(Box<Constraint>),
@@ -127,7 +191,7 @@ pub enum RunningConstraint {
     // callable types
     Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, GenericArgs),
-    FnPtr(SigVal), //Box<Constraints>, FnSig),
+    FnPtr(SigVal),
 
     // dynamic types
     Dynamic(Vec<TraitObjTy>),
@@ -135,7 +199,7 @@ pub enum RunningConstraint {
     // fallback types
     //IdkType(Ty),
     List(Box<Constraint>),
-    Tuple(Vec<Constraint>),
+    Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),
 }
 
@@ -206,7 +270,7 @@ impl ArgSet {
     pub fn new(constraints: &[Constraints]) -> Self {
         let args = constraints
             .iter()
-            .map(|cs| cs.iter().cloned().collect::<HashSet<Constraint>>())
+            .map(|cs| cs.inner.iter().cloned().collect::<HashSet<Constraint>>())
             .collect();
 
         ArgSet { args }
@@ -234,7 +298,7 @@ pub type SummaryKey = (VOID, ArgSet);
 pub fn summary_key(
     ipass: &InterpPass,
     scope: VOID,
-    istore: &InterpStore,
+    ctxt: &Context,
     term_span: &Span,
     caller_scope: &VOID,
     body: &Body,
@@ -242,19 +306,18 @@ pub fn summary_key(
     args: &Vec<Operand>,
     is_closure: bool,
 ) -> SummaryKey {
-    let cs: Vec<Constraints> = ipass
-        .collect_resolved_args(
-            istore,
-            term_span,
-            caller_scope,
-            &body,
-            local_decls,
-            args,
-            is_closure,
-        )
-        .into_iter()
-        .map(|(cs, _)| cs)
-        .collect();
+    let cs: Vec<Constraints> = ipass.collect_resolved_args(
+        ctxt,
+        term_span,
+        caller_scope,
+        &body,
+        local_decls,
+        args,
+        is_closure,
+    );
+    //.into_iter()
+    //.map(|(cs, _)| cs)
+    //.collect();
 
     (scope, ArgSet::new(&cs))
 }
@@ -265,20 +328,175 @@ pub fn summary_key(
 //pub type FieldPlace = Place;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct InterpStore {
-    pub cmap: HashMap<MapKey, Box<MapValue>>,
+pub struct Context {
+    pub cstore: ConstraintStore,
     pub wtos: HashMap<VOID, BBDeps>,
-    // Map ADT places to their field places (projections) which have constraints in cmap
-    pub field_map: HashMap<(Place, VOID), Vec<Place>>,
+}
+
+impl Context {
+    pub fn new(cstore: ConstraintStore, wtos: HashMap<VOID, BBDeps>) -> Context {
+        Self { cstore, wtos }
+    }
+
+    pub fn empty() -> Context {
+        Self {
+            cstore: ConstraintStore::new(),
+            wtos: HashMap::default(),
+        }
+    }
+
+    pub fn get_wto(&self, scope: &VOID) -> Option<&BBDeps> {
+        self.wtos.get(scope)
+    }
+
+    pub fn set_wto(&mut self, scope: &VOID, bbdeps: &BBDeps) {
+        self.wtos.insert(scope.clone(), bbdeps.clone());
+    }
+
+    pub fn set_scoped_constraints(
+        &mut self,
+        scope: &VOID,
+        place: &Place,
+        constraints: Constraints,
+    ) {
+        self.cstore.scoped_update(
+            scope,
+            MapKey::Var(place.clone()),
+            Box::new(MapValue::Constraints(constraints)),
+        );
+    }
+
+    fn step_field(
+        &self,
+        scope: &VOID,
+        constraints: &Constraints,
+        elem: &ProjectionElem,
+    ) -> Constraints {
+        let mut out = Constraints::new();
+        for constraint in &constraints.inner {
+            out.append(self.step_field_one(scope, constraint, elem));
+        }
+        out
+    }
+
+    fn field_idx(&self, elem: &ProjectionElem) -> usize {
+        match elem {
+            ProjectionElem::Field(idx, _) => *idx,
+            _ => panic!("expected Field projection: {:?}", elem),
+        }
+    }
+    fn step_field_one(
+        &self,
+        scope: &VOID,
+        constraint: &Constraint,
+        elem: &ProjectionElem,
+    ) -> Constraints {
+        match &constraint.cfc {
+            Some(RunningConstraint::Adt(_, _, _, fields)) => fields
+                .iter()
+                .find(|(key, _)| key.len() == 1 && self.field_idx(&key[0]) == self.field_idx(elem))
+                .map(|(_, cs)| cs.clone())
+                .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
+            Some(RunningConstraint::Tuple(inner)) => match elem {
+                ProjectionElem::Field(idx, _) => {
+                    inner.get(*idx).cloned().unwrap_or_else(Constraints::new)
+                }
+                _ => Constraints::new(),
+            },
+            Some(RunningConstraint::Ptr(box inner)) => self.step_field_one(scope, inner, elem),
+            Some(RunningConstraint::Idk(box inner_cs)) => {
+                let mut out = Constraints::new();
+                for ic in &inner_cs.inner {
+                    out.append(self.step_field_one(scope, ic, elem));
+                }
+                out
+            }
+            // Scalar/Float/Dynamic/Closure/etc: this disjunct has no field structure at all,
+            // so it contributes no information to the projection — not an error.
+            _ => {
+                debug!(
+                    "unexpected running constraint type to have projections: {:?}",
+                    constraint.cfc
+                );
+                Constraints::new()
+            }
+        }
+    }
+
+    pub fn get_constraints(
+        &self,
+        scope: &VOID,
+        place: &Place,
+        is_closure: bool,
+    ) -> Option<Constraints> {
+        if place.projection.is_empty() {
+            match self
+                .cstore
+                .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
+            {
+                Some(MapValue::Constraints(constraints)) => Some(constraints),
+                None => None,
+                _ => panic!("got store instead of constraints"),
+            }
+        } else {
+            let base = Place {
+                local: place.local,
+                projection: vec![],
+            };
+            match self.get_constraints(scope, &base, is_closure) {
+                Some(base_constraints) => {
+                    debug!("\nBASE: {:?}", base);
+                    debug!("BASE CONSTRAINTS: {:?}", base_constraints);
+                    debug!("PROJECTION: {:?}", place.projection);
+
+                    // Collect every matching projection in the set of constraints
+                    let mut cur = base_constraints;
+                    for elem in &place.projection {
+                        match elem {
+                            ProjectionElem::Downcast(vidx) => {
+                                cur = cur.filter_variant(*vidx);
+                            }
+                            ProjectionElem::Field(..) => {
+                                cur = self.step_field(scope, &cur, elem);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    Some(cur)
+                }
+                None => None,
+            }
+        }
+    }
+
+    pub fn set_cstore_scope(
+        &mut self,
+        scope: &VOID,
+        store: ConstraintStore,
+        enclosing_scope: EnclosingScopes,
+    ) {
+        self.cstore.cmap.insert(
+            MapKey::ScopeId(scope.clone()),
+            Box::new(MapValue::Store(store, enclosing_scope)),
+        );
+    }
+
+    pub fn get_cstore_scope(&self, scope: &VOID) -> Option<&Box<MapValue>> {
+        self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstraintStore {
+    pub cmap: HashMap<MapKey, Box<MapValue>>,
     pub refs: HashMap<(Place, VOID), ((Place, VOID), Mutability)>,
 }
 
-impl InterpStore {
-    pub fn new() -> InterpStore {
+impl ConstraintStore {
+    pub fn new() -> ConstraintStore {
         Self {
             cmap: HashMap::default(),
-            wtos: HashMap::default(),
-            field_map: HashMap::default(),
             refs: HashMap::default(),
         }
     }
@@ -342,37 +560,6 @@ impl InterpStore {
         cur
     }
 
-    pub fn link_adt_field(
-        &mut self,
-        adt_place_and_scope: &(Place, VOID),
-        field_place: &Place, //roj: &ProjectionElem,
-    ) {
-        debug!("\nLINKING FIELD");
-        debug!("new_field_place: {:?}", field_place);
-
-        match self.field_map.get_mut(adt_place_and_scope) {
-            Some(field_places) => {
-                //debug!("ADDING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("old field projections: {:?}", field_places);
-                //debug!("new field projection: {:?}", field_place);
-
-                let mut new_field_places = Vec::new();
-                for old_field_place in field_places.clone() {
-                    unique_push(&mut new_field_places, old_field_place.clone());
-                    unique_push(&mut new_field_places, field_place.clone());
-                }
-                debug!("NEW FIELD PROJECTIONS: {:?}", new_field_places);
-                *field_places = new_field_places;
-            }
-            None => {
-                //debug!("INITING FIELDS for ADT at {:?}", adt_place_and_scope);
-                //debug!("new field projection: {:?}", field_place);
-                self.field_map
-                    .insert(adt_place_and_scope.clone(), vec![field_place.clone()]);
-            }
-        }
-    }
-
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
         let (scope, key) = match key {
             MapKey::Var(place) => {
@@ -391,27 +578,12 @@ impl InterpStore {
                     match store.cmap.get(&key) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
-                            //debug!("is_closure?: {:?}", is_closure);
-                            //debug!("enclosing_scope: {:?}", enclosing_scopes);
                             if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
                                 let constraints =
                                     self.get_from_enclosing_scopes(&enclosing_scopes, &key);
                                 Some(MapValue::Constraints(constraints))
                             } else {
-                                // If this is incorrectly labeled as _not_ a closure (meaning it
-                                // should be labeled a closure), can we get the needed value in the
-                                // enclosing scope?
-                                //debug!("SHOULD THIS SCOPE BE A CLOSURE?");
-                                //log_scope(&scope);
-
-                                //if enclosing_scopes.is_some() {
-                                //    let constraints = self.get_from_enclosing_scopes(&enclosing_scopes, key);
-                                //    debug!("got constraints from enclosing scope: {:?}", constraints);
-                                //} else {
-                                //    debug!("nope");
-                                //}
-
                                 None
                             }
                         }
@@ -428,12 +600,12 @@ impl InterpStore {
         enclosing_scopes: &EnclosingScopes,
         key: &MapKey,
     ) -> Constraints {
-        let mut all_constraints = Vec::new();
+        let mut all_constraints = Constraints::new();
         for enclosing_scope in enclosing_scopes.as_ref().unwrap() {
             match self.scoped_get(&enclosing_scope, key, false) {
                 Some(val) => match val {
                     MapValue::Constraints(constraints) => {
-                        unique_append(&mut all_constraints, constraints)
+                        all_constraints.append(constraints);
                     }
                     _ => panic!("got scope"),
                 },
@@ -475,125 +647,16 @@ impl InterpStore {
                     panic!("defid is not a scope: {:?}", scope);
                 }
             },
-            None => panic!("undefined scope: {:?}", scope),
-        }
-    }
-}
-
-pub fn merge_stores(
-    cur_store: &InterpStore,
-    cur_es: &EnclosingScopes,
-    new_store: &InterpStore,
-    new_es: &EnclosingScopes,
-) -> (InterpStore, EnclosingScopes) {
-    let merged_es = match (cur_es, new_es) {
-        (Some(cur_es_vec), Some(new_es_vec)) => {
-            let mut merged_es_vec = cur_es_vec.clone();
-            unique_append(&mut merged_es_vec, new_es_vec.to_vec());
-            Some(merged_es_vec)
-        }
-        (Some(cur_es_vec), None) => Some(cur_es_vec.to_vec()),
-        (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
-        (None, None) => None,
-    };
-
-    let merged_store = if *cur_store != *new_store {
-        merge_stores_helper(cur_store, new_store)
-    } else {
-        cur_store.clone()
-    };
-
-    (merged_store, merged_es)
-}
-
-fn merge_stores_helper(cur_store: &InterpStore, new_store: &InterpStore) -> InterpStore {
-    let vec = vec![cur_store.clone(), new_store.clone()];
-    match vec.merge() {
-        Ok(Some(merged)) => merged,
-        Ok(None) => panic!("no stores to merge?"),
-        e @ _ => panic!("error merging stores: {:?}", e),
-    }
-}
-
-// FIXME merge span of RunningConstraints into a single vec if the RunningConstraintsInner are equal
-fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
-    let mut merged = cur_constraints.clone();
-    if merged != *new_constraints {
-        unique_append(&mut merged, new_constraints.to_vec());
-    }
-    merged
-}
-
-fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
-    match (cur_val.clone(), new_val.clone()) {
-        (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
-            MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
-        }
-        (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
-            let (store, es) = merge_stores(&cur_store, &cur_es, &new_store, &new_es);
-            MapValue::Store(store, es)
-        }
-        _ => panic!("incomparable MapValue types"),
-    }
-}
-
-pub trait Merge<T> {
-    fn merge(&self) -> Result<Option<T>, Error>;
-}
-
-impl Merge<InterpStore> for Vec<InterpStore> {
-    fn merge(&self) -> Result<Option<InterpStore>, Error> {
-        //debug!("interp stores to merge: {:?}", self);
-
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        if self.len() == 1 {
-            return Ok(Some(self[0].clone()));
-        }
-
-        let mut merged = self[0].clone();
-        let mut first = true;
-        for store in self.iter() {
-            if first {
-                first = false;
-                continue;
-            }
-            for (key, val) in store.clone().cmap.iter() {
-                match merged.cmap.get_mut(key) {
-                    Some(merged_val) => {
-                        let new_merged_val = merge_mapvals(merged_val, val);
-                        merged.cmap.insert(key.clone(), Box::new(new_merged_val));
-                    }
-                    None => {
-                        merged.cmap.insert(key.clone(), val.clone());
-                    }
-                }
+            None => {
+                // initialize new scope w key/val
+                debug!("undefined scope: {:?} INIT NEW SUBSTORE", scope);
+                let mut new_store = ConstraintStore::new();
+                new_store.cmap.insert(key, value);
+                self.cmap.insert(
+                    MapKey::ScopeId(scope.clone()),
+                    Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
+                );
             }
         }
-
-        //debug!("merged stores: {:?}", merged);
-
-        Ok(Some(merged))
-    }
-}
-
-impl Merge<Constraints> for Vec<Constraints> {
-    fn merge(&self) -> Result<Option<Constraints>, Error> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        if self.len() == 1 {
-            return Ok(Some(self[0].clone()));
-        }
-
-        let mut merged_constraints = self[0].clone();
-        for constraints in self.iter() {
-            merged_constraints = merge_constraints(&merged_constraints, &constraints);
-        }
-
-        Ok(Some(merged_constraints))
     }
 }

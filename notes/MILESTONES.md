@@ -6,10 +6,10 @@
     - [ ] FSA interp (DRIVEN BY EVAL)
         - [ ] hierarchical field support
         - [ ] generalize function summaries
-        - [ ] inline asm
+        - [ ] handle inline asm
         - [ ] fn sig narrowing (scope?)
         - [ ] fn ptrs to nested fn decls
-        - [ ] loops
+        - [ ] handle loops
 
     - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
         - [ ] make call_stack and friends use interior mutability
@@ -51,30 +51,27 @@
 ## Tentative Milestones
 
 by aug 1
-- run verifopt on full ripgrep
-- OR
-- run on 1 new example
-
-- merge ayush changes
-
-- make progress on general rewrite / vtable ptr changes
+- [ ] run verifopt on full ripgrep
+- [ ] run on 1 new example
+- [ ] merge ayush changes
+- [ ] make progress on general rewrite / vtable ptr changes
 
 by aug 14
-- run on 4 examples total
-- write summary/synthesis
-- general rewrite
+- [ ] run on 4 examples total
+- [ ] write summary/synthesis
+- [ ] general rewrite
 
 by aug 21
-- run on 7 examples total
-- write summary/synthesis
-- microbenchmarks
+- [ ] run on 7 examples total
+- [ ] write summary/synthesis
+- [ ] microbenchmarks
 
 by sept 4
-- impl RTA + Rupta baselines + test on existing examples
-- write summary/synthesis
+- [ ] impl RTA + Rupta baselines + test on existing examples
+- [ ] write summary/synthesis
 
 by sept 9
-- fill in paper
+- [ ] fill in paper
 
 ## Deadlines
 

@@ -12,7 +12,7 @@ then `cd` into any of the example dirs (e.g.
 `testing_examples/casting_traitobj`) and run:
 
 ```sh
-cargo clean && VERIFOPT_LOG=debug cargo verifopt --release 2> log.md
+rm -f stats && cargo clean && VERIFOPT_LOG=debug cargo verifopt --release 2> log.md
 ```
 
 or just
@@ -44,6 +44,7 @@ FSA (1): [(DefId { id: 20565, name: "<casting_traitobj::Cat as casting_traitobj:
 - [x] casting_traitobj
 - [x] closures
 - [x] default
+- [x] fields
 - [x] fnptrs
 - [x] generic
 - [ ] one_variant
@@ -71,6 +72,8 @@ FSA (1): [(DefId { id: 20565, name: "<casting_traitobj::Cat as casting_traitobj:
     - FSA win!
 - [x] recursive_dyn
 - [x] recursive_dyn2
+- [x] fields
+    - FSA win!
 - [ ] one_variant
 - [ ] two_variants
     - not really anything else to analyze b/c input cannot be statically known...

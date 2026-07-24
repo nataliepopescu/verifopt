@@ -590,11 +590,84 @@ things that might have that as a thing
     - or, if an exact projection is not stored, can we search around somehow?
 
 
-back in main before speak()
+
+when returning from `alloc_impl_runtime` into `exchange_malloc`
+- looking for field: ((*_0).0: std::ptr::NonNull<[u8]>)
+
+- wait, `((*_0).0: std::ptr::NonNull<[u8]>)` does exist in the cmap??
+- fixed and added CAF API
+
+
+
+NOW back in main before speak()
 
 _11 = Cast(Transmute, Copy(((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>)), Ty { id: 77983, kind: RigidTy(RawPtr(Ty { id: 77996, kind: RigidTy(Dynamic([Binder { value: Trait(ExistentialTraitRef { def_id: TraitDef(DefId { id: 1, name: "two_variants_static::Animal" }), generic_args: GenericArgs([]) }), bound_vars: [] }], Region { kind: ReErased })) }, Not)) })
 
 "place ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) has not been set, widen to type"
+
+statement: 
+_11 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+
+
+### ripgrep hits todo! in convert:193
+
+in convert_place
+- get_cafs returns NONE
+    - nothing is set for this place yet
+    - so, converting from type
+    - type ends up containing a dyn (for the Log trait)
+
+in this case i think we might be incorrectly be ending up in the None branch?
+- commenting out TODO for now to see what happens
+
+yes incorrect, the LOGGER const is declared in a static, which we do not yet
+parse (ayush change)
+
+TODO
+
+
+
+
+
+### one_variant hits todo! in convert_place None branch (place ty contains dyn)
+
+how are we getting here?
+
+- get_animal passes
+- get_cat passes
+
+this MIR statement:
+
+_20 = copy ((_6.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+- _6 is the result of get_animal
+
+code path
+- claims the place (w the projections? idk) exists
+- yet when we try to get the CAFs it returns None
+
+- mm, ok so we expect something to exist, but it doesn't
+- likely the projections are messed up
+
+things are a bit out of whack, maybe a better design will help clear up the
+implementation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

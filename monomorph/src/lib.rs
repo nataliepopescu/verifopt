@@ -10,12 +10,12 @@ extern crate rustc_public;
 extern crate rustc_public_bridge;
 
 //use rustc_public::CrateDef;
-use rustc_public::mir::mono::Instance;
-use rustc_public::ty::Span;
+use rustc_public::DefId;
 use std::collections::HashMap;
+use rustc_public::mir::mono::Instance;
+use rustc_public::ty::{GenericArgs, Span};
 
 use log::debug;
-use std::ops::ControlFlow;
 
 pub mod common;
 pub mod constraints;
@@ -38,7 +38,9 @@ use crate::sig_collect::{SigCollectPass, SigStore};
 use crate::trait_collect::{TraitCollectPass, TraitStore};
 use crate::util::options::AnalysisOptions;
 
-pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
+pub fn start_verifopt(
+    _options: AnalysisOptions,
+) -> HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)> {
     // TODO make log filename a cmdline option
     let f_filename = "found_ex";
     let nf_filename = "notfound_ex";
@@ -70,8 +72,6 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
     let interp = InterpPass::new(&sigstore, &tstore);
     let _ = interp.run(&mut logger, &mut ctxt, entry_instance);
 
-    // TODO Rewrite MIR
-
     let incomplete = &interp.incomplete.borrow();
     let confirmed: HashMap<Span, bool> = interp
         .dependencies
@@ -82,20 +82,20 @@ pub fn start_verifopt(_options: AnalysisOptions) -> ControlFlow<()> {
 
     let cha = &interp.dispatch_cha.borrow();
 
-    let fsa = &interp
+    let fsa = interp
         .dispatch_targets
         .borrow()
         .iter()
-        .map(|(&span, impls)| {
+        .map(|(&key, (span, impls))| {
             if *confirmed.get(&span).unwrap() {
-                (span, impls.clone())
+                (key, (span.clone(), impls.clone()))
             } else {
-                (span, cha.get(&span).unwrap().clone())
+                (key, (span.clone(), cha.get(&key).unwrap().clone().1))
             }
         })
         .collect();
 
-    let _ = logger.log_stats(fsa, cha);
+    let _ = logger.log_stats(&fsa, cha);
 
-    ControlFlow::Continue(())
+    fsa
 }

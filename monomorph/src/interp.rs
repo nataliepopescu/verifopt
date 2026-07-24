@@ -1272,6 +1272,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
+            debug!("arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap

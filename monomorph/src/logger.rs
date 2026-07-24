@@ -1,8 +1,9 @@
 use rustc_public::DefId;
 use rustc_public::ty::{GenericArgs, Span};
 
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{Error, Write};
 
 pub struct VOLogger {
     stats_file: File,
@@ -21,14 +22,14 @@ impl VOLogger {
 
     pub fn log_stats(
         &mut self,
-        dispatch_targets: &std::collections::HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>,
-        dispatch_cha: &std::collections::HashMap<Span, Vec<(DefId, Option<GenericArgs>)>>,
-    ) -> Result<(), std::io::Error> {
+        dispatch_targets: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+        dispatch_cha: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+    ) -> Result<(), Error> {
         let mut diff = Vec::new();
         let mut same = Vec::new();
 
-        for (span, fsa) in dispatch_targets {
-            let cha = dispatch_cha.get(span).cloned().unwrap_or_default();
+        for (key, (span, fsa)) in dispatch_targets {
+            let cha = dispatch_cha.get(key).cloned().unwrap().1;
 
             if cha.len() == fsa.len() {
                 same.push((*span, cha, fsa.clone()));

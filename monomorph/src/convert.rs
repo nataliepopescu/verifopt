@@ -347,7 +347,23 @@ impl<'a> RvalConverter<'a> {
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
                 } else {
-                    Constraints::from(post_constraint)
+                    // Non-dyn cast: if the source is one of the known single-field
+                    // pointer wrappers (Unique/NonNull/Box) and the destination is a
+                    // raw pointer/reference to the wrapped type, this Transmute is
+                    // just "unwrap that one field" — same operation as a normal field
+                    // projection hop, not a fresh type-only reconstruction.
+                    match &post_constraint.cfc {
+                        Some(RunningConstraint::Ptr(_)) | Some(RunningConstraint::Adt(..)) => {
+                            let unwrapped = ctxt.step_field(cur_scope, &prev_constraints, &ProjectionElem::Field(0, ty.clone()));
+                            if unwrapped.inner.is_empty() {
+                                // not actually one of the known wrapper shapes — fall back
+                                Constraints::from(post_constraint)
+                            } else {
+                                unwrapped
+                            }
+                        }
+                        _ => prev_constraints,
+                    }
                 }
             }
             _ => todo!("runtime checks"),

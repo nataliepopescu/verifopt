@@ -34,7 +34,7 @@ where T: Clone + Default + Debug
     }
 
     /*
-    pub fn new_fixed() -> FunctionalList<T> {
+    pub fn new_fixed_loop() -> FunctionalList<T> {
         let mut l = FunctionalList::<T>::new();
 
         for _ in 0..4 {
@@ -45,7 +45,19 @@ where T: Clone + Default + Debug
     }
     */
 
-    pub fn new_arbitrary() -> FunctionalList<T> {
+    pub fn new_fixed() -> FunctionalList<T> {
+        let mut l = FunctionalList::<T>::new();
+
+        l.push(T::default());
+        l.push(T::default());
+        l.push(T::default());
+        l.push(T::default());
+
+        l
+    }
+
+    /*
+    pub fn new_arbitrary_loop() -> FunctionalList<T> {
         let mut l = FunctionalList::<T>::new();
 
         loop {
@@ -54,6 +66,26 @@ where T: Clone + Default + Debug
             } else {
                 break;
             }
+        }
+
+        l
+    }
+    */
+
+    pub fn new_arbitrary() -> FunctionalList<T> {
+        let mut l = FunctionalList::<T>::new();
+
+        if rand::rng().random_range(..2usize) == 1 {
+            l.push(T::default());
+        }
+        if rand::rng().random_range(..2usize) == 1 {
+            l.push(T::default());
+        }
+        if rand::rng().random_range(..2usize) == 1 {
+            l.push(T::default());
+        }
+        if rand::rng().random_range(..2usize) == 1 {
+            l.push(T::default());
         }
 
         l
@@ -83,9 +115,8 @@ fn noop(num: usize) {
 }
 
 fn main() {
-    //let l = FunctionalList::<u32>::new_fixed();
-    let l = FunctionalList::<u32>::new_arbitrary();
-    noop(0);
+    let l = FunctionalList::<u32>::new_fixed();
+    //let l = FunctionalList::<u32>::new_arbitrary();
     match l.head {
         Some(box link1) => match link1.next {
             Some(box link2) => {

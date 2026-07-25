@@ -11,7 +11,6 @@
         "<mut_refs2::Dog as mut_refs2::Animal>::speak"
       ],
       "fsa": [
-        "<mut_refs2::Cat as mut_refs2::Animal>::speak",
         "<mut_refs2::Dog as mut_refs2::Animal>::speak"
       ]
     }

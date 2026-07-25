@@ -129,7 +129,10 @@ impl Constraints {
             // (x as Variant) = v with no further Field: writing a variant's entire
             // payload as one unit rather than through a named field.
             (0, Some(_v)) => {
-                todo!("whole-variant write without a Field projection: {:?}", target_variant);
+                todo!(
+                    "whole-variant write without a Field projection: {:?}",
+                    target_variant
+                );
             }
 
             // The ordinary case: update one field, honoring the same variant-scoping

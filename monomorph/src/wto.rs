@@ -1,4 +1,5 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
+use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_index::bit_set::DenseBitSet;
 //use rustc_public::mir::mono::Instance;
 use rustc_public::mir::{BasicBlock, Body, Successors, TerminatorKind, UnwindAction};
@@ -105,11 +106,15 @@ impl BBDeps {
         let mut ret_found = false;
 
         // Filter out cleanup/unreachable blocks from Reverse Postorder
+        let cleanup = Self::cleanup_blocks(&bb_deps.blocks);
         bb_deps.ordering = bb_deps
             .reverse_postorder()
             .into_iter()
             .map(|bb| (bb, &bb_deps.blocks[bb]))
             .filter(|(bbi, bbd): &(usize, &BasicBlock)| {
+                if cleanup.contains(bbi) {
+                    return false;
+                }
                 match bbd.terminator.kind {
                     TerminatorKind::Call {
                         func: _,
@@ -161,10 +166,40 @@ impl BBDeps {
 
         // add return bb last
         bb_deps.ordering.push(ret_bb);
-        //debug!("self.ordering: {:?}", bb_deps.ordering);
-        //debug!("%%%%%");
+        debug!("%%%%%");
+        debug!("self.ordering: {:?}", bb_deps.ordering);
+        debug!("%%%%%");
 
         bb_deps
+    }
+
+    fn cleanup_blocks(blocks: &[BasicBlock]) -> HashSet<usize> {
+        // Seed with every block directly reachable via an unwind edge,
+        // from whatever terminator kind happens to carry one.
+        let mut seeds = Vec::new();
+        for bbd in blocks {
+            let unwind = match &bbd.terminator.kind {
+                TerminatorKind::Call { unwind, .. } => Some(unwind),
+                TerminatorKind::Drop { unwind, .. } => Some(unwind),
+                TerminatorKind::Assert { unwind, .. } => Some(unwind),
+                // add InlineAsm { unwind, .. } etc. if your rustc_public version has it
+                _ => None,
+            };
+            if let Some(UnwindAction::Cleanup(target)) = unwind {
+                seeds.push(*target);
+            }
+        }
+    
+        // Transitively close over successors — everything reachable from a
+        // cleanup seed is itself cleanup, regardless of what terminator it has.
+        let mut visited: HashSet<usize> = HashSet::default();
+        let mut stack = seeds;
+        while let Some(bb) = stack.pop() {
+            if visited.insert(bb) {
+                stack.extend(blocks[bb].terminator.successors());
+            }
+        }
+        visited
     }
 
     fn reverse_postorder(&self) -> Vec<usize> {

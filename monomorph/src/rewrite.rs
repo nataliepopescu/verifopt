@@ -8,8 +8,8 @@ extern crate rustc_span;
 
 use rustc_middle::mir::{
     BasicBlock, BasicBlockData, BinOp, Body, CastKind, CoercionSource, Const, ConstOperand,
-    LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
-    SwitchTargets, Terminator, TerminatorKind, UnOp, SourceInfo,
+    LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, SourceInfo, Statement,
+    StatementKind, SwitchTargets, Terminator, TerminatorKind, UnOp,
 };
 use rustc_span::def_id::{DefPathHash, LocalDefId};
 
@@ -193,7 +193,9 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let mut new_args = args.clone();
                 new_args[0].node = Operand::Move(recv);
 
-                if let TerminatorKind::Call { func, args: a, .. } = &mut bbs[bb].terminator_mut().kind {
+                if let TerminatorKind::Call { func, args: a, .. } =
+                    &mut bbs[bb].terminator_mut().kind
+                {
                     *func = fnc;
                     *a = new_args;
                 }
@@ -469,7 +471,8 @@ fn narrow_dyn<'tcx>(
     stmts.push(Statement::new(
         si,
         StatementKind::Assign(Box::new((
-            thin, Rvalue::Cast(CastKind::PtrToPtr, recv, ptr_ty),
+            thin,
+            Rvalue::Cast(CastKind::PtrToPtr, recv, ptr_ty),
         ))),
     ));
 
@@ -482,7 +485,12 @@ fn narrow_dyn<'tcx>(
     stmts.push(Statement::new(
         si,
         StatementKind::Assign(Box::new((
-            out, Rvalue::Ref(tcx.lifetimes.re_erased, rustc_middle::mir::BorrowKind::Shared, deref),
+            out,
+            Rvalue::Ref(
+                tcx.lifetimes.re_erased,
+                rustc_middle::mir::BorrowKind::Shared,
+                deref,
+            ),
         ))),
     ));
 

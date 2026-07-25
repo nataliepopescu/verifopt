@@ -116,17 +116,18 @@ impl BBDeps {
                     return false;
                 }
                 match bbd.terminator.kind {
+                    /*
                     TerminatorKind::Call {
                         func: _,
                         args: _,
                         destination: _,
                         target: _,
-                        unwind,
+                        unwind: _,
                     } => {
-                        if let UnwindAction::Unreachable = unwind {
-                            //debug!("UNREACHABLE: {:?}", bbi);
-                            return false;
-                        }
+                        //if let UnwindAction::Unreachable = unwind {
+                        //    //debug!("UNREACHABLE: {:?}", bbi);
+                        //    return false;
+                        //}
                         //if let UnwindAction::Continue = unwind {
                         //    debug!("CONTINUE: {:?}", bbi);
                         //    return false;
@@ -136,6 +137,7 @@ impl BBDeps {
                         //    return false;
                         //}
                     }
+                    */
                     TerminatorKind::Unreachable => return false,
                     TerminatorKind::Resume => return false,
                     TerminatorKind::Abort => return false,

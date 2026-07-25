@@ -73,6 +73,7 @@ example_test!(closures, "closures", Passing);
 example_test!(default, "default", Passing);
 example_test!(fnptrs, "fnptrs", Passing);
 example_test!(generic, "generic", Passing);
+example_test!(list_fields, "list_fields", Passing);
 example_test!(recursive, "recursive", Passing);
 example_test!(shims, "shims", Passing);
 example_test!(switchint, "switchint", Passing);
@@ -96,4 +97,5 @@ example_test!(simple, "simple", Passing);
 example_test!(simple_single, "simple_single", Passing);
 
 // Not yet characterized at all — run and report, don't assert.
+example_test!(constraint_hierarchy, "constraint_hierarchy", Unclassified);
 example_test!(no_vtable_check, "no_vtable_check", Unclassified);

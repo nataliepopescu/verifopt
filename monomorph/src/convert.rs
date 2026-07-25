@@ -338,7 +338,11 @@ impl<'a> RvalConverter<'a> {
                     // projection hop, not a fresh type-only reconstruction.
                     match &post_constraint.cfc {
                         Some(RunningConstraint::Ptr(_)) | Some(RunningConstraint::Adt(..)) => {
-                            let unwrapped = ctxt.step_field(cur_scope, &prev_constraints, &ProjectionElem::Field(0, ty.clone()));
+                            let unwrapped = ctxt.step_field(
+                                cur_scope,
+                                &prev_constraints,
+                                &ProjectionElem::Field(0, ty.clone()),
+                            );
                             if unwrapped.inner.is_empty() {
                                 // not actually one of the known wrapper shapes — fall back
                                 Constraints::from(post_constraint)

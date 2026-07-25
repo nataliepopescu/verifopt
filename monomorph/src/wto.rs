@@ -191,7 +191,7 @@ impl BBDeps {
                 seeds.push(*target);
             }
         }
-    
+
         // Transitively close over successors — everything reachable from a
         // cleanup seed is itself cleanup, regardless of what terminator it has.
         let mut visited: HashSet<usize> = HashSet::default();

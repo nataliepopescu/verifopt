@@ -9,7 +9,7 @@ extern crate rustc_span;
 use rustc_middle::mir::{
     BasicBlock, BasicBlockData, BinOp, Body, CastKind, CoercionSource, Const, ConstOperand,
     LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
-    SwitchTargets, Terminator, TerminatorKind, UnOp,
+    SwitchTargets, Terminator, TerminatorKind, UnOp, SourceInfo,
 };
 use rustc_span::def_id::{DefPathHash, LocalDefId};
 
@@ -178,8 +178,24 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 
         match edit {
             Edit::Single(hash) => {
-                if let TerminatorKind::Call { func, .. } = &mut bbs[bb].terminator_mut().kind {
-                    *func = fn_op(tcx, hash, gen_args, span).unwrap();
+                let (fnc, self_ty) = fn_op(tcx, hash, gen_args, span).unwrap();
+
+                let (recv, new_stmts) = narrow_dyn(
+                    tcx,
+                    &mut body,
+                    source_info,
+                    args[0].node.clone(),
+                    self_ty,
+                    span,
+                );
+                bbs[bb].statements.extend(new_stmts);
+
+                let mut new_args = args.clone();
+                new_args[0].node = Operand::Move(recv);
+
+                if let TerminatorKind::Call { func, args: a, .. } = &mut bbs[bb].terminator_mut().kind {
+                    *func = fnc;
+                    *a = new_args;
                 }
             }
 
@@ -306,13 +322,26 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let n = hashes.len();
 
                 for (i, &hash) in hashes.iter().enumerate() {
-                    let fnc = fn_op(tcx, hash, gen_args, span).unwrap();
-                    let call_bb = bbs.push(BasicBlockData::new(
+                    let (fnc, self_ty) = fn_op(tcx, hash, gen_args, span).unwrap();
+
+                    let (recv, new_stmts) = narrow_dyn(
+                        tcx,
+                        &mut body,
+                        source_info,
+                        args[0].node.clone(),
+                        self_ty,
+                        span,
+                    );
+                    let mut new_args = args.clone();
+                    new_args[0].node = Operand::Move(recv);
+
+                    let call_bb = bbs.push(BasicBlockData::new_stmts(
+                        new_stmts,
                         Some(Terminator {
                             source_info,
                             kind: TerminatorKind::Call {
                                 func: fnc.clone(),
-                                args: args.clone(),
+                                args: new_args,
                                 destination: dest,
                                 target: target,
                                 unwind: unwind,
@@ -397,10 +426,13 @@ fn fn_op<'tcx>(
     hash: DefPathHash,
     gen_args: &'tcx List<GenericArg<'tcx>>,
     span: Span,
-) -> Result<Operand<'tcx>, ()> {
+) -> Result<(Operand<'tcx>, Ty<'tcx>), ()> {
     let target_did = tcx.def_path_hash_to_def_id(hash).unwrap();
+
+    let args = tcx.mk_args_from_iter(gen_args.iter().skip(1));
+
     let instance =
-        match Instance::try_resolve(tcx, TypingEnv::fully_monomorphized(), target_did, gen_args) {
+        match Instance::try_resolve(tcx, TypingEnv::fully_monomorphized(), target_did, args) {
             Ok(Some(inst)) => inst,
             _ => return Err(()),
         };
@@ -414,5 +446,45 @@ fn fn_op<'tcx>(
         const_: new_const,
     }));
 
-    Ok(op)
+    let impl_did = tcx.parent(target_did);
+    let self_ty = tcx.type_of(impl_did).instantiate_identity();
+
+    Ok((op, self_ty))
+}
+
+fn narrow_dyn<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &mut Body<'tcx>,
+    si: SourceInfo,
+    recv: Operand<'tcx>,
+    self_ty: Ty<'tcx>,
+    span: Span,
+) -> (Place<'tcx>, Vec<Statement<'tcx>>) {
+    let ptr_ty = Ty::new_ptr(tcx, self_ty, Mutability::Not);
+    let ref_ty = Ty::new_ref(tcx, tcx.lifetimes.re_erased, self_ty, Mutability::Not);
+
+    let mut stmts = Vec::new();
+
+    let thin = Place::from(body.local_decls.push(LocalDecl::new(ptr_ty, span)));
+    stmts.push(Statement::new(
+        si,
+        StatementKind::Assign(Box::new((
+            thin, Rvalue::Cast(CastKind::PtrToPtr, recv, ptr_ty),
+        ))),
+    ));
+
+    let deref = Place {
+        local: thin.local,
+        projection: tcx.mk_place_elems(&[ProjectionElem::Deref]),
+    };
+
+    let out = Place::from(body.local_decls.push(LocalDecl::new(ref_ty, span)));
+    stmts.push(Statement::new(
+        si,
+        StatementKind::Assign(Box::new((
+            out, Rvalue::Ref(tcx.lifetimes.re_erased, rustc_middle::mir::BorrowKind::Shared, deref),
+        ))),
+    ));
+
+    (out, stmts)
 }

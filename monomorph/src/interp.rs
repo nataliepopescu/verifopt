@@ -401,7 +401,12 @@ impl<'a> InterpPass<'a> {
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
                 debug!("FINAL (PULLED) CONSTRAINTS: {:?}", final_constraints);
 
-                if place.projection.is_empty() {
+                let mut write_proj = place.projection.as_slice();
+                while let [ProjectionElem::Deref, rest @ ..] = write_proj {
+                    write_proj = rest;
+                }
+
+                if write_proj.is_empty() {
                     ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
                 } else {
                     let base = Place {

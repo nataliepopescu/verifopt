@@ -1,0 +1,18 @@
+{
+  "maybe_count": 0,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:56:23: 56:32",
+      "is_maybe_example": false,
+      "cha": [
+        "<constraint_hierarchy::Cat as constraint_hierarchy::Animal>::speak",
+        "<constraint_hierarchy::Dog as constraint_hierarchy::Animal>::speak"
+      ],
+      "fsa": [
+        "<constraint_hierarchy::Cat as constraint_hierarchy::Animal>::speak",
+        "<constraint_hierarchy::Dog as constraint_hierarchy::Animal>::speak"
+      ]
+    }
+  ]
+}

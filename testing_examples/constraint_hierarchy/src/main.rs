@@ -25,8 +25,8 @@ impl Animal for Dog {
 }
 
 #[inline(never)]
-fn noop() {
-    black_box(3);
+fn noop(num: usize) {
+    black_box(num);
 }
 
 fn main() {
@@ -36,14 +36,15 @@ fn main() {
         _ => {
             let num: u32 = args[1].parse().unwrap();
 
+            noop(1);
             let x = Cat {
                 age: 7,
             };
+            noop(2);
             let y = Dog {
                 num_siblings: 2,
             };
-
-            noop();
+            noop(3);
 
             let z : &dyn Animal;
             if num == 0 {

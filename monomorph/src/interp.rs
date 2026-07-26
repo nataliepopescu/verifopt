@@ -504,19 +504,77 @@ impl<'a> InterpPass<'a> {
 
         match &cno.dst {
             Operand::Copy(place) | Operand::Move(place) => {
+                assert!(place.projection.is_empty());
+                let dst_ty = place.ty(local_decls).unwrap();
+                assert!(
+                    self.contains_dyn(&dst_ty).is_none(),
+                    "CopyNonOverlapping dst type implies a dyn constraint ({:?}); \
+                     toc must be derived via lift_traitobjtys(dst_ty, ..) here, not just \
+                     inherited from src",
+                    dst_ty
+                );
+
                 if let Some(count) = count
                     && let Some(ref src) = src
                     && !src.inner.is_empty()
                 {
-                    todo!(
-                        "calc dst constraints (count = {:?}; src = {:?})",
-                        count,
-                        src
+                    let always_one = count.iter().all(|&n| n == 1);
+
+                    let dst_disjuncts: Vec<Constraint> = src
+                        .inner
+                        .iter()
+                        .filter_map(|c| match &c.cfc {
+                            Some(RunningConstraint::Ptr(inner)) => {
+                                let pointee = if always_one {
+                                    (**inner).clone()
+                                } else {
+                                    // preserve the pointee's own toc when wrapping it in a List
+                                    Constraint::new(
+                                        inner.toc.clone(),
+                                        Some(RunningConstraint::List(inner.clone())),
+                                    )
+                                };
+                                // preserve src's outer Ptr-constraint toc on the new outer Ptr constraint
+                                Some(Constraint::new(
+                                    c.toc.clone(),
+                                    Some(RunningConstraint::Ptr(Box::new(pointee))),
+                                ))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+
+                    ctxt.set_scoped_constraints(
+                        cur_scope,
+                        &place,
+                        Constraints::from_vec(dst_disjuncts),
                     );
                 } else if let Some(src) = src
                     && !src.inner.is_empty()
                 {
-                    todo!("use src constraints (no count): {:?}", src);
+                    // no usable count -> always model as a sequence (List), never "exactly one"
+                    let dst_disjuncts: Vec<Constraint> = src
+                        .inner
+                        .iter()
+                        .filter_map(|c| match &c.cfc {
+                            Some(RunningConstraint::Ptr(inner)) => {
+                                let pointee = Constraint::new(
+                                    inner.toc.clone(),
+                                    Some(RunningConstraint::List(inner.clone())),
+                                );
+                                Some(Constraint::new(
+                                    c.toc.clone(),
+                                    Some(RunningConstraint::Ptr(Box::new(pointee))),
+                                ))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    ctxt.set_scoped_constraints(
+                        cur_scope,
+                        &place,
+                        Constraints::from_vec(dst_disjuncts),
+                    );
                 } else {
                     debug!("widen constraints to type");
                     let (_, dst) = self

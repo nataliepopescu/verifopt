@@ -18,7 +18,7 @@ use log::{debug, error};
 
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -1789,7 +1789,7 @@ impl<'a> InterpPass<'a> {
     }
 
     /// If a concrete type constraint contains a type that implements the trait of the
-    /// traitobject we are dispatching on, return that type's DefId (FIXME remove: along with its generic args)
+    /// traitobject we are dispatching on, return that type's DefId (FIXME remove associated generic args?)
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
     fn resolve_defid(
@@ -1808,8 +1808,8 @@ impl<'a> InterpPass<'a> {
                 }
 
                 match toc_ {
-                    (_, TraitObjConstraint::Adt(adtdef, genargs, _, _fields)) => {
-                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
+                    (_, TraitObjConstraint::Adt(adtdef, genargs, _, fields)) => {
+                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
                         if genargs.0.is_empty() {
@@ -1825,8 +1825,8 @@ impl<'a> InterpPass<'a> {
                 cfc: Some(cfc),
             } => {
                 match cfc {
-                    RunningConstraint::Adt(adtdef, genargs, _, _fields) => {
-                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
+                    RunningConstraint::Adt(adtdef, genargs, _, fields) => {
+                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }
                     RunningConstraint::Closure(cdef, genargs) => {
                         if genargs.0.is_empty() {
@@ -1836,10 +1836,17 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                     RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
-                    // If this is truly a Dynamic constraint that we cannot resolve to any concrete
-                    // types, then return nothing here so that if needed, we may fallback to
-                    // another, coarser resolution mechanism
+                    // truly a Dynamic constraint that we cannot resolve to any concrete types
                     RunningConstraint::Dynamic(_) => (false, vec![]),
+                    RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
+                    RunningConstraint::Idk(box cs) => {
+                        let mut defids = Vec::new();
+                        for c in &cs.inner {
+                            let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
+                            unique_append(&mut defids, res_defids);
+                        }
+                        (false, defids)
+                    }
                     _ => todo!("{:?}", cfc),
                 }
             }
@@ -1855,7 +1862,7 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         adtdef: &AdtDef,
         genargs: &GenericArgs,
-        //fields: &Vec<Place>
+        fields: &ADTFields,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {
@@ -1875,8 +1882,18 @@ impl<'a> InterpPass<'a> {
         // FIXME search in fields instead of genargs b/c we also have the constraints + don't need
         // to reconstruct them; however, this poses a termination problem - maybe only search in
         // fields for types that are known to essentially be "wrappers" (e.g. Box, NonNull, Unique, etc)
-        //
+        for (_key, field_constraints) in fields {
+            if self.converter.wrapper_kind(adtdef).is_some() {
+                for fc in &field_constraints.inner {
+                    let (_is_closure, inner_resvec) =
+                        self.resolve_defid(term_span, trait_defid, fc);
+                    unique_append(&mut resvec, inner_resvec);
+                }
+            }
+        }
+
         // Also search in genargs for an implementing type
+        /*
         for genarg in &genargs.0 {
             match self.converter.convert_genarg(&Location::new(), &genarg) {
                 Some(genarg_constraint) => {
@@ -1889,6 +1906,7 @@ impl<'a> InterpPass<'a> {
                 _ => {}
             }
         }
+        */
 
         (false, resvec)
     }

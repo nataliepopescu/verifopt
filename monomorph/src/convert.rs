@@ -1,3 +1,4 @@
+use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::DefId;
 use rustc_public::abi::FieldsShape;
 use rustc_public::mir::{
@@ -19,14 +20,28 @@ use crate::constraints::{
 use crate::sig_collect::SigVal;
 
 use log::debug;
+use std::cell::RefCell;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WrapperKind {
+    Box,
+    Unique,
+    NonNull,
+    Option,
+    Result,
+}
 
 pub struct RvalConverter<'a> {
     pub tstore: &'a TraitStore,
+    pub wrapper_cache: RefCell<HashMap<DefId, Option<WrapperKind>>>,
 }
 
 impl<'a> RvalConverter<'a> {
     pub fn new(tstore: &'a TraitStore) -> RvalConverter<'a> {
-        Self { tstore }
+        Self {
+            tstore,
+            wrapper_cache: RefCell::new(HashMap::default()),
+        }
     }
 
     pub fn convert(
@@ -449,20 +464,16 @@ impl<'a> RvalConverter<'a> {
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints)
                 } else {
-                    // Non-dyn cast: if the source is one of the known single-field
-                    // pointer wrappers (Unique/NonNull/Box) and the destination is a
-                    // raw pointer/reference to the wrapped type, this Transmute is
-                    // just "unwrap that one field" — same operation as a normal field
-                    // projection hop, not a fresh type-only reconstruction.
-                    match &post_constraint.cfc {
-                        Some(RunningConstraint::Ptr(_)) | Some(RunningConstraint::Adt(..)) => {
+                    match &prev_constraints.inner.first().and_then(|c| c.cfc.as_ref()) {
+                        Some(RunningConstraint::Adt(adtdef, _, _, _))
+                            if self.wrapper_kind(adtdef).is_some() =>
+                        {
                             let unwrapped = ctxt.step_field(
                                 cur_scope,
                                 &prev_constraints,
                                 &ProjectionElem::Field(0, ty.clone()),
                             );
                             if unwrapped.inner.is_empty() {
-                                // not actually one of the known wrapper shapes — fall back
                                 Constraints::from(post_constraint)
                             } else {
                                 unwrapped
@@ -474,6 +485,26 @@ impl<'a> RvalConverter<'a> {
             }
             _ => todo!("runtime checks"),
         }
+    }
+
+    pub fn wrapper_kind(&self, def: &AdtDef) -> Option<WrapperKind> {
+        if let Some(cached) = self.wrapper_cache.borrow().get(&def.0) {
+            return *cached;
+        }
+
+        let name = def.0.name();
+        let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
+        let kind = match suffix {
+            "boxed::Box" => Some(WrapperKind::Box),
+            "ptr::Unique" => Some(WrapperKind::Unique),
+            "ptr::NonNull" => Some(WrapperKind::NonNull),
+            "option::Option" => Some(WrapperKind::Option),
+            "result::Result" => Some(WrapperKind::Result),
+            _ => None,
+        };
+
+        self.wrapper_cache.borrow_mut().insert(def.0, kind);
+        kind
     }
 
     pub fn get_any_traitobj(

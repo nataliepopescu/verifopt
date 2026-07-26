@@ -1,17 +1,21 @@
 use rustc_public::DefId;
+use rustc_public::abi::FieldsShape;
 use rustc_public::mir::{
     AggregateKind, BinOp, CastKind, ConstOperand, LocalDecl, Operand, Place, ProjectionElem,
     Rvalue, UnOp,
 };
-use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
+use rustc_public::ty::{
+    AdtDef, Allocation, ConstantKind, GenericArgKind, GenericArgs, ProvenanceMap, RigidTy, Ty,
+    TyKind,
+};
 
 //use crate::InterpStore;
 use crate::TraitStore;
+use crate::constraints::{ADTFields, unique_append, unique_push};
 use crate::constraints::{
     Constraint, Constraints, Context, Location, RunningConstraint, TraitObjConstraint, TraitObjTy,
     VOID,
 };
-use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
 
 use log::debug;
@@ -97,52 +101,166 @@ impl<'a> RvalConverter<'a> {
 
     pub fn convert_const(&self, span: &Location, const_op: &ConstOperand) -> Constraints {
         debug!("CONVERTING CONST");
+        let ty = const_op.const_.ty();
+
         match const_op.const_.kind() {
-            ConstantKind::Allocated(alloc) => match alloc.read_int() {
-                // FIXME
-                Ok(val) => {
-                    //debug!("ALLOC CONST");
-                    // Only use the constval if this is supposed to be used as an integer
-                    match const_op.const_.ty().kind() {
-                        TyKind::RigidTy(rigidty) => match rigidty {
-                            RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => {
-                                Constraints::from(Constraint::new(
-                                    None,
-                                    Some(RunningConstraint::Scalar(Some(val))),
-                                ))
-                            }
-                            _ => {
-                                let (maybe_traitobjty, constraint) =
-                                    self.convert_ty(span, &const_op.const_.ty());
-                                debug!("constraint: {:?}", constraint);
-                                debug!("maybe_traitobjty: {:?}", maybe_traitobjty);
-                                if let Some(traitobj) = maybe_traitobjty {
-                                    todo!("const contains dyn: {:?}", traitobj);
-                                }
-                                Constraints::from(constraint)
-                            }
-                        },
-                        _ => todo!(),
-                    }
-                }
-                _ => {
-                    let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
-                    if maybe_traitobj.is_some() {
-                        todo!("const contains dyn");
-                    }
-                    Constraints::from(constraint)
-                }
-            },
-            ConstantKind::ZeroSized => {
-                let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
-                if let Some(_traitobjty) = maybe_traitobj {
-                    //debug!("traitobjty: {:?}", traitobjty);
-                    todo!("const contains dyn");
-                }
-                Constraints::from(constraint)
-            }
-            other @ _ => todo!("arg is another constant kind: {:?}", other),
+            ConstantKind::Allocated(alloc) => self.convert_allocated_const(span, &ty, alloc),
+            ConstantKind::ZeroSized => self.convert_zero_sized_const(span, &ty),
+            other => todo!("arg is another constant kind: {:?}", other),
         }
+    }
+
+    fn convert_allocated_const(&self, span: &Location, ty: &Ty, alloc: &Allocation) -> Constraints {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_)) => {
+                match alloc.read_int() {
+                    Ok(val) => Constraints::from(Constraint::new(
+                        None,
+                        Some(RunningConstraint::Scalar(Some(val))),
+                    )),
+                    Err(_) => Constraints::from(Constraint::new(
+                        None,
+                        Some(RunningConstraint::Scalar(None)),
+                    )),
+                }
+            }
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Constraints::from(Constraint::new(
+                None,
+                Some(RunningConstraint::Adt(
+                    adtdef.clone(),
+                    genargs.clone(),
+                    None,
+                    self.convert_allocated_adt(span, &adtdef, &genargs, ty, alloc),
+                )),
+            )),
+            _ => self.convert_const_fallback(span, ty),
+        }
+    }
+
+    fn convert_zero_sized_const(&self, span: &Location, ty: &Ty) -> Constraints {
+        match ty.kind() {
+            // A zero-sized ADT (unit struct, empty enum variant, etc.) — build
+            // the Adt shape directly rather than falling through to convert_ty,
+            // same as the non-empty case, just with an empty field list.
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Constraints::from(Constraint::new(
+                None,
+                Some(RunningConstraint::Adt(
+                    adtdef,
+                    genargs.clone(),
+                    None,
+                    Vec::new(),
+                )),
+            )),
+            // Zero-sized non-ADT (e.g. `()`, a zero-length array/tuple, a ZST
+            // closure) — no field structure to build, so the generic fallback
+            // is the right answer here, not a gap to fill in later.
+            _ => self.convert_const_fallback(span, ty),
+        }
+    }
+
+    fn convert_allocated_adt(
+        &self,
+        span: &Location,
+        adtdef: &AdtDef,
+        genargs: &GenericArgs,
+        ty: &Ty,
+        alloc: &Allocation,
+    ) -> ADTFields {
+        debug!("CONVERT ADT");
+        let layout = ty.layout().expect("no layout for a concrete, sized ADT");
+        let shape = layout.shape();
+
+        let offsets = match &shape.fields {
+            FieldsShape::Arbitrary { offsets, .. } => offsets,
+            // Primitive/Union/Array shapes shouldn't reach here for a
+            // plain struct; fall back gracefully rather than panic if they do
+            _ => return Vec::new(),
+        };
+
+        debug!("offsets: {:?}", offsets);
+
+        let mut fields = Vec::new();
+        for (i, field_def) in adtdef.variants()[0].fields().iter().enumerate() {
+            let field_ty = field_def.ty_with_args(genargs);
+            let field_layout = field_ty.layout().expect("field has no layout");
+            let offset = offsets[i].bytes();
+            let size = field_layout.shape().size.bytes();
+
+            let sub_bytes = alloc.bytes[offset..offset + size].to_vec();
+            let sub_provenance = Self::slice_provenance(&alloc.provenance, offset, size);
+
+            let sub_alloc = Allocation {
+                bytes: sub_bytes,
+                provenance: sub_provenance,
+                align: field_layout.shape().abi_align,
+                mutability: alloc.mutability,
+            };
+
+            // Recurse: a scalar field bottoms out via read_int as today;
+            // a nested struct field recurses back into this same function.
+            let field_constraint = self.convert_sub_alloc(span, &field_ty, &sub_alloc);
+            fields.push((
+                ProjectionElem::Field(i, field_ty.clone()),
+                Constraints::from(field_constraint),
+            ));
+        }
+        fields
+    }
+
+    /// Decode a sub-allocation (one field's worth of bytes, sliced out of a
+    /// parent struct's Allocation) into a Constraint, dispatching on the
+    /// field's own type the same way convert_const dispatches on the whole
+    /// operand's type.
+    fn convert_sub_alloc(&self, span: &Location, ty: &Ty, alloc: &Allocation) -> Constraint {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_)) => {
+                match alloc.read_int() {
+                    Ok(val) => Constraint::new(None, Some(RunningConstraint::Scalar(Some(val)))),
+                    Err(_) => Constraint::new(None, Some(RunningConstraint::Scalar(None))),
+                }
+            }
+
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Constraint::new(
+                None,
+                Some(RunningConstraint::Adt(
+                    adtdef.clone(),
+                    genargs.clone(),
+                    None,
+                    self.convert_allocated_adt(span, &adtdef, &genargs, ty, alloc),
+                )),
+            ),
+
+            // Pointers, references, dyn, etc. inside a compile-time constant are
+            // real but much rarer (a `&'static` reference to a static, mostly) —
+            // not worth a bytes-level decoder yet. Fall back to the type-only
+            // reconstruction rather than mis-decoding raw pointer bytes as if
+            // they were meaningful without provenance resolution.
+            _ => {
+                let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
+                if maybe_traitobj.is_some() {
+                    todo!("const field contains dyn: {:?}", ty);
+                }
+                constraint
+            }
+        }
+    }
+
+    fn slice_provenance(provenance: &ProvenanceMap, offset: usize, size: usize) -> ProvenanceMap {
+        let ptrs = provenance
+            .ptrs
+            .iter()
+            .filter(|(byte_off, _)| *byte_off >= offset && *byte_off < offset + size)
+            .map(|(byte_off, prov)| (byte_off - offset, prov.clone()))
+            .collect();
+        ProvenanceMap { ptrs }
+    }
+
+    fn convert_const_fallback(&self, span: &Location, ty: &Ty) -> Constraints {
+        let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
+        if let Some(traitobj) = maybe_traitobj {
+            todo!("const contains dyn: {:?}", traitobj);
+        }
+        Constraints::from(constraint)
     }
 
     fn convert_place(
@@ -506,14 +624,9 @@ impl<'a> RvalConverter<'a> {
                         _ => todo!("op: {:?}", op),
                     }
 
-                    let proj = vec![ProjectionElem::Field(i, op_ty)];
+                    let proj = ProjectionElem::Field(i, op_ty);
                     debug!("PROJ: {:?}", proj);
-                    fields.push((
-                        // obj deref + field access
-                        proj,
-                        // field constraints
-                        op_constraints,
-                    ));
+                    fields.push((proj, op_constraints));
                     debug!("---done op {:?}\n", i);
                 }
 
@@ -640,7 +753,7 @@ impl<'a> RvalConverter<'a> {
                         }
                     }
                     if traitobjtys.is_empty() {
-                        debug!("NO TRAITOBJS in fields");
+                        debug!("NO TRAITOBJS in genargs");
                         (
                             None,
                             // FIXME fields is empty
@@ -650,7 +763,7 @@ impl<'a> RvalConverter<'a> {
                             ),
                         )
                     } else {
-                        debug!("traitobjs in fields!!!: {:?}", traitobjtys);
+                        debug!("traitobjs in genargs!!!: {:?}", traitobjtys);
                         (
                             Some(traitobjtys),
                             // FIXME fields is empty

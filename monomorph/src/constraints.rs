@@ -138,8 +138,8 @@ impl Constraints {
                             None => true,
                         };
                         if applies {
-                            fields.retain(|(e, _)| e != &field);
-                            fields.push((field.clone(), new.clone()));
+                            fields.retain(|(e, _)| e != &field[0]);
+                            fields.push((field[0].clone(), new.clone()));
                         }
                     }
                 }
@@ -193,7 +193,7 @@ impl Constraint {
     }
 }
 
-pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
+pub type ADTFields = Vec<(ProjectionElem, Constraints)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
@@ -432,7 +432,7 @@ impl Context {
         match &constraint.cfc {
             Some(RunningConstraint::Adt(_, _, _, fields)) => fields
                 .iter()
-                .find(|(key, _)| key.len() == 1 && self.field_idx(&key[0]) == self.field_idx(elem))
+                .find(|(key, _)| self.field_idx(&key) == self.field_idx(elem))
                 .map(|(_, cs)| cs.clone())
                 .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
             Some(RunningConstraint::Tuple(inner)) => match elem {

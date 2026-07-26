@@ -5,9 +5,9 @@ use rustc_public::CrateDef;
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, BorrowKind, ConstOperand, LocalDecl, Mutability, NonDivergingIntrinsic,
-    Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind, Successors, SwitchTargets,
-    Terminator, TerminatorKind,
+    BasicBlock, Body, BorrowKind, ConstOperand, CopyNonOverlapping, LocalDecl, Mutability,
+    NonDivergingIntrinsic, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
+    Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
@@ -439,10 +439,87 @@ impl<'a> InterpPass<'a> {
             | StatementKind::StorageDead(_) => {}
             StatementKind::Intrinsic(ndi) => match ndi {
                 NonDivergingIntrinsic::Assume(_) => {}
-                NonDivergingIntrinsic::CopyNonOverlapping(_) => todo!("copy nonoverlapping"),
+                NonDivergingIntrinsic::CopyNonOverlapping(cno) => {
+                    self.handle_copy_nonoverlapping(ctxt, cur_scope, local_decls, cno)
+                }
             },
             _ => todo!("new statement kind: {:?}", &stmt.kind),
         }
+    }
+
+    fn handle_copy_nonoverlapping(
+        &self,
+        ctxt: &mut Context,
+        cur_scope: &VOID,
+        local_decls: &[LocalDecl],
+        cno: &CopyNonOverlapping,
+    ) {
+        debug!("CNO src: {:?}", cno.src);
+        debug!("CNO dst: {:?}", cno.dst);
+        debug!("CNO cnt: {:?}", cno.count);
+
+        let count = match self.get_operand_constraints(ctxt, cur_scope, &cno.count, false) {
+            Some(constraints) => self.get_usize(&constraints),
+            None => None,
+        };
+        let src = self.get_operand_constraints(ctxt, cur_scope, &cno.src, false);
+
+        match &cno.dst {
+            Operand::Copy(place) | Operand::Move(place) => {
+                if let Some(count) = count
+                    && let Some(ref src) = src
+                    && !src.inner.is_empty()
+                {
+                    todo!(
+                        "calc dst constraints (count = {:?}; src = {:?})",
+                        count,
+                        src
+                    );
+                } else if let Some(src) = src
+                    && !src.inner.is_empty()
+                {
+                    todo!("use src constraints (no count): {:?}", src);
+                } else {
+                    debug!("widen constraints to type");
+                    let (_, dst) = self
+                        .converter
+                        .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
+                    ctxt.set_scoped_constraints(cur_scope, &place, Constraints::from(dst));
+                }
+            }
+            _ => panic!("dst is not a place"),
+        }
+    }
+
+    fn get_operand_constraints(
+        &self,
+        ctxt: &mut Context,
+        cur_scope: &VOID,
+        op: &Operand,
+        is_closure: bool,
+    ) -> Option<Constraints> {
+        match op {
+            Operand::Copy(place) | Operand::Move(place) => {
+                match ctxt.get_constraints(cur_scope, &place, is_closure) {
+                    Some(constraints) => Some(constraints),
+                    None => None,
+                }
+            }
+            Operand::Constant(_co) => todo!("got const operand"),
+            _ => panic!("got runtime checks"),
+        }
+    }
+
+    fn get_usize(&self, constraints: &Constraints) -> Option<Vec<usize>> {
+        let mut nums = Vec::new();
+        for constraint in &constraints.inner {
+            match constraint.cfc {
+                Some(RunningConstraint::Scalar(Some(num))) => nums.push(num.try_into().unwrap()),
+                _ => {}
+            }
+        }
+
+        if nums.is_empty() { None } else { Some(nums) }
     }
 
     fn visit_terminator(

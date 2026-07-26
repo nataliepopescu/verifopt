@@ -303,7 +303,6 @@ pub enum RunningConstraint {
     Dynamic(Vec<TraitObjTy>),
 
     // fallback types
-    //IdkType(Ty),
     List(Box<Constraint>),
     Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),

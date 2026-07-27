@@ -143,16 +143,14 @@ impl<'a> InterpPass<'a> {
             bb_deps = mem_bb_deps.clone();
             if !bb_deps.has_ret {
                 // This block does not explicitly return - likely a panicker, thus we can skip
-                self.prepare_return(call_stack);
-                return Ok(None);
+                return self.finish_frame(logger, ctxt, call_stack, cur_scope, None);
             }
             debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
             if !bb_deps.has_ret {
                 // This block does not explicitly return - likely a panicker, thus we can skip
-                self.prepare_return(call_stack);
-                return Ok(None);
+                return self.finish_frame(logger, ctxt, call_stack, cur_scope, None);
             }
             ctxt.set_wto(cur_scope, &bb_deps);
         }
@@ -160,6 +158,8 @@ impl<'a> InterpPass<'a> {
         // Loop through basic blocks in WTO
         let mut last_res = None;
         let num_bbs = bb_deps.ordering.len();
+        let mut saw_return = false;
+
         loop {
             //debug!("\n\nGETTING NEXT BB");
             //debug!("pre-pop ordering: {:?}", bb_deps.ordering);
@@ -167,9 +167,15 @@ impl<'a> InterpPass<'a> {
                 //debug!("DONE INTERPING");
                 break;
             }
+
             let bb = bb_deps.ordering.remove(0);
             debug!("\n\n--NEW BB: {:?}", bb);
+
             let data = body.blocks.get(bb).unwrap();
+            if matches!(data.terminator.kind, TerminatorKind::Return) {
+                saw_return = true;
+            }
+
             last_res = self.visit_basic_block(
                 logger,
                 ctxt,
@@ -183,7 +189,11 @@ impl<'a> InterpPass<'a> {
             )?;
         }
 
-        Ok(last_res)
+        if !saw_return {
+            self.finish_frame(logger, ctxt, call_stack, cur_scope, None)
+        } else {
+            Ok(last_res)
+        }
     }
 
     fn visit_basic_block(
@@ -2180,6 +2190,17 @@ impl<'a> InterpPass<'a> {
             }
         };
 
+        self.finish_frame(logger, ctxt, call_stack, cur_scope, retval)
+    }
+
+    fn finish_frame(
+        &self,
+        logger: &mut VOLogger,
+        ctxt: &mut Context,
+        call_stack: &mut Vec<VOID>,
+        cur_scope: &VOID,
+        retval: Option<Constraints>,
+    ) -> Result<Option<Constraints>, Error> {
         let key = self.key_stack.borrow().last().cloned().unwrap();
 
         let old_scope = self.prepare_return(call_stack);
@@ -2271,8 +2292,6 @@ impl<'a> InterpPass<'a> {
         );
 
         self.prepare_call(call_stack, &key);
-        let res = self.visit_body(logger, ctxt, call_stack, cur_scope, &body);
-
-        res
+        self.visit_body(logger, ctxt, call_stack, cur_scope, &body)
     }
 }

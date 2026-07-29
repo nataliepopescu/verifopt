@@ -1,0 +1,7 @@
+[package]
+name = "votrace"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+votrace_macros = { path = "../votrace_macros" }

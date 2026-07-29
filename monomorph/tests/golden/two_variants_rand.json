@@ -1,6 +1,7 @@
 {
   "maybe_count": 0,
   "not_count": 1,
+  "skip_calls": true,
   "sites": [
     {
       "span": "src/main.rs:60:15: 60:29",

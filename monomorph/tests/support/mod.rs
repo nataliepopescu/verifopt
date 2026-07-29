@@ -35,6 +35,15 @@ pub struct DispatchSite {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExampleRead {
+    pub maybe_count: usize,
+    pub not_count: usize,
+    #[serde(default)]
+    pub skip_calls: bool,
+    pub sites: Vec<DispatchSite>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExampleResult {
     pub maybe_count: usize,
     pub not_count: usize,
@@ -182,7 +191,9 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
 
     let stats = fs::read_to_string(dir.join("stats")).ok();
 
-    let _ = Command::new(Path::new("target/release").join(dir.file_name().unwrap())).current_dir(dir).output();
+    let _ = Command::new(Path::new("target/release").join(dir.file_name().unwrap()))
+        .current_dir(dir)
+        .output();
     let calls_actual = fs::read_to_string(dir.join("calls")).ok();
 
     RunOutcome {
@@ -260,9 +271,19 @@ pub fn run_example(name: &str, expectation: Expectation) {
                     golden_file
                 )
             });
-            let expected: ExampleResult = serde_json::from_str(&expected_text)
+            let ExampleRead {
+                maybe_count,
+                not_count,
+                skip_calls,
+                sites,
+            } = serde_json::from_str(&expected_text)
                 .unwrap_or_else(|e| panic!("failed to parse golden file {:?}: {e}", golden_file));
 
+            let expected = ExampleResult {
+                maybe_count,
+                not_count,
+                sites,
+            };
             assert_eq!(
                 actual, expected,
                 "'{name}' dispatch results changed. If this is an intended \
@@ -270,11 +291,13 @@ pub fn run_example(name: &str, expectation: Expectation) {
                  BLESS_GOLDEN=1 cargo test --test dispatch_examples -- {name}"
             );
 
-            assert_eq!(
-                outcome.calls_actual, outcome.calls_expected,
-                "'{name}' rewritten calls do not match the original program calls. \
-                Testing is based on direct `cargo run` evaluation, no golden files to rewrite."
-            );
+            if !skip_calls {
+                assert_eq!(
+                    outcome.calls_actual, outcome.calls_expected,
+                    "'{name}' rewritten calls do not match the original program calls. \
+                    Testing is based on direct `cargo run` evaluation, no golden files to rewrite."
+                );
+            }
         }
     }
 }

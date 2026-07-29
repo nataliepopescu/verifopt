@@ -146,6 +146,8 @@ struct RunOutcome {
     success: bool,
     stdout: String,
     stderr: String,
+    calls_expected: Option<String>,
+    calls_actual: Option<String>,
     stats: Option<String>,
 }
 
@@ -156,6 +158,11 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
     for f in ["stats", "found_ex", "notfound_ex"] {
         let _ = fs::remove_file(dir.join(f));
     }
+    let _ = Command::new("cargo").arg("clean").current_dir(dir).output();
+
+    let _ = Command::new("cargo").arg("run").current_dir(dir).output();
+    let calls_expected = fs::read_to_string(dir.join("calls")).ok();
+
     let _ = Command::new("cargo").arg("clean").current_dir(dir).output();
 
     let bin = PathBuf::from(env!("CARGO_BIN_EXE_cargo-verifopt"));
@@ -175,10 +182,15 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
 
     let stats = fs::read_to_string(dir.join("stats")).ok();
 
+    let _ = Command::new(Path::new("target/release").join(dir.file_name().unwrap())).current_dir(dir).output();
+    let calls_actual = fs::read_to_string(dir.join("calls")).ok();
+
     RunOutcome {
         success: output.status.success(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        calls_expected,
+        calls_actual,
         stats,
     }
 }
@@ -256,6 +268,12 @@ pub fn run_example(name: &str, expectation: Expectation) {
                 "'{name}' dispatch results changed. If this is an intended \
                  improvement/fix, review the diff above, then re-bless with:\n\n    \
                  BLESS_GOLDEN=1 cargo test --test dispatch_examples -- {name}"
+            );
+
+            assert_eq!(
+                outcome.calls_actual, outcome.calls_expected,
+                "'{name}' rewritten calls do not match the original program calls. \
+                Testing is based on direct `cargo run` evaluation, no golden files to rewrite."
             );
         }
     }

@@ -41,6 +41,7 @@ pub struct Dog {
     fav_walking_route: u32,
 }
 
+#[votrace::trace]
 impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
@@ -50,6 +51,7 @@ impl Animal for Cat {
     }
 }
 
+#[votrace::trace]
 impl Animal for Dog {
     fn speak(&self) -> usize {
         22222

@@ -3,7 +3,7 @@
   "not_count": 0,
   "sites": [
     {
-      "span": "src/main.rs:75:15: 75:24",
+      "span": "src/main.rs:78:15: 78:24",
       "is_maybe_example": true,
       "cha": [
         "<recursive_dyn3::Bird as recursive_dyn3::Animal>::speak",

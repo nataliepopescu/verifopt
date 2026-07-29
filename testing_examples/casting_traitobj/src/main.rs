@@ -6,6 +6,7 @@ pub trait Animal {
 
 pub struct Cat;
 
+#[votrace::trace]
 impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
@@ -14,6 +15,7 @@ impl Animal for Cat {
 
 pub struct Dog;
 
+#[votrace::trace]
 impl Animal for Dog {
     fn speak(&self) -> usize {
         22222

@@ -11,12 +11,14 @@ struct Wrapper<'a> {
 struct Inner1;
 struct Inner2;
 
+#[votrace::trace]
 impl Thing for Inner1 {
     fn do_thing(&self) -> u32 {
         123
     }
 }
 
+#[votrace::trace]
 impl Thing for Inner2 {
     fn do_thing(&self) -> u32 {
         456

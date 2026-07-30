@@ -13,12 +13,14 @@ struct Rect {
     w: f32,
 }
 
+#[votrace::trace]
 impl Shape for Circle {
     fn area(&self) -> f32 {
         3.14 * self.r.powi(2) //as u32
     }
 }
 
+#[votrace::trace]
 impl Shape for Rect {
     fn area(&self) -> f32 {
         self.h * self.w

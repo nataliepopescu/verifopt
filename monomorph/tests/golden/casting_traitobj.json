@@ -3,7 +3,7 @@
   "not_count": 0,
   "sites": [
     {
-      "span": "src/main.rs:25:5: 25:19",
+      "span": "src/main.rs:27:5: 27:19",
       "is_maybe_example": true,
       "cha": [
         "<casting_traitobj::Cat as casting_traitobj::Animal>::speak",

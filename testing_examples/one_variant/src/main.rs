@@ -25,6 +25,7 @@ impl Cat {
     }
 }
 
+#[votrace::trace]
 impl Animal for Cat {
     fn speak(&self) -> usize {
         11111

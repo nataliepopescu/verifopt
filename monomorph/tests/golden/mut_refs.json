@@ -3,7 +3,7 @@
   "not_count": 0,
   "sites": [
     {
-      "span": "src/main.rs:43:15: 43:24",
+      "span": "src/main.rs:46:15: 46:24",
       "is_maybe_example": true,
       "cha": [
         "<mut_refs::Bird as mut_refs::Animal>::speak",

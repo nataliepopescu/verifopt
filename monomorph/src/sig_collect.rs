@@ -105,6 +105,13 @@ impl<'a> SigCollectPass<'a> {
     */
 
     fn collect_function_sigs(&self, sigstore: &mut SigStore) {
+        let process = std::env::var("VERIFOPT_EXT_CRATES")
+            .map(|e| e == "1")
+            .unwrap_or(false);
+        if !process {
+            return;
+        }
+
         let mut all_crates = rustc_public::external_crates().clone();
         all_crates.insert(0, rustc_public::local_crate());
         //let len = all_crates.len();

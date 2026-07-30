@@ -10,12 +10,14 @@ struct Concrete1;
 impl Concrete1 {
     pub fn new() -> Self { Self {} }
 }
+#[votrace::trace]
 impl Thing for Concrete1 {}
 
 struct Concrete2;
 impl Concrete2 {
     pub fn new() -> Self { Self {} }
 }
+#[votrace::trace]
 impl Thing for Concrete2 {}
 
 /*

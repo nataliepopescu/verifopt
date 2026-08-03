@@ -145,7 +145,31 @@ impl Constraints {
                 }
             }
 
-            (_, _) => panic!("multi-hop field writes not yet supported: {:?}", field),
+            (_, _) => {
+                let (first, rest) = field.split_first().expect("len >= 2 per match arm");
+                let rest = rest.to_vec();
+            
+                for c in self.inner.iter_mut() {
+                    if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
+                        let applies = match target_variant {
+                            Some(v) => variant.is_none() || *variant == Some(v),
+                            None => true,
+                        };
+                        if applies {
+                            let mut nested = fields
+                                .iter()
+                                .find(|(e, _)| e == first)
+                                .map(|(_, cs)| cs.clone())
+                                .unwrap_or_else(Constraints::new);
+            
+                            nested.write_field(rest.clone(), new.clone());
+            
+                            fields.retain(|(e, _)| e != first);
+                            fields.push((first.clone(), nested));
+                        }
+                    }
+                }
+            }
         }
     }
 

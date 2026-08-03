@@ -13,7 +13,7 @@ use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-use log::debug;
+//use log::debug;
 
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -465,10 +465,10 @@ impl Context {
             // Scalar/Float/Dynamic/Closure/etc: this disjunct has no field structure at all,
             // so it contributes no information to the projection — not an error.
             _ => {
-                debug!(
-                    "unexpected running constraint type to have projections: {:?}",
-                    constraint.cfc
-                );
+                //debug!(
+                //    "unexpected running constraint type to have projections: {:?}",
+                //    constraint.cfc
+                //);
                 Constraints::new()
             }
         }
@@ -496,20 +496,20 @@ impl Context {
             };
             match self.get_constraints(scope, &base, is_closure) {
                 Some(base_constraints) => {
-                    debug!("\nBASE: {:?}", base);
-                    debug!("BASE CONSTRAINTS: {:?}", base_constraints);
-                    debug!("PROJECTION: {:?}", place.projection);
+                    //debug!("\nBASE: {:?}", base);
+                    //debug!("BASE CONSTRAINTS: {:?}", base_constraints);
+                    //debug!("PROJECTION: {:?}", place.projection);
 
                     // Collect every matching projection in the set of constraints
                     let mut cur = base_constraints;
                     for elem in &place.projection {
                         match elem {
                             ProjectionElem::Downcast(vidx) => {
-                                debug!("\ndowncast projection: {:?}", elem);
+                                //debug!("\ndowncast projection: {:?}", elem);
                                 cur = cur.filter_variant(*vidx);
                             }
                             ProjectionElem::Field(..) => {
-                                debug!("\nfield projection: {:?}", elem);
+                                //debug!("\nfield projection: {:?}", elem);
                                 cur = self.step_field(scope, &cur, elem);
                             }
                             _ => {}

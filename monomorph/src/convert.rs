@@ -315,24 +315,22 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn get_defid_from_cfc(&self, cfc: &RunningConstraint) -> Option<DefId> {
+    fn get_defid_candidates(&self, cfc: &RunningConstraint) -> Vec<(DefId, RunningConstraint)> {
         match cfc {
-            RunningConstraint::Adt(adtdef, _, _, _) => Some(adtdef.0),
-            RunningConstraint::Closure(cdef, _) => Some(cdef.0),
+            RunningConstraint::Adt(adtdef, _, _, _) => vec![(adtdef.0, cfc.clone())],
+            RunningConstraint::Closure(cdef, _) => vec![(cdef.0, cfc.clone())],
             RunningConstraint::Scalar(_)
             | RunningConstraint::Float
             | RunningConstraint::Ptr(_)
-            | RunningConstraint::FnPtr(_) => None,
-            RunningConstraint::Idk(inner) => match inner.len() {
-                0 => None,
-                1 => self.get_defid_from_cfc(&inner.at(0).cfc.as_ref().unwrap()),
-                n => todo!("Idk with {} inner constraints: {:?}", n, inner),
-            },
-            RunningConstraint::Dynamic(tot_vec) => match tot_vec.len() {
-                0 => None,
-                1 => Some(tot_vec[0].def.0),
-                n => todo!("Dynamic with {} tot vector: {:?}", n, tot_vec),
-            },
+            | RunningConstraint::FnPtr(_) => vec![],
+            RunningConstraint::Idk(inner) => inner
+                .inner
+                .iter()
+                .filter_map(|c| c.cfc.as_ref())
+                .flat_map(|cfc| self.get_defid_candidates(cfc))
+                .collect(),
+            // No concrete defid to get
+            RunningConstraint::Dynamic(_) => vec![],
             _ => todo!("cfc: {:?}", cfc),
         }
     }
@@ -357,8 +355,13 @@ impl<'a> RvalConverter<'a> {
                         toc: None,
                         cfc: Some(cfc_),
                     } => {
-                        match self.get_defid_from_cfc(&cfc_) {
-                            Some(defid) => {
+                        let candidate_defids = self.get_defid_candidates(&cfc_);
+                        debug!("candidate defids: {:?}", candidate_defids);
+
+                        if candidate_defids.is_empty() {
+                            new_constraints.push(constraint.clone());
+                        } else {
+                            for (defid, leaf_cfc) in &candidate_defids {
                                 debug!("DEFID: {:?}", defid);
                                 debug!("CFC: {:?}", cfc_);
 
@@ -366,16 +369,18 @@ impl<'a> RvalConverter<'a> {
                                     Some(traits) => {
                                         debug!("found traits");
                                         if traits.contains(&traitobjty.def.0) {
-                                            let new_constraint = Constraint::new(
+                                            new_constraints.push(Constraint::new(
                                                 Some((
                                                     traitobjty.clone(),
-                                                    self.convert_cfc_to_toc(&cfc_),
+                                                    self.convert_cfc_to_toc(leaf_cfc),
                                                 )),
                                                 Some(cfc_.clone()),
-                                            );
-                                            new_constraints.push(new_constraint);
+                                            ));
                                         } else {
-                                            new_constraints.push(constraint.clone());
+                                            new_constraints.push(Constraint::new(
+                                                None,
+                                                Some(leaf_cfc.clone()),
+                                            ));
                                         }
                                     }
                                     None => {
@@ -384,21 +389,23 @@ impl<'a> RvalConverter<'a> {
                                         if (constraint.is_cfc_closure() && traitobjty.is_fn_trait())
                                             || traitobjty.is_universal_trait()
                                         {
-                                            let new_constraint = Constraint::new(
+                                            new_constraints.push(Constraint::new(
                                                 Some((
                                                     traitobjty.clone(),
-                                                    self.convert_cfc_to_toc(&cfc_),
+                                                    self.convert_cfc_to_toc(leaf_cfc),
                                                 )),
                                                 Some(cfc_.clone()),
-                                            );
-                                            new_constraints.push(new_constraint);
+                                            ));
                                         } else {
-                                            todo!();
+                                            todo!(
+                                                "cast to {:?}: no impl found for candidate {:?}",
+                                                traitobjty,
+                                                defid
+                                            );
                                         }
                                     }
                                 }
                             }
-                            None => new_constraints.push(constraint.clone()),
                         }
                     }
                     _ => {

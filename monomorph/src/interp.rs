@@ -2028,7 +2028,7 @@ impl<'a> InterpPass<'a> {
         debug!("RESVEC 1: {:?}", resvec);
 
         // Also search in genargs for an implementing type
-        let mut resvec = Vec::new();
+        //let mut resvec = Vec::new();
         for genarg in &genargs.0 {
             match self.converter.convert_genarg(&Location::unknown(), &genarg) {
                 Some(genarg_constraint) => {

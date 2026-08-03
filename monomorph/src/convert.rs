@@ -326,23 +326,21 @@ impl<'a> RvalConverter<'a> {
         }
     }
 
-    fn get_defid_from_cfc(&self, cfc: &RunningConstraint) -> DefId {
+    fn get_defid_from_cfc(&self, cfc: &RunningConstraint) -> Option<DefId> {
         match cfc {
-            RunningConstraint::Adt(adtdef, _, _, _) => adtdef.0,
-            RunningConstraint::Closure(cdef, _) => cdef.0,
+            RunningConstraint::Adt(adtdef, _, _, _) => Some(adtdef.0),
+            RunningConstraint::Closure(cdef, _) => Some(cdef.0),
             // FIXME this is a jumbled mess
-            RunningConstraint::Idk(inner) => {
-                if inner.len() > 1 {
-                    todo!();
-                }
-                self.get_defid_from_cfc(&inner.at(0).cfc.as_ref().unwrap())
-            }
-            RunningConstraint::Dynamic(tot_vec) => {
-                if tot_vec.len() > 1 {
-                    todo!();
-                }
-                tot_vec[0].def.0
-            }
+            RunningConstraint::Idk(inner) => match inner.len() {
+                0 => None,
+                1 => self.get_defid_from_cfc(&inner.at(0).cfc.as_ref().unwrap()),
+                n => todo!("Idk with {} inner constraints: {:?}", n, inner),
+            },
+            RunningConstraint::Dynamic(tot_vec) => match tot_vec.len() {
+                0 => None,
+                1 => Some(tot_vec[0].def.0),
+                n => todo!("Dynamic with {} tot vector: {:?}", n, tot_vec),
+            },
             _ => todo!("cfc: {:?}", cfc),
         }
     }
@@ -363,84 +361,74 @@ impl<'a> RvalConverter<'a> {
                 debug!("constraint: {:?}", constraint);
                 match constraint {
                     Constraint { toc: Some(_), .. } => {
-                        // Push old constraint unchanged
                         new_constraints.push(constraint.clone());
                     }
-                    //Constraint {
-                    //    toc: None,
-                    //    cfc: Some(RunningConstraint::Dynamic(existing_tots)),
-                    //} => {
-                    //    // Already the trait object we're casting to (or a compatible one) —
-                    //    // nothing further to resolve, push through unchanged.
-                    //    new_constraints.push(constraint.clone());
-                    //}
                     Constraint {
                         toc: None,
                         cfc: Some(cfc_),
                         prov: _,
                     } => {
-                        // If no TOC but CFC exists, pull any CFC constraints that
-                        // could be a traitobj for this traitobjty
-                        let defid = self.get_defid_from_cfc(&cfc_);
-                        debug!("DEFID: {:?}", defid);
-                        debug!("CFC: {:?}", cfc_);
+                        match self.get_defid_from_cfc(&cfc_) {
+                            Some(defid) => {
+                                debug!("DEFID: {:?}", defid);
+                                debug!("CFC: {:?}", cfc_);
 
-                        match self.tstore.struct_traits.get(&defid) {
-                            Some(traits) => {
-                                debug!("found traits");
-                                if traits.contains(&traitobjty.def.0) {
-                                    // pull relevant CFC into TOC
-                                    let new_constraint = Constraint::new(
-                                        Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
-                                        Some(cfc_.clone()),
-                                    )
-                                    .with_prov(match span.scope {
-                                        Some(s) => Prov::Tags(
-                                            [(s, span.bb, span.stmt)].into_iter().collect(),
-                                        ),
-                                        None => Prov::Unknown,
-                                    });
-                                    new_constraints.push(new_constraint);
-                                } else {
-                                    // push old constraint unchanged
-                                    new_constraints.push(constraint.clone());
+                                match self.tstore.struct_traits.get(&defid) {
+                                    Some(traits) => {
+                                        debug!("found traits");
+                                        if traits.contains(&traitobjty.def.0) {
+                                            // pull relevant CFC into TOC
+                                            let new_constraint = Constraint::new(
+                                                Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
+                                                Some(cfc_.clone()),
+                                            )
+                                            .with_prov(match span.scope {
+                                                Some(s) => Prov::Tags(
+                                                    [(s, span.bb, span.stmt)].into_iter().collect(),
+                                                ),
+                                                None => Prov::Unknown,
+                                            });
+                                            new_constraints.push(new_constraint);
+                                        } else {
+                                            // push old constraint unchanged
+                                            new_constraints.push(constraint.clone());
+                                        }
+                                    }
+                                    None => {
+                                        // Is the trait one of Fn/FnMut/FnOnce? And is the current
+                                        // constraint a closure? If so, these traits are implicitly
+                                        // implemented and won't exist in our trait_store
+                                        if constraint.is_cfc_closure() && traitobjty.is_fn_trait() {
+                                            // Pull relevant CFC into TOC
+                                            let new_constraint = Constraint::new(
+                                                Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
+                                                Some(cfc_.clone()),
+                                            )
+                                            .with_prov(match span.scope {
+                                                Some(s) => Prov::Tags(
+                                                    [(s, span.bb, span.stmt)].into_iter().collect(),
+                                                ),
+                                                None => Prov::Unknown,
+                                            });
+                                            new_constraints.push(new_constraint);
+                                        //} else if traitobjty.is_fn_trait() {
+                                        //    // Use collected constraints
+                                        //    todo!();
+                                        } else {
+                                            todo!();
+                                        }
+                                    }
                                 }
                             }
-                            None => {
-                                // Is the trait one of Fn/FnMut/FnOnce? And is the current
-                                // constraint a closure? If so, these traits are implicitly
-                                // implemented and won't exist in our trait_store
-                                if constraint.is_cfc_closure() && traitobjty.is_fn_trait() {
-                                    // Pull relevant CFC into TOC
-                                    let new_constraint = Constraint::new(
-                                        Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
-                                        Some(cfc_.clone()),
-                                    )
-                                    .with_prov(match span.scope {
-                                        Some(s) => Prov::Tags(
-                                            [(s, span.bb, span.stmt)].into_iter().collect(),
-                                        ),
-                                        None => Prov::Unknown,
-                                    });
-                                    new_constraints.push(new_constraint);
-                                //} else if traitobjty.is_fn_trait() {
-                                //    // Use collected constraints
-                                //    todo!();
-                                } else {
-                                    todo!();
-                                }
-                            }
+                            None => new_constraints.push(constraint.clone()),
                         }
                     }
                     _ => {
-                        // push old constraint unchanged
                         new_constraints.push(constraint.clone());
                     }
                 }
             }
         }
-
-        //debug!("\nNEW CONSTRAINTS: {:?}", new_constraints);
 
         new_constraints
     }

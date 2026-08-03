@@ -449,7 +449,8 @@ fn fn_op<'tcx>(
     }));
 
     let impl_did = tcx.parent(target_did);
-    let self_ty = tcx.type_of(impl_did).instantiate_identity();
+    let self_ty = tcx.type_of(impl_did).instantiate(tcx, instance.args);
+    let self_ty = tcx.normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty);
 
     Ok((op, self_ty))
 }

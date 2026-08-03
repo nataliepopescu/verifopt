@@ -1798,6 +1798,8 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         constraint: &Constraint,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+        debug!("RESOLVE DEFID");
+
         match constraint {
             Constraint {
                 toc: Some(toc_),
@@ -1864,41 +1866,47 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         fields: &ADTFields,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+        debug!("\nRESOLVE ADT HELPER");
+
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {
             // Does this ADT implement the desired trait? If so, add to vec
             Some(traits) => {
                 if traits.contains(trait_defid) {
                     if genargs.0.is_empty() {
+                        debug!("no genargs");
                         unique_push(&mut resvec, (adtdef.0, None));
                     } else {
+                        debug!("some genargs");
                         unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
                     }
                 }
             }
             None => {}
         }
+        debug!("RESVEC 0: {:?}", resvec);
 
-        // FIXME search in fields instead of genargs b/c we also have the constraints + don't need
-        // to reconstruct them; however, this poses a termination problem - maybe only search in
+        // Search in fields (in addition to genargs) b/c constraints are already there + don't need
+        // to reconstruct them; however, this might pose a termination problem - maybe only search in
         // fields for types that are known to essentially be "wrappers" (e.g. Box, NonNull, Unique, etc)
         for (_key, field_constraints) in fields {
             if self.converter.wrapper_kind(adtdef).is_some() {
                 for fc in &field_constraints.inner {
+                    debug!("resolving defid for FIELD: {:?}", fc);
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, fc);
                     unique_append(&mut resvec, inner_resvec);
                 }
             }
         }
+        debug!("RESVEC 1: {:?}", resvec);
 
         // Also search in genargs for an implementing type
-        /*
+        let mut resvec = Vec::new();
         for genarg in &genargs.0 {
             match self.converter.convert_genarg(&Location::new(), &genarg) {
                 Some(genarg_constraint) => {
-                    debug!("\nrecursing");
-                    debug!("genarg_constraint: {:?}", genarg_constraint);
+                    debug!("resolving defid for GENARG: {:?}", genarg_constraint);
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
                     unique_append(&mut resvec, inner_resvec);
@@ -1906,8 +1914,9 @@ impl<'a> InterpPass<'a> {
                 _ => {}
             }
         }
-        */
+        debug!("RESVEC 2: {:?}", resvec);
 
+        debug!("RETURNED RESVEC: {:?}", resvec);
         (false, resvec)
     }
 

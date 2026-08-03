@@ -762,6 +762,7 @@ impl<'a> RvalConverter<'a> {
     }
 
     pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
+        debug!("IN CONVERT_TY");
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => (

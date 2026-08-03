@@ -102,12 +102,50 @@ impl Constraints {
 
     // Write: strong-update the field within EVERY disjunct currently in scope.
     // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
-    pub fn write_field(&mut self, elem: Vec<ProjectionElem>, new: Constraints) {
-        for c in self.inner.iter_mut() {
-            if let Some(RunningConstraint::Adt(_, _, _, fields)) = &mut c.cfc {
-                fields.retain(|(e, _)| e != &elem);
-                fields.push((elem.clone(), new.clone()));
+    pub fn write_field(&mut self, projection: Vec<ProjectionElem>, new: Constraints) {
+        let target_variant = projection.iter().find_map(|e| match e {
+            ProjectionElem::Downcast(v) => Some(*v),
+            _ => None,
+        });
+
+        let field: Vec<ProjectionElem> = projection
+            .into_iter()
+            .filter(|e| matches!(e, ProjectionElem::Field(..)))
+            .collect();
+
+        match (field.len(), target_variant) {
+            // *x = v — no field, no downcast: replace the whole pointee outright.
+            (0, None) => {
+                *self = new;
             }
+
+            // (x as Variant) = v with no further Field: writing a variant's entire
+            // payload as one unit rather than through a named field.
+            (0, Some(_v)) => {
+                todo!(
+                    "whole-variant write without a Field projection: {:?}",
+                    target_variant
+                );
+            }
+
+            // The ordinary case: update one field, honoring the same variant-scoping
+            // as filter_variant on the read side.
+            (1, target_variant) => {
+                for c in self.inner.iter_mut() {
+                    if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
+                        let applies = match target_variant {
+                            Some(v) => variant.is_none() || *variant == Some(v),
+                            None => true,
+                        };
+                        if applies {
+                            fields.retain(|(e, _)| e != &field[0]);
+                            fields.push((field[0].clone(), new.clone()));
+                        }
+                    }
+                }
+            }
+
+            (_, _) => panic!("multi-hop field writes not yet supported: {:?}", field),
         }
     }
 
@@ -155,7 +193,7 @@ impl Constraint {
     }
 }
 
-pub type ADTFields = Vec<(Vec<ProjectionElem>, Constraints)>;
+pub type ADTFields = Vec<(ProjectionElem, Constraints)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
@@ -197,7 +235,6 @@ pub enum RunningConstraint {
     Dynamic(Vec<TraitObjTy>),
 
     // fallback types
-    //IdkType(Ty),
     List(Box<Constraint>),
     Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),
@@ -366,7 +403,7 @@ impl Context {
         );
     }
 
-    fn step_field(
+    pub fn step_field(
         &self,
         scope: &VOID,
         constraints: &Constraints,
@@ -394,7 +431,7 @@ impl Context {
         match &constraint.cfc {
             Some(RunningConstraint::Adt(_, _, _, fields)) => fields
                 .iter()
-                .find(|(key, _)| key.len() == 1 && self.field_idx(&key[0]) == self.field_idx(elem))
+                .find(|(key, _)| self.field_idx(&key) == self.field_idx(elem))
                 .map(|(_, cs)| cs.clone())
                 .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
             Some(RunningConstraint::Tuple(inner)) => match elem {
@@ -454,9 +491,11 @@ impl Context {
                     for elem in &place.projection {
                         match elem {
                             ProjectionElem::Downcast(vidx) => {
+                                debug!("\ndowncast projection: {:?}", elem);
                                 cur = cur.filter_variant(*vidx);
                             }
                             ProjectionElem::Field(..) => {
+                                debug!("\nfield projection: {:?}", elem);
                                 cur = self.step_field(scope, &cur, elem);
                             }
                             _ => {}

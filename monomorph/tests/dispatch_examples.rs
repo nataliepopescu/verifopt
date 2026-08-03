@@ -70,9 +70,12 @@ macro_rules! example_test {
 // truer signal than pretending they pass.
 example_test!(casting_traitobj, "casting_traitobj", Passing);
 example_test!(closures, "closures", Passing);
+example_test!(constraint_hierarchy, "constraint_hierarchy", Passing);
 example_test!(default, "default", Passing);
 example_test!(fnptrs, "fnptrs", Passing);
 example_test!(generic, "generic", Passing);
+example_test!(list_fields, "list_fields", Passing);
+example_test!(nested_struct, "nested_struct", Passing);
 example_test!(recursive, "recursive", Passing);
 example_test!(shims, "shims", Passing);
 example_test!(switchint, "switchint", Passing);

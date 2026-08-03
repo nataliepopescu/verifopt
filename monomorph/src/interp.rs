@@ -5,9 +5,9 @@ use rustc_public::CrateDef;
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
-    BasicBlock, Body, BorrowKind, ConstOperand, LocalDecl, Mutability, NonDivergingIntrinsic,
-    Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind, Successors, SwitchTargets,
-    Terminator, TerminatorKind,
+    BasicBlock, Body, BorrowKind, ConstOperand, CopyNonOverlapping, LocalDecl, Mutability,
+    NonDivergingIntrinsic, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
+    Successors, SwitchTargets, Terminator, TerminatorKind,
 };
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
@@ -18,7 +18,7 @@ use log::{debug, error};
 
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -454,10 +454,145 @@ impl<'a> InterpPass<'a> {
             | StatementKind::StorageDead(_) => {}
             StatementKind::Intrinsic(ndi) => match ndi {
                 NonDivergingIntrinsic::Assume(_) => {}
-                NonDivergingIntrinsic::CopyNonOverlapping(_) => todo!("copy nonoverlapping"),
+                NonDivergingIntrinsic::CopyNonOverlapping(cno) => {
+                    self.handle_copy_nonoverlapping(ctxt, cur_scope, local_decls, cno)
+                }
             },
             _ => todo!("new statement kind: {:?}", &stmt.kind),
         }
+    }
+
+    fn handle_copy_nonoverlapping(
+        &self,
+        ctxt: &mut Context,
+        cur_scope: &VOID,
+        local_decls: &[LocalDecl],
+        cno: &CopyNonOverlapping,
+    ) {
+        debug!("CNO src: {:?}", cno.src);
+        debug!("CNO dst: {:?}", cno.dst);
+        debug!("CNO cnt: {:?}", cno.count);
+
+        let count = match self.get_operand_constraints(ctxt, cur_scope, &cno.count, false) {
+            Some(constraints) => self.get_usize(&constraints),
+            None => None,
+        };
+        let src = self.get_operand_constraints(ctxt, cur_scope, &cno.src, false);
+
+        match &cno.dst {
+            Operand::Copy(place) | Operand::Move(place) => {
+                assert!(place.projection.is_empty());
+                let dst_ty = place.ty(local_decls).unwrap();
+                assert!(
+                    self.contains_dyn(&dst_ty).is_none(),
+                    "CopyNonOverlapping dst type implies a dyn constraint ({:?}); \
+                     toc must be derived via lift_traitobjtys(dst_ty, ..) here, not just \
+                     inherited from src",
+                    dst_ty
+                );
+
+                if let Some(count) = count
+                    && let Some(ref src) = src
+                    && !src.inner.is_empty()
+                {
+                    let always_one = count.iter().all(|&n| n == 1);
+
+                    let dst_disjuncts: Vec<Constraint> = src
+                        .inner
+                        .iter()
+                        .filter_map(|c| match &c.cfc {
+                            Some(RunningConstraint::Ptr(inner)) => {
+                                let pointee = if always_one {
+                                    (**inner).clone()
+                                } else {
+                                    // preserve the pointee's own toc when wrapping it in a List
+                                    Constraint::new(
+                                        inner.toc.clone(),
+                                        Some(RunningConstraint::List(inner.clone())),
+                                    )
+                                };
+                                // preserve src's outer Ptr-constraint toc on the new outer Ptr constraint
+                                Some(Constraint::new(
+                                    c.toc.clone(),
+                                    Some(RunningConstraint::Ptr(Box::new(pointee))),
+                                ))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+
+                    ctxt.set_scoped_constraints(
+                        cur_scope,
+                        &place,
+                        Constraints::from_vec(dst_disjuncts),
+                    );
+                } else if let Some(src) = src
+                    && !src.inner.is_empty()
+                {
+                    // no usable count -> always model as a sequence (List), never "exactly one"
+                    let dst_disjuncts: Vec<Constraint> = src
+                        .inner
+                        .iter()
+                        .filter_map(|c| match &c.cfc {
+                            Some(RunningConstraint::Ptr(inner)) => {
+                                let pointee = Constraint::new(
+                                    inner.toc.clone(),
+                                    Some(RunningConstraint::List(inner.clone())),
+                                );
+                                Some(Constraint::new(
+                                    c.toc.clone(),
+                                    Some(RunningConstraint::Ptr(Box::new(pointee))),
+                                ))
+                            }
+                            _ => None,
+                        })
+                        .collect();
+                    ctxt.set_scoped_constraints(
+                        cur_scope,
+                        &place,
+                        Constraints::from_vec(dst_disjuncts),
+                    );
+                } else {
+                    debug!("widen constraints to type");
+                    let (_, dst) = self
+                        .converter
+                        .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
+                    ctxt.set_scoped_constraints(cur_scope, &place, Constraints::from(dst));
+                }
+            }
+            _ => panic!("dst is not a place"),
+        }
+    }
+
+    fn get_operand_constraints(
+        &self,
+        ctxt: &mut Context,
+        cur_scope: &VOID,
+        op: &Operand,
+        is_closure: bool,
+    ) -> Option<Constraints> {
+        match op {
+            Operand::Copy(place) | Operand::Move(place) => {
+                match ctxt.get_constraints(cur_scope, &place, is_closure) {
+                    Some(constraints) => Some(constraints),
+                    None => None,
+                }
+            }
+            Operand::Constant(_co) => todo!("got const operand"),
+            _ => panic!("got runtime checks"),
+        }
+    }
+
+    fn get_usize(&self, constraints: &Constraints) -> Option<Vec<usize>> {
+        let mut nums = Vec::new();
+        for constraint in &constraints.inner {
+            match constraint.cfc {
+                Some(RunningConstraint::Scalar(Some(num))) => nums.push(num.try_into().unwrap()),
+                _ => {}
+            }
+        }
+
+        if nums.is_empty() { None } else { Some(nums) }
     }
 
     fn visit_terminator(
@@ -1248,6 +1383,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
+            debug!("arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
@@ -1668,7 +1804,7 @@ impl<'a> InterpPass<'a> {
     }
 
     /// If a concrete type constraint contains a type that implements the trait of the
-    /// traitobject we are dispatching on, return that type's DefId (FIXME remove: along with its generic args)
+    /// traitobject we are dispatching on, return that type's DefId (FIXME remove associated generic args?)
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
     fn resolve_defid(
@@ -1677,6 +1813,8 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         constraint: &Constraint,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+        debug!("RESOLVE DEFID");
+
         match constraint {
             Constraint {
                 toc: Some(toc_),
@@ -1687,8 +1825,8 @@ impl<'a> InterpPass<'a> {
                 }
 
                 match toc_ {
-                    (_, TraitObjConstraint::Adt(adtdef, genargs, _, _fields)) => {
-                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
+                    (_, TraitObjConstraint::Adt(adtdef, genargs, _, fields)) => {
+                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
                         if genargs.0.is_empty() {
@@ -1704,8 +1842,8 @@ impl<'a> InterpPass<'a> {
                 cfc: Some(cfc),
             } => {
                 match cfc {
-                    RunningConstraint::Adt(adtdef, genargs, _, _fields) => {
-                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs)
+                    RunningConstraint::Adt(adtdef, genargs, _, fields) => {
+                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }
                     RunningConstraint::Closure(cdef, genargs) => {
                         if genargs.0.is_empty() {
@@ -1715,10 +1853,17 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                     RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
-                    // If this is truly a Dynamic constraint that we cannot resolve to any concrete
-                    // types, then return nothing here so that if needed, we may fallback to
-                    // another, coarser resolution mechanism
+                    // truly a Dynamic constraint that we cannot resolve to any concrete types
                     RunningConstraint::Dynamic(_) => (false, vec![]),
+                    RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
+                    RunningConstraint::Idk(box cs) => {
+                        let mut defids = Vec::new();
+                        for c in &cs.inner {
+                            let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
+                            unique_append(&mut defids, res_defids);
+                        }
+                        (false, defids)
+                    }
                     _ => todo!("{:?}", cfc),
                 }
             }
@@ -1734,33 +1879,49 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         adtdef: &AdtDef,
         genargs: &GenericArgs,
-        //fields: &Vec<Place>
+        fields: &ADTFields,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+        debug!("\nRESOLVE ADT HELPER");
+
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {
             // Does this ADT implement the desired trait? If so, add to vec
             Some(traits) => {
                 if traits.contains(trait_defid) {
                     if genargs.0.is_empty() {
+                        debug!("no genargs");
                         unique_push(&mut resvec, (adtdef.0, None));
                     } else {
+                        debug!("some genargs");
                         unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
                     }
                 }
             }
             None => {}
         }
+        debug!("RESVEC 0: {:?}", resvec);
 
-        // FIXME search in fields instead of genargs b/c we also have the constraints + don't need
-        // to reconstruct them; however, this poses a termination problem - maybe only search in
+        // Search in fields (in addition to genargs) b/c constraints are already there + don't need
+        // to reconstruct them; however, this might pose a termination problem - maybe only search in
         // fields for types that are known to essentially be "wrappers" (e.g. Box, NonNull, Unique, etc)
-        //
+        for (_key, field_constraints) in fields {
+            if self.converter.wrapper_kind(adtdef).is_some() {
+                for fc in &field_constraints.inner {
+                    debug!("resolving defid for FIELD: {:?}", fc);
+                    let (_is_closure, inner_resvec) =
+                        self.resolve_defid(term_span, trait_defid, fc);
+                    unique_append(&mut resvec, inner_resvec);
+                }
+            }
+        }
+        debug!("RESVEC 1: {:?}", resvec);
+
         // Also search in genargs for an implementing type
+        //let mut resvec = Vec::new();
         for genarg in &genargs.0 {
             match self.converter.convert_genarg(&Location::new(), &genarg) {
                 Some(genarg_constraint) => {
-                    debug!("\nrecursing");
-                    debug!("genarg_constraint: {:?}", genarg_constraint);
+                    debug!("resolving defid for GENARG: {:?}", genarg_constraint);
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
                     unique_append(&mut resvec, inner_resvec);
@@ -1768,7 +1929,9 @@ impl<'a> InterpPass<'a> {
                 _ => {}
             }
         }
+        debug!("RESVEC 2: {:?}", resvec);
 
+        debug!("RETURNED RESVEC: {:?}", resvec);
         (false, resvec)
     }
 

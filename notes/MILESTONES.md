@@ -4,16 +4,12 @@
 
 - [ ] impl / design
     - [ ] FSA interp (DRIVEN BY EVAL)
-        - [ ] hierarchical field support
+        - [x] hierarchical field support
+        - [ ] handle loops
         - [ ] generalize function summaries
         - [ ] handle inline asm
         - [ ] fn sig narrowing (scope?)
         - [ ] fn ptrs to nested fn decls
-        - [ ] handle loops
-
-    - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
-        - [ ] make call_stack and friends use interior mutability
-        - [ ] unique-vec data structure/api
 
     - [ ] baselines
         - [x] CHA
@@ -23,6 +19,10 @@
 
     - [ ] general rewrite
         - [ ] vtable ptr mod
+
+    - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
+        - [ ] make call_stack and friends use interior mutability
+        - [ ] unique-vec data structure/api
 
 
 - [ ] eval

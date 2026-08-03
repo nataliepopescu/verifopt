@@ -1,5 +1,5 @@
 use crate::interp::InterpPass;
-use crate::rustc_public_bridge::IndexedVal;
+use crate::rustc_public::CrateDef;
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
 
@@ -9,7 +9,6 @@ use rustc_public::ty::{
     VariantIdx,
 };
 
-//use crate::common::log_scope;
 use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
@@ -221,10 +220,7 @@ pub type ADTFields = Vec<(ProjectionElem, Constraints)>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
-    // more complex data types
     Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
-
-    // callable types
     Closure(ClosureDef, GenericArgs),
 }
 
@@ -239,26 +235,15 @@ impl Location {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RunningConstraint {
-    // primitive data types
     Scalar(Option<i128>),
     Float,
-
-    // more complex data types
     Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
-
-    // pointer types
     Ptr(Box<Constraint>),
     //Ref(Box<Constraint>),
-
-    // callable types
     Closure(ClosureDef, GenericArgs),
     FnDef(FnDef, GenericArgs),
     FnPtr(SigVal),
-
-    // dynamic types
     Dynamic(Vec<TraitObjTy>),
-
-    // fallback types
     List(Box<Constraint>),
     Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),
@@ -311,14 +296,19 @@ impl TraitObjTy {
     }
 
     pub fn is_fn_trait(&self) -> bool {
-        // FnMut
-        if self.def.0.to_index() == 150 {
-            //debug!("FNMUT TRAIT");
-            true
-        } else {
-            //debug!("NOT A FN TRAIT");
-            false
-        }
+        matches!(
+            self.def.name().as_str(),
+            "std::ops::Fn"
+                | "std::ops::FnMut"
+                | "std::ops::FnOnce"
+                | "std::ops::Fn::Output"
+                | "std::ops::FnMut::Output"
+                | "std::ops::FnOnce::Output"
+        )
+    }
+
+    pub fn is_universal_trait(&self) -> bool {
+        matches!(self.def.name().as_str(), "core::error::Erased")
     }
 }
 

@@ -251,10 +251,10 @@ impl<'a> RvalConverter<'a> {
             // reconstruction rather than mis-decoding raw pointer bytes as if
             // they were meaningful without provenance resolution.
             _ => {
-                let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
-                if maybe_traitobj.is_some() {
-                    todo!("const field contains dyn: {:?}", ty);
-                }
+                let (_maybe_traitobj, constraint) = self.convert_ty(span, ty);
+                //if maybe_traitobj.is_some() {
+                //    todo!("const field contains dyn: {:?}", ty);
+                //}
                 constraint
             }
         }
@@ -271,10 +271,10 @@ impl<'a> RvalConverter<'a> {
     }
 
     fn convert_const_fallback(&self, span: &Location, ty: &Ty) -> Constraints {
-        let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
-        if let Some(traitobj) = maybe_traitobj {
-            todo!("const contains dyn: {:?}", traitobj);
-        }
+        let (_maybe_traitobj, constraint) = self.convert_ty(span, ty);
+        //if let Some(traitobj) = maybe_traitobj {
+        //    todo!("const contains dyn: {:?}", traitobj);
+        //}
         Constraints::from(constraint)
     }
 
@@ -330,7 +330,10 @@ impl<'a> RvalConverter<'a> {
         match cfc {
             RunningConstraint::Adt(adtdef, _, _, _) => Some(adtdef.0),
             RunningConstraint::Closure(cdef, _) => Some(cdef.0),
-            // FIXME this is a jumbled mess
+            RunningConstraint::Scalar(_)
+            | RunningConstraint::Float
+            | RunningConstraint::Ptr(_)
+            | RunningConstraint::FnPtr(_) => None,
             RunningConstraint::Idk(inner) => match inner.len() {
                 0 => None,
                 1 => self.get_defid_from_cfc(&inner.at(0).cfc.as_ref().unwrap()),
@@ -390,7 +393,9 @@ impl<'a> RvalConverter<'a> {
                                     None => {
                                         // These traits are implicitly implemented and won't exist
                                         // in our trait store
-                                        if constraint.is_cfc_closure() && traitobjty.is_fn_trait() {
+                                        if (constraint.is_cfc_closure() && traitobjty.is_fn_trait())
+                                            || traitobjty.is_universal_trait()
+                                        {
                                             let new_constraint = Constraint::new(
                                                 Some((
                                                     traitobjty.clone(),

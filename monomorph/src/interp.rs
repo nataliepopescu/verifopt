@@ -578,7 +578,9 @@ impl<'a> InterpPass<'a> {
                     None => None,
                 }
             }
-            Operand::Constant(_co) => todo!("got const operand"),
+            Operand::Constant(const_op) => {
+                Some(self.converter.convert_const(&Location::new(), &const_op))
+            }
             _ => panic!("got runtime checks"),
         }
     }
@@ -1018,13 +1020,6 @@ impl<'a> InterpPass<'a> {
                 // - is this a trait method without an implementation?
                 // - if so, who implements it? execute those implementations
                 // This tends to be stuff that dynamic dispatch does for us anyway
-
-                //let trait_ = self.tstore.assoc_fn_traits.get(&fndef.0).unwrap();
-                //let structs = self.tstore.trait_structs.get(&trait_).unwrap();
-                //for struct_ in structs {
-                //    let impls = self.tstore.struct_assoc_fns.get(&(*struct_, fndef.0)).unwrap();
-                //    debug!("impls: {:?}", impls);
-                //}
                 return self.interp_virtual_call(
                     logger,
                     term_span,
@@ -1043,15 +1038,21 @@ impl<'a> InterpPass<'a> {
         let new_scope = (instance, genargs.clone());
         debug!("--- CALLING {:?}", fndef);
         log_scope(cur_scope);
-        //debug!("FNDEF GENARGS: {:?}", genargs);
 
         // checking for recursive stack depths of > 50
         if *self.rec_depth.borrow() > MAX_DEPTH {
             return Err(Error::RecurseLimit(MAX_DEPTH));
-            // return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
-        if !new_scope.0.has_body() {
+        // Only Item/Shim instances have a body worth fetching. Virtual instances
+        // are dispatched dynamically at runtime and have no body of their own
+        // (calling `.body()` on one is a rustc ICE, not just an empty result);
+        // Intrinsic instances are handled via signature fallback in dispatch_call.
+        // Route anything else straight there without ever touching `.body()`.
+        let fetchable_body = matches!(instance.kind, InstanceKind::Item | InstanceKind::Shim)
+            && new_scope.0.has_body();
+
+        if !fetchable_body {
             return self.dispatch_call(
                 logger,
                 term_span,
@@ -1078,9 +1079,6 @@ impl<'a> InterpPass<'a> {
             args,
             false,
         );
-        //.into_iter()
-        //.map(|(cs, _)| cs)
-        //.collect();
 
         if call_stack.contains(&new_scope) {
             let new_key = (new_scope.clone(), ArgSet::new(&new_cs));
@@ -1144,57 +1142,32 @@ impl<'a> InterpPass<'a> {
         new_cs: Vec<Constraints>,
     ) -> Result<Option<Constraints>, Error> {
         match instance.kind {
-            InstanceKind::Item => {
-                //debug!("regular static funccall");
-                self.interp_static_call(
-                    logger,
-                    term_span,
-                    ctxt,
-                    call_stack,
-                    cur_scope,
-                    &new_scope,
-                    local_decls,
-                    fndef,
-                    args,
-                    &genargs,
-                    &new_cs,
-                )
-            }
-            InstanceKind::Virtual { .. } => {
-                //debug!("virtual funccall");
-                self.interp_virtual_call(
-                    logger,
-                    term_span,
-                    ctxt,
-                    call_stack,
-                    cur_scope,
-                    local_decls,
-                    bb,
-                    &fndef,
-                    &genargs,
-                    args,
-                )
-            }
-            InstanceKind::Shim => {
-                //debug!("shim funccall");
-                self.interp_static_call(
-                    logger,
-                    term_span,
-                    ctxt,
-                    call_stack,
-                    cur_scope,
-                    &new_scope,
-                    local_decls,
-                    fndef,
-                    args,
-                    &genargs,
-                    &new_cs,
-                )
-            }
-            InstanceKind::Intrinsic => {
-                //debug!("intrinsic funccall");
-                self.retty_fallback_from_poly(fndef.fn_sig())
-            }
+            InstanceKind::Item | InstanceKind::Shim => self.interp_static_call(
+                logger,
+                term_span,
+                ctxt,
+                call_stack,
+                cur_scope,
+                &new_scope,
+                local_decls,
+                fndef,
+                args,
+                &genargs,
+                &new_cs,
+            ),
+            InstanceKind::Virtual { .. } => self.interp_virtual_call(
+                logger,
+                term_span,
+                ctxt,
+                call_stack,
+                cur_scope,
+                local_decls,
+                bb,
+                &fndef,
+                &genargs,
+                args,
+            ),
+            InstanceKind::Intrinsic => self.retty_fallback_from_poly(fndef.fn_sig()),
         }
     }
 
@@ -1369,17 +1342,19 @@ impl<'a> InterpPass<'a> {
             let local = if is_closure { i + 2 } else { i + 1 };
             let place = Place {
                 local,
-                projection: vec![], // FIXME should this ever _not_ be empty?
+                projection: vec![],
             };
 
-            let arg_ty = place.ty(body.locals()).unwrap();
-            if let TyKind::RigidTy(RigidTy::Ref(_, _, mt)) = arg_ty.kind() {
-                if let Operand::Copy(caller_place) | Operand::Move(caller_place) = &args[i] {
-                    ctxt.cstore.add_ref(
-                        (place.clone(), callee_scope.clone()),
-                        (caller_place.clone(), caller_scope.clone()),
-                        mt,
-                    );
+            if local < body.locals().len() {
+                let arg_ty = place.ty(body.locals()).unwrap();
+                if let TyKind::RigidTy(RigidTy::Ref(_, _, mt)) = arg_ty.kind() {
+                    if let Operand::Copy(caller_place) | Operand::Move(caller_place) = &args[i] {
+                        ctxt.cstore.add_ref(
+                            (place.clone(), callee_scope.clone()),
+                            (caller_place.clone(), caller_scope.clone()),
+                            mt,
+                        );
+                    }
                 }
             }
 
@@ -1391,21 +1366,6 @@ impl<'a> InterpPass<'a> {
                 MapKey::Var(place.clone()),
                 Box::new(MapValue::Constraints(constraints)),
             );
-
-            //let arg_constraints = self.resolve_arg(
-            //    ctxt,
-            //    term_span,
-            //    caller_scope,
-            //    &maybe_trait_argty,
-            //    local_decls,
-            //    arg,
-            //    is_closure,
-            //);
-            //debug!("resolved arg constraints: {:?}", arg_constraints);
-            //debug!("arg place in new scope: {:?}\n", place);
-
-            //// Copy found constraints into new scope cmap
-            //new_ctxt.set_scoped_constraints(callee_scope, &place, arg_constraints);
         }
     }
 
@@ -1423,7 +1383,6 @@ impl<'a> InterpPass<'a> {
         arg: &Operand,
         is_closure: bool,
     ) -> Constraints {
-        //) -> (Constraints, Option<Vec<(Place, Constraints)>>) {
         // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
@@ -1651,24 +1610,16 @@ impl<'a> InterpPass<'a> {
     /// For CHA, add the default implementation (if it exists) no matter what.
     fn get_impls_from_defids(
         &self,
-        //_callee_scope: &VOID,
         assoc_fn_defid: &DefId,
         constraint_defids: &Vec<(DefId, Option<GenericArgs>)>,
         _fsa: bool,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
-        //debug!("\nGETTING IMPL DEFIDS FROM TYPE DEFIDS");
-
-        let mut assoc_fn_impls = Vec::new();
-
         // CHA-collected defid genargs are None, while FSA-collected defid genargs might be Some().
         // Get every concrete type constraint's impl of this function
-        for (i, (defid, genargs)) in constraint_defids.iter().enumerate() {
-            debug!("i: {:?}", i);
-            debug!("defid: {:?}", defid);
-            debug!("genargs: {:?}", genargs);
+        let mut assoc_fn_impls = Vec::new();
+        for (_i, (defid, genargs)) in constraint_defids.iter().enumerate() {
             match self.tstore.struct_assoc_fns.get(&(*defid, *assoc_fn_defid)) {
                 Some(assoc_fn_impl) => {
-                    debug!("assoc_fn_impl: {:?}", assoc_fn_impl);
                     unique_append(
                         &mut assoc_fn_impls,
                         assoc_fn_impl
@@ -1681,20 +1632,11 @@ impl<'a> InterpPass<'a> {
                 None => {
                     if FnDef(*defid).body().is_some() {
                         // This is a callable item, push the impl defid
-                        debug!("callable defid! {:?}", defid);
                         unique_push(&mut assoc_fn_impls, (*defid, genargs.clone()));
                     }
                 }
             }
         }
-
-        // If the supposedly-virtual function we want to call has a body, and there were some
-        // candidate objects that do not implement said function, and this is FSA
-        // OR if this is CHA, then add this "default" implmentation
-        //if FnDef(*assoc_fn_defid).body().is_some() && (!constraint_defids.is_empty() || !fsa) {
-        //    debug!("ADDING DEFAULT IMPL");
-        //    unique_push(&mut assoc_fn_impls, (*assoc_fn_defid, None));
-        //}
 
         assoc_fn_impls
     }
@@ -1797,7 +1739,7 @@ impl<'a> InterpPass<'a> {
         let mut is_closure = false;
         for constraint in &tyconstraints.inner {
             let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, &constraint);
-            is_closure = is_closure_;
+            is_closure = is_closure || is_closure_;
             unique_append(&mut defids, res);
         }
         (is_closure, defids)
@@ -1821,7 +1763,7 @@ impl<'a> InterpPass<'a> {
                 cfc: _,
             } => {
                 if *trait_defid != toc_.0.def.0 {
-                    todo!("traits don't match");
+                    return (false, vec![]);
                 }
 
                 match toc_ {
@@ -1867,9 +1809,7 @@ impl<'a> InterpPass<'a> {
                     _ => todo!("{:?}", cfc),
                 }
             }
-            _ => {
-                panic!("no constraints");
-            }
+            _ => panic!("no constraints"),
         }
     }
 

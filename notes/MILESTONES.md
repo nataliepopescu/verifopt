@@ -12,6 +12,8 @@
         - [ ] fn ptrs to nested fn decls
 
     - [ ] baselines
+        - [ ] naive Rust
+            - already implemented (ofc), but still need to check against
         - [x] CHA
             - [ ] correct?
         - [ ] RTA

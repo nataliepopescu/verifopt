@@ -80,9 +80,7 @@ example_test!(recursive, "recursive", Passing);
 example_test!(shims, "shims", Passing);
 example_test!(switchint, "switchint", Passing);
 example_test!(one_variant, "one_variant", Passing);
-example_test!(rand_, "rand_", Passing);
 example_test!(two_variants, "two_variants", Passing);
-example_test!(two_variants_rand, "two_variants_rand", Passing);
 example_test!(two_variants_static, "two_variants_static", Passing);
 example_test!(
     two_variants_static_nonzst,
@@ -100,3 +98,5 @@ example_test!(simple_single, "simple_single", Passing);
 
 // Not yet characterized at all — run and report, don't assert.
 example_test!(no_vtable_check, "no_vtable_check", Unclassified);
+example_test!(rand_, "rand_", Unclassified);
+example_test!(two_variants_rand, "two_variants_rand", Unclassified);

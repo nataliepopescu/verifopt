@@ -181,7 +181,6 @@ impl<'a> RvalConverter<'a> {
         ty: &Ty,
         alloc: &Allocation,
     ) -> ADTFields {
-        debug!("CONVERT ADT");
         let layout = ty.layout().expect("no layout for a concrete, sized ADT");
         let shape = layout.shape();
 
@@ -191,8 +190,6 @@ impl<'a> RvalConverter<'a> {
             // plain struct; fall back gracefully rather than panic if they do
             _ => return Vec::new(),
         };
-
-        debug!("offsets: {:?}", offsets);
 
         let mut fields = Vec::new();
         for (i, field_def) in adtdef.variants()[0].fields().iter().enumerate() {
@@ -290,24 +287,16 @@ impl<'a> RvalConverter<'a> {
         debug!("\nCONVERTING PLACE: {:?}", place);
 
         match ctxt.get_constraints(cur_scope, place, false) {
-            Some(constraints) => {
-                debug!("CONSTRAINTS EXIST: {:?}", constraints);
-                constraints
-            }
+            Some(constraints) => constraints,
             None => {
-                debug!("CONSTRAINTS DNE");
-                //for proj in &place.projection {
-                //    debug!("\nPROJ: {:?}", proj);
-                //}
                 debug!("DEST TY: {:?}", destty);
-                //let (maybe_traitobj, constraint) = self.convert_ty(span, destty);
                 let place_ty = place.ty(local_decls).unwrap_or(*destty);
-                let (maybe_traitobj, constraint) = self.convert_ty(span, &place_ty);
+                let (_maybe_traitobj, constraint) = self.convert_ty(span, &place_ty);
                 debug!("CONSTRAINT: {:?}", constraint);
 
-                if let Some(_traitobj) = maybe_traitobj {
-                    //todo!("place ty contains dyn {:?}", traitobj);
-                }
+                //if let Some(_traitobj) = maybe_traitobj {
+                //    todo!("place ty contains dyn {:?}", traitobj);
+                //}
 
                 Constraints::from(constraint)
             }
@@ -356,7 +345,6 @@ impl<'a> RvalConverter<'a> {
         debug!("CAST HELPER");
         let mut new_constraints = Constraints::new();
 
-        debug!("traitobjtys: {:?}\n", traitobjtys);
         for traitobjty in traitobjtys {
             for constraint in &constraints.inner {
                 debug!("\ntraitobjty: {:?}", traitobjty);
@@ -442,9 +430,7 @@ impl<'a> RvalConverter<'a> {
                 Constraints::from(constraint)
             }
             Operand::Copy(place) | Operand::Move(place) => {
-                debug!("CASTING existing place");
-                debug!("place: {:?}", place);
-
+                debug!("CASTING existing place: {:?}", place);
                 let prev_constraints =
                     self.convert_place(ctxt, span, local_decls, cur_scope, place, ty);
 
@@ -622,8 +608,6 @@ impl<'a> RvalConverter<'a> {
         ops: &Vec<Operand>,
     ) -> Constraints {
         debug!("AGG kind: {:?}", kind);
-        debug!("ops: {:?}", ops);
-        debug!("destty: {:?}", destty);
         match kind {
             AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
                 debug!("ADT agg");
@@ -694,7 +678,6 @@ impl<'a> RvalConverter<'a> {
                 ))
             }
             AggregateKind::Array(ty) => {
-                //debug!("array agg");
                 let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
                 if maybe_traitobj.is_some() {
                     todo!("array contains dyn");
@@ -704,13 +687,10 @@ impl<'a> RvalConverter<'a> {
                     Some(RunningConstraint::List(Box::new(constraint))),
                 ))
             }
-            AggregateKind::Closure(def, genargs) => {
-                //debug!("closure agg");
-                Constraints::from(Constraint::new(
-                    None,
-                    Some(RunningConstraint::Closure(*def, genargs.clone())),
-                ))
-            }
+            AggregateKind::Closure(def, genargs) => Constraints::from(Constraint::new(
+                None,
+                Some(RunningConstraint::Closure(*def, genargs.clone())),
+            )),
             _ => todo!("other agg kind: {:?}", kind),
         }
     }
@@ -743,7 +723,6 @@ impl<'a> RvalConverter<'a> {
         match genarg {
             GenericArgKind::Type(ty) => {
                 let (maybe_traitobj, constraint) = self.convert_ty(span, ty);
-                debug!("genarg constraint: {:?}", constraint);
                 if maybe_traitobj.is_some() {
                     todo!("genarg contains dyn");
                 }

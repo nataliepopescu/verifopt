@@ -702,7 +702,6 @@ impl ConstraintStore {
             },
             None => {
                 // initialize new scope w key/val
-                debug!("undefined scope: {:?} INIT NEW SUBSTORE", scope);
                 let mut new_store = ConstraintStore::new();
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(

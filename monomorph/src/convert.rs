@@ -423,9 +423,7 @@ impl<'a> RvalConverter<'a> {
                             None => new_constraints.push(constraint.clone()),
                         }
                     }
-                    _ => {
-                        new_constraints.push(constraint.clone());
-                    }
+                    _ => new_constraints.push(constraint.clone()),
                 }
             }
         }

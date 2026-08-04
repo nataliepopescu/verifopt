@@ -488,8 +488,8 @@ impl<'a> RvalConverter<'a> {
             "option::Option" => Some(WrapperKind::Option),
             "result::Result" => Some(WrapperKind::Result),
             // don't need to understand these types
-            "collections::btree::set::BTreeSet" => Some(WrapperKind::BTreeSet),
-            "collections::btree::map::BTreeMap" => Some(WrapperKind::BTreeMap),
+            "collections::BTreeSet" => Some(WrapperKind::BTreeSet),
+            "collections::BTreeMap" => Some(WrapperKind::BTreeMap),
             _ => None,
         };
 

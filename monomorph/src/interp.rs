@@ -986,7 +986,7 @@ impl<'a> InterpPass<'a> {
         };
 
         let new_scope = (instance, genargs.clone());
-        //debug!("--- CALLING {:?}", fndef);
+        debug!("--- CALLING {:?}", fndef);
         log_scope(cur_scope);
 
         // checking for recursive stack depths of > 50

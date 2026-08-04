@@ -10,13 +10,17 @@ use crate::constraints::{ADTFields, Constraint, Constraints, RunningConstraint, 
 use crate::convert::WrapperKind;
 use crate::error::Error;
 
+use log::debug;
+
 /// Everything we need about a call's receiver to decide whether (and how)
 /// to stub it as a BTreeSet/BTreeMap method.
 struct CollectionRecv {
     place: Place,
     adtdef: AdtDef,
-    elem_field: ProjectionElem,
     genargs: GenericArgs,
+    kind: WrapperKind,                 // BTreeSet or BTreeMap
+    key_field: ProjectionElem,         // field 0: the Set's element, or the Map's key
+    val_field: Option<ProjectionElem>, // field 1: only present for BTreeMap
 }
 
 /// Same idea, but for one of *our own fabricated* iterator values
@@ -39,7 +43,19 @@ impl<'a> InterpPass<'a> {
         fndef: &FnDef,
         args: &Vec<Operand>,
     ) -> Option<Result<Option<Constraints>, Error>> {
+        debug!("STDLIB_STUB");
         let method = Self::method_name(fndef);
+
+        if self.is_box_new(fndef) {
+            return Some(Ok(self.stub_box_new(
+                ctxt,
+                caller_scope,
+                term_span,
+                local_decls,
+                args,
+                fndef,
+            )));
+        }
 
         // Iterator methods (currently just `next`) take priority, since an
         // Iter<...> value is never also a BTreeSet/BTreeMap.
@@ -89,18 +105,22 @@ impl<'a> InterpPass<'a> {
     ) -> Option<CollectionRecv> {
         let place = self.receiver_place(args)?;
         let (adtdef, genargs) = self.receiver_adt(local_decls, &place)?;
-
         let kind = self.converter.wrapper_kind(&adtdef)?;
         if !matches!(kind, WrapperKind::BTreeSet | WrapperKind::BTreeMap) {
             return None;
         }
 
-        let elem_ty = genargs.0[0].expect_ty().clone();
+        let key_field = ProjectionElem::Field(0, genargs.0[0].expect_ty().clone());
+        let val_field = matches!(kind, WrapperKind::BTreeMap)
+            .then(|| ProjectionElem::Field(1, genargs.0[1].expect_ty().clone()));
+
         Some(CollectionRecv {
             place,
             adtdef,
-            elem_field: ProjectionElem::Field(0, elem_ty),
             genargs,
+            kind,
+            key_field,
+            val_field,
         })
     }
 
@@ -117,12 +137,12 @@ impl<'a> InterpPass<'a> {
         let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
         let is_our_iter = matches!(
             suffix,
-            "collections::btree::map::Iter"
-                | "collections::btree::map::IntoIter"
-                | "collections::btree::map::Keys"
-                | "collections::btree::map::Values"
-                | "collections::btree::set::Iter"
-                | "collections::btree::set::IntoIter"
+            "collections::btree_map::Iter"
+                | "collections::btree_map::IntoIter"
+                | "collections::btree_map::Keys"
+                | "collections::btree_map::Values"
+                | "collections::btree_set::Iter"
+                | "collections::btree_set::IntoIter"
         );
         if !is_our_iter {
             return None;
@@ -154,14 +174,18 @@ impl<'a> InterpPass<'a> {
         place: &Place,
     ) -> Option<(AdtDef, GenericArgs)> {
         let ty = place.ty(local_decls).ok()?;
-        match ty.kind() {
+        let result = match ty.kind() {
             TyKind::RigidTy(RigidTy::Ref(_, inner_ty, _)) => match inner_ty.kind() {
                 TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Some((adtdef, genargs)),
                 _ => None,
             },
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Some((adtdef, genargs)),
             _ => None,
+        };
+        if let Some((adtdef, _)) = &result {
+            debug!("receiver_adt: adtdef name = {}", adtdef.0.name());
         }
+        result
     }
 
     /// Last path segment of a called function's name, e.g. "insert" from
@@ -190,39 +214,53 @@ impl<'a> InterpPass<'a> {
         recv: &CollectionRecv,
         args: &Vec<Operand>,
     ) -> Option<Constraints> {
-        let inserted =
-            self.resolve_inserted_value(ctxt, caller_scope, term_span, local_decls, args);
-
         let mut cur = ctxt
             .get_constraints(caller_scope, &recv.place, false)
             .unwrap_or_else(|| Constraints::from(self.fresh_collection_constraint(recv)));
 
-        cur.write_field(vec![recv.elem_field.clone()], inserted);
-        ctxt.set_scoped_constraints(caller_scope, &recv.place, cur);
-
-        Some(Constraints::new())
-    }
-
-    /// Resolves whatever's being inserted (arg 1) into its constraints, given
-    /// what's already known about it at the call site.
-    fn resolve_inserted_value(
-        &self,
-        ctxt: &Context,
-        caller_scope: &VOID,
-        term_span: &Span,
-        local_decls: &[LocalDecl],
-        args: &Vec<Operand>,
-    ) -> Constraints {
-        match args.get(1) {
-            Some(op) => {
-                self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false)
+        let resolve = |idx: usize| -> Constraints {
+            match args.get(idx) {
+                Some(op) => {
+                    self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false)
+                }
+                None => Constraints::new(),
             }
-            None => Constraints::new(),
+        };
+
+        match recv.kind {
+            WrapperKind::BTreeSet => {
+                // insert(&mut self, value) — args[1] is the sole element
+                cur.write_field(vec![recv.key_field.clone()], resolve(1));
+            }
+            WrapperKind::BTreeMap => {
+                // insert(&mut self, key, value) — args[1]=key, args[2]=value
+                //cur.write_field(vec![recv.key_field.clone()], resolve(1));
+                //if let Some(val_field) = &recv.val_field {
+                //    cur.write_field(vec![val_field.clone()], resolve(2));
+                //}
+                let key = resolve(1);
+                let val = resolve(2);
+                debug!(
+                    "stub_insert: kind={:?} key={:?} val={:?}",
+                    recv.kind, key, val
+                );
+
+                cur.write_field(vec![recv.key_field.clone()], key);
+                if let Some(val_field) = &recv.val_field {
+                    cur.write_field(vec![val_field.clone()], val);
+                }
+            }
+            _ => unreachable!(),
         }
+
+        ctxt.set_scoped_constraints(caller_scope, &recv.place, cur);
+        Some(Constraints::new())
     }
 
     /// `get`/`first`/`last` all return `Option<...>` wrapping the element —
     /// read the element slot, then wrap it the same way `next()` does.
+    /// BTreeSet::get returns the element itself; BTreeMap::get returns the
+    /// *value*, not the key — so the field we read differs by kind.
     fn stub_get_like(
         &self,
         ctxt: &Context,
@@ -231,16 +269,19 @@ impl<'a> InterpPass<'a> {
         recv: &CollectionRecv,
     ) -> Option<Constraints> {
         let cur = ctxt.get_constraints(caller_scope, &recv.place, false)?;
-        let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field);
+        let field = match recv.kind {
+            WrapperKind::BTreeSet => &recv.key_field,
+            WrapperKind::BTreeMap => recv.val_field.as_ref()?,
+            _ => unreachable!(),
+        };
+        let elem = ctxt.step_field(caller_scope, &cur, field);
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }
 
     /// `iter`/`into_iter`/`range`/`keys`/`values` — build a fresh synthetic
     /// iterator value whose field 0 *carries a copy of* the collection's
     /// current element constraints, so a later `.next()` call can hand it
-    /// off. This is the piece the original draft was missing: the element
-    /// only reaches the loop variable via the iterator's `next()`, not via
-    /// any method on the collection itself.
+    /// off.
     fn stub_make_iter(
         &self,
         ctxt: &Context,
@@ -248,14 +289,25 @@ impl<'a> InterpPass<'a> {
         recv: &CollectionRecv,
     ) -> Option<Constraints> {
         let cur = ctxt.get_constraints(caller_scope, &recv.place, false)?;
-        let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field);
 
-        // We don't need the *real* Iter<'_, K, V> AdtDef here — nothing
-        // downstream keys off this value's Adt identity, only its field 0
-        // (see `iter_receiver`/`stub_next`) — so reuse the same fabrication
-        // trick as `fresh_collection_constraint`, just with the receiver's
-        // own adtdef as a stand-in identity.
-        let fields: ADTFields = vec![(recv.elem_field.clone(), elem)];
+        let elem = match recv.kind {
+            WrapperKind::BTreeSet => ctxt.step_field(caller_scope, &cur, &recv.key_field),
+            WrapperKind::BTreeMap => {
+                let key = ctxt.step_field(caller_scope, &cur, &recv.key_field);
+                let val_field = recv
+                    .val_field
+                    .as_ref()
+                    .expect("BTreeMap always has a value field");
+                let val = ctxt.step_field(caller_scope, &cur, val_field);
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Tuple(vec![key, val])),
+                ))
+            }
+            _ => unreachable!(),
+        };
+
+        let fields: ADTFields = vec![(recv.key_field.clone(), elem)];
         Some(Constraints::from(Constraint::new(
             None,
             Some(RunningConstraint::Adt(
@@ -278,6 +330,7 @@ impl<'a> InterpPass<'a> {
     ) -> Option<Constraints> {
         let cur = ctxt.get_constraints(caller_scope, &recv.place, false)?;
         let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field);
+        debug!("stub_next: elem = {:?}", elem);
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }
 
@@ -314,7 +367,7 @@ impl<'a> InterpPass<'a> {
     }
 
     fn fresh_collection_constraint(&self, recv: &CollectionRecv) -> Constraint {
-        let fields: ADTFields = vec![(recv.elem_field.clone(), Constraints::new())];
+        let fields: ADTFields = vec![(recv.key_field.clone(), Constraints::new())];
         Constraint::new(
             None,
             Some(RunningConstraint::Adt(
@@ -324,5 +377,59 @@ impl<'a> InterpPass<'a> {
                 fields,
             )),
         )
+    }
+
+    // ---------- Box::new() handlers ----------
+
+    /// `Box::new` has no receiver (`self`) to key off of — it's a bare
+    /// constructor — so we recognize it by return type instead: if the
+    /// callee's own signature says it returns something `wrapper_kind`
+    /// already calls Box, and the method is literally named `new`, treat it
+    /// as a stub target.
+    fn is_box_new(&self, fndef: &FnDef) -> bool {
+        if Self::method_name(fndef) != "new" {
+            return false;
+        }
+        match fndef.fn_sig().value.output().kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => {
+                matches!(self.converter.wrapper_kind(&adtdef), Some(WrapperKind::Box))
+            }
+            _ => false,
+        }
+    }
+
+    /// Builds a clean `Box<T>` constraint directly from the argument being
+    /// boxed, instead of letting the interpreter walk Box::new's real
+    /// allocator-touching body.
+    fn stub_box_new(
+        &self,
+        ctxt: &Context,
+        caller_scope: &VOID,
+        term_span: &Span,
+        local_decls: &[LocalDecl],
+        args: &Vec<Operand>,
+        fndef: &FnDef,
+    ) -> Option<Constraints> {
+        let inner = match args.get(0) {
+            Some(op) => {
+                self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false)
+            }
+            None => Constraints::new(),
+        };
+        debug!("stub_box_new: {:?}", inner);
+
+        let (adtdef, genargs) = match fndef.fn_sig().value.output().kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => (adtdef, genargs),
+            _ => return None,
+        };
+
+        let fields: ADTFields = vec![(
+            ProjectionElem::Field(0, genargs.0[0].expect_ty().clone()),
+            inner,
+        )];
+        Some(Constraints::from(Constraint::new(
+            None,
+            Some(RunningConstraint::Adt(adtdef, genargs, None, fields)),
+        )))
     }
 }

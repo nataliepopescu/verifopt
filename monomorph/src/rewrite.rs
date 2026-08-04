@@ -36,6 +36,7 @@ use crate::util::options::AnalysisOptions;
 #[derive(Default)]
 pub struct Store {
     pub targets: HashMap<(DefPathHash, usize), Vec<DefPathHash>>,
+    pub tags: HashMap<(DefPathHash, usize), Vec<(usize, usize, DefPathHash)>>,
 }
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
@@ -51,7 +52,7 @@ pub struct FsaCallbacks {
 impl Callbacks for FsaCallbacks {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
         let _ = rustc_internal::run(tcx, || {
-            let targets = start_verifopt(self.options.clone());
+            let (targets, tags) = start_verifopt(self.options.clone());
 
             let mut store = store().lock().unwrap();
 

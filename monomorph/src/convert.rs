@@ -8,8 +8,8 @@ use rustc_public::ty::{ConstantKind, GenericArgKind, RigidTy, Ty, TyKind};
 //use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{
-    Constraint, Constraints, Context, Location, RunningConstraint, TraitObjConstraint, TraitObjTy,
-    VOID,
+    Constraint, Constraints, Context, Location, Prov, RunningConstraint, TraitObjConstraint,
+    TraitObjTy, VOID,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::sig_collect::SigVal;
@@ -218,6 +218,7 @@ impl<'a> RvalConverter<'a> {
         &self,
         traitobjtys: &Vec<TraitObjTy>,
         constraints: &Constraints,
+        span: &Location,
     ) -> Constraints {
         debug!("CAST HELPER");
         let mut new_constraints = Constraints::new();
@@ -243,6 +244,7 @@ impl<'a> RvalConverter<'a> {
                     Constraint {
                         toc: None,
                         cfc: Some(cfc_),
+                        prov: _,
                     } => {
                         // If no TOC but CFC exists, pull any CFC constraints that
                         // could be a traitobj for this traitobjty
@@ -258,7 +260,11 @@ impl<'a> RvalConverter<'a> {
                                     let new_constraint = Constraint::new(
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
-                                    );
+                                    )
+                                    .with_prov(match span.scope {
+                                        Some(s) => Prov::Tags([(s, span.bb)].into_iter().collect()),
+                                        None => Prov::Unknown,
+                                    });
                                     new_constraints.push(new_constraint);
                                 } else {
                                     // push old constraint unchanged
@@ -274,7 +280,11 @@ impl<'a> RvalConverter<'a> {
                                     let new_constraint = Constraint::new(
                                         Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
                                         Some(cfc_.clone()),
-                                    );
+                                    )
+                                    .with_prov(match span.scope {
+                                        Some(s) => Prov::Tags([(s, span.bb)].into_iter().collect()),
+                                        None => Prov::Unknown,
+                                    });
                                     new_constraints.push(new_constraint);
                                 //} else if traitobjty.is_fn_trait() {
                                 //    // Use collected constraints
@@ -329,7 +339,7 @@ impl<'a> RvalConverter<'a> {
                 debug!("maybe_traitobj: {:?}", maybe_traitobj);
 
                 if let Some(traitobjtys) = maybe_traitobj {
-                    self.convert_cast_helper(&traitobjtys, &prev_constraints)
+                    self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
                 } else {
                     Constraints::from(post_constraint)
                 }
@@ -350,6 +360,7 @@ impl<'a> RvalConverter<'a> {
             Constraint {
                 toc: None,
                 cfc: Some(maybe_to),
+                prov: _,
             } => {
                 match maybe_to {
                     RunningConstraint::Adt(adtdef, adt_genargs, variant_idx, fields) => {
@@ -984,40 +995,48 @@ impl<'a> RvalConverter<'a> {
                 Constraint {
                     toc: None,
                     cfc: Some(RunningConstraint::Scalar(Some(val1))),
+                    prov: _,
                 },
                 Constraint {
                     toc: None,
                     cfc: Some(RunningConstraint::Scalar(Some(val2))),
+                    prov: _,
                 },
             ) => Constraint::new(None, Some(RunningConstraint::Scalar(Some(f(val1, val2))))),
             (
                 Constraint {
                     toc: None,
                     cfc: Some(RunningConstraint::Scalar(Some(val1))),
+                    prov: _,
                 },
                 Constraint {
                     toc: to,
                     cfc: Some(RunningConstraint::Scalar(Some(val2))),
+                    prov: _,
                 },
             ) => Constraint::new(to, Some(RunningConstraint::Scalar(Some(f(val1, val2))))),
             (
                 Constraint {
                     toc: to,
                     cfc: Some(RunningConstraint::Scalar(Some(val1))),
+                    prov: _,
                 },
                 Constraint {
                     toc: None,
                     cfc: Some(RunningConstraint::Scalar(Some(val2))),
+                    prov: _,
                 },
             ) => Constraint::new(to, Some(RunningConstraint::Scalar(Some(f(val1, val2))))),
             (
                 Constraint {
                     toc: _to1,
                     cfc: Some(RunningConstraint::Scalar(Some(_val1))),
+                    prov: _,
                 },
                 Constraint {
                     toc: _to2,
                     cfc: Some(RunningConstraint::Scalar(Some(_val2))),
+                    prov: _,
                 },
             ) => {
                 todo!();
@@ -1073,10 +1092,13 @@ impl<'a> RvalConverter<'a> {
             Constraint {
                 toc: to,
                 cfc: Some(RunningConstraint::Scalar(Some(val))),
+                prov: _,
             } => Constraint::new(to, Some(RunningConstraint::Scalar(Some(f(val))))),
-            Constraint { toc: to, cfc: _ } => {
-                Constraint::new(to, Some(RunningConstraint::Scalar(None)))
-            } //_ => Constraint::ControlFlow(Box::new(RunningConstraint::Scalar(None))),
+            Constraint {
+                toc: to,
+                cfc: _,
+                prov: _,
+            } => Constraint::new(to, Some(RunningConstraint::Scalar(None))), //_ => Constraint::ControlFlow(Box::new(RunningConstraint::Scalar(None))),
         }
     }
 }

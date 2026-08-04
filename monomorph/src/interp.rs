@@ -16,6 +16,7 @@ use rustc_public::ty::{
 
 use log::{debug, error};
 
+use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
     ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
@@ -29,7 +30,6 @@ use crate::merge::merge_stores;
 use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
-use crate::{Context, VOLogger};
 
 const MAX_DEPTH: u32 = 50;
 
@@ -37,6 +37,12 @@ pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
+
+    //pub ctxt: RefCell<Context>,
+    // call_stack
+    // scope
+    // local_decls
+    // term_span
     pub dispatch_targets:
         RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
     pub dispatch_cha: RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
@@ -88,7 +94,6 @@ impl<'a> InterpPass<'a> {
 
     pub fn run(
         &self,
-        logger: &mut VOLogger,
         ctxt: &mut Context,
         start_instance: Instance,
     ) -> Result<Option<Constraints>, Error> {
@@ -104,7 +109,6 @@ impl<'a> InterpPass<'a> {
         ctxt.set_cstore_scope(&start_scope, entry_fn_cstore, None);
 
         self.visit_body(
-            logger,
             ctxt,
             &mut call_stack,
             &start_scope,
@@ -118,7 +122,6 @@ impl<'a> InterpPass<'a> {
 
     fn visit_body(
         &self,
-        logger: &mut VOLogger,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
@@ -141,14 +144,14 @@ impl<'a> InterpPass<'a> {
             bb_deps = mem_bb_deps.clone();
             if !bb_deps.has_ret {
                 // This block does not explicitly return - likely a panicker, thus we can skip
-                return self.finish_frame(logger, ctxt, call_stack, cur_scope, None);
+                return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
             //debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
             if !bb_deps.has_ret {
                 // This block does not explicitly return - likely a panicker, thus we can skip
-                return self.finish_frame(logger, ctxt, call_stack, cur_scope, None);
+                return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
             ctxt.set_wto(cur_scope, &bb_deps);
         }
@@ -175,7 +178,6 @@ impl<'a> InterpPass<'a> {
             }
 
             last_res = self.visit_basic_block(
-                logger,
                 ctxt,
                 call_stack,
                 cur_scope,
@@ -188,7 +190,7 @@ impl<'a> InterpPass<'a> {
         }
 
         if !saw_return {
-            self.finish_frame(logger, ctxt, call_stack, cur_scope, None)
+            self.finish_frame(ctxt, call_stack, cur_scope, None)
         } else {
             Ok(last_res)
         }
@@ -196,7 +198,6 @@ impl<'a> InterpPass<'a> {
 
     fn visit_basic_block(
         &self,
-        logger: &mut VOLogger,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
@@ -238,7 +239,6 @@ impl<'a> InterpPass<'a> {
         );
 
         let res = self.visit_terminator(
-            logger,
             ctxt,
             call_stack,
             cur_scope,
@@ -570,7 +570,6 @@ impl<'a> InterpPass<'a> {
 
     fn visit_terminator(
         &self,
-        logger: &mut VOLogger,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
@@ -588,7 +587,6 @@ impl<'a> InterpPass<'a> {
                 ..
             } => match func {
                 Operand::Constant(co) => self.interp_direct_call(
-                    logger,
                     &term.span,
                     ctxt,
                     call_stack,
@@ -600,7 +598,6 @@ impl<'a> InterpPass<'a> {
                     destination,
                 ),
                 Operand::Copy(place) | Operand::Move(place) => self.interp_indirect_call(
-                    logger,
                     &term.span,
                     ctxt,
                     call_stack,
@@ -613,7 +610,7 @@ impl<'a> InterpPass<'a> {
                 ),
                 _ => todo!("calling runtime check operand?"),
             },
-            TerminatorKind::Return => self.interp_return(logger, ctxt, call_stack, cur_scope),
+            TerminatorKind::Return => self.interp_return(ctxt, call_stack, cur_scope),
             TerminatorKind::SwitchInt { discr, targets } => {
                 self.interp_switchint(ctxt, cur_scope, local_decls, bb, bb_deps, discr, targets)
             }
@@ -639,7 +636,6 @@ impl<'a> InterpPass<'a> {
 
     fn interp_indirect_call(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -667,7 +663,6 @@ impl<'a> InterpPass<'a> {
                             toc: _,
                             cfc: Some(cf),
                         } => match self.interp_constraint_as_fn(
-                            logger,
                             term_span,
                             ctxt,
                             call_stack,
@@ -708,7 +703,6 @@ impl<'a> InterpPass<'a> {
 
     fn interp_constraint_as_fn(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -720,7 +714,6 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         match constraint {
             RunningConstraint::FnDef(fndef, genargs) => self.interp_fn_def(
-                logger,
                 term_span,
                 ctxt,
                 call_stack,
@@ -732,7 +725,6 @@ impl<'a> InterpPass<'a> {
                 args,
             ),
             RunningConstraint::FnPtr(sigval) => self.interp_fn_ptr(
-                logger,
                 term_span,
                 ctxt,
                 call_stack,
@@ -742,7 +734,6 @@ impl<'a> InterpPass<'a> {
                 args,
             ),
             RunningConstraint::Closure(cdef, genargs) => self.interp_closure(
-                logger,
                 term_span,
                 ctxt,
                 call_stack,
@@ -758,7 +749,6 @@ impl<'a> InterpPass<'a> {
 
     fn interp_fn_ptr(
         &self,
-        _logger: &mut VOLogger,
         _term_span: &Span,
         _ctxt: &mut Context,
         _call_stack: &mut Vec<VOID>,
@@ -784,7 +774,6 @@ impl<'a> InterpPass<'a> {
                         // FIXME no genargs??
                         let genargs = GenericArgs(vec![]);
                         match self.interp_fn_ptr(
-                            logger,
                             term_span,
                             ctxt,
                             call_stack,
@@ -810,7 +799,6 @@ impl<'a> InterpPass<'a> {
 
     fn interp_closure(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -850,7 +838,7 @@ impl<'a> InterpPass<'a> {
                 true,
             );
             self.prepare_call(call_stack, &key);
-            self.visit_body(logger, ctxt, call_stack, &new_scope, &body)
+            self.visit_body(ctxt, call_stack, &new_scope, &body)
         } else {
             todo!("closure has no body");
         }
@@ -872,7 +860,6 @@ impl<'a> InterpPass<'a> {
 
     fn interp_direct_call(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -890,7 +877,6 @@ impl<'a> InterpPass<'a> {
         let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
-                    logger,
                     term_span,
                     ctxt,
                     call_stack,
@@ -904,7 +890,6 @@ impl<'a> InterpPass<'a> {
                 RigidTy::FnPtr(poly_sig) => {
                     let sigval = SigVal::new_from_poly(&poly_sig);
                     self.interp_fn_ptr(
-                        logger,
                         term_span,
                         ctxt,
                         call_stack,
@@ -942,7 +927,6 @@ impl<'a> InterpPass<'a> {
     /// Interpret a function call from a FnDef object
     fn interp_fn_def(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -970,7 +954,6 @@ impl<'a> InterpPass<'a> {
                 // - if so, who implements it? execute those implementations
                 // This tends to be stuff that dynamic dispatch does for us anyway
                 return self.interp_virtual_call(
-                    logger,
                     term_span,
                     ctxt,
                     call_stack,
@@ -1009,7 +992,6 @@ impl<'a> InterpPass<'a> {
 
         if !fetchable_body {
             return self.dispatch_call(
-                logger,
                 term_span,
                 ctxt,
                 call_stack,
@@ -1064,7 +1046,6 @@ impl<'a> InterpPass<'a> {
         }
 
         self.dispatch_call(
-            logger,
             term_span,
             ctxt,
             call_stack,
@@ -1082,7 +1063,6 @@ impl<'a> InterpPass<'a> {
 
     fn dispatch_call(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -1098,7 +1078,6 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         match instance.kind {
             InstanceKind::Item | InstanceKind::Shim => self.interp_static_call(
-                logger,
                 term_span,
                 ctxt,
                 call_stack,
@@ -1111,7 +1090,6 @@ impl<'a> InterpPass<'a> {
                 &new_cs,
             ),
             InstanceKind::Virtual { .. } => self.interp_virtual_call(
-                logger,
                 term_span,
                 ctxt,
                 call_stack,
@@ -1128,7 +1106,6 @@ impl<'a> InterpPass<'a> {
 
     fn interp_static_call(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -1159,7 +1136,7 @@ impl<'a> InterpPass<'a> {
                 false,
             );
             self.prepare_call(call_stack, &key);
-            self.visit_body(logger, ctxt, call_stack, cur_scope, &body)
+            self.visit_body(ctxt, call_stack, cur_scope, &body)
         } else {
             // No body, so not visiting/updating call stack
             //debug!("NO BODY");
@@ -1428,7 +1405,6 @@ impl<'a> InterpPass<'a> {
     /// Then continue interpretation given the FSA candidate function set.
     fn interp_virtual_call(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -1545,7 +1521,6 @@ impl<'a> InterpPass<'a> {
         }
 
         self.simulate_static_calls(
-            logger,
             term_span,
             ctxt,
             call_stack,
@@ -1845,7 +1820,6 @@ impl<'a> InterpPass<'a> {
     /// instance and interpret as if it were a static call
     fn simulate_static_calls(
         &self,
-        logger: &mut VOLogger,
         term_span: &Span,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
@@ -1965,7 +1939,6 @@ impl<'a> InterpPass<'a> {
                 );
                 self.prepare_call(&mut call_stack_clone, &key);
                 results.push(self.visit_body(
-                    logger,
                     &mut ctxt_clone,
                     &mut call_stack_clone,
                     &callee_scope,
@@ -2167,7 +2140,6 @@ impl<'a> InterpPass<'a> {
 
     fn reinterp_recursive(
         &self,
-        logger: &mut VOLogger,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         callee_scope: &VOID,
@@ -2192,7 +2164,7 @@ impl<'a> InterpPass<'a> {
         let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
         self.prepare_call(call_stack, &key);
         let body = self.get_body(callee_scope);
-        let refined = self.visit_body(logger, ctxt, call_stack, callee_scope, &body)?;
+        let refined = self.visit_body(ctxt, call_stack, callee_scope, &body)?;
 
         // publish refined summary for widened constraints
         self.summaries
@@ -2204,7 +2176,6 @@ impl<'a> InterpPass<'a> {
 
     fn interp_return(
         &self,
-        logger: &mut VOLogger,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
@@ -2240,12 +2211,11 @@ impl<'a> InterpPass<'a> {
             }
         };
 
-        self.finish_frame(logger, ctxt, call_stack, cur_scope, retval)
+        self.finish_frame(ctxt, call_stack, cur_scope, retval)
     }
 
     fn finish_frame(
         &self,
-        logger: &mut VOLogger,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
@@ -2294,8 +2264,7 @@ impl<'a> InterpPass<'a> {
 
             // reevaluate recursive calls
             let restored = stack;
-            let res =
-                self.reinterp_recursive(logger, ctxt, &mut restored.clone(), &scope, &constraints);
+            let res = self.reinterp_recursive(ctxt, &mut restored.clone(), &scope, &constraints);
 
             if matches!(res, Err(Error::RecurseLimit(_))) {
                 // truncate to before call on error
@@ -2342,6 +2311,6 @@ impl<'a> InterpPass<'a> {
         );
 
         self.prepare_call(call_stack, &key);
-        self.visit_body(logger, ctxt, call_stack, cur_scope, &body)
+        self.visit_body(ctxt, call_stack, cur_scope, &body)
     }
 }

@@ -71,7 +71,7 @@ pub fn start_verifopt(
     debug!("\n\nINTERP PASS");
     let mut ctxt = Context::empty();
     let interp = InterpPass::new(&sigstore, &tstore);
-    let _ = interp.run(&mut logger, &mut ctxt, entry_instance);
+    let _ = interp.run(&mut ctxt, entry_instance);
 
     let incomplete = &interp.incomplete.borrow();
     let confirmed: HashMap<Span, bool> = interp

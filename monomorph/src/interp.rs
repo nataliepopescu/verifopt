@@ -317,10 +317,7 @@ impl<'a> InterpPass<'a> {
     ) -> Constraints {
         let mut constraints = Constraints::new();
         for constraint in old_constraints.inner {
-            match self
-                .converter
-                .get_any_traitobj(maybe_trait_destty, &constraint)
-            {
+            match self.converter.get_traitobj(maybe_trait_destty, &constraint) {
                 // Add into traitobj constraint
                 toc @ Some(_) => match constraint {
                     Constraint { toc: None, cfc } => {

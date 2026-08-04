@@ -497,7 +497,7 @@ impl<'a> RvalConverter<'a> {
         kind
     }
 
-    pub fn get_any_traitobj(
+    pub fn get_traitobj(
         &self,
         maybe_trait_ty: &Option<Vec<TraitObjTy>>,
         constraint: &Constraint,
@@ -513,18 +513,19 @@ impl<'a> RvalConverter<'a> {
                 match maybe_to {
                     RunningConstraint::Adt(adtdef, adt_genargs, variant_idx, fields) => {
                         // If we get Some, that means this struct/adt implements one or more
-                        // traits, but that does _not_ mean that this is a trait object
+                        // traits, but that does _not_ mean that this is a trait object, not
+                        // does it mean that it implements the trait we might be looking for
                         match self.tstore.struct_traits.get(&adtdef.0) {
-                            Some(_possible_traits) => {
-                                // Once we know we are storing the result of this rval into a
-                                // traitobj, only _then_ can we populate the traitobj constraint field
-                                if let Some(trait_ty) = maybe_trait_ty {
-                                    if trait_ty.len() > 1 {
+                            Some(possible_traits) => {
+                                if let Some(trait_tys) = maybe_trait_ty {
+                                    if trait_tys.len() > 1 {
                                         todo!();
                                     }
-
+                                    if !possible_traits.contains(&trait_tys[0].def.0) {
+                                        return None;
+                                    }
                                     return Some((
-                                        trait_ty[0].clone(),
+                                        trait_tys[0].clone(),
                                         TraitObjConstraint::Adt(
                                             adtdef.clone(),
                                             adt_genargs.clone(),
@@ -571,7 +572,7 @@ impl<'a> RvalConverter<'a> {
         // check genargs for traitobj
         let mut to = None;
         for genarg in genargs {
-            match self.get_any_traitobj(maybe_trait_destty, &genarg) {
+            match self.get_traitobj(maybe_trait_destty, &genarg) {
                 to_ @ Some(_) => {
                     to = to_;
                     break;

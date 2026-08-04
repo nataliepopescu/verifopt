@@ -63,7 +63,7 @@ impl<'a> InterpPass<'a> {
             let result = match method.as_str() {
                 "next" => self.stub_next(ctxt, caller_scope, local_decls, fndef, &recv),
                 _ => panic!(
-                    "stdlib_stub: no summary for iterator method {} — add one",
+                    "stdlib_stub: no summary for iterator method {} - add one",
                     method
                 ),
             };
@@ -87,7 +87,7 @@ impl<'a> InterpPass<'a> {
                 return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
             }
             _ => panic!(
-                "stdlib_stub: no summary for {:?}::{} — add one or handle it in wrapper_kind",
+                "stdlib_stub: no summary for {:?}::{} - add one or handle it in wrapper_kind",
                 recv.adtdef, method
             ),
         };
@@ -129,7 +129,7 @@ impl<'a> InterpPass<'a> {
     /// Recognizes our own synthetic iterator values by the real iterator
     /// ADT's name suffix (Iter/IntoIter/Keys/Values over btree::map/set).
     /// NOTE: this is *not* a general "wrapper" concept for resolve_adt_helper
-    /// — it only matters to our own stubs — so it's kept local here rather
+    /// - it only matters to our own stubs - so it's kept local here rather
     /// than added to `wrapper_kind` in convert.rs.
     fn iter_receiver(&self, local_decls: &[LocalDecl], args: &Vec<Operand>) -> Option<IterRecv> {
         let place = self.receiver_place(args)?;
@@ -137,21 +137,12 @@ impl<'a> InterpPass<'a> {
 
         let name = adtdef.0.name();
         let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
-        let is_our_iter = matches!(
-            suffix,
-            "collections::btree_map::Iter"
-                | "collections::btree_map::IntoIter"
-                | "collections::btree_map::Keys"
-                | "collections::btree_map::Values"
-                | "collections::btree_set::Iter"
-                | "collections::btree_set::IntoIter"
-        );
-        if !is_our_iter {
+        if !crate::convert::is_btree_iter_suffix(suffix) {
             return None;
         }
 
         // Field 0 of our fabricated Iter value carries the element
-        // constraints — see `stub_make_iter`. We don't know its Ty here
+        // constraints - see `stub_make_iter`. We don't know its Ty here
         // (we're not tracking one for the synthetic wrapper), so reuse
         // whatever's already stored rather than needing a type annotation.
         Some(IterRecv {
@@ -199,12 +190,12 @@ impl<'a> InterpPass<'a> {
 
     // ---------- collection method handlers ----------
 
-    /// `BTreeSet::new()` / `BTreeMap::new()` — a fresh, empty synthetic value.
+    /// `BTreeSet::new()` / `BTreeMap::new()` - a fresh, empty synthetic value.
     fn stub_constructor(&self, recv: &CollectionRecv) -> Option<Constraints> {
         Some(Constraints::from(self.fresh_collection_constraint(recv)))
     }
 
-    /// `insert`/`extend` — merge the inserted value's constraints into the
+    /// `insert`/`extend` - merge the inserted value's constraints into the
     /// element slot, write the updated collection back to the caller's place,
     /// and return an empty result (insert's own return is just a bool).
     fn stub_insert(
@@ -231,11 +222,11 @@ impl<'a> InterpPass<'a> {
 
         match recv.kind {
             WrapperKind::BTreeSet => {
-                // insert(&mut self, value) — args[1] is the sole element
+                // insert(&mut self, value) - args[1] is the sole element
                 cur.write_field(vec![recv.key_field.clone()], resolve(1));
             }
             WrapperKind::BTreeMap => {
-                // insert(&mut self, key, value) — args[1]=key, args[2]=value
+                // insert(&mut self, key, value) - args[1]=key, args[2]=value
                 //cur.write_field(vec![recv.key_field.clone()], resolve(1));
                 //if let Some(val_field) = &recv.val_field {
                 //    cur.write_field(vec![val_field.clone()], resolve(2));
@@ -259,10 +250,10 @@ impl<'a> InterpPass<'a> {
         Some(Constraints::new())
     }
 
-    /// `get`/`first`/`last` all return `Option<...>` wrapping the element —
+    /// `get`/`first`/`last` all return `Option<...>` wrapping the element -
     /// read the element slot, then wrap it the same way `next()` does.
     /// BTreeSet::get returns the element itself; BTreeMap::get returns the
-    /// *value*, not the key — so the field we read differs by kind.
+    /// *value*, not the key - so the field we read differs by kind.
     fn stub_get_like(
         &self,
         ctxt: &Context,
@@ -281,7 +272,7 @@ impl<'a> InterpPass<'a> {
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }
 
-    /// `iter`/`into_iter`/`range`/`keys`/`values` — build a fresh synthetic
+    /// `iter`/`into_iter`/`range`/`keys`/`values` - build a fresh synthetic
     /// iterator value whose field 0 *carries a copy of* the collection's
     /// current element constraints, so a later `.next()` call can hand it
     /// off.
@@ -324,7 +315,7 @@ impl<'a> InterpPass<'a> {
         )))
     }
 
-    /// `Iterator::next()` on one of our synthetic iterator values — read
+    /// `Iterator::next()` on one of our synthetic iterator values - read
     /// back the carried element constraints and wrap them in `Option`.
     fn stub_next(
         &self,
@@ -343,8 +334,8 @@ impl<'a> InterpPass<'a> {
     /// Builds an `Option<T>`-shaped Constraints value carrying `inner` in
     /// the `Some` variant's field 0. Uses the *real* Option AdtDef/GenericArgs
     /// straight from the callee's own signature (rather than fabricating
-    /// one) so that anything downstream that keys off Option's identity —
-    /// e.g. `wrapper_kind` — still recognizes it correctly.
+    /// one) so that anything downstream that keys off Option's identity -
+    /// e.g. `wrapper_kind` - still recognizes it correctly.
     fn wrap_in_option(&self, sig: &PolyFnSig, inner: Constraints) -> Option<Constraints> {
         let output_ty = sig.value.output();
         let (adtdef, genargs) = match output_ty.kind() {
@@ -352,7 +343,7 @@ impl<'a> InterpPass<'a> {
             _ => return None, // signature isn't Option<..>-shaped; let caller fall back
         };
 
-        // Find "Some" by name rather than assuming a fixed index — don't
+        // Find "Some" by name rather than assuming a fixed index - don't
         // want to depend on discriminant ordering.
         let some_idx = adtdef.variants().iter().position(|v| v.name() == "Some")?;
 
@@ -387,8 +378,8 @@ impl<'a> InterpPass<'a> {
 
     // ---------- Box::new() handlers ----------
 
-    /// `Box::new` has no receiver (`self`) to key off of — it's a bare
-    /// constructor — so we recognize it by return type instead: if the
+    /// `Box::new` has no receiver (`self`) to key off of - it's a bare
+    /// constructor - so we recognize it by return type instead: if the
     /// callee's own signature says it returns something `wrapper_kind`
     /// already calls Box, and the method is literally named `new`, treat it
     /// as a stub target.

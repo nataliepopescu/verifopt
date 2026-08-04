@@ -1623,16 +1623,16 @@ impl<'a> InterpPass<'a> {
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         debug!("\n\nGETTING FSA IMPLS");
         let place = self.get_traitobj_place(args);
-        //debug!("traitobj place: {:?}", place);
+        debug!("traitobj place: {:?}", place);
         let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
-        //debug!("tyconstraints: {:?}", tyconstraints);
+        debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
-        //debug!(
-        //    "constraint defids ({:?} total): {:?}",
-        //    constraint_defids.len(),
-        //    constraint_defids
-        //);
+        debug!(
+            "constraint defids ({:?} total): {:?}",
+            constraint_defids.len(),
+            constraint_defids
+        );
         (
             is_closure,
             self.get_impls_from_defids(assoc_fn_defid, &constraint_defids, true),
@@ -1780,7 +1780,7 @@ impl<'a> InterpPass<'a> {
             }
             None => {}
         }
-        //debug!("RESVEC 0: {:?}", resvec);
+        debug!("RESVEC 0: {:?}", resvec);
 
         // Search in fields (in addition to genargs) b/c constraints are already there + don't need
         // to reconstruct them; however, this might pose a termination problem - maybe only search in
@@ -1795,7 +1795,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
         }
-        //debug!("RESVEC 1: {:?}", resvec);
+        debug!("RESVEC 1: {:?}", resvec);
 
         // Also search in genargs for an implementing type
         //let mut resvec = Vec::new();
@@ -1810,9 +1810,9 @@ impl<'a> InterpPass<'a> {
                 _ => {}
             }
         }
-        //debug!("RESVEC 2: {:?}", resvec);
+        debug!("RESVEC 2: {:?}", resvec);
 
-        //debug!("RETURNED RESVEC: {:?}", resvec);
+        debug!("RETURNED RESVEC: {:?}", resvec);
         (false, resvec)
     }
 

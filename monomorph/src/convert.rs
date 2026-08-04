@@ -19,7 +19,7 @@ use crate::constraints::{
 };
 use crate::sig_collect::SigVal;
 
-//use log::debug;
+use log::debug;
 use std::cell::RefCell;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -36,6 +36,67 @@ pub enum WrapperKind {
 pub struct RvalConverter<'a> {
     pub tstore: &'a TraitStore,
     pub wrapper_cache: RefCell<HashMap<DefId, Option<WrapperKind>>>,
+}
+
+/// Shared with `stdlib_stubs::iter_receiver`, which needs the identical set
+/// of names - kept as one list so the two can't drift apart.
+pub fn is_btree_iter_suffix(suffix: &str) -> bool {
+    matches!(
+        suffix,
+        "collections::btree_map::Iter"
+            | "collections::btree_map::IntoIter"
+            | "collections::btree_map::Keys"
+            | "collections::btree_map::Values"
+            | "collections::btree_set::Iter"
+            | "collections::btree_set::IntoIter"
+    )
+}
+
+/// True for types whose field layout we deliberately don't (or can't) model
+/// precisely -
+/// either std's own private B-tree implementation details
+/// (NodeRef/LeafNode/InternalNode/Root/Handle/marker::*/LazyLeafRange/
+/// LazyLeafHandle/...), matched by *module prefix*
+/// OR
+/// one of *our own* fabricated collection/iterator representations (BTreeSet/
+/// BTreeMap/their Iter family), whose field indices are our own invention
+/// and don't correspond to anything real inlined MIR might expect when it
+/// reads a field directly, bypassing our stub functions entirely.
+///
+/// For any of these, a Field/Downcast projection into them must NOT be
+/// treated as precise - see `Context::flatten_all` and how `get_constraints`
+/// uses this - since positional field indices have no reliable, stable
+/// meaning for them.
+///
+/// A free function (not a method on `RvalConverter`) so `Context::
+/// get_constraints` can call it directly - `Context` has no `RvalConverter`
+/// to call methods on, only `cstore`/`wtos`. This re-derives the BTreeSet/
+/// BTreeMap suffix check inline rather than reusing `wrapper_kind`'s cache;
+/// that's a plain string match, cheap enough not to need caching of its own.
+pub fn is_opaque_internal(ty: &Ty) -> bool {
+    let adtdef = match ty.kind() {
+        TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
+        TyKind::RigidTy(RigidTy::Ref(_, inner, _)) => match inner.kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
+            _ => return false,
+        },
+        _ => return false,
+    };
+
+    let name = adtdef.0.name();
+    let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
+
+    if suffix.starts_with("collections::btree::node::")
+        || suffix.starts_with("collections::btree::navigate::")
+    {
+        return true;
+    }
+
+    if matches!(suffix, "collections::BTreeSet" | "collections::BTreeMap") {
+        return true;
+    }
+
+    is_btree_iter_suffix(suffix)
 }
 
 impl<'a> RvalConverter<'a> {
@@ -156,7 +217,7 @@ impl<'a> RvalConverter<'a> {
 
     fn convert_zero_sized_const(&self, span: &Location, ty: &Ty) -> Constraints {
         match ty.kind() {
-            // A zero-sized ADT (unit struct, empty enum variant, etc.) — build
+            // A zero-sized ADT (unit struct, empty enum variant, etc.) - build
             // the Adt shape directly rather than falling through to convert_ty,
             // same as the non-empty case, just with an empty field list.
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Constraints::from(Constraint::new(
@@ -169,7 +230,7 @@ impl<'a> RvalConverter<'a> {
                 )),
             )),
             // Zero-sized non-ADT (e.g. `()`, a zero-length array/tuple, a ZST
-            // closure) — no field structure to build, so the generic fallback
+            // closure) - no field structure to build, so the generic fallback
             // is the right answer here, not a gap to fill in later.
             _ => self.convert_const_fallback(span, ty),
         }
@@ -250,10 +311,7 @@ impl<'a> RvalConverter<'a> {
             // reconstruction rather than mis-decoding raw pointer bytes as if
             // they were meaningful without provenance resolution.
             _ => {
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, ty);
-                //if maybe_traitobj.is_some() {
-                //    todo!("const field contains dyn: {:?}", ty);
-                //}
+                let (_, constraint) = self.convert_ty(span, ty);
                 constraint
             }
         }
@@ -270,10 +328,7 @@ impl<'a> RvalConverter<'a> {
     }
 
     fn convert_const_fallback(&self, span: &Location, ty: &Ty) -> Constraints {
-        let (_maybe_traitobj, constraint) = self.convert_ty(span, ty);
-        //if let Some(traitobj) = maybe_traitobj {
-        //    todo!("const contains dyn: {:?}", traitobj);
-        //}
+        let (_, constraint) = self.convert_ty(span, ty);
         Constraints::from(constraint)
     }
 
@@ -286,20 +341,14 @@ impl<'a> RvalConverter<'a> {
         place: &Place,
         destty: &Ty,
     ) -> Constraints {
-        //debug!("\nCONVERTING PLACE: {:?}", place);
+        debug!("\nCONVERTING PLACE: {:?}", place);
 
         match ctxt.get_constraints(cur_scope, local_decls, place, false) {
             Some(constraints) => constraints,
             None => {
-                //debug!("DEST TY: {:?}", destty);
                 let place_ty = place.ty(local_decls).unwrap_or(*destty);
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, &place_ty);
-                //debug!("CONSTRAINT: {:?}", constraint);
-
-                //if let Some(_traitobj) = maybe_traitobj {
-                //    todo!("place ty contains dyn {:?}", traitobj);
-                //}
-
+                let (_, constraint) = self.convert_ty(span, &place_ty);
+                debug!("CONSTRAINT: {:?}", constraint);
                 Constraints::from(constraint)
             }
         }
@@ -432,21 +481,14 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         match op {
             Operand::Constant(const_op) => {
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
-                //if maybe_traitobj.is_some() {
-                //    todo!("cast const contains dyn");
-                //}
+                let (_, constraint) = self.convert_ty(span, &const_op.const_.ty());
                 Constraints::from(constraint)
             }
             Operand::Copy(place) | Operand::Move(place) => {
-                //debug!("CASTING existing place: {:?}", place);
                 let prev_constraints =
                     self.convert_place(ctxt, span, local_decls, cur_scope, place, ty);
 
-                //debug!("\n\nPRE CAST constraints: {:?}", prev_constraints);
                 let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
-                //debug!("POST CAST ty: {:?}", post_constraint);
-                //debug!("maybe_traitobj: {:?}", maybe_traitobj);
 
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints)
@@ -680,21 +722,14 @@ impl<'a> RvalConverter<'a> {
                     _ => todo!("more than 2 operands"),
                 }
 
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, ty);
-                //if maybe_traitobj.is_some() {
-                //    todo!("rawptr contains dyn");
-                //}
-
+                let (_, constraint) = self.convert_ty(span, ty);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::Ptr(Box::new(constraint))),
                 ))
             }
             AggregateKind::Array(ty) => {
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, ty);
-                //if maybe_traitobj.is_some() {
-                //    todo!("array contains dyn");
-                //}
+                let (_, constraint) = self.convert_ty(span, ty);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::List(Box::new(constraint))),
@@ -732,10 +767,9 @@ impl<'a> RvalConverter<'a> {
     */
 
     pub fn convert_genarg(&self, span: &Location, genarg: &GenericArgKind) -> Option<Constraint> {
-        //debug!("\nCONVERTING GENARG: {:?}", genarg);
         match genarg {
             GenericArgKind::Type(ty) => {
-                let (_maybe_traitobj, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty);
                 Some(constraint)
             }
             _ => None,

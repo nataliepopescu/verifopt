@@ -113,7 +113,7 @@ impl Constraints {
             .collect();
 
         match (field.len(), target_variant) {
-            // *x = v — no field, no downcast: replace the whole pointee outright.
+            // *x = v - no field, no downcast: replace the whole pointee outright.
             (0, None) => {
                 *self = new;
             }
@@ -430,6 +430,56 @@ impl Context {
         out
     }
 
+    /// Recursively unions every constraint reachable inside `constraints`,
+    /// discarding all field/variant/tuple structure. Used in place of
+    /// `step_field`/`filter_variant` for reads through types we've decided
+    /// not to model with precise field indices (see `is_opaque_internal`)
+    /// - safe even though it's imprecise, since it can only ever surface
+    /// *more* candidates than a precise lookup would, never fewer: nothing
+    /// nested inside gets lost just because we don't trust the requested
+    /// index/variant.
+    pub fn flatten_all(&self, constraints: &Constraints) -> Constraints {
+        let mut out = Constraints::new();
+        for constraint in &constraints.inner {
+            out.append(self.flatten_one(constraint));
+        }
+        out
+    }
+
+    fn flatten_one(&self, constraint: &Constraint) -> Constraints {
+        let mut out = Constraints::new();
+
+        // The constraint itself is always part of the union
+        out.push(constraint.clone());
+
+        match &constraint.cfc {
+            Some(RunningConstraint::Adt(_, _, _, fields)) => {
+                for (_key, field_constraints) in fields {
+                    out.append(self.flatten_all(field_constraints));
+                }
+            }
+            Some(RunningConstraint::Tuple(inner)) => {
+                for elem_constraints in inner {
+                    out.append(self.flatten_all(elem_constraints));
+                }
+            }
+            Some(RunningConstraint::Ptr(box inner)) => {
+                out.append(self.flatten_one(inner));
+            }
+            Some(RunningConstraint::List(box inner)) => {
+                out.append(self.flatten_one(inner));
+            }
+            Some(RunningConstraint::Idk(box inner_cs)) => {
+                out.append(self.flatten_all(inner_cs));
+            }
+            // Scalar/Float/Dynamic/Closure/FnDef/FnPtr: no further
+            // structure to descend into
+            _ => {}
+        }
+
+        out
+    }
+
     fn field_idx(&self, elem: &ProjectionElem) -> usize {
         match elem {
             ProjectionElem::Field(idx, _) => *idx,
@@ -463,7 +513,7 @@ impl Context {
                 out
             }
             // Scalar/Float/Dynamic/Closure/etc: this disjunct has no field structure at all,
-            // so it contributes no information to the projection — not an error.
+            // so it contributes no information to the projection - not an error.
             _ => {
                 //debug!(
                 //    "unexpected running constraint type to have projections: {:?}",
@@ -497,29 +547,40 @@ impl Context {
             };
             match self.get_constraints(scope, local_decls, &base, is_closure) {
                 Some(base_constraints) => {
-                    //debug!("\nBASE: {:?}", base);
-                    //debug!("BASE CONSTRAINTS: {:?}", base_constraints);
-                    //debug!("PROJECTION: {:?}", place.projection);
-
                     // Collect every matching projection in the set of constraints
                     let mut cur = base_constraints;
+                    // Tracks everything accumulated *before* the current
+                    // projection element
+                    let mut prefix = base.clone();
+                    // Once any step along this projection chain turns out
+                    // to be opaque, every remaining step is skipped
+                    let mut opaque_from_here = false;
+
                     for elem in &place.projection {
-                        match elem {
-                            ProjectionElem::Downcast(vidx) => {
-                                //debug!("\ndowncast projection: {:?}", elem);
-                                cur = cur.filter_variant(*vidx);
+                        if !opaque_from_here {
+                            if let Ok(prefix_ty) = prefix.ty(local_decls) {
+                                if crate::convert::is_opaque_internal(&prefix_ty) {
+                                    opaque_from_here = true;
+                                    cur = self.flatten_all(&cur);
+                                }
                             }
-                            ProjectionElem::Field(..) => {
-                                //debug!("\nfield projection: {:?}", elem);
-                                cur = self.step_field(scope, &cur, elem);
-                                //cur = if self.is_opaque_internal(/* base's real type */) {
-                                //    cur.flatten_all()  // union everything, ignore the index
-                                //} else {
-                                //    self.step_field(scope, &cur, elem)
-                                //};
-                            }
-                            _ => {}
                         }
+
+                        if !opaque_from_here {
+                            match elem {
+                                ProjectionElem::Downcast(vidx) => {
+                                    //debug!("\ndowncast projection: {:?}", elem);
+                                    cur = cur.filter_variant(*vidx);
+                                }
+                                ProjectionElem::Field(..) => {
+                                    //debug!("\nfield projection: {:?}", elem);
+                                    cur = self.step_field(scope, &cur, elem);
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        prefix.projection.push(elem.clone());
                     }
 
                     Some(cur)

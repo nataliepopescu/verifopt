@@ -29,6 +29,8 @@ pub enum WrapperKind {
     NonNull,
     Option,
     Result,
+    BTreeSet,
+    BTreeMap,
 }
 
 pub struct RvalConverter<'a> {
@@ -485,6 +487,9 @@ impl<'a> RvalConverter<'a> {
             "ptr::NonNull" => Some(WrapperKind::NonNull),
             "option::Option" => Some(WrapperKind::Option),
             "result::Result" => Some(WrapperKind::Result),
+            // don't need to understand these types
+            "collections::btree::set::BTreeSet" => Some(WrapperKind::BTreeSet),
+            "collections::btree::map::BTreeMap" => Some(WrapperKind::BTreeMap),
             _ => None,
         };
 

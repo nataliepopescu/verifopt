@@ -459,13 +459,7 @@ impl<'a> InterpPass<'a> {
             Operand::Copy(place) | Operand::Move(place) => {
                 assert!(place.projection.is_empty());
                 let dst_ty = place.ty(local_decls).unwrap();
-                assert!(
-                    self.contains_dyn(&dst_ty).is_none(),
-                    "CopyNonOverlapping dst type implies a dyn constraint ({:?}); \
-                     toc must be derived via lift_traitobjtys(dst_ty, ..) here, not just \
-                     inherited from src",
-                    dst_ty
-                );
+                let maybe_trait_destty = self.contains_dyn(&dst_ty);
 
                 if let Some(count) = count
                     && let Some(ref src) = src
@@ -497,11 +491,11 @@ impl<'a> InterpPass<'a> {
                         })
                         .collect();
 
-                    ctxt.set_scoped_constraints(
-                        cur_scope,
-                        &place,
+                    let dst_constraints = self.lift_traitobjtys(
+                        &maybe_trait_destty,
                         Constraints::from_vec(dst_disjuncts),
                     );
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
                 } else if let Some(src) = src
                     && !src.inner.is_empty()
                 {
@@ -523,16 +517,19 @@ impl<'a> InterpPass<'a> {
                             _ => None,
                         })
                         .collect();
-                    ctxt.set_scoped_constraints(
-                        cur_scope,
-                        &place,
+
+                    let dst_constraints = self.lift_traitobjtys(
+                        &maybe_trait_destty,
                         Constraints::from_vec(dst_disjuncts),
                     );
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
                 } else {
                     let (_, dst) = self
                         .converter
                         .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
-                    ctxt.set_scoped_constraints(cur_scope, &place, Constraints::from(dst));
+                    let dst_constraints =
+                        self.lift_traitobjtys(&maybe_trait_destty, Constraints::from(dst));
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
                 }
             }
             _ => panic!("dst is not a place"),
@@ -997,6 +994,12 @@ impl<'a> InterpPass<'a> {
             return Err(Error::RecurseLimit(MAX_DEPTH));
         }
 
+        if let Some(result) =
+            self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, args)
+        {
+            return result;
+        }
+
         // Only Item/Shim instances have a body worth fetching. Virtual instances
         // are dispatched dynamically at runtime and have no body of their own
         // (calling `.body()` on one is a rustc ICE, not just an empty result);
@@ -1321,7 +1324,7 @@ impl<'a> InterpPass<'a> {
     /// out traitobj constraints if this arg contains a traitobj).
     /// If the arg is a constant, return the constraints gotten by converting the type into
     /// VerifOpt constraints.
-    fn resolve_arg(
+    pub fn resolve_arg(
         &self,
         ctxt: &Context,
         _term_span: &Span,
@@ -1390,13 +1393,16 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
+    pub fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
         //debug!("fn_sig: {:?}", sig);
         self.check_sig_boundvars(&sig);
         //debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
-        Ok(Some(Constraints::new()))
+        let (_, constraint) = self
+            .converter
+            .convert_ty(&Location::new(), &sig.value.output());
+        Ok(Some(Constraints::from(constraint)))
     }
 
     fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
@@ -1707,7 +1713,7 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         constraint: &Constraint,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        //debug!("RESOLVE DEFID");
+        debug!("RESOLVE DEFID");
 
         match constraint {
             Constraint {
@@ -1773,7 +1779,7 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         fields: &ADTFields,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        //debug!("\nRESOLVE ADT HELPER");
+        debug!("\nRESOLVE ADT HELPER");
 
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {

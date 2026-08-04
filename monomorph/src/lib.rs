@@ -27,6 +27,7 @@ pub mod merge;
 //pub mod projection;
 pub mod rewrite;
 pub mod sig_collect;
+pub mod stdlib_stubs;
 pub mod trait_collect;
 pub mod util;
 pub mod wto;

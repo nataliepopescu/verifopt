@@ -477,6 +477,7 @@ impl Context {
     pub fn get_constraints(
         &self,
         scope: &VOID,
+        local_decls: &[LocalDecl],
         place: &Place,
         is_closure: bool,
     ) -> Option<Constraints> {
@@ -494,7 +495,7 @@ impl Context {
                 local: place.local,
                 projection: vec![],
             };
-            match self.get_constraints(scope, &base, is_closure) {
+            match self.get_constraints(scope, local_decls, &base, is_closure) {
                 Some(base_constraints) => {
                     //debug!("\nBASE: {:?}", base);
                     //debug!("BASE CONSTRAINTS: {:?}", base_constraints);
@@ -511,6 +512,11 @@ impl Context {
                             ProjectionElem::Field(..) => {
                                 //debug!("\nfield projection: {:?}", elem);
                                 cur = self.step_field(scope, &cur, elem);
+                                //cur = if self.is_opaque_internal(/* base's real type */) {
+                                //    cur.flatten_all()  // union everything, ignore the index
+                                //} else {
+                                //    self.step_field(scope, &cur, elem)
+                                //};
                             }
                             _ => {}
                         }

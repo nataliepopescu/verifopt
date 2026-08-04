@@ -288,7 +288,7 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         //debug!("\nCONVERTING PLACE: {:?}", place);
 
-        match ctxt.get_constraints(cur_scope, place, false) {
+        match ctxt.get_constraints(cur_scope, local_decls, place, false) {
             Some(constraints) => constraints,
             None => {
                 //debug!("DEST TY: {:?}", destty);

@@ -406,7 +406,7 @@ impl<'a> InterpPass<'a> {
                         local: place.local,
                         projection: vec![],
                     };
-                    match ctxt.get_constraints(cur_scope, &base, false) {
+                    match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
                         Some(mut base_constraints) => {
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
@@ -446,11 +446,12 @@ impl<'a> InterpPass<'a> {
         //debug!("CNO dst: {:?}", cno.dst);
         //debug!("CNO cnt: {:?}", cno.count);
 
-        let count = match self.get_operand_constraints(ctxt, cur_scope, &cno.count, false) {
-            Some(constraints) => self.get_usize(&constraints),
-            None => None,
-        };
-        let src = self.get_operand_constraints(ctxt, cur_scope, &cno.src, false);
+        let count =
+            match self.get_operand_constraints(ctxt, cur_scope, local_decls, &cno.count, false) {
+                Some(constraints) => self.get_usize(&constraints),
+                None => None,
+            };
+        let src = self.get_operand_constraints(ctxt, cur_scope, local_decls, &cno.src, false);
 
         match &cno.dst {
             Operand::Copy(place) | Operand::Move(place) => {
@@ -537,12 +538,13 @@ impl<'a> InterpPass<'a> {
         &self,
         ctxt: &mut Context,
         cur_scope: &VOID,
+        local_decls: &[LocalDecl],
         op: &Operand,
         is_closure: bool,
     ) -> Option<Constraints> {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(cur_scope, &place, is_closure) {
+                match ctxt.get_constraints(cur_scope, local_decls, &place, is_closure) {
                     Some(constraints) => Some(constraints),
                     None => None,
                 }
@@ -657,7 +659,7 @@ impl<'a> InterpPass<'a> {
         //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let mut ret_constraints = Constraints::new();
-        match ctxt.get_constraints(cur_scope, place, false) {
+        match ctxt.get_constraints(cur_scope, local_decls, place, false) {
             Some(constraints) => {
                 for constraint in constraints.inner {
                     match constraint {
@@ -1334,7 +1336,7 @@ impl<'a> InterpPass<'a> {
         // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(caller_scope, place, is_closure) {
+                match ctxt.get_constraints(caller_scope, local_decls, place, is_closure) {
                     Some(constraints) => self.lift_traitobjtys(maybe_trait_argty, constraints),
                     None => {
                         let (_maybe_traitobjty, constraint) = self
@@ -1472,8 +1474,15 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        let (is_closure, mut assoc_fn_impls_fsa) =
-            self.get_impls_fsa(ctxt, term_span, caller_scope, &trait_defid, &fndef.0, args);
+        let (is_closure, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
+            ctxt,
+            term_span,
+            caller_scope,
+            local_decls,
+            &trait_defid,
+            &fndef.0,
+            args,
+        );
         //debug!(
         //    "FSA impls (len={:?}): {:?}",
         //    assoc_fn_impls_fsa.len(),
@@ -1632,6 +1641,7 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         caller_scope: &VOID,
         //callee_scope: &VOID,
+        local_decls: &[LocalDecl],
         trait_defid: &DefId,
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
@@ -1639,7 +1649,7 @@ impl<'a> InterpPass<'a> {
         debug!("\n\nGETTING FSA IMPLS");
         let place = self.get_traitobj_place(args);
         //debug!("traitobj place: {:?}", place);
-        let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, place);
+        let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
         //debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
@@ -1671,10 +1681,11 @@ impl<'a> InterpPass<'a> {
         &self,
         ctxt: &Context,
         caller_scope: &VOID,
+        local_decls: &[LocalDecl],
         place: Place,
     ) -> Constraints {
         // Get concrete type constraints for trait object
-        match ctxt.get_constraints(caller_scope, &place, false) {
+        match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
             Some(constraints) => constraints,
             None => panic!("place {:?} has no constraints", place),
         }
@@ -2003,7 +2014,7 @@ impl<'a> InterpPass<'a> {
         &self,
         ctxt: &mut Context,
         cur_scope: &VOID,
-        _local_decls: &[LocalDecl],
+        local_decls: &[LocalDecl],
         bb: usize,
         bb_deps: &mut BBDeps,
         discr: &Operand,
@@ -2011,7 +2022,7 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(cur_scope, place, false) {
+                match ctxt.get_constraints(cur_scope, local_decls, place, false) {
                     Some(constraints) => {
                         // Create a byte-map for finding statically-impossible successors
                         let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(targets.len());

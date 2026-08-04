@@ -61,7 +61,7 @@ impl<'a> InterpPass<'a> {
         // Iter<...> value is never also a BTreeSet/BTreeMap.
         if let Some(recv) = self.iter_receiver(local_decls, args) {
             let result = match method.as_str() {
-                "next" => self.stub_next(ctxt, caller_scope, fndef, &recv),
+                "next" => self.stub_next(ctxt, caller_scope, local_decls, fndef, &recv),
                 _ => panic!(
                     "stdlib_stub: no summary for iterator method {} — add one",
                     method
@@ -77,9 +77,11 @@ impl<'a> InterpPass<'a> {
             "insert" | "extend" => {
                 self.stub_insert(ctxt, caller_scope, term_span, local_decls, &recv, args)
             }
-            "get" | "first" | "last" => self.stub_get_like(ctxt, caller_scope, fndef, &recv),
+            "get" | "first" | "last" => {
+                self.stub_get_like(ctxt, caller_scope, local_decls, fndef, &recv)
+            }
             "iter" | "into_iter" | "range" | "keys" | "values" => {
-                self.stub_make_iter(ctxt, caller_scope, &recv)
+                self.stub_make_iter(ctxt, caller_scope, local_decls, &recv)
             }
             "len" | "is_empty" | "contains" | "clear" | "remove" => {
                 return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
@@ -215,7 +217,7 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
     ) -> Option<Constraints> {
         let mut cur = ctxt
-            .get_constraints(caller_scope, &recv.place, false)
+            .get_constraints(caller_scope, local_decls, &recv.place, false)
             .unwrap_or_else(|| Constraints::from(self.fresh_collection_constraint(recv)));
 
         let resolve = |idx: usize| -> Constraints {
@@ -265,10 +267,11 @@ impl<'a> InterpPass<'a> {
         &self,
         ctxt: &Context,
         caller_scope: &VOID,
+        local_decls: &[LocalDecl],
         fndef: &FnDef,
         recv: &CollectionRecv,
     ) -> Option<Constraints> {
-        let cur = ctxt.get_constraints(caller_scope, &recv.place, false)?;
+        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false)?;
         let field = match recv.kind {
             WrapperKind::BTreeSet => &recv.key_field,
             WrapperKind::BTreeMap => recv.val_field.as_ref()?,
@@ -286,9 +289,10 @@ impl<'a> InterpPass<'a> {
         &self,
         ctxt: &Context,
         caller_scope: &VOID,
+        local_decls: &[LocalDecl],
         recv: &CollectionRecv,
     ) -> Option<Constraints> {
-        let cur = ctxt.get_constraints(caller_scope, &recv.place, false)?;
+        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false)?;
 
         let elem = match recv.kind {
             WrapperKind::BTreeSet => ctxt.step_field(caller_scope, &cur, &recv.key_field),
@@ -306,6 +310,7 @@ impl<'a> InterpPass<'a> {
             }
             _ => unreachable!(),
         };
+        debug!("stub_make_iter: kind={:?} elem={:?}", recv.kind, elem);
 
         let fields: ADTFields = vec![(recv.key_field.clone(), elem)];
         Some(Constraints::from(Constraint::new(
@@ -325,10 +330,11 @@ impl<'a> InterpPass<'a> {
         &self,
         ctxt: &Context,
         caller_scope: &VOID,
+        local_decls: &[LocalDecl],
         fndef: &FnDef,
         recv: &IterRecv,
     ) -> Option<Constraints> {
-        let cur = ctxt.get_constraints(caller_scope, &recv.place, false)?;
+        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false)?;
         let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field);
         debug!("stub_next: elem = {:?}", elem);
         self.wrap_in_option(&fndef.fn_sig(), elem)

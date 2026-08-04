@@ -58,8 +58,8 @@ pub fn is_btree_iter_suffix(suffix: &str) -> bool {
 /// (NodeRef/LeafNode/InternalNode/Root/Handle/marker::*/LazyLeafRange/
 /// LazyLeafHandle/...), matched by *module prefix*
 /// OR
-/// one of *our own* fabricated collection/iterator representations (BTreeSet/
-/// BTreeMap/their Iter family), whose field indices are our own invention
+/// one of *our own* fabricated wrapper/collection/iterator representations
+/// (Box/BTreeSet/BTreeMap/their Iter family), whose field indices are our own invention
 /// and don't correspond to anything real inlined MIR might expect when it
 /// reads a field directly, bypassing our stub functions entirely.
 ///
@@ -92,7 +92,10 @@ pub fn is_opaque_internal(ty: &Ty) -> bool {
         return true;
     }
 
-    if matches!(suffix, "collections::BTreeSet" | "collections::BTreeMap") {
+    if matches!(
+        suffix,
+        "box::Box" | "collections::BTreeSet" | "collections::BTreeMap"
+    ) {
         return true;
     }
 

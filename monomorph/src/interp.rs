@@ -1625,7 +1625,7 @@ impl<'a> InterpPass<'a> {
         let place = self.get_traitobj_place(args);
         debug!("traitobj place: {:?}", place);
         let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
-        debug!("tyconstraints: {:?}", tyconstraints);
+        //debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
         debug!(
@@ -1679,6 +1679,10 @@ impl<'a> InterpPass<'a> {
         let mut defids = Vec::new();
         let mut is_closure = false;
         for constraint in &tyconstraints.inner {
+            debug!(
+                "FSA LOOP: cfc={:?} toc={:?}",
+                constraint.cfc, constraint.toc
+            );
             let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, &constraint);
             is_closure = is_closure || is_closure_;
             unique_append(&mut defids, res);

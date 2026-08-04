@@ -21,7 +21,7 @@ use rustc_middle::ty::adjustment::PointerCoercion;
 use rustc_middle::ty::{
     AssocKind, FnDef, GenericArg, Instance, List, Ty, TyCtxt, TyKind, TypingEnv, VtblEntry,
 };
-use rustc_public::rustc_internal;
+use rustc_public::{DefId, rustc_internal};
 use rustc_span::Span;
 
 use std::io::{self, Write};
@@ -30,13 +30,22 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
+use crate::interp::TagPlan;
 use crate::start_verifopt;
 use crate::util::options::AnalysisOptions;
 
 #[derive(Default)]
 pub struct Store {
     pub targets: HashMap<(DefPathHash, usize), Vec<DefPathHash>>,
-    pub tags: HashMap<(DefPathHash, usize), Vec<(usize, usize, DefPathHash)>>,
+    pub tags: HashMap<
+        (DefPathHash, usize),
+        Vec<(
+            usize,       /* bb */
+            usize,       /* stmt */
+            u64,         /* tag */
+            DefPathHash, /* impl fn */
+        )>,
+    >,
 }
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
@@ -56,19 +65,41 @@ impl Callbacks for FsaCallbacks {
 
             let mut store = store().lock().unwrap();
 
-            for ((defid, bb), (_, ts)) in targets {
-                let internal = rustc_internal::internal(tcx, defid);
-                let hash = tcx.def_path_hash(internal);
+            let to_hash = |did| tcx.def_path_hash(rustc_internal::internal(tcx, did));
 
-                let t_hashes: Vec<DefPathHash> = ts
+            for ((defid, bb), (_, ts)) in targets {
+                let hash = to_hash(defid);
+
+                let t_hashes: Vec<DefPathHash> = ts.iter().map(|(did, _)| to_hash(*did)).collect();
+
+                store.targets.insert((hash, bb), t_hashes);
+            }
+
+            for ((defid, bb), plan) in tags {
+                let TagPlan::Tagged(sites) = plan else {
+                    continue;
+                };
+                if sites.is_empty() {
+                    continue;
+                }
+
+                let hash = to_hash(defid);
+
+                let mut next: u64 = 0;
+                let mut assigned: HashMap<DefId, u64> = HashMap::default();
+
+                let entry: Vec<(usize, usize, u64, DefPathHash)> = sites
                     .iter()
-                    .map(|(did, _)| {
-                        let internal = rustc_internal::internal(tcx, *did);
-                        tcx.def_path_hash(internal)
+                    .map(|(bb, stmt, did)| {
+                        let tag = *assigned.entry(*did).or_insert_with(|| {
+                            next += 1;
+                            next - 1
+                        });
+                        (*bb, *stmt, tag, to_hash(*did))
                     })
                     .collect();
 
-                store.targets.insert((hash, bb), t_hashes);
+                store.tags.insert((hash, bb), entry);
             }
         });
 
@@ -104,6 +135,7 @@ fn dump_body<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, label: &str) {
 enum Edit {
     Single(DefPathHash),
     Multi(Vec<DefPathHash>),
+    Tagged(Vec<(usize, usize, u64, DefPathHash)>),
 }
 
 fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
@@ -117,12 +149,18 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
         .basic_blocks
         .indices()
         .filter_map(|bb| {
-            let ts = store.targets.get(&(hash, bb.as_usize()))?;
+            let key = &(hash, bb.as_usize());
 
-            if ts.len() == 1 {
-                Some((bb.as_usize(), Edit::Single(ts[0])))
-            } else if ts.len() > 1 {
-                Some((bb.as_usize(), Edit::Multi(ts.to_vec())))
+            let tags = store.tags.get(key);
+            if let Some(tags) = tags {
+                return Some((bb.as_usize(), Edit::Tagged(tags.to_vec())));
+            }
+
+            let targets = store.targets.get(key)?;
+            if targets.len() == 1 {
+                Some((bb.as_usize(), Edit::Single(targets[0])))
+            } else if targets.len() > 1 {
+                Some((bb.as_usize(), Edit::Multi(targets.to_vec())))
             } else {
                 None
             }
@@ -413,6 +451,75 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                         )));
                     }
                 }
+            }
+
+            Edit::Tagged(sites) => {
+                let tag_local = body.local_decls.push(LocalDecl::new(tcx.types.usize, span));
+
+                for (bb_idx, stmt_idx, tag, _) in &sites {
+                    let cb = BasicBlock::from_usize(*bb_idx);
+
+                    bbs[cb].statements.insert(
+                        stmt_idx + 1,
+                        Statement::new(
+                            source_info,
+                            StatementKind::Assign(Box::new((
+                                Place::from(tag_local),
+                                Rvalue::Use(Operand::Constant(Box::new(ConstOperand {
+                                    span,
+                                    user_ty: None,
+                                    const_: Const::from_usize(tcx, *tag),
+                                }))),
+                            ))),
+                        ),
+                    );
+                }
+
+                let orig = bbs[bb].terminator().clone();
+                let fallback = bbs.push(BasicBlockData::new_stmts(vec![], Some(orig), false));
+
+                let mut arms = Vec::new();
+
+                for (_, _, tag, impl_hash) in &sites {
+                    let (fnc, self_ty) = fn_op(tcx, *impl_hash, gen_args, span).unwrap();
+                    let (recv, stmts) = narrow_dyn(
+                        tcx,
+                        &mut body,
+                        source_info,
+                        args[0].node.clone(),
+                        self_ty,
+                        span,
+                    );
+
+                    let mut new_args = args.clone();
+                    new_args[0].node = Operand::Move(recv);
+
+                    let cb = bbs.push(BasicBlockData::new_stmts(
+                        stmts,
+                        Some(Terminator {
+                            source_info,
+                            kind: TerminatorKind::Call {
+                                func: fnc,
+                                args: new_args,
+                                destination: dest,
+                                target,
+                                unwind,
+                                call_source,
+                                fn_span: span,
+                            },
+                        }),
+                        false,
+                    ));
+                    arms.push((*tag as u128, cb));
+                }
+
+                bbs[bb].terminator = Some(Terminator {
+                    source_info,
+                    kind: TerminatorKind::SwitchInt {
+                        discr: Operand::Copy(Place::from(tag_local)),
+                        targets: SwitchTargets::new(arms.into_iter(), fallback),
+                    },
+                });
             }
         }
     }

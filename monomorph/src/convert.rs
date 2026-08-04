@@ -262,7 +262,9 @@ impl<'a> RvalConverter<'a> {
                                         Some(cfc_.clone()),
                                     )
                                     .with_prov(match span.scope {
-                                        Some(s) => Prov::Tags([(s, span.bb)].into_iter().collect()),
+                                        Some(s) => Prov::Tags(
+                                            [(s, span.bb, span.stmt)].into_iter().collect(),
+                                        ),
                                         None => Prov::Unknown,
                                     });
                                     new_constraints.push(new_constraint);
@@ -282,7 +284,9 @@ impl<'a> RvalConverter<'a> {
                                         Some(cfc_.clone()),
                                     )
                                     .with_prov(match span.scope {
-                                        Some(s) => Prov::Tags([(s, span.bb)].into_iter().collect()),
+                                        Some(s) => Prov::Tags(
+                                            [(s, span.bb, span.stmt)].into_iter().collect(),
+                                        ),
                                         None => Prov::Unknown,
                                     });
                                     new_constraints.push(new_constraint);
@@ -320,11 +324,13 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         match op {
             Operand::Constant(const_op) => {
-                let (maybe_traitobj, constraint) = self.convert_ty(span, &const_op.const_.ty());
-                if maybe_traitobj.is_some() {
-                    todo!("cast const contains dyn");
+                let prev_constraints = self.convert_const(span, &const_op);
+                let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
+                if let Some(traitobjtys) = maybe_traitobj {
+                    self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
+                } else {
+                    Constraints::from(post_constraint)
                 }
-                Constraints::from(constraint)
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 debug!("CASTING existing place");

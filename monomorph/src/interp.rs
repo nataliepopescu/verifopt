@@ -56,7 +56,13 @@ pub struct InterpPass<'a> {
 #[derive(Clone, PartialEq)]
 pub enum TagPlan {
     Poisoned,
-    Tagged(Vec<(usize, DefId)>),
+    Tagged(
+        Vec<(
+            usize, /* bb */
+            usize, /* stmt */
+            DefId, /* impl */
+        )>,
+    ),
 }
 
 impl<'a> InterpPass<'a> {
@@ -340,9 +346,9 @@ impl<'a> InterpPass<'a> {
                     Constraint {
                         toc: None,
                         cfc,
-                        prov: _,
+                        prov,
                     } => {
-                        constraints.push(Constraint::new(toc, cfc));
+                        constraints.push(Constraint::new(toc, cfc).with_prov(prov));
                     }
                     Constraint {
                         toc: Some(ref existing_toc),
@@ -1600,11 +1606,11 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        let mut out: Vec<(usize, DefId)> = by_site
+        let mut out: Vec<(usize, usize, DefId)> = by_site
             .into_iter()
-            .map(|((_fn_did, bb), impl_did)| (bb, impl_did))
+            .map(|((_fn_did, bb, stmt), impl_did)| (bb, stmt, impl_did))
             .collect();
-        out.sort_by_key(|(bb, _)| *bb);
+        out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
 
         TagPlan::Tagged(out)
     }

@@ -224,7 +224,13 @@ impl Location {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Prov {
     Unknown,
-    Tags(HashSet<(DefId, usize)>),
+    Tags(
+        HashSet<(
+            DefId, /* scope */
+            usize, /* bb */
+            usize, /* stmt */
+        )>,
+    ),
 }
 
 impl Prov {

@@ -379,7 +379,10 @@ impl<'a> RvalConverter<'a> {
                                         if traits.contains(&traitobjty.def.0) {
                                             // pull relevant CFC into TOC
                                             let new_constraint = Constraint::new(
-                                                Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
+                                                Some((
+                                                    traitobjty.clone(),
+                                                    self.convert_cfc_to_toc(&cfc_),
+                                                )),
                                                 Some(cfc_.clone()),
                                             )
                                             .with_prov(match span.scope {
@@ -401,7 +404,10 @@ impl<'a> RvalConverter<'a> {
                                         if constraint.is_cfc_closure() && traitobjty.is_fn_trait() {
                                             // Pull relevant CFC into TOC
                                             let new_constraint = Constraint::new(
-                                                Some((traitobjty.clone(), self.convert_cfc_to_toc(&cfc_))),
+                                                Some((
+                                                    traitobjty.clone(),
+                                                    self.convert_cfc_to_toc(&cfc_),
+                                                )),
                                                 Some(cfc_.clone()),
                                             )
                                             .with_prov(match span.scope {

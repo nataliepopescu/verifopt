@@ -1625,7 +1625,7 @@ impl<'a> InterpPass<'a> {
         let place = self.get_traitobj_place(args);
         debug!("traitobj place: {:?}", place);
         let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
-        //debug!("tyconstraints: {:?}", tyconstraints);
+        debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
         debug!(

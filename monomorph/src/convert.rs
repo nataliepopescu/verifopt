@@ -94,7 +94,7 @@ pub fn is_opaque_internal(ty: &Ty) -> bool {
 
     if matches!(
         suffix,
-        "box::Box" | "collections::BTreeSet" | "collections::BTreeMap"
+        "boxed::Box" | "collections::BTreeSet" | "collections::BTreeMap"
     ) {
         return true;
     }

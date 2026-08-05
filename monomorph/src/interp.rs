@@ -680,7 +680,7 @@ impl<'a> InterpPass<'a> {
                                 panic!("interping constraint as fn, got error: {:?}", e)
                             }
                         },
-                        c @ _ => panic!("empty constraints: {:?}", c),
+                        _ => {}
                     }
                 }
             }

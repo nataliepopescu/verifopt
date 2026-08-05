@@ -57,6 +57,21 @@ impl<'a> InterpPass<'a> {
             )));
         }
 
+        if method == "from_iter" {
+            if let Some(recv) = self.from_iter_collection_recv(fndef) {
+                return Some(Ok(self.stub_from_iter(
+                    ctxt,
+                    caller_scope,
+                    term_span,
+                    local_decls,
+                    &recv,
+                    args,
+                )));
+            }
+            // Not a BTreeMap/BTreeSet from_iter (e.g. Vec::from_iter, or
+            // some unrelated FromIterator impl) - fall through normally.
+        }
+
         // Iterator methods (currently just `next`) take priority, since an
         // Iter<...> value is never also a BTreeSet/BTreeMap.
         if let Some(recv) = self.iter_receiver(local_decls, args) {
@@ -148,6 +163,40 @@ impl<'a> InterpPass<'a> {
         Some(IterRecv {
             place,
             elem_field: ProjectionElem::Field(0, Ty::bool_ty()),
+        })
+    }
+
+    fn from_iter_collection_recv(&self, fndef: &FnDef) -> Option<CollectionRecv> {
+        let ret_ty = fndef.fn_sig().value.output();
+        let (adtdef, genargs) = match ret_ty.kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => (adtdef, genargs),
+            _ => return None,
+        };
+        let kind = self.converter.wrapper_kind(&adtdef)?;
+        if !matches!(kind, WrapperKind::BTreeSet | WrapperKind::BTreeMap) {
+            return None;
+        }
+
+        let key_field = ProjectionElem::Field(0, genargs.0[0].expect_ty().clone());
+        let val_field = matches!(kind, WrapperKind::BTreeMap)
+            .then(|| ProjectionElem::Field(1, genargs.0[1].expect_ty().clone()));
+
+        // `stub_from_iter` never reads or writes `recv.place` - unlike
+        // insert/get_like/make_iter, which all update or read an existing
+        // `self`, `from_iter` builds a fresh value with nothing to look up
+        // yet. This is only populated because `CollectionRecv` requires it.
+        let place = Place {
+            local: 0,
+            projection: vec![],
+        };
+
+        Some(CollectionRecv {
+            place,
+            adtdef,
+            genargs,
+            kind,
+            key_field,
+            val_field,
         })
     }
 
@@ -248,6 +297,31 @@ impl<'a> InterpPass<'a> {
 
         ctxt.set_scoped_constraints(caller_scope, &recv.place, cur);
         Some(Constraints::new())
+    }
+
+    fn stub_from_iter(
+        &self,
+        ctxt: &mut Context,
+        caller_scope: &VOID,
+        term_span: &Span,
+        local_decls: &[LocalDecl],
+        recv: &CollectionRecv,
+        args: &Vec<Operand>,
+    ) -> Option<Constraints> {
+        let iterable = match args.get(0) {
+            Some(op) => {
+                self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false)
+            }
+            None => Constraints::new(),
+        };
+        let flattened = ctxt.flatten_all(&iterable);
+
+        let mut cur = Constraints::from(self.fresh_collection_constraint(recv));
+        cur.write_field(vec![recv.key_field.clone()], flattened.clone());
+        if let Some(val_field) = &recv.val_field {
+            cur.write_field(vec![val_field.clone()], flattened);
+        }
+        Some(cur)
     }
 
     /// `get`/`first`/`last` all return `Option<...>` wrapping the element -

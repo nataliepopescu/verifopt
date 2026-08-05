@@ -6,8 +6,10 @@ extern crate rustc_public;
 extern crate rustc_session;
 extern crate rustc_span;
 
+use rustc_data_structures::smallvec::SmallVec;
+use rustc_index::IndexVec;
 use rustc_middle::mir::{
-    BasicBlock, BasicBlockData, BinOp, Body, CastKind, CoercionSource, Const, ConstOperand,
+    BasicBlock, BasicBlockData, BinOp, Body, CastKind, CoercionSource, Const, ConstOperand, Local,
     LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, SourceInfo, Statement,
     StatementKind, SwitchTargets, Terminator, TerminatorKind, UnOp,
 };
@@ -26,7 +28,7 @@ use rustc_span::Span;
 
 use std::io::{self, Write};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
@@ -134,7 +136,7 @@ fn dump_body<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, label: &str) {
 
 enum Edit {
     Single(DefPathHash),
-    Multi(Vec<DefPathHash>),
+    Pointers(Vec<DefPathHash>),
     Tagged(Vec<(usize, usize, u64, DefPathHash)>),
 }
 
@@ -152,16 +154,19 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
             let key = &(hash, bb.as_usize());
 
             let tags = store.tags.get(key);
-            if let Some(tags) = tags {
-                return Some((bb.as_usize(), Edit::Tagged(tags.to_vec())));
-            }
-
             let targets = store.targets.get(key)?;
+
             if targets.len() == 1 {
+                // directly swap terminator
                 Some((bb.as_usize(), Edit::Single(targets[0])))
+            } else if let Some(tags) = tags {
+                // tag dyn casts and switchint
+                Some((bb.as_usize(), Edit::Tagged(tags.to_vec())))
             } else if targets.len() > 1 {
-                Some((bb.as_usize(), Edit::Multi(targets.to_vec())))
+                // direct conditionals on pointers
+                Some((bb.as_usize(), Edit::Pointers(targets.to_vec())))
             } else {
+                // leave vtable dyn call
                 None
             }
         })
@@ -240,7 +245,7 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 }
             }
 
-            Edit::Multi(hashes) => {
+            Edit::Pointers(hashes) => {
                 let op = args[0].node.clone();
 
                 let recv_ty = op.ty(&local_decls, tcx); // &dyn X
@@ -454,6 +459,21 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
             }
 
             Edit::Tagged(sites) => {
+                let recv_local = match &args[0].node {
+                    Operand::Copy(p) | Operand::Move(p) if p.projection.is_empty() => p.local,
+                    _ => continue,
+                };
+
+                let preds = default.basic_blocks.predecessors();
+
+                let found = find_casts(&bbs, preds, bb_idx, recv_local, &mut HashSet::new());
+
+                let planned: HashSet<(usize, usize)> =
+                    sites.iter().map(|(bb, stmt, _, _)| (*bb, *stmt)).collect();
+                if found != Some(planned) {
+                    continue;
+                }
+
                 let tag_local = body.local_decls.push(LocalDecl::new(tcx.types.usize, span));
 
                 for (bb_idx, stmt_idx, tag, _) in &sites {
@@ -604,4 +624,50 @@ fn narrow_dyn<'tcx>(
     ));
 
     (out, stmts)
+}
+
+fn find_casts<'tcx>(
+    bbs: &IndexVec<BasicBlock, BasicBlockData<'tcx>>,
+    preds: &IndexVec<BasicBlock, SmallVec<[BasicBlock; 4]>>,
+    bb_idx: usize,
+    local: Local,
+    seen: &mut HashSet<(usize, Local)>,
+) -> Option<HashSet<(usize, usize)>> {
+    if !seen.insert((bb_idx, local)) {
+        return Some(HashSet::new());
+    }
+
+    let bb = BasicBlock::from_usize(bb_idx);
+
+    for (i, stmt) in bbs[bb].statements.iter().enumerate().rev() {
+        let StatementKind::Assign(b) = &stmt.kind else {
+            continue;
+        };
+        let (p, rv) = *b.clone();
+        if p.local != local || !p.projection.is_empty() {
+            continue;
+        }
+
+        return match rv {
+            Rvalue::Cast(CastKind::PointerCoercion(PointerCoercion::Unsize, ..), ..) => {
+                Some([(bb_idx, i)].into_iter().collect())
+            }
+            Rvalue::Use(Operand::Copy(q) | Operand::Move(q)) if q.projection.is_empty() => {
+                find_casts(bbs, preds, bb_idx, q.local, seen)
+            }
+            _ => None,
+        };
+    }
+
+    let ps = &preds[bb];
+    if ps.is_empty() {
+        return None;
+    }
+
+    let mut out = HashSet::new();
+    for p in ps {
+        out.extend(find_casts(bbs, preds, p.index(), local, seen)?);
+    }
+
+    Some(out)
 }

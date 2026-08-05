@@ -901,7 +901,9 @@ impl<'a> RvalConverter<'a> {
                 }
                 other @ _ => panic!("other rigidty: {:?}", other),
             },
-            other @ _ => panic!("other ty kind: {:?}", other),
+            TyKind::Alias(_, _) | TyKind::Param(_) | TyKind::Bound(..) => {
+                (None, Constraint::new(None, None))
+            }
         }
     }
 

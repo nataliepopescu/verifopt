@@ -680,7 +680,7 @@ impl<'a> InterpPass<'a> {
                                 panic!("interping constraint as fn, got error: {:?}", e)
                             }
                         },
-                        _ => panic!("got traitobj when expected fn-type thing"),
+                        c @ _ => panic!("empty constraints: {:?}", c),
                     }
                 }
             }
@@ -1754,7 +1754,7 @@ impl<'a> InterpPass<'a> {
                     _ => todo!("{:?}", cfc),
                 }
             }
-            _ => panic!("no constraints"),
+            _ => (false, vec![]),
         }
     }
 
@@ -1790,14 +1790,13 @@ impl<'a> InterpPass<'a> {
         // to reconstruct them; however, this might pose a termination problem - maybe only search in
         // fields for types that are known to essentially be "wrappers" (e.g. Box, NonNull, Unique, etc)
         for (_key, field_constraints) in fields {
-            if self.converter.wrapper_kind(adtdef).is_some() {
-                for fc in &field_constraints.inner {
-                    //debug!("resolving defid for FIELD: {:?}", fc);
-                    let (_is_closure, inner_resvec) =
-                        self.resolve_defid(term_span, trait_defid, fc);
-                    unique_append(&mut resvec, inner_resvec);
-                }
+            //if self.converter.wrapper_kind(adtdef).is_some() {
+            for fc in &field_constraints.inner {
+                //debug!("resolving defid for FIELD: {:?}", fc);
+                let (_is_closure, inner_resvec) = self.resolve_defid(term_span, trait_defid, fc);
+                unique_append(&mut resvec, inner_resvec);
             }
+            //}
         }
         debug!("RESVEC 1: {:?}", resvec);
 

@@ -1381,15 +1381,8 @@ impl<'a> InterpPass<'a> {
     }
 
     fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
-        //debug!("sigval: {:?}", sigval);
-        if !sigval.bound_tys.is_empty() {
-            todo!();
-        }
-
-        // Return output type that matches type info (widening)
-        //let ret_constraints = vec![];
-        todo!();
-        //Ok(Some(ret_constraints))
+        // TODO: add full logic
+        return Ok(Some(Constraints::new()));
     }
 
     /// Interpret dynamic dispatch.

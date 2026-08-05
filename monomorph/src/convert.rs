@@ -450,12 +450,6 @@ impl<'a> RvalConverter<'a> {
                                                 )),
                                                 Some(cfc_.clone()),
                                             ));
-                                        } else {
-                                            todo!(
-                                                "cast to {:?}: no impl found for candidate {:?}",
-                                                traitobjty,
-                                                defid
-                                            );
                                         }
                                     }
                                 }

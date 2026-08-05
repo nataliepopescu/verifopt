@@ -52,37 +52,7 @@ pub fn is_btree_iter_suffix(suffix: &str) -> bool {
     )
 }
 
-/// True for types whose field layout we deliberately don't (or can't) model
-/// precisely -
-/// either std's own private B-tree implementation details
-/// (NodeRef/LeafNode/InternalNode/Root/Handle/marker::*/LazyLeafRange/
-/// LazyLeafHandle/...), matched by *module prefix*
-/// OR
-/// one of *our own* fabricated wrapper/collection/iterator representations
-/// (Box/BTreeSet/BTreeMap/their Iter family), whose field indices are our own invention
-/// and don't correspond to anything real inlined MIR might expect when it
-/// reads a field directly, bypassing our stub functions entirely.
-///
-/// For any of these, a Field/Downcast projection into them must NOT be
-/// treated as precise - see `Context::flatten_all` and how `get_constraints`
-/// uses this - since positional field indices have no reliable, stable
-/// meaning for them.
-///
-/// A free function (not a method on `RvalConverter`) so `Context::
-/// get_constraints` can call it directly - `Context` has no `RvalConverter`
-/// to call methods on, only `cstore`/`wtos`. This re-derives the BTreeSet/
-/// BTreeMap suffix check inline rather than reusing `wrapper_kind`'s cache;
-/// that's a plain string match, cheap enough not to need caching of its own.
-pub fn is_opaque_internal(ty: &Ty) -> bool {
-    let adtdef = match ty.kind() {
-        TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
-        TyKind::RigidTy(RigidTy::Ref(_, inner, _)) => match inner.kind() {
-            TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
-            _ => return false,
-        },
-        _ => return false,
-    };
-
+pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
     let name = adtdef.0.name();
     let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
 
@@ -94,12 +64,43 @@ pub fn is_opaque_internal(ty: &Ty) -> bool {
 
     if matches!(
         suffix,
-        "boxed::Box" | "collections::BTreeSet" | "collections::BTreeMap"
+        "boxed::Box"
+            | "collections::BTreeSet"
+            | "collections::BTreeMap"
+            // Pure pointer-plumbing internals: these can never structurally
+            // hold a trait-object payload, so treating them as opaque too
+            // is free precision to give up, and lets convert_agg flatten
+            // through them at construction time instead of building (and
+            // later re-merging, across every WTO iteration that revisits
+            // this construction) their full nested shape.
+            | "ptr::Unique"
+            | "ptr::NonNull"
+            | "ptr::Alignment"
+            | "ptr::alignment::AlignmentEnum"
+            | "raw_vec::RawVec"
+            | "raw_vec::RawVecInner"
+            | "num::niche_types::UsizeNoHighBit"
+            | "marker::PhantomData"
+            | "mem::ManuallyDrop"
+            | "alloc::Global"
     ) {
         return true;
     }
 
     is_btree_iter_suffix(suffix)
+}
+
+pub fn is_opaque_internal(ty: &Ty) -> bool {
+    let adtdef = match ty.kind() {
+        TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
+        TyKind::RigidTy(RigidTy::Ref(_, inner, _)) => match inner.kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
+            _ => return false,
+        },
+        _ => return false,
+    };
+
+    is_opaque_internal_defid(&adtdef)
 }
 
 impl<'a> RvalConverter<'a> {
@@ -662,7 +663,23 @@ impl<'a> RvalConverter<'a> {
         //debug!("AGG kind: {:?}", kind);
         match kind {
             AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
-                //debug!("ADT agg");
+                if is_opaque_internal_defid(def) {
+                    let mut flattened = Constraints::new();
+                    for op in ops {
+                        let op_constraints =
+                            self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
+                        flattened.append(ctxt.flatten_all(&op_constraints));
+                    }
+                    return Constraints::from(Constraint::new(
+                        None,
+                        Some(RunningConstraint::Adt(
+                            *def,
+                            genargs.clone(),
+                            Some(*variant_idx),
+                            vec![(ProjectionElem::Field(0, destty.clone()), flattened)],
+                        )),
+                    ));
+                }
 
                 // Create projections here to simulate field initializers
                 let mut fields = Vec::new();

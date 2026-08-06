@@ -1901,21 +1901,6 @@ impl<'a> InterpPass<'a> {
             if call_stack.contains(&callee_scope) {
                 //debug!("\tpossible infinite call!");
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-            } else if let Some(stub_result) =
-                self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, args)
-            {
-                // This dispatch path (CHA/FSA-resolved candidates, reached
-                // whenever `Instance::resolve` couldn't succeed directly in
-                // `interp_fn_def` - e.g. `.collect::<BTreeSet<_>>()`, where
-                // `Iterator::collect`'s return type isn't concrete enough
-                // for the first resolution attempt, even though there's
-                // only one possible candidate here) never checked
-                // `stdlib_stub` at all before - meaning every stub in this
-                // file was silently bypassed for any call landing here,
-                // regardless of the resolved candidate set's size. This
-                // mirrors the exact check `interp_fn_def` already does for
-                // directly-resolvable calls.
-                results.push(stub_result?);
             } else {
                 let mut ctxt_clone = ctxt.clone();
                 let mut call_stack_clone = call_stack.clone();

@@ -55,13 +55,13 @@
 by aug 1
 - [ ] run verifopt on full ripgrep
 - [ ] run on 1 new example
-- [ ] merge ayush changes
-- [ ] make progress on general rewrite / vtable ptr changes
+- [x] merge ayush changes
+- [x] make progress on general rewrite / vtable ptr changes
 
 by aug 14
 - [ ] run on 4 examples total
 - [ ] write summary/synthesis
-- [ ] general rewrite
+- [ ] general rewrite / use vtable ptrs
 
 by aug 21
 - [ ] run on 7 examples total

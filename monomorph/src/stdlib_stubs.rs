@@ -45,6 +45,27 @@ impl<'a> InterpPass<'a> {
     ) -> Option<Result<Option<Constraints>, Error>> {
         debug!("STDLIB_STUB");
         let method = Self::method_name(fndef);
+        debug!(
+            "STDLIB_STUB RAW: full_name={:?} parsed_method={:?}",
+            fndef.0.name(),
+            method
+        );
+
+        // Compiler-generated "precondition check"/UB-check helper functions
+        // (see `is_precondition_check`) - unlike everything else in this
+        // file, this isn't specific to any collection/wrapper type, so it
+        // goes first and unconditionally: these show up at essentially
+        // every unsafe pointer operation, allocation, and numeric
+        // conversion across the *entire* dependency graph, not just around
+        // BTreeMap/Box. They can never carry or refine a trait-object
+        // constraint (they check things like "is this pointer non-null"
+        // and return `()` either way), so there's nothing to gain from
+        // fetching and interpreting their real body - only the cost of
+        // doing so, multiplied by however many unsafe operations exist in
+        // the whole binary.
+        if self.is_precondition_check(fndef) {
+            return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
+        }
 
         if self.is_box_new(fndef) {
             return Some(Ok(self.stub_box_new(
@@ -57,7 +78,31 @@ impl<'a> InterpPass<'a> {
             )));
         }
 
-        if method == "from_iter" {
+        // `from_iter` is an associated fn, not a method: it has no
+        // BTreeMap/BTreeSet receiver in `args[0]` at all (that's what every
+        // other stub here keys off via `collection_receiver`/
+        // `receiver_place`) - the collection doesn't exist yet, it's the
+        // call's *return value*. Left unstubbed, this falls through to the
+        // real bulk-construction algorithm - genuine per-element node
+        // splitting/rebalancing across however many items the iterable
+        // holds - which is exactly the class of expensive real internals
+        // stubbing exists to avoid, just reached through a different entry
+        // point than `insert`/`extend`. Must be checked before
+        // `collection_receiver`, which would otherwise see a non-collection
+        // `args[0]` and correctly (but unhelpfully) bail with `None`,
+        // short-circuiting this whole function.
+        //
+        // `from_sorted_iter` (`fn from_sorted_iter<I: IntoIterator<Item=T>>
+        // (iter: I) -> Self`) has the exact same shape and is just as
+        // dangerous left unstubbed - it's BTreeSet's *other* real entry
+        // point into the same bulk-construction machinery
+        // (`bulk_build_from_sorted_iter`/`append::bulk_push`/
+        // `DedupSortedIter`/`correct_parent_link`), reached via a
+        // genuinely separate call, not nested inside `from_iter`'s body -
+        // so stubbing `from_iter` alone doesn't intercept it. Both route
+        // through the same receiver-identification and handler below,
+        // since neither has an actual collection to key off of yet.
+        if method == "from_iter" || method == "from_sorted_iter" {
             if let Some(recv) = self.from_iter_collection_recv(fndef) {
                 return Some(Ok(self.stub_from_iter(
                     ctxt,
@@ -166,6 +211,11 @@ impl<'a> InterpPass<'a> {
         })
     }
 
+    /// Same idea as `collection_receiver`, but for `from_iter`/
+    /// `from_sorted_iter`: there's no existing BTreeMap/BTreeSet value to
+    /// find in `args` (see the comment at the dispatch site), so this
+    /// identifies the call by its *return type* instead - both have `Self`
+    /// as their return type, which is the fresh collection being built.
     fn from_iter_collection_recv(&self, fndef: &FnDef) -> Option<CollectionRecv> {
         let ret_ty = fndef.fn_sig().value.output();
         let (adtdef, genargs) = match ret_ty.kind() {
@@ -232,9 +282,49 @@ impl<'a> InterpPass<'a> {
 
     /// Last path segment of a called function's name, e.g. "insert" from
     /// "collections::btree::set::BTreeSet::<impl>::insert".
+    ///
+    /// A method whose own signature takes a generic parameter - `from_iter
+    /// <T: IntoIterator<Item=Item>>`, `extend<I: IntoIterator<Item=T>>` -
+    /// gets monomorphized with a *trailing* `::<SomeConcreteType>` suffix
+    /// after the method name itself (e.g. `from_iter::<Vec<Cow<'_, [u8]>>>`
+    /// ). If that concrete type is itself qualified by module path (`std::
+    /// vec::Vec`, `std::borrow::Cow`, ...), it contains "::" of its own -
+    /// so a naive `rsplit("::").next()` lands inside that generic argument
+    /// list instead of on the actual method name, silently returning
+    /// garbage and letting the call fall straight through to real
+    /// interpretation instead of being matched and stubbed. Strip any such
+    /// trailing bracketed suffix first (tracking bracket depth so nested
+    /// generics inside it don't confuse the split) - this only ever
+    /// triggers when the name ends in '>', so every method without its own
+    /// generic parameter (`insert`, `get`, `iter`, `next`, ...) is
+    /// completely unaffected.
     fn method_name(fndef: &FnDef) -> String {
         let full = fndef.0.name();
-        full.rsplit("::").next().unwrap_or(&full).to_string()
+
+        let mut trimmed = full.as_str();
+        if trimmed.ends_with('>') {
+            let bytes = trimmed.as_bytes();
+            let mut depth: i32 = 0;
+            let mut start = None;
+            for (idx, &b) in bytes.iter().enumerate().rev() {
+                match b {
+                    b'>' => depth += 1,
+                    b'<' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            start = Some(idx);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(start) = start {
+                trimmed = trimmed[..start].trim_end_matches("::");
+            }
+        }
+
+        trimmed.rsplit("::").next().unwrap_or(trimmed).to_string()
     }
 
     // ---------- collection method handlers ----------
@@ -299,6 +389,28 @@ impl<'a> InterpPass<'a> {
         Some(Constraints::new())
     }
 
+    /// `<BTreeSet<T> as FromIterator<T>>::from_iter` /
+    /// `<BTreeMap<K,V> as FromIterator<(K,V)>>::from_iter`, and BTreeSet's
+    /// separate `from_sorted_iter` entry point into the same machinery -
+    /// rather than interpreting the real bulk-construction algorithm
+    /// (genuine node splitting/rebalancing across however many elements
+    /// the iterable holds - see the dispatch-site comment), pull whatever
+    /// constraints are reachable inside the iterable via `flatten_all` -
+    /// the same trick `is_opaque_internal`/`convert_agg` use, safe because
+    /// it can only ever surface *more* candidates than a precise walk
+    /// would, never fewer - and seed a fresh synthetic collection with
+    /// that as its element slot.
+    ///
+    /// The iterable can be nearly anything (`Vec<T>`, `std::vec::IntoIter`,
+    /// an `iter::Map` adapter, one of our own synthetic `Iter` values, ...);
+    /// resolving it generically via `resolve_arg` + `flatten_all` sidesteps
+    /// needing to understand any specific iterator/adapter shape.
+    ///
+    /// Deliberately approximate for BTreeMap: a flattened bag doesn't
+    /// distinguish which piece came from a key vs. a value, so both slots
+    /// get the same flattened blob rather than a precise per-item split.
+    /// Acceptable here - FSA only needs to know *what's reachable*, not
+    /// which key maps to which value.
     fn stub_from_iter(
         &self,
         ctxt: &mut Context,
@@ -448,6 +560,29 @@ impl<'a> InterpPass<'a> {
                 fields,
             )),
         )
+    }
+
+    // ---------- precondition-check / UB-check helpers ----------
+
+    /// True for the compiler-generated "precondition check" / UB-check
+    /// helper functions that `-Z always_encode_mir` makes visible as real,
+    /// callable MIR bodies at essentially every unsafe pointer operation,
+    /// allocation, and numeric conversion in the entire dependency graph -
+    /// e.g. `NonNull::new_unchecked`'s non-null check,
+    /// `copy_nonoverlapping`'s overlap check, `Layout::from_size_align_
+    /// unchecked`'s alignment check. Under normal compilation these are
+    /// typically elided or never MIR-encoded at all; the flag exists
+    /// specifically so analysis tools like this one *can* see them - but
+    /// there's still nothing to gain from actually interpreting them:
+    /// structurally they can never carry or refine a trait-object
+    /// constraint, and always return `()`. Matched by name since there's
+    /// no interned "this is a contract-check fn" flag on `FnDef`/`Instance`
+    /// to check directly instead.
+    fn is_precondition_check(&self, fndef: &FnDef) -> bool {
+        let name = fndef.0.name();
+        name.ends_with("::precondition_check")
+            || name.contains("::ub_checks::")
+            || name.ends_with("::do_panic::runtime")
     }
 
     // ---------- Box::new() handlers ----------

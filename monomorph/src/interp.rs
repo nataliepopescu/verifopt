@@ -1834,11 +1834,11 @@ impl<'a> InterpPass<'a> {
         is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
         let mut results = Vec::<Option<Constraints>>::new();
-        let mut ctxt_vec = Vec::new();
+        //let mut ctxt_vec = Vec::new();
 
         debug!("\nSIMULATING STATIC CALL(S)");
         let len = assoc_fn_impls.len();
-
+        let mut acc: Option<Context> = None;
         for (i, (assoc_fn_impl, adt_genargs)) in assoc_fn_impls.iter().enumerate() {
             debug!(
                 "\n---ITER {:?} out of {:?} ({:?}/{:?})",
@@ -1847,12 +1847,7 @@ impl<'a> InterpPass<'a> {
                 i + 1,
                 len
             );
-            //debug!("assoc_fn_impl defid: {:?}", assoc_fn_impl);
-            //debug!("adt genargs: {:?}", adt_genargs);
-            //debug!("method genargs: {:?}", method_genargs);
-
             let genargs = if is_closure && adt_genargs.is_some() {
-                //debug!("--concatenating adt + method genargs");
                 GenericArgs(
                     adt_genargs
                         .clone()
@@ -1864,57 +1859,34 @@ impl<'a> InterpPass<'a> {
                         .collect(),
                 )
             } else if !is_closure && adt_genargs.is_some() {
-                //debug!("--adt genargs only");
                 adt_genargs.clone().unwrap()
             } else {
-                //debug!("--method genargs only");
                 method_genargs.clone()
             };
             debug!("TOTAL genargs: {:?}", genargs);
 
             // TODO different resolves for fn_ptr / closure
-
             let fndef = FnDef(*assoc_fn_impl);
             let instance_ = Instance::resolve(fndef, &genargs).unwrap();
-            //debug!("og instance: {:?}", instance_);
             let (is_virtual, instance) = match instance_.kind {
                 // Likely a default trait method implementation, convert to a concrete InstanceKind
                 // so we can interpret it
-                InstanceKind::Virtual { .. } => {
-                    //debug!("virtual instance! (default impl)");
-                    (
-                        true,
-                        Instance {
-                            kind: InstanceKind::Item,
-                            def: instance_.def,
-                        },
-                    )
-                }
-                _ => {
-                    //debug!("non-virtual instance: {:?}", instance_.kind);
-                    (false, instance_)
-                }
+                InstanceKind::Virtual { .. } => (
+                    true,
+                    Instance {
+                        kind: InstanceKind::Item,
+                        def: instance_.def,
+                    },
+                ),
+                _ => (false, instance_),
             };
-            //debug!("a converted static instance: {:?}", instance);
             let callee_scope = (instance, genargs.clone());
 
             if call_stack.contains(&callee_scope) {
-                //debug!("\tpossible infinite call!");
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
             } else if let Some(stub_result) =
                 self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, args)
             {
-                // This dispatch path (CHA/FSA-resolved candidates, reached
-                // whenever `Instance::resolve` couldn't succeed directly in
-                // `interp_fn_def` - e.g. `.collect::<BTreeSet<_>>()`, where
-                // `Iterator::collect`'s return type isn't concrete enough
-                // for the first resolution attempt, even though there's
-                // only one possible candidate here) never checked
-                // `stdlib_stub` at all before - meaning every stub in this
-                // file was silently bypassed for any call landing here,
-                // regardless of the resolved candidate set's size. This
-                // mirrors the exact check `interp_fn_def` already does for
-                // directly-resolvable calls.
                 results.push(stub_result?);
             } else {
                 let mut ctxt_clone = ctxt.clone();
@@ -1925,10 +1897,8 @@ impl<'a> InterpPass<'a> {
                 }
                 let body = if is_virtual {
                     // FIXME not monomorphized
-                    //debug!("getting default func body");
                     fndef.body().unwrap()
                 } else {
-                    //debug!("getting func body");
                     self.get_body(&callee_scope)
                 };
 
@@ -1963,11 +1933,17 @@ impl<'a> InterpPass<'a> {
                     &body,
                 )?);
 
-                ctxt_vec.push(ctxt_clone);
+                acc = Some(match acc {
+                    None => ctxt_clone,
+                    Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
+                });
+
+                //ctxt_vec.push(ctxt_clone);
             }
         }
 
-        self.merge_ctxts_and_set(ctxt, &mut ctxt_vec);
+        //self.merge_ctxts_and_set(ctxt, &mut ctxt_vec);
+        *ctxt = acc.unwrap();
         self.merge_results_and_ret(&mut results)
     }
 

@@ -1,5 +1,5 @@
 use crate::constraints::{ConstraintStore, Constraints, Context, EnclosingScopes, MapValue};
-use crate::constraints::{unique_append, unique_push};
+use crate::constraints::unique_append;
 use crate::error::Error;
 use rustc_public::mir::Place;
 
@@ -22,11 +22,11 @@ pub fn merge_stores(
         (None, None) => None,
     };
 
-    let merged_store = if *cur_store != *new_store {
-        merge_stores_helper(cur_store, new_store)
-    } else {
-        cur_store.clone()
-    };
+    // merge_stores_helper (via Vec<ConstraintStore>::merge) now carries its
+    // own O(1) ptr_eq fast path internally, so pre-checking equality here
+    // would just be a second full walk of the same map before the one
+    // merge_stores_helper already does cheaply when nothing's changed.
+    let merged_store = merge_stores_helper(cur_store, new_store);
 
     (merged_store, merged_es)
 }
@@ -59,9 +59,11 @@ where
 // FIXME merge span of RunningConstraints into a single vec if the RunningConstraintsInner are equal
 fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
     let mut merged = cur_constraints.clone();
-    if merged != *new_constraints {
-        merged.append(new_constraints.clone());
-    }
+    // No != pre-check: IndexSet::extend's per-element insert already no-ops
+    // in O(1) for anything already present, so comparing first would just
+    // be a second full walk of the set before the append that already
+    // handles "nothing new" cheaply on its own.
+    merged.append(new_constraints.clone());
     merged
 }
 
@@ -164,7 +166,20 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
                 first = false;
                 continue;
             }
-            for (key, val) in store.clone().cmap.iter() {
+
+            // O(1) fast path: im::HashMap::ptr_eq is true whenever the two
+            // maps still share their underlying tree - guaranteed right
+            // after a plain .clone() with no mutation since, which is
+            // exactly the common case at a dynamic-dispatch site where
+            // several candidates end up producing identical state. Skips
+            // the O(n) per-key walk below entirely instead of paying a
+            // full structural comparison just to *decide* there's nothing
+            // to do (that comparison would cost as much as the merge).
+            if merged.cmap.ptr_eq(&store.cmap) && merged.refs == store.refs {
+                continue;
+            }
+
+            for (key, val) in store.cmap.iter() {
                 match merged.cmap.get_mut(key) {
                     Some(merged_val) => {
                         let new_merged_val = merge_mapvals(merged_val, val);
@@ -265,7 +280,13 @@ impl Merge<Context> for Vec<Context> {
         let mut cstores = Vec::new();
         //let mut fstores = Vec::new();
         for ctxt in self.iter() {
-            unique_push(&mut cstores, ctxt.cstore.clone());
+            // No unique_push here: it deduped via a full ConstraintStore
+            // PartialEq comparison (walking the whole cmap) for every
+            // existing entry - exactly the cost we're trying to avoid.
+            // Vec<ConstraintStore>::merge() now has its own O(1) ptr_eq
+            // fast path per pair, so duplicates get absorbed there just as
+            // cheaply without an extra full-content scan up front.
+            cstores.push(ctxt.cstore.clone());
             //unique_push(&mut fstores, ctxt.fstore.clone());
         }
         let m_cstores = match cstores.merge() {

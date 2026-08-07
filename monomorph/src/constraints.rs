@@ -58,6 +58,26 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
+/// Stable sort key for an `ADTFields` entry's `ProjectionElem`, keyed on the
+/// field index. `write_field` removes-then-reappends whichever field it
+/// touches, so without a canonical order, two logically identical field sets
+/// that were built via different write orders compare unequal under the
+/// derived `PartialEq` - which breaks both `unique_push`'s dedup (treats a
+/// reordered duplicate as new -> unbounded growth) and `merge_constraints`'s
+/// convergence check (treats a reordered-but-equal value as changed -> never
+/// stabilizes, oscillates forever). Sorting by this key after every mutation
+/// restores "same fields+values => same Vec" regardless of write history.
+fn field_sort_key(elem: &ProjectionElem) -> usize {
+    match elem {
+        ProjectionElem::Field(idx, _) => *idx,
+        _ => usize::MAX,
+    }
+}
+
+fn canonicalize_fields(fields: &mut ADTFields) {
+    fields.sort_by_key(|(e, _)| field_sort_key(e));
+}
+
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Constraints {
@@ -139,6 +159,7 @@ impl Constraints {
                         if applies {
                             fields.retain(|(e, _)| e != &field[0]);
                             fields.push((field[0].clone(), new.clone()));
+                            canonicalize_fields(fields);
                         }
                     }
                 }
@@ -165,6 +186,7 @@ impl Constraints {
 
                             fields.retain(|(e, _)| e != first);
                             fields.push((first.clone(), nested));
+                            canonicalize_fields(fields);
                         }
                     }
                 }

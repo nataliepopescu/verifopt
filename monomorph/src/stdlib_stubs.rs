@@ -143,7 +143,7 @@ impl<'a> InterpPass<'a> {
             "iter" | "into_iter" | "range" | "keys" | "values" => {
                 self.stub_make_iter(ctxt, caller_scope, local_decls, &recv)
             }
-            "len" | "is_empty" | "contains" | "clear" | "remove" => {
+            "len" | "is_empty" | "contains" | "clear" | "remove" | "jaccard_index" => {
                 return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
             }
             _ => panic!(

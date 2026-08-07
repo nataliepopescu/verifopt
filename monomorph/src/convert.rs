@@ -19,7 +19,7 @@ use crate::constraints::{
 };
 use crate::sig_collect::SigVal;
 
-use log::debug;
+//use log::debug;
 use std::cell::RefCell;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -345,14 +345,14 @@ impl<'a> RvalConverter<'a> {
         place: &Place,
         destty: &Ty,
     ) -> Constraints {
-        debug!("\nCONVERTING PLACE: {:?}", place);
+        //debug!("\nCONVERTING PLACE: {:?}", place);
 
         match ctxt.get_constraints(cur_scope, local_decls, place, false) {
             Some(constraints) => constraints,
             None => {
                 let place_ty = place.ty(local_decls).unwrap_or(*destty);
                 let (_, constraint) = self.convert_ty(span, &place_ty);
-                debug!("CONSTRAINT: {:?}", constraint);
+                //debug!("CONSTRAINT: {:?}", constraint);
                 Constraints::from(constraint)
             }
         }

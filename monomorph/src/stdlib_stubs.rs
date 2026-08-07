@@ -6,7 +6,9 @@ use rustc_public::ty::{
 
 use crate::Context;
 use crate::InterpPass;
-use crate::constraints::{ADTFields, Constraint, Constraints, RunningConstraint, VOID};
+use crate::constraints::{
+    ADTFields, Constraint, Constraints, RunningConstraint, VOID, adt_field_idx,
+};
 use crate::convert::WrapperKind;
 use crate::error::Error;
 
@@ -489,7 +491,7 @@ impl<'a> InterpPass<'a> {
         };
         debug!("stub_make_iter: kind={:?} elem={:?}", recv.kind, elem);
 
-        let fields: ADTFields = vec![(recv.key_field.clone(), elem)];
+        let fields: ADTFields = ADTFields::from([(adt_field_idx(&recv.key_field), elem)]);
         Some(Constraints::from(Constraint::new(
             None,
             Some(RunningConstraint::Adt(
@@ -533,10 +535,7 @@ impl<'a> InterpPass<'a> {
         // want to depend on discriminant ordering.
         let some_idx = adtdef.variants().iter().position(|v| v.name() == "Some")?;
 
-        let fields: ADTFields = vec![(
-            ProjectionElem::Field(0, genargs.0[0].expect_ty().clone()),
-            inner,
-        )];
+        let fields: ADTFields = ADTFields::from([(0, inner)]);
 
         Some(Constraints::from(Constraint::new(
             None,
@@ -550,7 +549,8 @@ impl<'a> InterpPass<'a> {
     }
 
     fn fresh_collection_constraint(&self, recv: &CollectionRecv) -> Constraint {
-        let fields: ADTFields = vec![(recv.key_field.clone(), Constraints::new())];
+        let fields: ADTFields =
+            ADTFields::from([(adt_field_idx(&recv.key_field), Constraints::new())]);
         Constraint::new(
             None,
             Some(RunningConstraint::Adt(
@@ -629,10 +629,7 @@ impl<'a> InterpPass<'a> {
             _ => return None,
         };
 
-        let fields: ADTFields = vec![(
-            ProjectionElem::Field(0, genargs.0[0].expect_ty().clone()),
-            inner,
-        )];
+        let fields: ADTFields = ADTFields::from([(0, inner)]);
         Some(Constraints::from(Constraint::new(
             None,
             Some(RunningConstraint::Adt(adtdef, genargs, None, fields)),

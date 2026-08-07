@@ -21,6 +21,7 @@ use crate::sig_collect::SigVal;
 
 //use log::debug;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WrapperKind {
@@ -230,7 +231,7 @@ impl<'a> RvalConverter<'a> {
                     adtdef,
                     genargs.clone(),
                     None,
-                    Vec::new(),
+                    BTreeMap::new(),
                 )),
             )),
             // Zero-sized non-ADT (e.g. `()`, a zero-length array/tuple, a ZST
@@ -255,10 +256,10 @@ impl<'a> RvalConverter<'a> {
             FieldsShape::Arbitrary { offsets, .. } => offsets,
             // Primitive/Union/Array shapes shouldn't reach here for a
             // plain struct; fall back gracefully rather than panic if they do
-            _ => return Vec::new(),
+            _ => return ADTFields::new(),
         };
 
-        let mut fields = Vec::new();
+        let mut fields = ADTFields::new();
         for (i, field_def) in adtdef.variants()[0].fields().iter().enumerate() {
             let field_ty = field_def.ty_with_args(genargs);
             let field_layout = field_ty.layout().expect("field has no layout");
@@ -278,10 +279,7 @@ impl<'a> RvalConverter<'a> {
             // Recurse: a scalar field bottoms out via read_int as today;
             // a nested struct field recurses back into this same function.
             let field_constraint = self.convert_sub_alloc(span, &field_ty, &sub_alloc);
-            fields.push((
-                ProjectionElem::Field(i, field_ty.clone()),
-                Constraints::from(field_constraint),
-            ));
+            fields.insert(i, Constraints::from(field_constraint));
         }
         fields
     }
@@ -361,7 +359,7 @@ impl<'a> RvalConverter<'a> {
     fn convert_cfc_to_toc(&self, cfc: &RunningConstraint) -> TraitObjConstraint {
         match cfc {
             RunningConstraint::Adt(adtdef, genargs, variant_idx, fields) => {
-                TraitObjConstraint::Adt(*adtdef, genargs.clone(), *variant_idx, fields.to_vec())
+                TraitObjConstraint::Adt(*adtdef, genargs.clone(), *variant_idx, fields.clone())
             }
             RunningConstraint::Closure(cdef, genargs) => {
                 TraitObjConstraint::Closure(*cdef, genargs.clone())
@@ -676,33 +674,20 @@ impl<'a> RvalConverter<'a> {
                             *def,
                             genargs.clone(),
                             Some(*variant_idx),
-                            vec![(ProjectionElem::Field(0, destty.clone()), flattened)],
+                            ADTFields::from([(0, flattened)]),
                         )),
                     ));
                 }
 
                 // Create projections here to simulate field initializers
-                let mut fields = Vec::new();
+                let mut fields = ADTFields::new();
                 for (i, op) in ops.into_iter().enumerate() {
                     //debug!("\n---op {:?}", i);
                     let op_constraints =
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
                     //debug!("op constraints: {:?}", op_constraints);
 
-                    let op_ty;
-                    match op {
-                        Operand::Copy(place) | Operand::Move(place) => {
-                            op_ty = place.ty(local_decls).unwrap();
-                        }
-                        Operand::Constant(co) => {
-                            op_ty = co.const_.ty();
-                        }
-                        _ => todo!("op: {:?}", op),
-                    }
-
-                    let proj = ProjectionElem::Field(i, op_ty);
-                    //debug!("PROJ: {:?}", proj);
-                    fields.push((proj, op_constraints));
+                    fields.insert(i, op_constraints);
                     //debug!("---done op {:?}\n", i);
                 }
 
@@ -820,7 +805,7 @@ impl<'a> RvalConverter<'a> {
                             // FIXME fields is empty
                             Constraint::new(
                                 None,
-                                Some(RunningConstraint::Adt(def, genargs, None, vec![])),
+                                Some(RunningConstraint::Adt(def, genargs, None, BTreeMap::new())),
                             ),
                         )
                     } else {
@@ -830,7 +815,7 @@ impl<'a> RvalConverter<'a> {
                             // FIXME fields is empty
                             Constraint::new(
                                 None,
-                                Some(RunningConstraint::Adt(def, genargs, None, vec![])),
+                                Some(RunningConstraint::Adt(def, genargs, None, BTreeMap::new())),
                             ),
                         )
                     }

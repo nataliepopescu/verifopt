@@ -15,7 +15,7 @@ use crate::wto::BBDeps;
 
 //use log::debug;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 //pub fn unique_update(ret: ConstraintsAndFields, new: ConstraintsAndFields) -> ConstraintsAndFields {
@@ -58,24 +58,19 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
-/// Stable sort key for an `ADTFields` entry's `ProjectionElem`, keyed on the
-/// field index. `write_field` removes-then-reappends whichever field it
-/// touches, so without a canonical order, two logically identical field sets
-/// that were built via different write orders compare unequal under the
-/// derived `PartialEq` - which breaks both `unique_push`'s dedup (treats a
-/// reordered duplicate as new -> unbounded growth) and `merge_constraints`'s
-/// convergence check (treats a reordered-but-equal value as changed -> never
-/// stabilizes, oscillates forever). Sorting by this key after every mutation
-/// restores "same fields+values => same Vec" regardless of write history.
-fn field_sort_key(elem: &ProjectionElem) -> usize {
+/// Extracts the field index from a `ProjectionElem::Field`. `ADTFields` is
+/// keyed on this `usize` alone - not the whole `ProjectionElem` - since a
+/// field's type is fully determined by its index for a given ADT/variant,
+/// and the embedded `Ty` carries an interned id that isn't guaranteed
+/// identical across every derivation of "the same type" (see the sip::State
+/// oscillation bug this replaced). Public so callers building/reading
+/// `ADTFields` outside this module (convert.rs, interp.rs, stdlib_stubs.rs)
+/// can key it the same way.
+pub fn adt_field_idx(elem: &ProjectionElem) -> usize {
     match elem {
         ProjectionElem::Field(idx, _) => *idx,
-        _ => usize::MAX,
+        _ => panic!("expected Field projection: {:?}", elem),
     }
-}
-
-fn canonicalize_fields(fields: &mut ADTFields) {
-    fields.sort_by_key(|(e, _)| field_sort_key(e));
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
@@ -150,6 +145,7 @@ impl Constraints {
             // The ordinary case: update one field, honoring the same variant-scoping
             // as filter_variant on the read side.
             (1, target_variant) => {
+                let idx = adt_field_idx(&field[0]);
                 for c in self.inner.iter_mut() {
                     if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
                         let applies = match target_variant {
@@ -157,9 +153,7 @@ impl Constraints {
                             None => true,
                         };
                         if applies {
-                            fields.retain(|(e, _)| e != &field[0]);
-                            fields.push((field[0].clone(), new.clone()));
-                            canonicalize_fields(fields);
+                            fields.insert(idx, new.clone());
                         }
                     }
                 }
@@ -167,6 +161,7 @@ impl Constraints {
 
             (_, _) => {
                 let (first, rest) = field.split_first().expect("len >= 2 per match arm");
+                let idx = adt_field_idx(first);
                 let rest = rest.to_vec();
 
                 for c in self.inner.iter_mut() {
@@ -176,17 +171,10 @@ impl Constraints {
                             None => true,
                         };
                         if applies {
-                            let mut nested = fields
-                                .iter()
-                                .find(|(e, _)| e == first)
-                                .map(|(_, cs)| cs.clone())
-                                .unwrap_or_else(Constraints::new);
-
+                            let mut nested =
+                                fields.get(&idx).cloned().unwrap_or_else(Constraints::new);
                             nested.write_field(rest.clone(), new.clone());
-
-                            fields.retain(|(e, _)| e != first);
-                            fields.push((first.clone(), nested));
-                            canonicalize_fields(fields);
+                            fields.insert(idx, nested);
                         }
                     }
                 }
@@ -238,7 +226,7 @@ impl Constraint {
     }
 }
 
-pub type ADTFields = Vec<(ProjectionElem, Constraints)>;
+pub type ADTFields = BTreeMap<usize, Constraints>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
@@ -502,12 +490,6 @@ impl Context {
         out
     }
 
-    fn field_idx(&self, elem: &ProjectionElem) -> usize {
-        match elem {
-            ProjectionElem::Field(idx, _) => *idx,
-            _ => panic!("expected Field projection: {:?}", elem),
-        }
-    }
     fn step_field_one(
         &self,
         scope: &VOID,
@@ -516,9 +498,8 @@ impl Context {
     ) -> Constraints {
         match &constraint.cfc {
             Some(RunningConstraint::Adt(_, _, _, fields)) => fields
-                .iter()
-                .find(|(key, _)| self.field_idx(&key) == self.field_idx(elem))
-                .map(|(_, cs)| cs.clone())
+                .get(&adt_field_idx(elem))
+                .cloned()
                 .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
             Some(RunningConstraint::Tuple(inner)) => match elem {
                 ProjectionElem::Field(idx, _) => {

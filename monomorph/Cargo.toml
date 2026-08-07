@@ -9,6 +9,7 @@ debug = 1
 [dependencies]
 cargo_metadata = "*"
 clap = "4.6.1"
+indexmap = "2"
 env_logger = "0.11.10"
 itertools = "0.14.0"
 log = "*"
@@ -19,4 +20,3 @@ uniquevec = "0.1.0"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-

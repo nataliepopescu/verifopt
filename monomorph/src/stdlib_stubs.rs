@@ -124,6 +124,13 @@ impl<'a> InterpPass<'a> {
         if let Some(recv) = self.iter_receiver(local_decls, args) {
             let result = match method.as_str() {
                 "next" => self.stub_next(ctxt, caller_scope, local_decls, fndef, &recv),
+                // Every Iterator blanket-impls IntoIterator::into_iter as
+                // identity (`fn into_iter(self) -> Self { self }`) - a
+                // `for` loop over something already produced by `.iter()`/
+                // `.into_iter()`/etc desugars to exactly this call in MIR.
+                // Nothing to compute: hand back the receiver's own current
+                // constraints unchanged.
+                "into_iter" => ctxt.get_constraints(caller_scope, local_decls, &recv.place, false),
                 _ => panic!(
                     "stdlib_stub: no summary for iterator method {} - add one",
                     method

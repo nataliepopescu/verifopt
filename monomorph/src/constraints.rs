@@ -15,6 +15,7 @@ use crate::wto::BBDeps;
 
 //use log::debug;
 
+use indexmap::IndexSet;
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -74,24 +75,49 @@ pub fn adt_field_idx(elem: &ProjectionElem) -> usize {
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Constraints {
-    pub inner: Vec<Constraint>,
+    pub inner: IndexSet<Constraint>,
+}
+
+// IndexSet<T> intentionally doesn't implement Hash even when T: Hash - same
+// reason std::collections::HashSet doesn't: its PartialEq/Eq (which it does
+// provide) compares as an unordered set, so a consistent Hash needs a
+// commutative combining function, which the std/indexmap authors leave to
+// the caller rather than choosing one for you. Needed here because
+// RunningConstraint::Idk(Box<Constraints>) requires Constraints: Hash for
+// its own #[derive(Hash)] to resolve. XOR-folding each element's individual
+// hash keeps this order-independent, matching the Eq above (a == b must
+// imply hash(a) == hash(b), and a/b can differ in insertion order here).
+impl Hash for Constraints {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut combined: u64 = 0;
+        for elem in &self.inner {
+            let mut h = DefaultHasher::new();
+            elem.hash(&mut h);
+            combined ^= h.finish();
+        }
+        combined.hash(state);
+    }
 }
 
 impl Constraints {
     pub fn new() -> Constraints {
-        Self { inner: Vec::new() }
-    }
-
-    pub fn from(constraint: Constraint) -> Constraints {
         Self {
-            inner: vec![constraint],
+            inner: IndexSet::new(),
         }
     }
 
-    pub fn from_vec(inner: Vec<Constraint>) -> Constraints {
+    pub fn from(constraint: Constraint) -> Constraints {
+        let mut inner = IndexSet::with_capacity(1);
+        inner.insert(constraint);
         Self { inner }
+    }
+
+    pub fn from_vec(inner: Vec<Constraint>) -> Constraints {
+        Self {
+            inner: inner.into_iter().collect(),
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -99,19 +125,23 @@ impl Constraints {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.len() == 0
+        self.inner.is_empty()
     }
 
     pub fn at(&self, idx: usize) -> &Constraint {
-        &self.inner[idx]
+        self.inner
+            .get_index(idx)
+            .unwrap_or_else(|| panic!("Constraints::at: index {} out of bounds", idx))
     }
 
     pub fn push(&mut self, new_constraint: Constraint) {
-        unique_push(&mut self.inner, new_constraint);
+        // insert() already dedups (returns false if present) - unique_push
+        // existed purely to fake this on a Vec, no longer needed.
+        self.inner.insert(new_constraint);
     }
 
     pub fn append(&mut self, new_constraints: Constraints) {
-        unique_append(&mut self.inner, new_constraints.inner);
+        self.inner.extend(new_constraints.inner);
     }
 
     // Write: strong-update the field within EVERY disjunct currently in scope.
@@ -146,17 +176,27 @@ impl Constraints {
             // as filter_variant on the read side.
             (1, target_variant) => {
                 let idx = adt_field_idx(&field[0]);
-                for c in self.inner.iter_mut() {
-                    if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
-                        let applies = match target_variant {
-                            Some(v) => variant.is_none() || *variant == Some(v),
-                            None => true,
-                        };
-                        if applies {
-                            fields.insert(idx, new.clone());
+                // Can't mutate elements of an IndexSet in place via iter_mut()
+                // (it doesn't exist - an element IS its own hash key, so an
+                // in-place edit that changes the hash would silently corrupt
+                // the set's bucket layout). Take ownership of every disjunct,
+                // transform it, and reinsert - insert() recomputes the hash
+                // correctly for the new content.
+                self.inner = std::mem::take(&mut self.inner)
+                    .into_iter()
+                    .map(|mut c| {
+                        if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
+                            let applies = match target_variant {
+                                Some(v) => variant.is_none() || *variant == Some(v),
+                                None => true,
+                            };
+                            if applies {
+                                fields.insert(idx, new.clone());
+                            }
                         }
-                    }
-                }
+                        c
+                    })
+                    .collect();
             }
 
             (_, _) => {
@@ -164,20 +204,24 @@ impl Constraints {
                 let idx = adt_field_idx(first);
                 let rest = rest.to_vec();
 
-                for c in self.inner.iter_mut() {
-                    if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
-                        let applies = match target_variant {
-                            Some(v) => variant.is_none() || *variant == Some(v),
-                            None => true,
-                        };
-                        if applies {
-                            let mut nested =
-                                fields.get(&idx).cloned().unwrap_or_else(Constraints::new);
-                            nested.write_field(rest.clone(), new.clone());
-                            fields.insert(idx, nested);
+                self.inner = std::mem::take(&mut self.inner)
+                    .into_iter()
+                    .map(|mut c| {
+                        if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
+                            let applies = match target_variant {
+                                Some(v) => variant.is_none() || *variant == Some(v),
+                                None => true,
+                            };
+                            if applies {
+                                let mut nested =
+                                    fields.get(&idx).cloned().unwrap_or_else(Constraints::new);
+                                nested.write_field(rest.clone(), new.clone());
+                                fields.insert(idx, nested);
+                            }
                         }
-                    }
-                }
+                        c
+                    })
+                    .collect();
             }
         }
     }

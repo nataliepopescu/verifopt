@@ -489,7 +489,11 @@ impl<'a> RvalConverter<'a> {
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints)
                 } else {
-                    match &prev_constraints.inner.first().and_then(|c| c.cfc.as_ref()) {
+                    match &prev_constraints
+                        .inner
+                        .get_index(0)
+                        .and_then(|c| c.cfc.as_ref())
+                    {
                         Some(RunningConstraint::Adt(adtdef, _, _, _))
                             if self.wrapper_kind(adtdef).is_some() =>
                         {

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_data_structures::fx::FxHashSet as HashSet;
 use rustc_index::bit_set::DenseBitSet;
@@ -74,7 +76,15 @@ impl<'a> Iterator for Postorder<'a> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct BBDeps {
-    pub blocks: Vec<BasicBlock>,
+    // Rc, not a plain Vec: this is a full clone of the function's MIR
+    // blocks (statements+terminators), and unlike preds/ordering/visited
+    // it's never mutated again after BBDeps::new() builds it - prune() and
+    // mark_visited() only ever touch preds/ordering/visited. Since
+    // Context::clone() (called once per candidate at every dynamic-dispatch
+    // site) derives Clone across the whole wtos: HashMap<VOID, BBDeps> map,
+    // every visited function's MIR was getting fully re-copied on every
+    // single dispatch-site clone. Rc::clone() is a pointer-copy instead.
+    pub blocks: Rc<Vec<BasicBlock>>,
     pub preds: HashMap<usize, Vec<usize>>,
     pub ordering: Vec<usize>,
     pub visited: Vec<usize>,
@@ -84,7 +94,7 @@ pub struct BBDeps {
 impl BBDeps {
     pub fn new<'tcx>(body: &Body) -> Self {
         let mut bb_deps = BBDeps {
-            blocks: body.blocks.clone(),
+            blocks: Rc::new(body.blocks.clone()),
             preds: HashMap::default(),
             ordering: Vec::new(),
             visited: Vec::new(),

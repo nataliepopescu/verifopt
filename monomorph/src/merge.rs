@@ -1,5 +1,5 @@
-use crate::constraints::{ConstraintStore, Constraints, Context, EnclosingScopes, MapValue};
 use crate::constraints::unique_append;
+use crate::constraints::{ConstraintStore, Constraints, Context, EnclosingScopes, MapValue};
 use crate::error::Error;
 use rustc_public::mir::Place;
 

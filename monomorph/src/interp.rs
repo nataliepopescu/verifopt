@@ -757,44 +757,7 @@ impl<'a> InterpPass<'a> {
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        match self.sigstore.sigs.get(&sigval) {
-            Some(fndef_vec) => {
-                // Don't want to pollute our results too much, so if we have too
-                // many possible fns to call, just fallback to retty
-                if fndef_vec.len() > 5 {
-                    //debug!("TOO MANY CANDIDATES - falling back to retty");
-                    self.retty_fallback_from_sigval(sigval)
-                // Otherwise, interpret the candidate functions
-                } else {
-                    todo!();
-                    /*
-                    let mut ret_constraints = Vec::new();
-                    for fndef in fndef_vec {
-                        debug!("TRY FUNC: {:?}", fndef);
-                        // FIXME no genargs??
-                        let genargs = GenericArgs(vec![]);
-                        match self.interp_fn_ptr(
-                            term_span,
-                            ctxt,
-                            call_stack,
-                            cur_scope,
-                            local_decls,
-                            *fndef,
-                            &genargs,
-                            args,
-                        ) {
-                            Ok(Some(constraints)) => unique_append(&mut ret_constraints, constraints),
-                            Ok(None) => {}
-                            e @ Err(_) => panic!("got error: {:?}", e),
-                        }
-                    }
-                    debug!("ret_constraints: {:?}", ret_constraints);
-                    todo!("FN PTR (interp'd candidates)");
-                    */
-                }
-            }
-            None => self.retty_fallback_from_sigval(sigval),
-        }
+        self.retty_fallback_from_sigval(sigval)
     }
 
     fn interp_closure(
@@ -976,9 +939,15 @@ impl<'a> InterpPass<'a> {
             return Err(Error::RecurseLimit(MAX_DEPTH));
         }
 
-        if let Some(result) =
-            self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, genargs, args)
-        {
+        if let Some(result) = self.stdlib_stub(
+            ctxt,
+            cur_scope,
+            term_span,
+            local_decls,
+            &fndef,
+            genargs,
+            args,
+        ) {
             return result;
         }
 
@@ -1355,7 +1324,7 @@ impl<'a> InterpPass<'a> {
     }
     */
 
-    fn check_sig_boundvars(&self, sig: &PolyFnSig) {
+    fn check_sig_boundvars_poly(&self, sig: &PolyFnSig) {
         if !sig.bound_vars.is_empty() {
             // Might not be safe to just skip binder
             //debug!("Bound vars - cannot just skip binder in call resolution");
@@ -1369,12 +1338,23 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    pub fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
-        //debug!("fn_sig: {:?}", sig);
-        self.check_sig_boundvars(&sig);
-        //debug!("output: {:?}", sig.value.output());
+    fn check_sig_boundvars_sigval(&self, sigval: &SigVal) {
+        if !sigval.bound_tys.is_empty() {
+            // Mirrors check_sig_boundvars' still-unhandled case: a Ty-kind
+            // bound variable means skip_binder() (already applied when
+            // SigVal::new_from_poly built `output`) may have left a bound
+            // type-var index that's meaningless outside its original
+            // binder context. Not yet safe to just proceed - keep this a
+            // loud, informative panic rather than silently guessing.
+            todo!(
+                "SigVal fallback with bound type-vars in signature: {:?}",
+                sigval.bound_tys
+            );
+        }
+    }
 
-        // Return output type that matches type info (widening)
+    pub fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
+        self.check_sig_boundvars_poly(&sig);
         let (_, constraint) = self
             .converter
             .convert_ty(&Location::new(), &sig.value.output());
@@ -1382,15 +1362,9 @@ impl<'a> InterpPass<'a> {
     }
 
     fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
-        //debug!("sigval: {:?}", sigval);
-        if !sigval.bound_tys.is_empty() {
-            todo!();
-        }
-
-        // Return output type that matches type info (widening)
-        //let ret_constraints = vec![];
-        todo!();
-        //Ok(Some(ret_constraints))
+        self.check_sig_boundvars_sigval(&sigval);
+        let (_, constraint) = self.converter.convert_ty(&Location::new(), &sigval.output);
+        Ok(Some(Constraints::from(constraint)))
     }
 
     /// Interpret dynamic dispatch.
@@ -1884,9 +1858,15 @@ impl<'a> InterpPass<'a> {
 
             if call_stack.contains(&callee_scope) {
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-            } else if let Some(stub_result) =
-                self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, &genargs, args)
-            {
+            } else if let Some(stub_result) = self.stdlib_stub(
+                ctxt,
+                cur_scope,
+                term_span,
+                local_decls,
+                &fndef,
+                &genargs,
+                args,
+            ) {
                 results.push(stub_result?);
             } else {
                 let mut ctxt_clone = ctxt.clone();

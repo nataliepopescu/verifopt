@@ -1,7 +1,7 @@
 use crate::rustc_public_bridge::IndexedVal;
 use rustc_public::mir::{LocalDecl, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
-    AdtDef, FnDef, GenericArgs, PolyFnSig, RigidTy, Span, Ty, TyKind, VariantIdx,
+    AdtDef, FnDef, GenericArgKind, GenericArgs, PolyFnSig, RigidTy, Span, Ty, TyKind, VariantIdx,
 };
 
 use crate::Context;
@@ -43,6 +43,7 @@ impl<'a> InterpPass<'a> {
         term_span: &Span,
         local_decls: &[LocalDecl],
         fndef: &FnDef,
+        genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Option<Result<Option<Constraints>, Error>> {
         debug!("STDLIB_STUB");
@@ -105,7 +106,7 @@ impl<'a> InterpPass<'a> {
         // through the same receiver-identification and handler below,
         // since neither has an actual collection to key off of yet.
         if method == "from_iter" || method == "from_sorted_iter" {
-            if let Some(recv) = self.from_iter_collection_recv(fndef) {
+            if let Some(recv) = self.from_iter_collection_recv(genargs) {
                 return Some(Ok(self.stub_from_iter(
                     ctxt,
                     caller_scope,
@@ -225,9 +226,27 @@ impl<'a> InterpPass<'a> {
     /// find in `args` (see the comment at the dispatch site), so this
     /// identifies the call by its *return type* instead - both have `Self`
     /// as their return type, which is the fresh collection being built.
-    fn from_iter_collection_recv(&self, fndef: &FnDef) -> Option<CollectionRecv> {
-        let ret_ty = fndef.fn_sig().value.output();
-        let (adtdef, genargs) = match ret_ty.kind() {
+    /// `genargs` here is the *call's own* concrete generic arguments (what
+    /// `interp_fn_def`/`simulate_static_calls` build to resolve/interpret
+    /// this specific call) - not `fndef.fn_sig()`'s declared signature.
+    /// For an associated/trait function like `FromIterator::from_iter`,
+    /// `fndef` still refers to the trait's abstract declaration even after
+    /// `Instance::resolve` succeeds (resolution produces a separate
+    /// `Instance`, never fed back into `fndef`), so `fndef.fn_sig()`'s
+    /// output type is the unresolved associated type `Self` - it never
+    /// matches `RigidTy::Adt(..)` no matter what the receiver actually is,
+    /// silently falling through to real interpretation every time. Rust
+    /// encodes an associated function's generic args as `[Self, ...the
+    /// trait's own generics..., ...the method's own generics...]`, so index
+    /// 0 here is the concrete implementing type - confirmed directly
+    /// against a real `BTreeSet<Cow<'_,[u8]>>::from_iter` call's logged
+    /// scope tuple, where this was `BTreeSet<Cow<'_,[u8]>, Global>`.
+    fn from_iter_collection_recv(&self, genargs: &GenericArgs) -> Option<CollectionRecv> {
+        let self_ty = match genargs.0.first()? {
+            GenericArgKind::Type(ty) => ty,
+            _ => return None,
+        };
+        let (adtdef, genargs) = match self_ty.kind() {
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => (adtdef, genargs),
             _ => return None,
         };

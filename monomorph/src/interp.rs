@@ -977,7 +977,7 @@ impl<'a> InterpPass<'a> {
         }
 
         if let Some(result) =
-            self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, args)
+            self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, genargs, args)
         {
             return result;
         }
@@ -1885,7 +1885,7 @@ impl<'a> InterpPass<'a> {
             if call_stack.contains(&callee_scope) {
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
             } else if let Some(stub_result) =
-                self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, args)
+                self.stdlib_stub(ctxt, cur_scope, term_span, local_decls, &fndef, &genargs, args)
             {
                 results.push(stub_result?);
             } else {

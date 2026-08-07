@@ -19,6 +19,19 @@ use indexmap::IndexSet;
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 
+// Persistent/structurally-shared map: cloning an im::HashMap is O(1) (just
+// bumps a refcount on the shared tree) instead of walking and deep-cloning
+// every entry, unlike std/Fx HashMap. cstore.cmap accumulates one entry per
+// scope/variable visited across the *entire* program, and Context::clone()
+// (derived Clone) clones it wholesale once per candidate at every dynamic-
+// dispatch site - so with a plain HashMap that clone cost grows with how
+// much of the program has been analyzed so far, compounding badly at
+// dispatch-heavy points (e.g. a trait with 100+ impls). Aliased distinctly
+// from `HashMap` above (FxHashMap) since this crate's API mirrors std's
+// closely enough that call sites (.get/.get_mut/.insert/.remove/.iter) need
+// no changes beyond the field's declared type.
+use im::HashMap as ImHashMap;
+
 //pub fn unique_update(ret: ConstraintsAndFields, new: ConstraintsAndFields) -> ConstraintsAndFields {
 //    let (mut old_constraints, mut old_fields) = ret;
 //    let (new_constraints, new_fields) = new;
@@ -656,14 +669,14 @@ impl Context {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintStore {
-    pub cmap: HashMap<MapKey, Box<MapValue>>,
+    pub cmap: ImHashMap<MapKey, Box<MapValue>>,
     pub refs: HashMap<(Place, VOID), ((Place, VOID), Mutability)>,
 }
 
 impl ConstraintStore {
     pub fn new() -> ConstraintStore {
         Self {
-            cmap: HashMap::default(),
+            cmap: ImHashMap::default(),
             refs: HashMap::default(),
         }
     }

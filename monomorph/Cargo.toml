@@ -10,6 +10,7 @@ debug = 1
 cargo_metadata = "*"
 clap = "4.6.1"
 indexmap = "2"
+im = "15"
 env_logger = "0.11.10"
 itertools = "0.14.0"
 log = "*"

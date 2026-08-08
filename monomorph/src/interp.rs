@@ -565,9 +565,10 @@ impl<'a> InterpPass<'a> {
                     None => None,
                 }
             }
-            Operand::Constant(const_op) => {
-                Some(self.converter.convert_const(&Location::unknown(), &const_op))
-            }
+            Operand::Constant(const_op) => Some(
+                self.converter
+                    .convert_const(&Location::unknown(), &const_op),
+            ),
             _ => panic!("got runtime checks"),
         }
     }
@@ -1554,16 +1555,18 @@ impl<'a> InterpPass<'a> {
             args,
             fsa_empty,
         );
-        let mut dt = self.dispatch_tags.borrow_mut();
-        match dt.entry(key) {
-            Entry::Occupied(mut e) => {
-                // disagreements between body walks
-                if *e.get() != plan {
-                    e.insert(TagPlan::Poisoned);
+        {
+            let mut dt = self.dispatch_tags.borrow_mut();
+            match dt.entry(key) {
+                Entry::Occupied(mut e) => {
+                    // disagreements between body walks
+                    if *e.get() != plan {
+                        e.insert(TagPlan::Poisoned);
+                    }
                 }
-            }
-            Entry::Vacant(e) => {
-                e.insert(plan);
+                Entry::Vacant(e) => {
+                    e.insert(plan);
+                }
             }
         }
 

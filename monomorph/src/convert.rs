@@ -200,7 +200,15 @@ impl<'a> RvalConverter<'a> {
         match const_op.const_.kind() {
             ConstantKind::Allocated(alloc) => self.convert_allocated_const(span, &ty, alloc),
             ConstantKind::ZeroSized => self.convert_zero_sized_const(span, &ty),
-            other => todo!("arg is another constant kind: {:?}", other),
+            // Ty(..), Unevaluated(..), and Param(..) are all cases where we
+            // don't have (and in the Param/Unevaluated-over-a-generic case,
+            // structurally can't yet have) a concrete value to inspect - e.g.
+            // an associated const accessed through a still-generic `Self`
+            // (see rg::flags::Flag::aliases: Unevaluated(.., args: [Param(Self)]))
+            // isn't resolvable until monomorphization. Fall back to a
+            // type-only constraint, same as the ZST non-ADT case above,
+            // rather than panicking.
+            _ => self.convert_const_fallback(span, &ty),
         }
     }
 

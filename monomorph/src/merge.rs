@@ -190,9 +190,8 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
                     }
                 }
             }
+            merged.refs = merged.refs.union(store.refs.clone());
         }
-
-        //debug!("merged stores: {:?}", merged);
 
         Ok(Some(merged))
     }
@@ -294,16 +293,11 @@ impl Merge<Context> for Vec<Context> {
             Ok(None) => todo!(),
             _ => panic!(),
         };
-        //let m_fstores = match fstores.merge() {
-        //    Ok(Some(merged)) => merged,
-        //    Ok(None) => todo!(),
-        //    _ => panic!(),
-        //};
+        let mut m_wtos = self[0].wtos.clone();
+        for ctxt in self.iter().skip(1) {
+            m_wtos = m_wtos.union(ctxt.wtos.clone());
+        }
 
-        Ok(Some(Context::new(
-            m_cstores,
-            //m_fstores,
-            self[0].wtos.clone(),
-        )))
+        Ok(Some(Context::new(m_cstores, m_wtos)))
     }
 }

@@ -68,6 +68,7 @@ macro_rules! example_test {
 // MIR constructs, unhandled inline asm) — that's fine, their tests are
 // expected to fail (red) until the underlying tool issue is fixed. That's a
 // truer signal than pretending they pass.
+example_test!(btreemap, "btreemap", Passing);
 example_test!(casting_traitobj, "casting_traitobj", Passing);
 example_test!(closures, "closures", Passing);
 example_test!(constraint_hierarchy, "constraint_hierarchy", Passing);

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use rustc_data_structures::fx::FxHashMap as HashMap;
@@ -86,7 +87,7 @@ pub struct BBDeps {
     // single dispatch-site clone. Rc::clone() is a pointer-copy instead.
     pub blocks: Rc<Vec<BasicBlock>>,
     pub preds: HashMap<usize, Vec<usize>>,
-    pub ordering: Vec<usize>,
+    pub ordering: VecDeque<usize>,
     pub visited: Vec<usize>,
     pub has_ret: bool,
 }
@@ -96,7 +97,7 @@ impl BBDeps {
         let mut bb_deps = BBDeps {
             blocks: Rc::new(body.blocks.clone()),
             preds: HashMap::default(),
-            ordering: Vec::new(),
+            ordering: VecDeque::new(),
             visited: Vec::new(),
             has_ret: false,
         };
@@ -177,7 +178,7 @@ impl BBDeps {
         }
 
         // add return bb last
-        bb_deps.ordering.push(ret_bb);
+        bb_deps.ordering.push_back(ret_bb);
         debug!("%%%%%");
         debug!("self.ordering: {:?}", bb_deps.ordering);
         debug!("%%%%%");

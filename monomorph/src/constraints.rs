@@ -1,6 +1,6 @@
 use crate::interp::InterpPass;
 use crate::rustc_public::CrateDef;
-use rustc_data_structures::fx::FxHashMap as HashMap;
+//use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
 
 use rustc_public::mir::{Body, LocalDecl, Mutability, Operand, Place, ProjectionElem};
@@ -448,18 +448,18 @@ pub fn summary_key(
 #[derive(Debug, Clone, PartialEq)]
 pub struct Context {
     pub cstore: ConstraintStore,
-    pub wtos: HashMap<VOID, BBDeps>,
+    pub wtos: ImHashMap<VOID, BBDeps>,
 }
 
 impl Context {
-    pub fn new(cstore: ConstraintStore, wtos: HashMap<VOID, BBDeps>) -> Context {
+    pub fn new(cstore: ConstraintStore, wtos: ImHashMap<VOID, BBDeps>) -> Context {
         Self { cstore, wtos }
     }
 
     pub fn empty() -> Context {
         Self {
             cstore: ConstraintStore::new(),
-            wtos: HashMap::default(),
+            wtos: ImHashMap::default(),
         }
     }
 
@@ -670,14 +670,14 @@ impl Context {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintStore {
     pub cmap: ImHashMap<MapKey, Box<MapValue>>,
-    pub refs: HashMap<(Place, VOID), ((Place, VOID), Mutability)>,
+    pub refs: ImHashMap<(Place, VOID), ((Place, VOID), Mutability)>,
 }
 
 impl ConstraintStore {
     pub fn new() -> ConstraintStore {
         Self {
             cmap: ImHashMap::default(),
-            refs: HashMap::default(),
+            refs: ImHashMap::default(),
         }
     }
 

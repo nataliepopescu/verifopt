@@ -169,7 +169,7 @@ impl<'a> InterpPass<'a> {
                 break;
             }
 
-            let bb = bb_deps.ordering.remove(0);
+            let bb = bb_deps.ordering.pop_front().unwrap();
             //debug!("\n\n--NEW BB: {:?}", bb);
 
             let data = body.blocks.get(bb).unwrap();

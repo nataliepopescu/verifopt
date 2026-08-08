@@ -261,10 +261,9 @@ impl<'a> InterpPass<'a> {
                 RigidTy::Dynamic(trait_vec, _) => {
                     let mut desttys = Vec::new();
                     for trait_ in trait_vec {
-                        unique_push(
-                            &mut desttys,
-                            TraitObjTy::new_from_bound_existential(&trait_),
-                        );
+                        if let Some(toty) = TraitObjTy::new_from_bound_existential(&trait_) {
+                            unique_push(&mut desttys, toty);
+                        }
                     }
                     return Some(desttys);
                 }

@@ -902,10 +902,11 @@ impl<'a> RvalConverter<'a> {
                 RigidTy::Dynamic(bound_existentials, _) => {
                     let mut traitobj_vec = Vec::new();
                     for bound_existential in bound_existentials {
-                        unique_push(
-                            &mut traitobj_vec,
-                            TraitObjTy::new_from_bound_existential(&bound_existential),
-                        );
+                        if let Some(toty) =
+                            TraitObjTy::new_from_bound_existential(&bound_existential)
+                        {
+                            unique_push(&mut traitobj_vec, toty);
+                        }
                     }
                     (
                         Some(traitobj_vec.clone()),

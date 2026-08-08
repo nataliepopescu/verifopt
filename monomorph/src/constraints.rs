@@ -325,7 +325,7 @@ pub struct TraitObjTy {
 }
 
 impl TraitObjTy {
-    pub fn new_from_bound_existential(binder: &Binder<ExistentialPredicate>) -> TraitObjTy {
+    pub fn new_from_bound_existential(binder: &Binder<ExistentialPredicate>) -> Option<TraitObjTy> {
         //let mut bound_tys = Vec::new();
         //let mut bound_regions = Vec::new();
         if !binder.bound_vars.is_empty() {
@@ -347,18 +347,18 @@ impl TraitObjTy {
 
         match binder.clone().skip_binder() {
             ExistentialPredicate::Trait(trait_ref) => {
-                return Self {
+                return Some(Self {
                     def: trait_ref.def_id,
                     genargs: trait_ref.generic_args,
-                };
+                });
             }
             ExistentialPredicate::Projection(proj) => {
-                return Self {
+                return Some(Self {
                     def: proj.def_id,
                     genargs: proj.generic_args,
-                };
+                });
             }
-            _ => todo!(),
+            ExistentialPredicate::AutoTrait(_trait_def) => None,
         }
     }
 

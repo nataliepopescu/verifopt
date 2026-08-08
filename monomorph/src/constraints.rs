@@ -3,6 +3,7 @@ use crate::rustc_public::CrateDef;
 //use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
 
+use rustc_public::DefId;
 use rustc_public::mir::{Body, LocalDecl, Mutability, Operand, Place, ProjectionElem};
 use rustc_public::ty::{
     AdtDef, Binder, ClosureDef, ExistentialPredicate, FnDef, GenericArgs, Span, TraitDef,
@@ -148,13 +149,24 @@ impl Constraints {
     }
 
     pub fn push(&mut self, new_constraint: Constraint) {
-        // insert() already dedups (returns false if present) - unique_push
-        // existed purely to fake this on a Vec, no longer needed.
-        self.inner.insert(new_constraint);
+        // insert() dedups on (toc, cfc) via the custom Eq/Hash impl above,
+        // but a plain insert() would silently drop the incoming prov when a
+        // duplicate is already present. Merge provenance into the existing
+        // entry (via replace(), which keeps insertion order) instead of
+        // just discarding it.
+        if let Some(existing) = self.inner.get(&new_constraint) {
+            let mut merged = existing.clone();
+            merged.prov.join(&new_constraint.prov);
+            self.inner.replace(merged);
+        } else {
+            self.inner.insert(new_constraint);
+        }
     }
 
     pub fn append(&mut self, new_constraints: Constraints) {
-        self.inner.extend(new_constraints.inner);
+        for c in new_constraints.inner {
+            self.push(c);
+        }
     }
 
     // Write: strong-update the field within EVERY disjunct currently in scope.
@@ -257,10 +269,24 @@ impl Constraints {
 
 // Maybe organize TraitObjConstraints by trait..? Like if we have two potentially obfuscating
 // dynamic calls (one for Option and one for inner TraitObj)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct Constraint {
     pub toc: Option<(TraitObjTy, TraitObjConstraint)>,
     pub cfc: Option<RunningConstraint>,
+    pub prov: Prov,
+}
+
+impl PartialEq for Constraint {
+    fn eq(&self, o: &Self) -> bool {
+        self.toc == o.toc && self.cfc == o.cfc
+    }
+}
+impl Eq for Constraint {}
+impl Hash for Constraint {
+    fn hash<H: Hasher>(&self, s: &mut H) {
+        self.toc.hash(s);
+        self.cfc.hash(s);
+    }
 }
 
 impl Constraint {
@@ -268,7 +294,16 @@ impl Constraint {
         toc: Option<(TraitObjTy, TraitObjConstraint)>,
         cfc: Option<RunningConstraint>,
     ) -> Constraint {
-        Self { toc, cfc }
+        Self {
+            toc,
+            cfc,
+            prov: Prov::Unknown,
+        }
+    }
+
+    pub fn with_prov(mut self, prov: Prov) -> Self {
+        self.prov = prov;
+        self
     }
 
     pub fn is_cfc_closure(&self) -> bool {
@@ -292,11 +327,49 @@ pub enum TraitObjConstraint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Location;
+pub struct Location {
+    pub scope: Option<DefId>,
+    pub bb: usize,
+    pub stmt: usize,
+}
 
 impl Location {
-    pub fn new() -> Location {
-        Self {}
+    pub fn unknown() -> Self {
+        Self {
+            scope: None,
+            bb: 0,
+            stmt: 0,
+        }
+    }
+
+    pub fn new_at(scope: DefId, bb: usize, stmt: usize) -> Self {
+        Self {
+            scope: Some(scope),
+            bb,
+            stmt,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Prov {
+    Unknown,
+    Tags(
+        HashSet<(
+            DefId, /* scope */
+            usize, /* bb */
+            usize, /* stmt */
+        )>,
+    ),
+}
+
+impl Prov {
+    pub fn join(&mut self, other: &Prov) {
+        match (&mut *self, other) {
+            (Prov::Unknown, _) => {}
+            (_, Prov::Unknown) => *self = Prov::Unknown,
+            (Prov::Tags(a), Prov::Tags(b)) => a.extend(b.iter().cloned()),
+        }
     }
 }
 

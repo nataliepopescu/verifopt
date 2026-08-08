@@ -33,7 +33,7 @@ pub mod util;
 pub mod wto;
 
 use crate::constraints::Context;
-use crate::interp::InterpPass;
+use crate::interp::{InterpPass, TagPlan};
 use crate::logger::VOLogger;
 use crate::sig_collect::{SigCollectPass, SigStore};
 use crate::trait_collect::{TraitCollectPass, TraitStore};
@@ -41,7 +41,10 @@ use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(
     _options: AnalysisOptions,
-) -> HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)> {
+) -> (
+    HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+    HashMap<(DefId, usize), TagPlan>,
+) {
     // TODO make log filename a cmdline option
     let f_filename = "found_ex";
     let nf_filename = "notfound_ex";
@@ -96,7 +99,21 @@ pub fn start_verifopt(
         })
         .collect();
 
+    let tags: HashMap<(DefId, usize), TagPlan> = interp
+        .dispatch_tags
+        .borrow()
+        .iter()
+        .map(|(&k, p)| {
+            let ok = interp
+                .dispatch_targets
+                .borrow()
+                .get(&k)
+                .map_or(false, |(s, _)| *confirmed.get(s).unwrap_or(&false));
+            (k, if ok { p.clone() } else { TagPlan::Poisoned })
+        })
+        .collect();
+
     let _ = logger.log_stats(&fsa, cha);
 
-    fsa
+    (fsa, tags)
 }

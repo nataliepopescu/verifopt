@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use rustc_public::DefId;
@@ -19,7 +20,7 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, Prov,
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -38,14 +39,10 @@ pub struct InterpPass<'a> {
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
 
-    //pub ctxt: RefCell<Context>,
-    // call_stack
-    // scope
-    // local_decls
-    // term_span
     pub dispatch_targets:
         RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
     pub dispatch_cha: RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    pub dispatch_tags: RefCell<HashMap<(DefId, usize), TagPlan>>,
 
     pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
@@ -56,6 +53,18 @@ pub struct InterpPass<'a> {
     pub incomplete: RefCell<HashSet<VOID>>,
 }
 
+#[derive(Clone, PartialEq)]
+pub enum TagPlan {
+    Poisoned,
+    Tagged(
+        Vec<(
+            usize, /* bb */
+            usize, /* stmt */
+            DefId, /* impl */
+        )>,
+    ),
+}
+
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
@@ -64,6 +73,7 @@ impl<'a> InterpPass<'a> {
             converter: RvalConverter::new(tstore),
             dispatch_targets: HashMap::new().into(),
             dispatch_cha: HashMap::new().into(),
+            dispatch_tags: HashMap::new().into(),
             wq: HashMap::new().into(),
             summaries: HashMap::new().into(),
             in_queue: HashSet::new().into(),
@@ -228,7 +238,7 @@ impl<'a> InterpPass<'a> {
                 cur_scope.0.name(),
                 stmt.span,
             );
-            self.visit_statement(ctxt, cur_scope, local_decls, stmt);
+            self.visit_statement(ctxt, cur_scope, local_decls, stmt, bb, i);
         }
 
         debug!(
@@ -319,12 +329,17 @@ impl<'a> InterpPass<'a> {
             match self.converter.get_traitobj(maybe_trait_destty, &constraint) {
                 // Add into traitobj constraint
                 toc @ Some(_) => match constraint {
-                    Constraint { toc: None, cfc } => {
-                        constraints.push(Constraint::new(toc, cfc));
+                    Constraint {
+                        toc: None,
+                        cfc,
+                        prov,
+                    } => {
+                        constraints.push(Constraint::new(toc, cfc).with_prov(prov));
                     }
                     Constraint {
                         toc: Some(ref existing_toc),
                         cfc: ref _cfc,
+                        prov: _,
                     } => {
                         if *existing_toc != toc.unwrap() {
                             todo!("update existing TOC");
@@ -349,6 +364,8 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         local_decls: &[LocalDecl],
         stmt: &Statement,
+        bb: usize,
+        stmt_idx: usize,
     ) {
         match &stmt.kind {
             // Only interp assignments to track type constraint changes
@@ -381,7 +398,7 @@ impl<'a> InterpPass<'a> {
                 } else {
                     self.converter.convert(
                         ctxt,
-                        &Location::new(),
+                        &Location::new_at(cur_scope.0.def.def_id(), bb, stmt_idx),
                         local_decls,
                         cur_scope,
                         &dest_ty,
@@ -523,7 +540,7 @@ impl<'a> InterpPass<'a> {
                 } else {
                     let (_, dst) = self
                         .converter
-                        .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
+                        .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
                     let dst_constraints =
                         self.lift_traitobjtys(&maybe_trait_destty, Constraints::from(dst));
                     ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
@@ -549,7 +566,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
             Operand::Constant(const_op) => {
-                Some(self.converter.convert_const(&Location::new(), &const_op))
+                Some(self.converter.convert_const(&Location::unknown(), &const_op))
             }
             _ => panic!("got runtime checks"),
         }
@@ -661,6 +678,7 @@ impl<'a> InterpPass<'a> {
                         Constraint {
                             toc: _,
                             cfc: Some(cf),
+                            prov: _,
                         } => match self.interp_constraint_as_fn(
                             term_span,
                             ctxt,
@@ -1310,7 +1328,7 @@ impl<'a> InterpPass<'a> {
                     None => {
                         let (_maybe_traitobjty, constraint) = self
                             .converter
-                            .convert_ty(&Location::new(), &place.ty(local_decls).unwrap());
+                            .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
                         //if let Some(_tot) = maybe_traitobjty {
                         //    todo!();
                         //}
@@ -1319,9 +1337,9 @@ impl<'a> InterpPass<'a> {
                 }
             }
             // TODO can maybe get a more precise VORval depending on kind
-            Operand::Constant(const_op) => {
-                self.converter.convert_const(&Location::new(), &const_op)
-            }
+            Operand::Constant(const_op) => self
+                .converter
+                .convert_const(&Location::unknown(), &const_op),
             _ => todo!("runtime check arg"),
         }
     }
@@ -1369,7 +1387,7 @@ impl<'a> InterpPass<'a> {
         // Return output type that matches type info (widening)
         let (_, constraint) = self
             .converter
-            .convert_ty(&Location::new(), &sig.value.output());
+            .convert_ty(&Location::unknown(), &sig.value.output());
         Ok(Some(Constraints::from(constraint)))
     }
 
@@ -1392,7 +1410,9 @@ impl<'a> InterpPass<'a> {
         // pattern as retty_fallback_from_poly, just sourced from SigVal's
         // already skip_binder()'d output instead of re-deriving it from a
         // fresh PolyFnSig.
-        let (_, constraint) = self.converter.convert_ty(&Location::new(), &sigval.output);
+        let (_, constraint) = self
+            .converter
+            .convert_ty(&Location::unknown(), &sigval.output);
         Ok(Some(Constraints::from(constraint)))
     }
 
@@ -1474,7 +1494,8 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        if assoc_fn_impls_fsa.is_empty() {
+        let fsa_empty = assoc_fn_impls_fsa.is_empty();
+        if fsa_empty {
             debug!("nothing to call, FSA set is empty, falling back to CHA");
             assoc_fn_impls_fsa = assoc_fn_impls_cha.clone();
         }
@@ -1523,6 +1544,29 @@ impl<'a> InterpPass<'a> {
             }
         }
 
+        let plan = self.compute_tag_plan(
+            ctxt,
+            term_span,
+            caller_scope,
+            local_decls,
+            &trait_defid,
+            &fndef.0,
+            args,
+            fsa_empty,
+        );
+        let mut dt = self.dispatch_tags.borrow_mut();
+        match dt.entry(key) {
+            Entry::Occupied(mut e) => {
+                // disagreements between body walks
+                if *e.get() != plan {
+                    e.insert(TagPlan::Poisoned);
+                }
+            }
+            Entry::Vacant(e) => {
+                e.insert(plan);
+            }
+        }
+
         self.simulate_static_calls(
             term_span,
             ctxt,
@@ -1534,6 +1578,76 @@ impl<'a> InterpPass<'a> {
             args,
             is_closure,
         )
+    }
+
+    fn compute_tag_plan(
+        &self,
+        ctxt: &Context,
+        term_span: &Span,
+        caller_scope: &VOID,
+        local_decls: &[LocalDecl],
+        trait_defid: &DefId,
+        assoc_fn_defid: &DefId,
+        args: &Vec<Operand>,
+        fsa_empty: bool,
+    ) -> TagPlan {
+        if fsa_empty {
+            return TagPlan::Poisoned;
+        }
+
+        let place = self.get_traitobj_place(args);
+        let cs = match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
+            Some(cs) => cs,
+            None => return TagPlan::Poisoned,
+        };
+        if cs.is_empty() {
+            return TagPlan::Poisoned;
+        }
+
+        let caller_did = caller_scope.0.def.def_id();
+
+        let mut by_site = HashMap::new();
+
+        for c in cs.inner {
+            let tags = match &c.prov {
+                Prov::Tags(t) if !t.is_empty() => t,
+                _ => return TagPlan::Poisoned,
+            };
+
+            let (_is_closure, defids) = self.resolve_defid(term_span, trait_defid, &c);
+            let impls = self.get_impls_from_defids(assoc_fn_defid, &defids, true);
+            if impls.len() != 1 {
+                return TagPlan::Poisoned;
+            }
+
+            let target = impls[0].0;
+
+            for site in tags {
+                if site.0 != caller_did {
+                    return TagPlan::Poisoned;
+                }
+
+                match by_site.entry(*site) {
+                    Entry::Occupied(e) => {
+                        // same site claimed by two
+                        if *e.get() != target {
+                            return TagPlan::Poisoned;
+                        }
+                    }
+                    Entry::Vacant(e) => {
+                        e.insert(target);
+                    }
+                }
+            }
+        }
+
+        let mut out: Vec<(usize, usize, DefId)> = by_site
+            .into_iter()
+            .map(|((_fn_did, bb, stmt), impl_did)| (bb, stmt, impl_did))
+            .collect();
+        out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
+
+        TagPlan::Tagged(out)
     }
 
     fn get_trait_defid(&self, assoc_fn_defid: &DefId) -> DefId {
@@ -1726,6 +1840,7 @@ impl<'a> InterpPass<'a> {
             Constraint {
                 toc: Some(toc_),
                 cfc: _,
+                prov: _,
             } => {
                 if *trait_defid != toc_.0.def.0 {
                     return (false, vec![]);
@@ -1747,6 +1862,7 @@ impl<'a> InterpPass<'a> {
             Constraint {
                 toc: None,
                 cfc: Some(cfc),
+                prov: _,
             } => {
                 match cfc {
                     RunningConstraint::Adt(adtdef, genargs, _, fields) => {
@@ -1823,7 +1939,7 @@ impl<'a> InterpPass<'a> {
         // Also search in genargs for an implementing type
         //let mut resvec = Vec::new();
         for genarg in &genargs.0 {
-            match self.converter.convert_genarg(&Location::new(), &genarg) {
+            match self.converter.convert_genarg(&Location::unknown(), &genarg) {
                 Some(genarg_constraint) => {
                     //debug!("resolving defid for GENARG: {:?}", genarg_constraint);
                     let (_is_closure, inner_resvec) =
@@ -2081,6 +2197,7 @@ impl<'a> InterpPass<'a> {
                 Constraint {
                     toc: _,
                     cfc: Some(RunningConstraint::Scalar(num_opt)),
+                    prov: _,
                 } => {
                     if let Some(num) = num_opt {
                         // Increment matching branch counters

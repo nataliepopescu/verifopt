@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use rustc_public::CrateDef;
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
@@ -13,6 +12,7 @@ use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
     PolyFnSig, RigidTy, Span, Ty, TyKind,
 };
+use rustc_public::{CrateDef, CrateDefType};
 
 use log::{debug, error};
 
@@ -392,7 +392,7 @@ impl<'a> InterpPass<'a> {
 
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
-                //debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
+                debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
 
                 let mut write_proj = place.projection.as_slice();
                 while let [ProjectionElem::Deref, rest @ ..] = write_proj {
@@ -771,6 +771,11 @@ impl<'a> InterpPass<'a> {
         // signature-based approximation is sound (just less precise) and
         // matches the same tradeoff already made elsewhere for expensive-
         // to-trace cases (e.g. many BTreeSet/BTreeMap method stubs).
+        debug!(
+            "interp_fn_ptr: falling back for sigval with output {:?}",
+            sigval.output
+        );
+
         self.retty_fallback_from_sigval(sigval)
     }
 
@@ -945,7 +950,12 @@ impl<'a> InterpPass<'a> {
         };
 
         let new_scope = (instance, genargs.clone());
-        debug!("--- CALLING {:?}", fndef);
+        debug!(
+            "--- CALLING {:?} -> resolved instance: kind={:?} name={:?}",
+            fndef,
+            instance.kind,
+            instance.name()
+        );
         log_scope(cur_scope);
 
         // checking for recursive stack depths of > 50
@@ -1268,7 +1278,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
-            //debug!("arg constraints: {:?}", constraints);
+            debug!("arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);
 
             // Copy found constraints into new scope cmap
@@ -1878,6 +1888,21 @@ impl<'a> InterpPass<'a> {
 
             // TODO different resolves for fn_ptr / closure
             let fndef = FnDef(*assoc_fn_impl);
+            let expected_count = match fndef.ty().kind() {
+                TyKind::RigidTy(RigidTy::FnDef(_, identity_args)) => identity_args.0.len(),
+                _ => 0,
+            };
+
+            if genargs.0.len() < expected_count {
+                debug!(
+                    "skipping {:?}: only {:?} genargs available but {:?} required, falling back to poly sig",
+                    assoc_fn_impl,
+                    genargs.0.len(),
+                    expected_count
+                );
+                results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                continue;
+            }
             let instance_ = Instance::resolve(fndef, &genargs).unwrap();
             let (is_virtual, instance) = match instance_.kind {
                 // Likely a default trait method implementation, convert to a concrete InstanceKind
@@ -1893,6 +1918,10 @@ impl<'a> InterpPass<'a> {
             };
             let callee_scope = (instance, genargs.clone());
 
+            // the `if` and `else if` blocks might be creating a soundness error...
+            // if we're not actually stepping into new code + updating our cmap,
+            // we could be omitting actually-used concrete type variants in our
+            // eventual rewrite FIXME
             if call_stack.contains(&callee_scope) {
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
             } else if let Some(stub_result) = self.stdlib_stub(

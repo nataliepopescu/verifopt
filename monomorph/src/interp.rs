@@ -757,6 +757,20 @@ impl<'a> InterpPass<'a> {
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
+        // A raw fn pointer only carries a signature, not which concrete
+        // function it points to - `sigstore.sigs` maps that signature to
+        // every function in the program sharing it (candidates), but we
+        // deliberately don't try to interpret each candidate and merge
+        // results here: candidates found by signature-matching alone may
+        // themselves be generic, and there's no principled way yet to know
+        // what concrete GenericArgs to interpret them with (a raw fn
+        // pointer erases that information entirely) - a previous draft of
+        // this attempted exactly that and got stuck on precisely this gap
+        // (passing an empty GenericArgs as a placeholder, which is wrong
+        // for any candidate that's actually generic). Falling back to a
+        // signature-based approximation is sound (just less precise) and
+        // matches the same tradeoff already made elsewhere for expensive-
+        // to-trace cases (e.g. many BTreeSet/BTreeMap method stubs).
         self.retty_fallback_from_sigval(sigval)
     }
 
@@ -1324,7 +1338,7 @@ impl<'a> InterpPass<'a> {
     }
     */
 
-    fn check_sig_boundvars_poly(&self, sig: &PolyFnSig) {
+    fn check_sig_boundvars(&self, sig: &PolyFnSig) {
         if !sig.bound_vars.is_empty() {
             // Might not be safe to just skip binder
             //debug!("Bound vars - cannot just skip binder in call resolution");
@@ -1338,7 +1352,20 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn check_sig_boundvars_sigval(&self, sigval: &SigVal) {
+    pub fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
+        //debug!("fn_sig: {:?}", sig);
+        self.check_sig_boundvars(&sig);
+        //debug!("output: {:?}", sig.value.output());
+
+        // Return output type that matches type info (widening)
+        let (_, constraint) = self
+            .converter
+            .convert_ty(&Location::new(), &sig.value.output());
+        Ok(Some(Constraints::from(constraint)))
+    }
+
+    fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
+        //debug!("sigval: {:?}", sigval);
         if !sigval.bound_tys.is_empty() {
             // Mirrors check_sig_boundvars' still-unhandled case: a Ty-kind
             // bound variable means skip_binder() (already applied when
@@ -1351,18 +1378,11 @@ impl<'a> InterpPass<'a> {
                 sigval.bound_tys
             );
         }
-    }
 
-    pub fn retty_fallback_from_poly(&self, sig: PolyFnSig) -> Result<Option<Constraints>, Error> {
-        self.check_sig_boundvars_poly(&sig);
-        let (_, constraint) = self
-            .converter
-            .convert_ty(&Location::new(), &sig.value.output());
-        Ok(Some(Constraints::from(constraint)))
-    }
-
-    fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
-        self.check_sig_boundvars_sigval(&sigval);
+        // Return output type that matches type info (widening) - same
+        // pattern as retty_fallback_from_poly, just sourced from SigVal's
+        // already skip_binder()'d output instead of re-deriving it from a
+        // fresh PolyFnSig.
         let (_, constraint) = self.converter.convert_ty(&Location::new(), &sigval.output);
         Ok(Some(Constraints::from(constraint)))
     }
@@ -1636,7 +1656,24 @@ impl<'a> InterpPass<'a> {
         // Get concrete type constraints for trait object
         match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
             Some(constraints) => constraints,
-            None => panic!("place {:?} has no constraints", place),
+            // No recorded constraints for this place isn't a bug on its
+            // own - it can genuinely happen for a trait object reached
+            // through a chain the interpreter doesn't yet track precisely
+            // (e.g. Arc<dyn Trait>'s raw-pointer/transmute-based internals -
+            // ArcInner, NonNull, ptr casts). An empty Constraints here means
+            // "FSA has no concrete-type information for this place", which
+            // is exactly the case interp_virtual_call already handles
+            // soundly by falling back to the coarser CHA-based candidate
+            // set (`if assoc_fn_impls_fsa.is_empty() { ...fall back to CHA...
+            // }`) - panicking here would turn an already-designed-for
+            // degradation path into a hard crash instead.
+            None => {
+                debug!(
+                    "place {:?} has no constraints - returning empty (FSA will fall back to CHA)",
+                    place
+                );
+                Constraints::new()
+            }
         }
     }
 

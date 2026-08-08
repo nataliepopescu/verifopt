@@ -26,6 +26,8 @@ use std::collections::BTreeMap;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WrapperKind {
     Box,
+    Arc,
+    Rc,
     Unique,
     NonNull,
     Option,
@@ -66,6 +68,8 @@ pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
     if matches!(
         suffix,
         "boxed::Box"
+            | "sync::Arc"
+            | "rc::Rc"
             | "collections::BTreeSet"
             | "collections::BTreeMap"
             // Pure pointer-plumbing internals: these can never structurally
@@ -84,6 +88,13 @@ pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
             | "marker::PhantomData"
             | "mem::ManuallyDrop"
             | "alloc::Global"
+            // Arc's/Rc's own internal allocation header (strong/weak
+            // counts + the payload) - same reasoning as Unique/NonNull
+            // above: this struct itself is never the trait-object payload,
+            // the *pointee* is, and Arc/Rc's own opaque-internal entries
+            // (below) already handle unwrapping to reach it.
+            | "sync::ArcInner"
+            | "rc::RcInner"
     ) {
         return true;
     }
@@ -525,6 +536,8 @@ impl<'a> RvalConverter<'a> {
         let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
         let kind = match suffix {
             "boxed::Box" => Some(WrapperKind::Box),
+            "sync::Arc" => Some(WrapperKind::Arc),
+            "rc::Rc" => Some(WrapperKind::Rc),
             "ptr::Unique" => Some(WrapperKind::Unique),
             "ptr::NonNull" => Some(WrapperKind::NonNull),
             "option::Option" => Some(WrapperKind::Option),

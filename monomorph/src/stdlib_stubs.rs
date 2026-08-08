@@ -70,8 +70,8 @@ impl<'a> InterpPass<'a> {
             return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
         }
 
-        if self.is_box_new(fndef) {
-            return Some(Ok(self.stub_box_new(
+        if self.is_wrapper_new(fndef) {
+            return Some(Ok(self.stub_wrapper_new(
                 ctxt,
                 caller_scope,
                 term_span,
@@ -611,29 +611,35 @@ impl<'a> InterpPass<'a> {
             || name.ends_with("::do_panic::runtime")
     }
 
-    // ---------- Box::new() handlers ----------
+    // ---------- Box::new()/Arc::new()/Rc::new() handlers ----------
 
-    /// `Box::new` has no receiver (`self`) to key off of - it's a bare
-    /// constructor - so we recognize it by return type instead: if the
-    /// callee's own signature says it returns something `wrapper_kind`
-    /// already calls Box, and the method is literally named `new`, treat it
-    /// as a stub target.
-    fn is_box_new(&self, fndef: &FnDef) -> bool {
+    /// `Box::new`/`Arc::new`/`Rc::new` all have the same shape: no receiver
+    /// (`self`) to key off of - they're bare constructors - so we recognize
+    /// them by return type instead: if the callee's own signature says it
+    /// returns something `wrapper_kind` recognizes as one of these three,
+    /// and the method is literally named `new`, treat it as a stub target.
+    fn is_wrapper_new(&self, fndef: &FnDef) -> bool {
         if Self::method_name(fndef) != "new" {
             return false;
         }
         match fndef.fn_sig().value.output().kind() {
-            TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => {
-                matches!(self.converter.wrapper_kind(&adtdef), Some(WrapperKind::Box))
-            }
+            TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => matches!(
+                self.converter.wrapper_kind(&adtdef),
+                Some(WrapperKind::Box | WrapperKind::Arc | WrapperKind::Rc)
+            ),
             _ => false,
         }
     }
 
-    /// Builds a clean `Box<T>` constraint directly from the argument being
-    /// boxed, instead of letting the interpreter walk Box::new's real
-    /// allocator-touching body.
-    fn stub_box_new(
+    /// Builds a clean `Box<T>`/`Arc<T>`/`Rc<T>` constraint directly from the
+    /// argument being wrapped, instead of letting the interpreter walk the
+    /// real constructor's allocator-touching body (for Arc/Rc, that body
+    /// also involves the atomic/non-atomic strong+weak refcount header -
+    /// `ArcInner`/`RcInner` - which is exactly the internal structure
+    /// `is_opaque_internal_defid` now flags as not worth tracking
+    /// precisely). Generic over which of the three this is: nothing below
+    /// depends on it beyond the signature's own reported `adtdef`/`genargs`.
+    fn stub_wrapper_new(
         &self,
         ctxt: &Context,
         caller_scope: &VOID,
@@ -648,7 +654,7 @@ impl<'a> InterpPass<'a> {
             }
             None => Constraints::new(),
         };
-        debug!("stub_box_new: {:?}", inner);
+        debug!("stub_wrapper_new: {:?}", inner);
 
         let (adtdef, genargs) = match fndef.fn_sig().value.output().kind() {
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => (adtdef, genargs),

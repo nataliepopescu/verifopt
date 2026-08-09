@@ -5,9 +5,11 @@
 - [ ] impl / design
     - [ ] FSA interp (DRIVEN BY EVAL)
         - [x] hierarchical field support
-        - [ ] handle loops
+        - [x] exact function memoization
         - [ ] generalize function summaries
-        - [ ] handle inline asm
+        - [ ] widening vs stubbing
+        - [ ] loops
+        - [ ] inline asm
         - [ ] fn sig narrowing (scope?)
         - [ ] fn ptrs to nested fn decls
 
@@ -24,11 +26,14 @@
 
     - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
         - [ ] make call_stack and friends use interior mutability
-        - [ ] unique-vec data structure/api
+        - [x] unique-vec data structure/api
+        - [ ] span cleanup
 
 
 - [ ] eval
     - [ ] may require being able to hook verifopt into non-main entry points
+
+    - [ ] tool benchamrks (verifopt performance)
 
     - [ ] microbenchmarks
         - [ ] look into fallback rewrite - why performs worse than initial dyn
@@ -47,6 +52,8 @@
         - [ ] ?
 
     - [ ] macrobenchmarks
+
+    - [ ] how to validate FSA
 
 - [ ] paper writing
 

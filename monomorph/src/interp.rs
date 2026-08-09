@@ -1297,6 +1297,49 @@ impl<'a> InterpPass<'a> {
             .borrow_mut()
             .push((scope.clone(), ArgSet::new(&param_cs)));
 
+        // Snapshot the shared, accumulating per-call-site bookkeeping that
+        // interp_virtual_call/finish_frame write into as a side effect
+        // (dispatch_cha/dispatch_targets/dispatch_tags/dependencies) plus
+        // `incomplete`. Unlike exact_memo/summaries/param_summaries (keyed
+        // by ArgSet or scope, so a Param-tainted entry from this build can
+        // never be looked up by a real call later), these are keyed by
+        // (DefId, bb) / Span / VOID alone and *accumulate* rather than get
+        // overwritten - dispatch_targets in particular only ever grows a
+        // call site's candidate list, never shrinks it. If this build
+        // turns out imprecise (or errors) and gets discarded, any
+        // candidates/tags/etc it wrote for call sites *inside* the body
+        // being summarized must be rolled back too - otherwise a later,
+        // real call to this same body would find its own correct,
+        // narrowed dispatch decision permanently unioned with whatever a
+        // Param-driven CHA fallback pulled in during this abandoned
+        // attempt (exactly what happened here: wrap_dyn_call's summary
+        // build had no concrete receiver, fell back to CHA, and recorded
+        // *both* Cat and Dog as dispatch_targets candidates for that call
+        // site - and since dispatch_targets only adds, never removes, the
+        // real re-interpretation's correct Cat-only answer never displaced
+        // it, and the rewrite pass devirtualized against both).
+        //
+        // PERFORMANCE NOTE: these are plain std HashMap/HashSet, not the
+        // `im` crate's structurally-shared persistent maps used elsewhere
+        // in this file specifically to make cloning cheap - so this clone
+        // is a real O(size of these maps so far) cost, paid on every
+        // summary-build attempt, and these maps only grow over the course
+        // of the whole run. For a program with many call sites this could
+        // become its own bottleneck eventually. A cheaper follow-up would
+        // track only *this build's own* additions (bounded by the size of
+        // the one body being summarized) and merge-or-discard just those,
+        // rather than snapshotting the entire global maps - but that needs
+        // either switching these fields to `im`'s persistent collections
+        // (cheap clone, same pattern as ConstraintStore.cmap) or explicit
+        // per-key delta tracking. Flagging rather than doing that rewrite
+        // now, since correctness comes first and this may not be the
+        // bottleneck it could theoretically become.
+        let dispatch_cha_snapshot = self.dispatch_cha.borrow().clone();
+        let dispatch_targets_snapshot = self.dispatch_targets.borrow().clone();
+        let dispatch_tags_snapshot = self.dispatch_tags.borrow().clone();
+        let dependencies_snapshot = self.dependencies.borrow().clone();
+        let incomplete_snapshot = self.incomplete.borrow().clone();
+
         // Push this build's own taint slot - see summary_build_taint_stack's
         // doc comment for why this needs to be a stack, not a flag (nested
         // summary builds are real). Always popped below regardless of
@@ -1309,6 +1352,14 @@ impl<'a> InterpPass<'a> {
             .borrow_mut()
             .pop()
             .expect("summary_build_taint_stack: push/pop imbalance");
+
+        if tainted || result.is_err() {
+            *self.dispatch_cha.borrow_mut() = dispatch_cha_snapshot;
+            *self.dispatch_targets.borrow_mut() = dispatch_targets_snapshot;
+            *self.dispatch_tags.borrow_mut() = dispatch_tags_snapshot;
+            *self.dependencies.borrow_mut() = dependencies_snapshot;
+            *self.incomplete.borrow_mut() = incomplete_snapshot;
+        }
 
         match result {
             Ok(_) if tainted => Err(Error::SummaryImprecise),

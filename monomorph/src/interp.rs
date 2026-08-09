@@ -827,7 +827,34 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
-            RunningConstraint::Param(..) => Ok(None),
+            // Symbolic parameter from a summary being built (see
+            // InterpPass::build_param_summary): unlike the dispatch-related
+            // fallbacks in convert.rs/resolve_defid (where "unknown" still
+            // has a sound broader-candidate-set fallback via CHA), there's
+            // no equivalent candidate set for an arbitrary indirect-call
+            // target - we simply don't yet know which FnDef/FnPtr/Closure
+            // this placeholder will turn out to be. Ok(None) is exactly
+            // the "learned nothing about the return value" case this
+            // function's only caller (interp_indirect_call) already
+            // handles via its own `Ok(None) => {}` arm, right next to
+            // where this panic used to fire - so this stays consistent
+            // with how "no info" is already expressed elsewhere here,
+            // rather than inventing a new kind of imprecision.
+            //
+            // But unlike a genuinely-untrackable indirect call target
+            // during *ordinary* interpretation (accepted, pre-existing
+            // imprecision unrelated to summaries), a real call to the
+            // function being summarized always has *some* concrete
+            // callable and would get a real, non-empty return value -
+            // caching Ok(None) here would permanently starve every future
+            // call of information a real call could have had. Taint the
+            // same way switchint/virtual-dispatch do.
+            RunningConstraint::Param(..) => {
+                if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
+                    *tainted = true;
+                }
+                Ok(None)
+            }
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
     }

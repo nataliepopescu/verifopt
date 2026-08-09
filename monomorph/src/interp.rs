@@ -2,6 +2,21 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
+// Persistent/structurally-shared collections for the handful of InterpPass
+// fields that build_param_summary snapshots and (on a discarded/tainted
+// build) restores wholesale - see that function's doc comment. Cloning an
+// im collection is O(1) (bumps a refcount on the shared tree) regardless
+// of how large it's grown over the run, unlike std HashMap/HashSet, whose
+// clone is a full O(n) walk - exactly the cost that same doc comment
+// flagged as a real, growing-with-program-size expense paid on *every*
+// summary-build attempt. Aliased distinctly from `HashMap`/`HashSet`/
+// `Entry` above since most of InterpPass's other fields (summaries,
+// exact_memo, param_summaries, ...) are never snapshotted this way and
+// have no reason to pay for persistence they don't need.
+use im::HashMap as ImHashMap;
+use im::HashSet as ImHashSet;
+use im::hashmap::Entry as ImEntry;
+
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind};
 use rustc_public::mir::{
@@ -54,17 +69,21 @@ pub struct InterpPass<'a> {
     pub converter: RvalConverter<'a>,
 
     pub dispatch_targets:
-        RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
-    pub dispatch_cha: RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
-    pub dispatch_tags: RefCell<HashMap<(DefId, usize), TagPlan>>,
+        RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    pub dispatch_cha: RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    pub dispatch_tags: RefCell<ImHashMap<(DefId, usize), TagPlan>>,
 
     pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
-    pub dependencies: RefCell<HashMap<Span, HashSet<VOID>>>,
-    pub incomplete: RefCell<HashSet<VOID>>,
+    // Inner HashSet<VOID> stays std - im::HashMap::clone() never touches
+    // (let alone deep-clones) its values, only the tree structure, so the
+    // O(1) snapshot win applies to the outer map regardless of the value
+    // type. Only the outer container needs to be persistent here.
+    pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
+    pub incomplete: RefCell<ImHashSet<VOID>>,
 
     /// Exact-call memoization (step 1 of interprocedural caching). Keyed by
     /// the exact same `(scope, ArgSet)` pair already used to key
@@ -133,16 +152,16 @@ impl<'a> InterpPass<'a> {
             sigstore,
             tstore,
             converter: RvalConverter::new(tstore),
-            dispatch_targets: HashMap::new().into(),
-            dispatch_cha: HashMap::new().into(),
-            dispatch_tags: HashMap::new().into(),
+            dispatch_targets: ImHashMap::new().into(),
+            dispatch_cha: ImHashMap::new().into(),
+            dispatch_tags: ImHashMap::new().into(),
             wq: HashMap::new().into(),
             summaries: HashMap::new().into(),
             in_queue: HashSet::new().into(),
             key_stack: Vec::new().into(),
             rec_depth: 0.into(),
-            dependencies: HashMap::new().into(),
-            incomplete: HashSet::new().into(),
+            dependencies: ImHashMap::new().into(),
+            incomplete: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
             param_summaries: HashMap::new().into(),
@@ -1319,21 +1338,15 @@ impl<'a> InterpPass<'a> {
         // real re-interpretation's correct Cat-only answer never displaced
         // it, and the rewrite pass devirtualized against both).
         //
-        // PERFORMANCE NOTE: these are plain std HashMap/HashSet, not the
-        // `im` crate's structurally-shared persistent maps used elsewhere
-        // in this file specifically to make cloning cheap - so this clone
-        // is a real O(size of these maps so far) cost, paid on every
-        // summary-build attempt, and these maps only grow over the course
-        // of the whole run. For a program with many call sites this could
-        // become its own bottleneck eventually. A cheaper follow-up would
-        // track only *this build's own* additions (bounded by the size of
-        // the one body being summarized) and merge-or-discard just those,
-        // rather than snapshotting the entire global maps - but that needs
-        // either switching these fields to `im`'s persistent collections
-        // (cheap clone, same pattern as ConstraintStore.cmap) or explicit
-        // per-key delta tracking. Flagging rather than doing that rewrite
-        // now, since correctness comes first and this may not be the
-        // bottleneck it could theoretically become.
+        // PERFORMANCE NOTE (resolved): these five fields are now `im`'s
+        // structurally-shared persistent collections (see the aliased
+        // imports at the top of this file), the same pattern
+        // ConstraintStore.cmap already uses for exactly this reason - so
+        // each `.clone()` below is O(1) (a refcount bump on the shared
+        // tree), not an O(size of these maps so far) deep copy, regardless
+        // of how large the maps have grown over the run. This was a real,
+        // growing-with-program-size cost before this migration; it no
+        // longer is.
         let dispatch_cha_snapshot = self.dispatch_cha.borrow().clone();
         let dispatch_targets_snapshot = self.dispatch_targets.borrow().clone();
         let dispatch_tags_snapshot = self.dispatch_tags.borrow().clone();
@@ -1912,13 +1925,13 @@ impl<'a> InterpPass<'a> {
         {
             let mut dt = self.dispatch_tags.borrow_mut();
             match dt.entry(key) {
-                Entry::Occupied(mut e) => {
+                ImEntry::Occupied(mut e) => {
                     // disagreements between body walks
                     if *e.get() != plan {
                         e.insert(TagPlan::Poisoned);
                     }
                 }
-                Entry::Vacant(e) => {
+                ImEntry::Vacant(e) => {
                     e.insert(plan);
                 }
             }

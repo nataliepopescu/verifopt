@@ -21,7 +21,8 @@ use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
     ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, Prov,
-    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
+    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, substitute_params,
+    summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -33,6 +34,19 @@ use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 
 const MAX_DEPTH: u32 = 50;
+
+/// Outcome of attempting to build a Step 2 parametric summary for a scope.
+/// `Unavailable` specifically means `build_param_summary` already tried
+/// once and hit something it couldn't safely summarize (currently: its own
+/// recursion depth limit, see `build_param_summary`'s doc comment) -
+/// recorded so every subsequent call to that scope falls straight back to
+/// Step 1 instead of re-attempting (and re-paying for) a build that's
+/// already known to fail.
+#[derive(Debug, Clone)]
+pub enum ParamSummary {
+    Built(Option<Constraints>),
+    Unavailable,
+}
 
 pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
@@ -51,6 +65,39 @@ pub struct InterpPass<'a> {
     pub rec_depth: RefCell<u32>,
     pub dependencies: RefCell<HashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<HashSet<VOID>>,
+
+    /// Exact-call memoization (step 1 of interprocedural caching). Keyed by
+    /// the exact same `(scope, ArgSet)` pair already used to key
+    /// `summaries`/recursion-breaking, but this table is populated and
+    /// consulted for *every* static call, not just ones already on the
+    /// call stack. Each entry also stores the `scope_epoch` snapshot for
+    /// the callee scope taken right after resolve_args ran for that call,
+    /// so a later call with an identical ArgSet can tell whether the
+    /// callee's shared argument substore has been widened by some other
+    /// call site in the meantime (see `scope_epoch` below) before trusting
+    /// the cached result.
+    pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
+
+    /// Per-scope generation counter, bumped in `resolve_args` whenever
+    /// merging a new call's argument constraints into a scope's existing
+    /// substore actually changes it (detected via the same O(1)
+    /// `im::HashMap::ptr_eq` fast path `Merge<ConstraintStore>` already
+    /// uses). Two calls to the same scope with the same ArgSet never bump
+    /// this (the merge is a no-op), so identical repeat calls stay cached;
+    /// a call with a *different* ArgSet to the same scope does bump it,
+    /// invalidating any `exact_memo` entries cached before the bump for
+    /// that scope under other ArgSets.
+    pub scope_epoch: RefCell<HashMap<VOID, u64>>,
+
+    /// Step 2: parametric function summaries. Built once per scope (not
+    /// per-ArgSet, unlike `exact_memo`/`summaries`) by visiting the body
+    /// with each argument seeded to a `RunningConstraint::Param`
+    /// placeholder instead of real constraints - see
+    /// `build_param_summary`. A cache hit here means the call can be
+    /// answered by pure substitution (`substitute_params`) for *any*
+    /// ArgSet, not just one already seen, without visiting the callee's
+    /// body at all.
+    pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -81,6 +128,9 @@ impl<'a> InterpPass<'a> {
             rec_depth: 0.into(),
             dependencies: HashMap::new().into(),
             incomplete: HashSet::new().into(),
+            exact_memo: HashMap::new().into(),
+            scope_epoch: HashMap::new().into(),
+            param_summaries: HashMap::new().into(),
         }
     }
 
@@ -761,6 +811,7 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
+            RunningConstraint::Param(..) => Ok(None),
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
     }
@@ -1115,6 +1166,97 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// Step 2: build a parametric summary for `scope`. Seeds each
+    /// argument-local with a `RunningConstraint::Param` placeholder instead
+    /// of real constraints, then visits the body exactly as an ordinary
+    /// call would. Every existing "unknown shape" fallback already in this
+    /// interpreter (CHA/FSA dispatch resolution falling back when it can't
+    /// resolve a concrete type, switchint's no-prune-on-unknown-discriminant
+    /// path, opaque-type flattening) already treats a Param placeholder
+    /// soundly with zero changes; only `step_field_one`/`filter_variant`
+    /// needed a new arm so a field/variant projection through a parameter
+    /// extends the placeholder's path instead of collapsing to "no info".
+    /// Runs against a throwaway, isolated `Context` (mirroring `run()`'s
+    /// own top-level call_stack/key_stack setup, not `resolve_args`'s) so
+    /// building a summary can't read from or write into the real
+    /// interpretation's per-scope stores.
+    ///
+    /// Self-recursive functions: if this scope calls itself while its own
+    /// summary is being built, `interp_fn_def`'s existing
+    /// `call_stack.contains(&new_scope)` check (upstream of this function)
+    /// already catches it and routes through the pre-existing, unmodified
+    /// recursion-breaking machinery (`summaries`/`wq`/`reinterp_recursive`)
+    /// rather than reaching this function again - so recursion itself isn't
+    /// new risk. What *is* new: a Param's projection path can grow by one
+    /// step per recursive level (e.g. `self.field.method()` called
+    /// recursively), so a pathological case could ride the existing
+    /// `MAX_DEPTH` recursion-limit guard all the way out rather than
+    /// converging quickly. That surfaces as `Error::RecurseLimit` here,
+    /// which the caller (`interp_static_call`) catches and treats as "not
+    /// summarizable" rather than propagating - see `ParamSummary::Unavailable`.
+    ///
+    /// CAVEAT (please read before trusting this at scale): this
+    /// deliberately does *not* wrap the build in `std::panic::catch_unwind`.
+    /// InterpPass's caches (`key_stack`, `wq`, `in_queue`, `exact_memo`,
+    /// `scope_epoch`, ...) are shared, process-wide `RefCell`s that ordinary
+    /// interpretation also depends on; if a panic occurred mid-way through a
+    /// nested call during summary-building, those RefCells could be left
+    /// with unbalanced pushes/pops that would then corrupt *unrelated*,
+    /// later, real interpretation if execution were allowed to continue past
+    /// a caught panic. A hard stop (today's existing behavior for any other
+    /// unhandled shape elsewhere in this interpreter) is safer than a
+    /// silent, subtly wrong continuation. If this hits a case Param-handling
+    /// doesn't cover (most likely: some other match on `RunningConstraint`'s
+    /// shape, elsewhere in the crate, that I haven't reviewed and that lacks
+    /// a graceful fallback), you'll see it exactly as you would any other
+    /// `todo!()`/panic in this interpreter - please treat it the same way
+    /// (patch the missing case there) rather than assuming this design is
+    /// unsound. I'd recommend validating against your test suite
+    /// function-by-function before trusting this on ripgrep-scale runs.
+    fn build_param_summary(&self, scope: &VOID) -> Result<Option<Constraints>, Error> {
+        let body = self.get_body(scope);
+        let n_args = body.arg_locals().len();
+
+        let param_cs: Vec<Constraints> = (0..n_args)
+            .map(|i| {
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Param(i, vec![])),
+                ))
+            })
+            .collect();
+
+        let mut substore = ConstraintStore::new();
+        for (i, cs) in param_cs.iter().enumerate() {
+            let place = Place {
+                local: i + 1,
+                projection: vec![],
+            };
+            substore.cmap.insert(
+                MapKey::Var(place),
+                Box::new(MapValue::Constraints(cs.clone())),
+            );
+        }
+
+        let mut summary_ctxt = Context::empty();
+        summary_ctxt.cstore.cmap.insert(
+            MapKey::ScopeId(scope.clone()),
+            Box::new(MapValue::Store(substore, None)),
+        );
+
+        // Mirrors run()'s own top-level setup exactly (direct call_stack
+        // seed + a single manual key_stack push, no manual pop afterward -
+        // visit_body's eventual finish_frame/prepare_return pops it exactly
+        // once on the way out), rather than reinterp_recursive's pattern of
+        // pushing onto an already non-empty, restored caller stack.
+        let mut summary_stack = vec![scope.clone()];
+        self.key_stack
+            .borrow_mut()
+            .push((scope.clone(), ArgSet::new(&param_cs)));
+
+        self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body)
+    }
+
     fn interp_static_call(
         &self,
         term_span: &Span,
@@ -1135,6 +1277,69 @@ impl<'a> InterpPass<'a> {
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
             let key = (cur_scope.clone(), ArgSet::new(cur_cs));
+
+            // Step 2: a cached parametric summary answers *any* ArgSet by
+            // pure substitution, without visiting the callee at all - try
+            // it before falling back to Step 1's exact-argset memo.
+            // `ParamSummary::Unavailable` means build_param_summary already
+            // tried once for this scope and hit something it couldn't
+            // safely summarize (see that function's doc comment) - fall
+            // through to Step 1 permanently for it rather than retrying a
+            // build already known to fail.
+            let cached_summary = self.param_summaries.borrow().get(cur_scope).cloned();
+            match cached_summary {
+                Some(ParamSummary::Built(summary)) => {
+                    debug!("param_summary hit for {:?}", cur_scope.0.name());
+                    let substituted = summary.as_ref().map(|s| substitute_params(s, cur_cs));
+                    return Ok(substituted);
+                }
+                Some(ParamSummary::Unavailable) => {
+                    // fall through to Step 1 below
+                }
+                None => match self.build_param_summary(cur_scope) {
+                    Ok(built) => {
+                        debug!("built param_summary for {:?}", cur_scope.0.name());
+                        self.param_summaries
+                            .borrow_mut()
+                            .insert(cur_scope.clone(), ParamSummary::Built(built.clone()));
+                        let substituted = built.map(|s| substitute_params(&s, cur_cs));
+                        return Ok(substituted);
+                    }
+                    Err(Error::RecurseLimit(_)) => {
+                        debug!(
+                            "param_summary unavailable (recursion limit) for {:?}",
+                            cur_scope.0.name()
+                        );
+                        self.param_summaries
+                            .borrow_mut()
+                            .insert(cur_scope.clone(), ParamSummary::Unavailable);
+                        // fall through to Step 1 below
+                    } //Err(other) => return Err(other),
+                },
+            }
+
+            // Step 1: exact-call memoization. `call_stack.contains` already
+            // guards the *recursive* case above (in interp_fn_def) via
+            // `summaries`; this is the much more common non-recursive case -
+            // the same function called from many different call sites with
+            // the same resolved argument constraints (helpers, iterator
+            // methods, Vec/HashMap ops, etc). If cur_scope's shared
+            // substore hasn't been widened by some other call since we last
+            // computed this exact (scope, ArgSet), the previous result is
+            // still exactly what visit_body would recompute - reuse it
+            // without re-walking the callee (and everything it calls).
+            let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+            if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&key) {
+                if *cached_epoch == epoch_before {
+                    debug!(
+                        "exact_memo hit for {:?} at epoch {}",
+                        cur_scope.0.name(),
+                        epoch_before
+                    );
+                    return Ok(cached.clone());
+                }
+            }
+
             self.resolve_args(
                 ctxt,
                 term_span,
@@ -1147,7 +1352,19 @@ impl<'a> InterpPass<'a> {
                 false,
             );
             self.prepare_call(call_stack, &key);
-            self.visit_body(ctxt, call_stack, cur_scope, &body)
+            let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
+
+            if let Ok(ref cs) = result {
+                // Snapshot the epoch *after* resolve_args ran for this call,
+                // so a later call is only trusted to reuse this result while
+                // cur_scope's substore hasn't grown again since.
+                let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+                self.exact_memo
+                    .borrow_mut()
+                    .insert(key.clone(), (cs.clone(), epoch_after));
+            }
+
+            result
         } else {
             // No body, so not visiting/updating call stack
             //debug!("NO BODY");
@@ -1189,6 +1406,7 @@ impl<'a> InterpPass<'a> {
 
         // Merge new substore into existing substore at this scopeId
         let store;
+        let mut widened = false;
         match ctxt.get_cstore_scope(callee_scope) {
             Some(box MapValue::Store(old_substore, old_es)) => {
                 store = merge_stores(
@@ -1197,9 +1415,25 @@ impl<'a> InterpPass<'a> {
                     &new_ctxt.cstore,
                     &Some(vec![caller_scope.clone()]),
                 );
+                // Same O(1) fast path Merge<ConstraintStore> already relies
+                // on: if the merged map still shares its underlying tree
+                // with the old one, this call's args added nothing new to
+                // callee_scope's substore (e.g. an identical repeat call),
+                // so exact_memo entries keyed on this scope stay valid.
+                widened = !store.0.cmap.ptr_eq(&old_substore.cmap);
             }
             Some(_) => panic!("got constraint, expected store"),
-            None => store = (new_ctxt.cstore, Some(vec![caller_scope.clone()])),
+            None => {
+                store = (new_ctxt.cstore, Some(vec![caller_scope.clone()]));
+                // First-ever visit to this scope: nothing was cached under
+                // it before now, so there's nothing to invalidate - no bump.
+            }
+        }
+
+        if widened {
+            let mut epochs = self.scope_epoch.borrow_mut();
+            let e = epochs.entry(callee_scope.clone()).or_insert(0);
+            *e += 1;
         }
 
         // Add new substore in top-level store
@@ -1890,6 +2124,17 @@ impl<'a> InterpPass<'a> {
                         }
                         (false, defids)
                     }
+                    // Symbolic parameter from a summary being built (see
+                    // build_param_summary) - we can't know at summary-build
+                    // time what concrete type the real caller's argument
+                    // will turn out to be, so contribute nothing here,
+                    // exactly like an unresolved Dynamic constraint above.
+                    // The empty FSA result this produces already makes
+                    // interp_virtual_call fall back to the full CHA set
+                    // (every known implementor of the trait) - the same
+                    // sound degradation path used for any other
+                    // FSA-can't-tell-you-more case.
+                    RunningConstraint::Param(..) => (false, vec![]),
                     _ => todo!("{:?}", cfc),
                 }
             }

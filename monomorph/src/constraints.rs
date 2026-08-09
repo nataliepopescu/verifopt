@@ -260,6 +260,19 @@ impl Constraints {
                         out.push(c.clone());
                     }
                 }
+                // Unknown-yet placeholder from a parametric summary: we
+                // can't know at summary-build time whether the real
+                // argument's variant will match `vidx`, so conservatively
+                // assume it might and record the downcast onto the path -
+                // substitute_params replays it against the real value later.
+                Some(RunningConstraint::Param(i, path)) => {
+                    let mut new_path = path.clone();
+                    new_path.push(ProjStep::Downcast(vidx));
+                    out.push(Constraint::new(
+                        None,
+                        Some(RunningConstraint::Param(*i, new_path)),
+                    ));
+                }
                 _ => {}
             }
         }
@@ -387,6 +400,188 @@ pub enum RunningConstraint {
     List(Box<Constraint>),
     Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),
+    /// Symbolic placeholder used only while building a *parametric function
+    /// summary* (see `InterpPass::build_param_summary`): "the value in
+    /// argument position `usize`, with the given projection path already
+    /// applied." Never appears during ordinary interpretation of concrete
+    /// calls - only while visiting a function body seeded with these
+    /// placeholders instead of real argument constraints, so the resulting
+    /// Constraints can later be replayed against any real ArgSet via
+    /// `substitute_params` without re-interpreting the body at all.
+    /// Every existing "unknown shape" fallback in this interpreter (CHA/FSA
+    /// dispatch resolution, switchint's no-prune-on-unknown path, opaque
+    /// flattening) already treats this conservatively/correctly with no
+    /// changes needed; only step_field_one/filter_variant needed a new arm
+    /// so a param survives a field/variant projection instead of collapsing
+    /// to "no info" the moment code touches it.
+    Param(usize, Vec<ProjStep>),
+}
+
+/// One step of a projection path recorded onto a `Param` placeholder while
+/// building a parametric summary. Deliberately a small mirror of just the
+/// two `ProjectionElem` cases `step_field_one`/`filter_variant` understand -
+/// not the full `ProjectionElem` enum - since those are the only two kinds
+/// of projection this interpreter models with field-level precision.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProjStep {
+    Field(usize),
+    Downcast(VariantIdx),
+}
+
+/// Replays a `Param` placeholder's recorded projection path against a real
+/// argument's constraints. Deliberately duplicates (rather than reuses)
+/// `Context::step_field_one`/`filter_variant`'s Adt/Tuple matching: those
+/// take a `&ProjectionElem`/`VariantIdx` tied to real MIR type info, and
+/// there's no legitimate `Ty` to fabricate for a placeholder step recorded
+/// during summary-building - operating on a raw field index instead avoids
+/// needing one.
+fn apply_field_idx(base: &Constraints, idx: usize) -> Constraints {
+    let mut out = Constraints::new();
+    for c in &base.inner {
+        match &c.cfc {
+            Some(RunningConstraint::Adt(_, _, _, fields)) => {
+                out.append(fields.get(&idx).cloned().unwrap_or_else(Constraints::new));
+            }
+            Some(RunningConstraint::Tuple(inner)) => {
+                out.append(inner.get(idx).cloned().unwrap_or_else(Constraints::new));
+            }
+            Some(RunningConstraint::Ptr(box inner)) => {
+                out.append(apply_field_idx(&Constraints::from(inner.clone()), idx));
+            }
+            Some(RunningConstraint::Idk(box inner_cs)) => {
+                out.append(apply_field_idx(inner_cs, idx));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn apply_proj_path(base: &Constraints, path: &[ProjStep]) -> Constraints {
+    let mut cur = base.clone();
+    for step in path {
+        cur = match step {
+            ProjStep::Field(idx) => apply_field_idx(&cur, *idx),
+            ProjStep::Downcast(vidx) => cur.filter_variant(*vidx),
+        };
+    }
+    cur
+}
+
+fn substitute_toc(
+    toc: &Option<(TraitObjTy, TraitObjConstraint)>,
+    actual_args: &[Constraints],
+) -> Option<(TraitObjTy, TraitObjConstraint)> {
+    toc.as_ref().map(|(ty, tc)| {
+        let new_tc = match tc {
+            TraitObjConstraint::Adt(def, genargs, variant, fields) => {
+                let mut new_fields = ADTFields::new();
+                for (k, v) in fields {
+                    new_fields.insert(*k, substitute_params(v, actual_args));
+                }
+                TraitObjConstraint::Adt(def.clone(), genargs.clone(), *variant, new_fields)
+            }
+            TraitObjConstraint::Closure(cdef, genargs) => {
+                TraitObjConstraint::Closure(*cdef, genargs.clone())
+            }
+        };
+        (ty.clone(), new_tc)
+    })
+}
+
+/// Applies a parametric function summary to a real call's resolved
+/// argument constraints, producing the same `Constraints` a full
+/// re-interpretation of the callee would have produced - without visiting
+/// the callee's body at all. Walks the summary tree looking for `Param`
+/// leaves (however deeply nested inside Adt fields / Tuple elements /
+/// Ptr / List / Idk / trait-obj-constraint fields the summary wrapped
+/// them in) and replaces each with `actual_args[i]` after replaying its
+/// recorded projection path.
+pub fn substitute_params(summary: &Constraints, actual_args: &[Constraints]) -> Constraints {
+    let mut out = Constraints::new();
+    for c in &summary.inner {
+        out.append(substitute_params_constraint(c, actual_args));
+    }
+    out
+}
+
+fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> Constraints {
+    let toc = substitute_toc(&c.toc, actual_args);
+
+    match &c.cfc {
+        Some(RunningConstraint::Param(i, path)) => {
+            // A bare Param can carry its own toc from resolve_arg (e.g. a
+            // trait-object argument passed straight through), which the
+            // caller-substituted toc above would double up on - the actual
+            // argument's own toc (if any) is exactly what belongs here
+            // instead, since this whole disjunct *is* that argument.
+            let base = actual_args
+                .get(*i)
+                .cloned()
+                .unwrap_or_else(Constraints::new);
+            apply_proj_path(&base, path)
+        }
+        Some(RunningConstraint::Adt(def, genargs, variant, fields)) => {
+            let mut new_fields = ADTFields::new();
+            for (k, v) in fields {
+                new_fields.insert(*k, substitute_params(v, actual_args));
+            }
+            Constraints::from(
+                Constraint::new(
+                    toc,
+                    Some(RunningConstraint::Adt(
+                        def.clone(),
+                        genargs.clone(),
+                        *variant,
+                        new_fields,
+                    )),
+                )
+                .with_prov(c.prov.clone()),
+            )
+        }
+        Some(RunningConstraint::Tuple(inner)) => {
+            let new_inner = inner
+                .iter()
+                .map(|cs| substitute_params(cs, actual_args))
+                .collect();
+            Constraints::from(
+                Constraint::new(toc, Some(RunningConstraint::Tuple(new_inner)))
+                    .with_prov(c.prov.clone()),
+            )
+        }
+        Some(RunningConstraint::Ptr(inner)) => {
+            let substituted = substitute_params(&Constraints::from((**inner).clone()), actual_args);
+            let mut out = Constraints::new();
+            for sc in substituted.inner {
+                out.push(
+                    Constraint::new(toc.clone(), Some(RunningConstraint::Ptr(Box::new(sc))))
+                        .with_prov(c.prov.clone()),
+                );
+            }
+            out
+        }
+        Some(RunningConstraint::List(inner)) => {
+            let substituted = substitute_params(&Constraints::from((**inner).clone()), actual_args);
+            let mut out = Constraints::new();
+            for sc in substituted.inner {
+                out.push(
+                    Constraint::new(toc.clone(), Some(RunningConstraint::List(Box::new(sc))))
+                        .with_prov(c.prov.clone()),
+                );
+            }
+            out
+        }
+        Some(RunningConstraint::Idk(inner_cs)) => {
+            let substituted = substitute_params(inner_cs, actual_args);
+            Constraints::from(
+                Constraint::new(toc, Some(RunningConstraint::Idk(Box::new(substituted))))
+                    .with_prov(c.prov.clone()),
+            )
+        }
+        // Scalar/Float/Dynamic/Closure/FnDef/FnPtr/None: nothing nested that
+        // summary-building could have planted a Param inside.
+        _ => Constraints::from(Constraint::new(toc, c.cfc.clone()).with_prov(c.prov.clone())),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -644,6 +839,18 @@ impl Context {
                     out.append(self.step_field_one(scope, ic, elem));
                 }
                 out
+            }
+            // Unknown-yet placeholder from a parametric summary: don't
+            // collapse to "no info" the moment code reads a field off a
+            // parameter - extend the path instead, so substitute_params can
+            // replay this exact field access against the real argument.
+            Some(RunningConstraint::Param(i, path)) => {
+                let mut new_path = path.clone();
+                new_path.push(ProjStep::Field(adt_field_idx(elem)));
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Param(*i, new_path)),
+                ))
             }
             // Scalar/Float/Dynamic/Closure/etc: this disjunct has no field structure at all,
             // so it contributes no information to the projection - not an error.

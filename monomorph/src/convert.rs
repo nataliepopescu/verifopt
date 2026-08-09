@@ -403,6 +403,7 @@ impl<'a> RvalConverter<'a> {
                 .collect(),
             // No concrete defid to get
             RunningConstraint::Dynamic(_) => vec![],
+            RunningConstraint::Param(..) => vec![],
             _ => todo!("cfc: {:?}", cfc),
         }
     }

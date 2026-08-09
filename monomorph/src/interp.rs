@@ -98,6 +98,21 @@ pub struct InterpPass<'a> {
     /// ArgSet, not just one already seen, without visiting the callee's
     /// body at all.
     pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
+
+    /// Reentrant taint tracking for Step 2 summary builds. One entry per
+    /// currently-in-progress `build_param_summary` call (nested summary
+    /// builds are real: a function being summarized can call another
+    /// function whose summary also gets attempted). `interp_switchint`
+    /// sets the *top* entry to `true` whenever it finds a Param-derived
+    /// discriminant it couldn't prune - correctly attributing the taint to
+    /// whichever summary build is innermost at that point, including when
+    /// the switch occurs inside an ordinary (non-summary-building) nested
+    /// call, since a value derived from an outer Param flowing into that
+    /// call and being switched on there makes the *outer* summary just as
+    /// imprecise as if the switch were in its own body directly. Empty
+    /// stack (ordinary interpretation, not inside any summary build) means
+    /// nothing to taint - `interp_switchint` no-ops in that case.
+    pub summary_build_taint_stack: RefCell<Vec<bool>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -131,6 +146,7 @@ impl<'a> InterpPass<'a> {
             exact_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
             param_summaries: HashMap::new().into(),
+            summary_build_taint_stack: Vec::new().into(),
         }
     }
 
@@ -971,8 +987,7 @@ impl<'a> InterpPass<'a> {
                 return Ok(Some(constraints));
             }
             Ok(None) => Ok(None),
-            err @ Err(Error::RecurseLimit(_)) => return err,
-            Err(Error::SummaryImprecise) => todo!(),
+            err @ Err(_) => return err,
         }
     }
 
@@ -1255,7 +1270,23 @@ impl<'a> InterpPass<'a> {
             .borrow_mut()
             .push((scope.clone(), ArgSet::new(&param_cs)));
 
-        self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body)
+        // Push this build's own taint slot - see summary_build_taint_stack's
+        // doc comment for why this needs to be a stack, not a flag (nested
+        // summary builds are real). Always popped below regardless of
+        // outcome, so an error here can't leave an outer, in-progress
+        // build's slot misaligned.
+        self.summary_build_taint_stack.borrow_mut().push(false);
+        let result = self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body);
+        let tainted = self
+            .summary_build_taint_stack
+            .borrow_mut()
+            .pop()
+            .expect("summary_build_taint_stack: push/pop imbalance");
+
+        match result {
+            Ok(_) if tainted => Err(Error::SummaryImprecise),
+            other => other,
+        }
     }
 
     fn interp_static_call(
@@ -1306,17 +1337,26 @@ impl<'a> InterpPass<'a> {
                         let substituted = built.map(|s| substitute_params(&s, cur_cs));
                         return Ok(substituted);
                     }
-                    Err(Error::RecurseLimit(_)) => {
+                    // Any failure to build a trustworthy summary - hit the
+                    // recursion depth limit, or (see
+                    // summary_build_taint_stack) the return value turned
+                    // out to depend on control flow driven by a
+                    // parameter's concrete value rather than being a pure
+                    // structural function of it - falls back to Step 1 for
+                    // this scope permanently, rather than caching a result
+                    // that could be silently wrong or re-attempting a
+                    // build already known to fail.
+                    Err(e) => {
                         debug!(
-                            "param_summary unavailable (recursion limit) for {:?}",
-                            cur_scope.0.name()
+                            "param_summary unavailable for {:?}: {:?}",
+                            cur_scope.0.name(),
+                            e
                         );
                         self.param_summaries
                             .borrow_mut()
                             .insert(cur_scope.clone(), ParamSummary::Unavailable);
                         // fall through to Step 1 below
                     }
-                    Err(Error::SummaryImprecise) => todo!(),
                 },
             }
 
@@ -2402,6 +2442,25 @@ impl<'a> InterpPass<'a> {
             Operand::Copy(place) | Operand::Move(place) => {
                 match ctxt.get_constraints(cur_scope, local_decls, place, false) {
                     Some(constraints) => {
+                        // If we're inside a Step 2 summary build (see
+                        // build_param_summary) and this switch's outcome
+                        // depends on a parameter we don't have a concrete
+                        // value for yet, set_bytemap's existing "unknown ->
+                        // don't prune, visit every branch" fallback below
+                        // is about to silently union all branches into
+                        // whatever summary is being built - flag it so
+                        // build_param_summary discards the result instead
+                        // of caching a result that's less precise than any
+                        // real call (which would know the concrete value)
+                        // would have gotten.
+                        if crate::constraints::contains_param(&constraints) {
+                            if let Some(tainted) =
+                                self.summary_build_taint_stack.borrow_mut().last_mut()
+                            {
+                                *tainted = true;
+                            }
+                        }
+
                         // Create a byte-map for finding statically-impossible successors
                         let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(targets.len());
                         let discr_vals = discr_vals_uninit.write_filled(0);

@@ -2057,7 +2057,29 @@ impl<'a> InterpPass<'a> {
     ) -> Constraints {
         // Get concrete type constraints for trait object
         match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
-            Some(constraints) => constraints,
+            Some(constraints) => {
+                // If we're inside a Step 2 summary build (see
+                // build_param_summary) and the receiver's tracked
+                // constraints trace back to a parameter we don't have a
+                // concrete value for yet, resolve_defid's existing
+                // Param(..) => (false, vec![]) arm is about to make this
+                // dispatch fall back to the full CHA candidate set - every
+                // known implementor of the trait, not just the one the
+                // real caller's concrete receiver would actually hit. That
+                // makes whatever gets returned here just as
+                // parameter-value-dependent as a switchint branch would be
+                // (see the identical check in interp_switchint) - flag it
+                // for the same reason: unioning every implementor's result
+                // into a cached, reused-for-every-call summary would be
+                // strictly less precise than any real call (which knows
+                // the concrete receiver type) would get.
+                if crate::constraints::contains_param(&constraints) {
+                    if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
+                        *tainted = true;
+                    }
+                }
+                constraints
+            }
             // No recorded constraints for this place isn't a bug on its
             // own - it can genuinely happen for a trait object reached
             // through a chain the interpreter doesn't yet track precisely

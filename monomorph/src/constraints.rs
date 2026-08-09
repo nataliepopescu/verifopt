@@ -497,6 +497,34 @@ fn substitute_toc(
 /// Ptr / List / Idk / trait-obj-constraint fields the summary wrapped
 /// them in) and replaces each with `actual_args[i]` after replaying its
 /// recorded projection path.
+/// Detects whether `cs` contains a `Param` placeholder anywhere -
+/// transitively, through Adt fields / Tuple elements / Ptr / List / Idk
+/// wrapping, mirroring the same traversal shape as `flatten_one`. Used by
+/// `InterpPass::interp_switchint` to notice when a switch's discriminant is
+/// driven by an as-yet-unresolved summary parameter rather than a concrete
+/// value: unioning both branches in that case (which is what
+/// `set_bytemap`'s existing "unknown -> don't prune" fallback already does,
+/// soundly) would silently bake a strictly-less-precise result into a
+/// *cached, reused-for-every-call* summary - e.g. a `match arg { 0 => A, _
+/// => B }` constructor selector, where every real call actually knows which
+/// branch it took. `InterpPass::build_param_summary` uses this to detect
+/// that case and bail the whole build rather than caching it.
+pub fn contains_param(cs: &Constraints) -> bool {
+    cs.inner.iter().any(constraint_contains_param)
+}
+
+fn constraint_contains_param(c: &Constraint) -> bool {
+    match &c.cfc {
+        Some(RunningConstraint::Param(..)) => true,
+        Some(RunningConstraint::Adt(_, _, _, fields)) => fields.values().any(contains_param),
+        Some(RunningConstraint::Tuple(inner)) => inner.iter().any(contains_param),
+        Some(RunningConstraint::Ptr(box inner)) => constraint_contains_param(inner),
+        Some(RunningConstraint::List(box inner)) => constraint_contains_param(inner),
+        Some(RunningConstraint::Idk(box inner_cs)) => contains_param(inner_cs),
+        _ => false,
+    }
+}
+
 pub fn substitute_params(summary: &Constraints, actual_args: &[Constraints]) -> Constraints {
     let mut out = Constraints::new();
     for c in &summary.inner {

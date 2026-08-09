@@ -972,6 +972,7 @@ impl<'a> InterpPass<'a> {
             }
             Ok(None) => Ok(None),
             err @ Err(Error::RecurseLimit(_)) => return err,
+            Err(Error::SummaryImprecise) => todo!(),
         }
     }
 
@@ -1314,7 +1315,8 @@ impl<'a> InterpPass<'a> {
                             .borrow_mut()
                             .insert(cur_scope.clone(), ParamSummary::Unavailable);
                         // fall through to Step 1 below
-                    } //Err(other) => return Err(other),
+                    }
+                    Err(Error::SummaryImprecise) => todo!(),
                 },
             }
 

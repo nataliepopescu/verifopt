@@ -132,6 +132,30 @@ pub struct InterpPass<'a> {
     /// stack (ordinary interpretation, not inside any summary build) means
     /// nothing to taint - `interp_switchint` no-ops in that case.
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
+
+    /// Scopes with a Step 2 summary build *currently in progress*,
+    /// anywhere in the current chain of nested `build_param_summary`
+    /// calls - not just the ones visible in whatever `call_stack` happens
+    /// to be threaded through at the moment. `build_param_summary` always
+    /// starts a fresh, isolated call_stack (mirroring `run()`'s own
+    /// top-level setup, since a summary has no real caller) - correct for
+    /// the ordinary case, but it means the interpreter's existing
+    /// recursion-cycle check (`call_stack.contains(&new_scope)` in
+    /// interp_fn_def) can never see a cycle that spans *across* nested
+    /// summary-build boundaries: if `a`'s summary build calls `b`, whose
+    /// summary build calls `c`, whose summary build calls `a` again, each
+    /// build's own isolated stack only ever contains its own single
+    /// scope, so nothing ever looks like a repeat to that check, and the
+    /// mutual recursion runs straight through raw Rust stack frames
+    /// instead of ever reaching the existing, bounded
+    /// summaries/wq/reinterp_recursive cycle-breaking machinery - a real
+    /// stack overflow, not merely an imprecise summary. This set is the
+    /// guard: `interp_static_call` checks it *before* calling
+    /// `build_param_summary` and bails to Step 1 instead if the target
+    /// scope is already being built somewhere up the chain - Step 1 uses
+    /// the real, properly-threaded call_stack, so the pre-existing cycle
+    /// detection correctly re-engages from there.
+    pub building_summaries: RefCell<HashSet<VOID>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -166,6 +190,7 @@ impl<'a> InterpPass<'a> {
             scope_epoch: HashMap::new().into(),
             param_summaries: HashMap::new().into(),
             summary_build_taint_stack: Vec::new().into(),
+            building_summaries: HashSet::new().into(),
         }
     }
 
@@ -1276,6 +1301,13 @@ impl<'a> InterpPass<'a> {
     /// unsound. I'd recommend validating against your test suite
     /// function-by-function before trusting this on ripgrep-scale runs.
     fn build_param_summary(&self, scope: &VOID) -> Result<Option<Constraints>, Error> {
+        // Register this scope as currently being built - see
+        // building_summaries' doc comment. interp_static_call already
+        // checked this scope wasn't in the set before calling us, so this
+        // insert should always be the first one for `scope`; removed
+        // unconditionally below regardless of outcome.
+        self.building_summaries.borrow_mut().insert(scope.clone());
+
         let body = self.get_body(scope);
         let n_args = body.arg_locals().len();
 
@@ -1374,6 +1406,14 @@ impl<'a> InterpPass<'a> {
             *self.incomplete.borrow_mut() = incomplete_snapshot;
         }
 
+        // Always remove, regardless of outcome - matches the taint
+        // stack's discipline above. Once this build finishes (success,
+        // taint, or error), it's no longer "in progress"; a later,
+        // unrelated call to this same scope should get a fresh attempt
+        // (or the cached Built/Unavailable result), not be permanently
+        // treated as recursive just because this one attempt existed.
+        self.building_summaries.borrow_mut().remove(scope);
+
         match result {
             Ok(_) if tainted => Err(Error::SummaryImprecise),
             other => other,
@@ -1419,36 +1459,69 @@ impl<'a> InterpPass<'a> {
                 Some(ParamSummary::Unavailable) => {
                     // fall through to Step 1 below
                 }
-                None => match self.build_param_summary(cur_scope) {
-                    Ok(built) => {
-                        debug!("built param_summary for {:?}", cur_scope.0.name());
-                        self.param_summaries
-                            .borrow_mut()
-                            .insert(cur_scope.clone(), ParamSummary::Built(built.clone()));
-                        let substituted = built.map(|s| substitute_params(&s, cur_cs));
-                        return Ok(substituted);
-                    }
-                    // Any failure to build a trustworthy summary - hit the
-                    // recursion depth limit, or (see
-                    // summary_build_taint_stack) the return value turned
-                    // out to depend on control flow driven by a
-                    // parameter's concrete value rather than being a pure
-                    // structural function of it - falls back to Step 1 for
-                    // this scope permanently, rather than caching a result
-                    // that could be silently wrong or re-attempting a
-                    // build already known to fail.
-                    Err(e) => {
+                None => {
+                    if self.building_summaries.borrow().contains(cur_scope) {
+                        // A summary build for this exact scope is already
+                        // in progress somewhere up the current chain of
+                        // nested build_param_summary calls (mutual/self
+                        // recursion through summary-building - see
+                        // building_summaries' doc comment). Recursing into
+                        // build_param_summary again here would start yet
+                        // another fresh, isolated call_stack that can't
+                        // see the outer attempt either, continuing straight
+                        // through raw Rust stack frames toward a real stack
+                        // overflow instead of ever reaching the
+                        // interpreter's own bounded cycle-breaking
+                        // machinery. Bail to Step 1 immediately instead:
+                        // Step 1 threads the real call_stack through
+                        // properly, so if this really is a cycle,
+                        // interp_fn_def's existing call_stack.contains
+                        // check will correctly catch it there. If the
+                        // outer build later completes successfully, its
+                        // own Built(..) insert below overwrites this
+                        // Unavailable marking, so this doesn't permanently
+                        // block a summary that turns out to be fine.
                         debug!(
-                            "param_summary unavailable for {:?}: {:?}",
-                            cur_scope.0.name(),
-                            e
+                            "param_summary unavailable for {:?}: already building (recursive)",
+                            cur_scope.0.name()
                         );
                         self.param_summaries
                             .borrow_mut()
                             .insert(cur_scope.clone(), ParamSummary::Unavailable);
-                        // fall through to Step 1 below
+                    } else {
+                        match self.build_param_summary(cur_scope) {
+                            Ok(built) => {
+                                debug!("built param_summary for {:?}", cur_scope.0.name());
+                                self.param_summaries
+                                    .borrow_mut()
+                                    .insert(cur_scope.clone(), ParamSummary::Built(built.clone()));
+                                let substituted = built.map(|s| substitute_params(&s, cur_cs));
+                                return Ok(substituted);
+                            }
+                            // Any failure to build a trustworthy summary -
+                            // hit the recursion depth limit, or (see
+                            // summary_build_taint_stack) the return value
+                            // turned out to depend on control flow driven
+                            // by a parameter's concrete value rather than
+                            // being a pure structural function of it -
+                            // falls back to Step 1 for this scope
+                            // permanently, rather than caching a result
+                            // that could be silently wrong or
+                            // re-attempting a build already known to fail.
+                            Err(e) => {
+                                debug!(
+                                    "param_summary unavailable for {:?}: {:?}",
+                                    cur_scope.0.name(),
+                                    e
+                                );
+                                self.param_summaries
+                                    .borrow_mut()
+                                    .insert(cur_scope.clone(), ParamSummary::Unavailable);
+                                // fall through to Step 1 below
+                            }
+                        }
                     }
-                },
+                }
             }
 
             // Step 1: exact-call memoization. `call_stack.contains` already

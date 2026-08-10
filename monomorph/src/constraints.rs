@@ -63,6 +63,7 @@ pub type VOID = (Instance, GenericArgs);
 pub enum MapKey {
     Var(Place),
     ScopeId(VOID),
+    Static(DefId),
 }
 
 pub type EnclosingScopes = Option<Vec<VOID>>;
@@ -273,7 +274,7 @@ impl Constraints {
 pub struct Constraint {
     pub toc: Option<(TraitObjTy, TraitObjConstraint)>,
     pub cfc: Option<RunningConstraint>,
-    pub prov: Prov,
+    pub prov: TagProv,
 }
 
 impl PartialEq for Constraint {
@@ -297,11 +298,11 @@ impl Constraint {
         Self {
             toc,
             cfc,
-            prov: Prov::Unknown,
+            prov: TagProv::Unknown,
         }
     }
 
-    pub fn with_prov(mut self, prov: Prov) -> Self {
+    pub fn with_prov(mut self, prov: TagProv) -> Self {
         self.prov = prov;
         self
     }
@@ -352,7 +353,7 @@ impl Location {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Prov {
+pub enum TagProv {
     Unknown,
     Tags(
         HashSet<(
@@ -363,12 +364,12 @@ pub enum Prov {
     ),
 }
 
-impl Prov {
-    pub fn join(&mut self, other: &Prov) {
+impl TagProv {
+    pub fn join(&mut self, other: &TagProv) {
         match (&mut *self, other) {
-            (Prov::Unknown, _) => {}
-            (_, Prov::Unknown) => *self = Prov::Unknown,
-            (Prov::Tags(a), Prov::Tags(b)) => a.extend(b.iter().cloned()),
+            (TagProv::Unknown, _) => {}
+            (_, TagProv::Unknown) => *self = TagProv::Unknown,
+            (TagProv::Tags(a), TagProv::Tags(b)) => a.extend(b.iter().cloned()),
         }
     }
 }
@@ -738,6 +739,20 @@ impl Context {
     pub fn get_cstore_scope(&self, scope: &VOID) -> Option<&Box<MapValue>> {
         self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
     }
+
+    pub fn get_static(&self, defid: DefId) -> Option<Constraints> {
+        match self.cstore.cmap.get(&MapKey::Static(defid)) {
+            Some(box MapValue::Constraints(cs)) => Some(cs.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn set_static(&mut self, defid: DefId, constraints: Constraints) {
+        self.cstore.cmap.insert(
+            MapKey::Static(defid),
+            Box::new(MapValue::Constraints(constraints)),
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -819,7 +834,7 @@ impl ConstraintStore {
                 let (place, scope) = self.resolve(place.clone(), scope.clone(), false);
                 (scope, MapKey::Var(place))
             }
-            MapKey::ScopeId(_) => (scope.clone(), key.clone()),
+            MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
         };
 
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
@@ -874,7 +889,7 @@ impl ConstraintStore {
                 let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
                 (scope, MapKey::Var(place))
             }
-            MapKey::ScopeId(_) => (scope.clone(), key.clone()),
+            MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
         };
 
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {

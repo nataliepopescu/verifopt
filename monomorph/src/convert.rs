@@ -10,7 +10,6 @@ use rustc_public::ty::{
     TyKind,
 };
 
-//use crate::InterpStore;
 use crate::TraitStore;
 use crate::constraints::{ADTFields, unique_append, unique_push};
 use crate::constraints::{
@@ -73,11 +72,8 @@ pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
             | "collections::BTreeSet"
             | "collections::BTreeMap"
             // Pure pointer-plumbing internals: these can never structurally
-            // hold a trait-object payload, so treating them as opaque too
-            // is free precision to give up, and lets convert_agg flatten
-            // through them at construction time instead of building (and
-            // later re-merging, across every WTO iteration that revisits
-            // this construction) their full nested shape.
+            // hold a trait-object payload, so treating them as opaque 
+            // is free precision to give up
             | "ptr::Unique"
             | "ptr::NonNull"
             | "ptr::Alignment"
@@ -88,11 +84,6 @@ pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
             | "marker::PhantomData"
             | "mem::ManuallyDrop"
             | "alloc::Global"
-            // Arc's/Rc's own internal allocation header (strong/weak
-            // counts + the payload) - same reasoning as Unique/NonNull
-            // above: this struct itself is never the trait-object payload,
-            // the *pointee* is, and Arc/Rc's own opaque-internal entries
-            // (below) already handle unwrapping to reach it.
             | "sync::ArcInner"
             | "rc::RcInner"
     ) {
@@ -200,14 +191,6 @@ impl<'a> RvalConverter<'a> {
         match const_op.const_.kind() {
             ConstantKind::Allocated(alloc) => self.convert_allocated_const(span, &ty, alloc),
             ConstantKind::ZeroSized => self.convert_zero_sized_const(span, &ty),
-            // Ty(..), Unevaluated(..), and Param(..) are all cases where we
-            // don't have (and in the Param/Unevaluated-over-a-generic case,
-            // structurally can't yet have) a concrete value to inspect - e.g.
-            // an associated const accessed through a still-generic `Self`
-            // (see rg::flags::Flag::aliases: Unevaluated(.., args: [Param(Self)]))
-            // isn't resolvable until monomorphization. Fall back to a
-            // type-only constraint, same as the ZST non-ADT case above,
-            // rather than panicking.
             _ => self.convert_const_fallback(span, &ty),
         }
     }
@@ -328,9 +311,7 @@ impl<'a> RvalConverter<'a> {
 
             // Pointers, references, dyn, etc. inside a compile-time constant are
             // real but much rarer (a `&'static` reference to a static, mostly) —
-            // not worth a bytes-level decoder yet. Fall back to the type-only
-            // reconstruction rather than mis-decoding raw pointer bytes as if
-            // they were meaningful without provenance resolution.
+            // not worth a bytes-level decoder yet
             _ => {
                 let (_, constraint) = self.convert_ty(span, ty);
                 constraint
@@ -362,14 +343,11 @@ impl<'a> RvalConverter<'a> {
         place: &Place,
         destty: &Ty,
     ) -> Constraints {
-        //debug!("\nCONVERTING PLACE: {:?}", place);
-
         match ctxt.get_constraints(cur_scope, local_decls, place, false) {
             Some(constraints) => constraints,
             None => {
                 let place_ty = place.ty(local_decls).unwrap_or(*destty);
                 let (_, constraint) = self.convert_ty(span, &place_ty);
-                //debug!("CONSTRAINT: {:?}", constraint);
                 Constraints::from(constraint)
             }
         }
@@ -414,13 +392,10 @@ impl<'a> RvalConverter<'a> {
         constraints: &Constraints,
         span: &Location,
     ) -> Constraints {
-        //debug!("CAST HELPER");
         let mut new_constraints = Constraints::new();
 
         for traitobjty in traitobjtys {
             for constraint in &constraints.inner {
-                //debug!("\ntraitobjty: {:?}", traitobjty);
-                //debug!("constraint: {:?}", constraint);
                 match constraint {
                     Constraint { toc: Some(_), .. } => {
                         new_constraints.push(constraint.clone());
@@ -431,20 +406,14 @@ impl<'a> RvalConverter<'a> {
                         prov: _,
                     } => {
                         let candidate_defids = self.get_defid_candidates(&cfc_);
-                        //debug!("candidate defids: {:?}", candidate_defids);
 
                         if candidate_defids.is_empty() {
                             new_constraints.push(constraint.clone());
                         } else {
                             for (defid, leaf_cfc) in &candidate_defids {
-                                //debug!("DEFID: {:?}", defid);
-                                //debug!("CFC: {:?}", cfc_);
-
                                 match self.tstore.struct_traits.get(&defid) {
                                     Some(traits) => {
-                                        //debug!("found traits");
                                         if traits.contains(&traitobjty.def.0) {
-                                            // pull relevant CFC into TOC
                                             let new_constraint = Constraint::new(
                                                 Some((
                                                     traitobjty.clone(),
@@ -599,7 +568,7 @@ impl<'a> RvalConverter<'a> {
                 match maybe_to {
                     RunningConstraint::Adt(adtdef, adt_genargs, variant_idx, fields) => {
                         // If we get Some, that means this struct/adt implements one or more
-                        // traits, but that does _not_ mean that this is a trait object, not
+                        // traits, but that does _not_ mean that this is a trait object, nor
                         // does it mean that it implements the trait we might be looking for
                         match self.tstore.struct_traits.get(&adtdef.0) {
                             Some(possible_traits) => {
@@ -646,56 +615,6 @@ impl<'a> RvalConverter<'a> {
         None
     }
 
-    /*
-    fn contains_traitobj(
-        &self,
-        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
-        //def: &AdtDef,
-        genargs: &Vec<Constraint>,
-    ) -> Option<TraitObjConstraint> {
-        // TODO check def for traitobj
-
-        // check genargs for traitobj
-        let mut to = None;
-        for genarg in genargs {
-            match self.get_traitobj(maybe_trait_destty, &genarg) {
-                to_ @ Some(_) => {
-                    to = to_;
-                    break;
-                }
-                _ => {}
-            }
-        }
-
-        to
-    }
-
-    fn contains_controlflow(
-        &self,
-        _def: &AdtDef,
-        genargs: &Vec<Constraint>,
-    ) -> Option<RunningConstraint> {
-        // TODO check def for controlflow
-
-        // check genargs for controlflow
-        let mut cf = None;
-        for genarg in genargs {
-            match genarg {
-                Constraint {
-                    toc: _,
-                    cfc: Some((span, cf_)),
-                } => {
-                    cf = Some((span.clone(), cf_.clone()));
-                    break;
-                }
-                _ => {}
-            }
-        }
-
-        cf
-    }
-    */
-
     fn convert_agg(
         &self,
         ctxt: &Context,
@@ -706,7 +625,6 @@ impl<'a> RvalConverter<'a> {
         kind: &AggregateKind,
         ops: &Vec<Operand>,
     ) -> Constraints {
-        //debug!("AGG kind: {:?}", kind);
         match kind {
             AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
                 if is_opaque_internal_defid(def) {
@@ -730,13 +648,9 @@ impl<'a> RvalConverter<'a> {
                 // Create projections here to simulate field initializers
                 let mut fields = ADTFields::new();
                 for (i, op) in ops.into_iter().enumerate() {
-                    //debug!("\n---op {:?}", i);
                     let op_constraints =
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
-                    //debug!("op constraints: {:?}", op_constraints);
-
                     fields.insert(i, op_constraints);
-                    //debug!("---done op {:?}\n", i);
                 }
 
                 Constraints::from(Constraint::new(
@@ -824,7 +738,6 @@ impl<'a> RvalConverter<'a> {
     }
 
     pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
-        //debug!("IN CONVERT_TY");
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => (
@@ -847,7 +760,6 @@ impl<'a> RvalConverter<'a> {
                         }
                     }
                     if traitobjtys.is_empty() {
-                        //debug!("NO TRAITOBJS in genargs");
                         (
                             None,
                             // FIXME fields is empty
@@ -857,7 +769,6 @@ impl<'a> RvalConverter<'a> {
                             ),
                         )
                     } else {
-                        //debug!("traitobjs in genargs!!!: {:?}", traitobjtys);
                         (
                             Some(traitobjtys),
                             // FIXME fields is empty
@@ -1257,12 +1168,7 @@ impl<'a> RvalConverter<'a> {
                     cfc: Some(RunningConstraint::Scalar(Some(_val2))),
                     prov: _,
                 },
-            ) => {
-                todo!();
-                //(to, Some(RunningConstraint::Scalar(Some(f(
-                //    val1, val2,
-                //)))))
-            }
+            ) => todo!(),
             _ => Constraint::new(None, Some(RunningConstraint::Scalar(None))),
         }
     }
@@ -1317,7 +1223,7 @@ impl<'a> RvalConverter<'a> {
                 toc: to,
                 cfc: _,
                 prov: _,
-            } => Constraint::new(to, Some(RunningConstraint::Scalar(None))), //_ => Constraint::ControlFlow(Box::new(RunningConstraint::Scalar(None))),
+            } => Constraint::new(to, Some(RunningConstraint::Scalar(None))),
         }
     }
 }

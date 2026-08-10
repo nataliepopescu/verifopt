@@ -2,17 +2,6 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
-// Persistent/structurally-shared collections for the handful of InterpPass
-// fields that build_param_summary snapshots and (on a discarded/tainted
-// build) restores wholesale - see that function's doc comment. Cloning an
-// im collection is O(1) (bumps a refcount on the shared tree) regardless
-// of how large it's grown over the run, unlike std HashMap/HashSet, whose
-// clone is a full O(n) walk - exactly the cost that same doc comment
-// flagged as a real, growing-with-program-size expense paid on *every*
-// summary-build attempt. Aliased distinctly from `HashMap`/`HashSet`/
-// `Entry` above since most of InterpPass's other fields (summaries,
-// exact_memo, param_summaries, ...) are never snapshotted this way and
-// have no reason to pay for persistence they don't need.
 use im::HashMap as ImHashMap;
 use im::HashSet as ImHashSet;
 use im::hashmap::Entry as ImEntry;
@@ -50,13 +39,6 @@ use crate::wto::BBDeps;
 
 const MAX_DEPTH: u32 = 50;
 
-/// Outcome of attempting to build a Step 2 parametric summary for a scope.
-/// `Unavailable` specifically means `build_param_summary` already tried
-/// once and hit something it couldn't safely summarize (currently: its own
-/// recursion depth limit, see `build_param_summary`'s doc comment) -
-/// recorded so every subsequent call to that scope falls straight back to
-/// Step 1 instead of re-attempting (and re-paying for) a build that's
-/// already known to fail.
 #[derive(Debug, Clone)]
 pub enum ParamSummary {
     Built(Option<Constraints>),
@@ -78,83 +60,14 @@ pub struct InterpPass<'a> {
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
-    // Inner HashSet<VOID> stays std - im::HashMap::clone() never touches
-    // (let alone deep-clones) its values, only the tree structure, so the
-    // O(1) snapshot win applies to the outer map regardless of the value
-    // type. Only the outer container needs to be persistent here.
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
 
-    /// Exact-call memoization (step 1 of interprocedural caching). Keyed by
-    /// the exact same `(scope, ArgSet)` pair already used to key
-    /// `summaries`/recursion-breaking, but this table is populated and
-    /// consulted for *every* static call, not just ones already on the
-    /// call stack. Each entry also stores the `scope_epoch` snapshot for
-    /// the callee scope taken right after resolve_args ran for that call,
-    /// so a later call with an identical ArgSet can tell whether the
-    /// callee's shared argument substore has been widened by some other
-    /// call site in the meantime (see `scope_epoch` below) before trusting
-    /// the cached result.
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
 
-    /// Per-scope generation counter, bumped in `resolve_args` whenever
-    /// merging a new call's argument constraints into a scope's existing
-    /// substore actually changes it (detected via the same O(1)
-    /// `im::HashMap::ptr_eq` fast path `Merge<ConstraintStore>` already
-    /// uses). Two calls to the same scope with the same ArgSet never bump
-    /// this (the merge is a no-op), so identical repeat calls stay cached;
-    /// a call with a *different* ArgSet to the same scope does bump it,
-    /// invalidating any `exact_memo` entries cached before the bump for
-    /// that scope under other ArgSets.
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
-
-    /// Step 2: parametric function summaries. Built once per scope (not
-    /// per-ArgSet, unlike `exact_memo`/`summaries`) by visiting the body
-    /// with each argument seeded to a `RunningConstraint::Param`
-    /// placeholder instead of real constraints - see
-    /// `build_param_summary`. A cache hit here means the call can be
-    /// answered by pure substitution (`substitute_params`) for *any*
-    /// ArgSet, not just one already seen, without visiting the callee's
-    /// body at all.
     pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
-
-    /// Reentrant taint tracking for Step 2 summary builds. One entry per
-    /// currently-in-progress `build_param_summary` call (nested summary
-    /// builds are real: a function being summarized can call another
-    /// function whose summary also gets attempted). `interp_switchint`
-    /// sets the *top* entry to `true` whenever it finds a Param-derived
-    /// discriminant it couldn't prune - correctly attributing the taint to
-    /// whichever summary build is innermost at that point, including when
-    /// the switch occurs inside an ordinary (non-summary-building) nested
-    /// call, since a value derived from an outer Param flowing into that
-    /// call and being switched on there makes the *outer* summary just as
-    /// imprecise as if the switch were in its own body directly. Empty
-    /// stack (ordinary interpretation, not inside any summary build) means
-    /// nothing to taint - `interp_switchint` no-ops in that case.
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
-
-    /// Scopes with a Step 2 summary build *currently in progress*,
-    /// anywhere in the current chain of nested `build_param_summary`
-    /// calls - not just the ones visible in whatever `call_stack` happens
-    /// to be threaded through at the moment. `build_param_summary` always
-    /// starts a fresh, isolated call_stack (mirroring `run()`'s own
-    /// top-level setup, since a summary has no real caller) - correct for
-    /// the ordinary case, but it means the interpreter's existing
-    /// recursion-cycle check (`call_stack.contains(&new_scope)` in
-    /// interp_fn_def) can never see a cycle that spans *across* nested
-    /// summary-build boundaries: if `a`'s summary build calls `b`, whose
-    /// summary build calls `c`, whose summary build calls `a` again, each
-    /// build's own isolated stack only ever contains its own single
-    /// scope, so nothing ever looks like a repeat to that check, and the
-    /// mutual recursion runs straight through raw Rust stack frames
-    /// instead of ever reaching the existing, bounded
-    /// summaries/wq/reinterp_recursive cycle-breaking machinery - a real
-    /// stack overflow, not merely an imprecise summary. This set is the
-    /// guard: `interp_static_call` checks it *before* calling
-    /// `build_param_summary` and bails to Step 1 instead if the target
-    /// scope is already being built somewhere up the chain - Step 1 uses
-    /// the real, properly-threaded call_stack, so the pre-existing cycle
-    /// detection correctly re-engages from there.
     pub building_summaries: RefCell<HashSet<VOID>>,
 }
 
@@ -224,7 +137,6 @@ impl<'a> InterpPass<'a> {
             .borrow_mut()
             .push((start_scope.clone(), ArgSet::new(&[])));
 
-        // Initialize Context with entry_fn's constraint substore
         let entry_fn_cstore = ConstraintStore::new();
         ctxt.set_cstore_scope(&start_scope, entry_fn_cstore, None);
 
@@ -247,50 +159,38 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         body: &Body,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("\n\n\n#############################");
         debug!(
             "###### INTERP-ING NEW BODY for func {:?}",
             cur_scope.0.name()
         );
         log_call_stack(call_stack);
-        //log_mir(&body);
-        //debug!("#############################\n\n");
 
         self.check_call_stack(call_stack, cur_scope);
 
-        // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
         if let Some(mem_bb_deps) = ctxt.get_wto(cur_scope) {
             bb_deps = mem_bb_deps.clone();
             if !bb_deps.has_ret {
-                // This block does not explicitly return - likely a panicker, thus we can skip
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
-            //debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
             if !bb_deps.has_ret {
-                // This block does not explicitly return - likely a panicker, thus we can skip
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
             ctxt.set_wto(cur_scope, &bb_deps);
         }
 
-        // Loop through basic blocks in WTO
         let mut last_res = None;
         let num_bbs = bb_deps.ordering.len();
         let mut saw_return = false;
 
         loop {
-            //debug!("\n\nGETTING NEXT BB");
-            //debug!("pre-pop ordering: {:?}", bb_deps.ordering);
             if bb_deps.ordering.is_empty() {
-                //debug!("DONE INTERPING");
                 break;
             }
 
             let bb = bb_deps.ordering.pop_front().unwrap();
-            //debug!("\n\n--NEW BB: {:?}", bb);
 
             let data = body.blocks.get(bb).unwrap();
             if matches!(data.terminator.kind, TerminatorKind::Return) {
@@ -373,8 +273,6 @@ impl<'a> InterpPass<'a> {
         Ok(res)
     }
 
-    /// If this type contains one or more (RigidTy) Dynamics, return the associated TraitObjTys
-    /// (i.e. the Dynamic info converted into VerifOpt semantics)
     fn contains_dyn(&self, ty: &Ty) -> Option<Vec<TraitObjTy>> {
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
@@ -426,9 +324,6 @@ impl<'a> InterpPass<'a> {
         None
     }
 
-    /// If any of the constraints contain a type that implements one of the Traits listed in
-    /// `maybe_trait_destty`, copy those types and put them into the TraitObjConstraint field
-    /// of the constraint, leaving the RunningConstraint field unchanged
     fn lift_traitobjtys(
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
@@ -437,7 +332,6 @@ impl<'a> InterpPass<'a> {
         let mut constraints = Constraints::new();
         for constraint in old_constraints.inner {
             match self.converter.get_traitobj(maybe_trait_destty, &constraint) {
-                // Add into traitobj constraint
                 toc @ Some(_) => match constraint {
                     Constraint {
                         toc: None,
@@ -458,7 +352,6 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                 },
-                // Push constraint unchanged
                 None => {
                     constraints.push(constraint);
                 }
@@ -478,7 +371,6 @@ impl<'a> InterpPass<'a> {
         stmt_idx: usize,
     ) {
         match &stmt.kind {
-            // Only interp assignments to track type constraint changes
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!\nplace: {:?}\nrval: {:?}", place, rvalue);
                 log_scope(cur_scope);
@@ -486,7 +378,6 @@ impl<'a> InterpPass<'a> {
                 let dest_ty = place.ty(local_decls).unwrap();
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
 
-                // convert MIR Rvalue to Constraint
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
@@ -539,7 +430,6 @@ impl<'a> InterpPass<'a> {
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
                         }
                         None => {
-                            //debug!("no base constraints");
                             let mut base_constraints = Constraints::new();
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
@@ -568,10 +458,6 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         cno: &CopyNonOverlapping,
     ) {
-        //debug!("CNO src: {:?}", cno.src);
-        //debug!("CNO dst: {:?}", cno.dst);
-        //debug!("CNO cnt: {:?}", cno.count);
-
         let count =
             match self.get_operand_constraints(ctxt, cur_scope, local_decls, &cno.count, false) {
                 Some(constraints) => self.get_usize(&constraints),
@@ -599,13 +485,11 @@ impl<'a> InterpPass<'a> {
                                 let pointee = if always_one {
                                     (**inner).clone()
                                 } else {
-                                    // preserve the pointee's own toc when wrapping it in a List
                                     Constraint::new(
                                         inner.toc.clone(),
                                         Some(RunningConstraint::List(inner.clone())),
                                     )
                                 };
-                                // preserve src's outer Ptr-constraint toc on the new outer Ptr constraint
                                 Some(Constraint::new(
                                     c.toc.clone(),
                                     Some(RunningConstraint::Ptr(Box::new(pointee))),
@@ -773,13 +657,8 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("INTERPING INDIRECT CALL");
-
-        //debug!("CHECKING FOR DYN IN PLACE TY");
         let dest_ty = place.ty(local_decls).unwrap();
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
-        //debug!("lval ty: {:?}", dest_ty);
-        //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let mut ret_constraints = Constraints::new();
         match ctxt.get_constraints(cur_scope, local_decls, place, false) {
@@ -815,11 +694,6 @@ impl<'a> InterpPass<'a> {
             None => panic!("fnptr value not found in cmap"),
         }
 
-        // Set destination local to value in cmap
-        //debug!(
-        //    "RET FROM INDIRECT FUNC CALL: {:?}",
-        //    ret_constraints
-        //);
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
         let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints);
@@ -871,28 +745,6 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
-            // Symbolic parameter from a summary being built (see
-            // InterpPass::build_param_summary): unlike the dispatch-related
-            // fallbacks in convert.rs/resolve_defid (where "unknown" still
-            // has a sound broader-candidate-set fallback via CHA), there's
-            // no equivalent candidate set for an arbitrary indirect-call
-            // target - we simply don't yet know which FnDef/FnPtr/Closure
-            // this placeholder will turn out to be. Ok(None) is exactly
-            // the "learned nothing about the return value" case this
-            // function's only caller (interp_indirect_call) already
-            // handles via its own `Ok(None) => {}` arm, right next to
-            // where this panic used to fire - so this stays consistent
-            // with how "no info" is already expressed elsewhere here,
-            // rather than inventing a new kind of imprecision.
-            //
-            // But unlike a genuinely-untrackable indirect call target
-            // during *ordinary* interpretation (accepted, pre-existing
-            // imprecision unrelated to summaries), a real call to the
-            // function being summarized always has *some* concrete
-            // callable and would get a real, non-empty return value -
-            // caching Ok(None) here would permanently starve every future
-            // call of information a real call could have had. Taint the
-            // same way switchint/virtual-dispatch do.
             RunningConstraint::Param(..) => {
                 if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
                     *tainted = true;
@@ -913,20 +765,6 @@ impl<'a> InterpPass<'a> {
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        // A raw fn pointer only carries a signature, not which concrete
-        // function it points to - `sigstore.sigs` maps that signature to
-        // every function in the program sharing it (candidates), but we
-        // deliberately don't try to interpret each candidate and merge
-        // results here: candidates found by signature-matching alone may
-        // themselves be generic, and there's no principled way yet to know
-        // what concrete GenericArgs to interpret them with (a raw fn
-        // pointer erases that information entirely) - a previous draft of
-        // this attempted exactly that and got stuck on precisely this gap
-        // (passing an empty GenericArgs as a placeholder, which is wrong
-        // for any candidate that's actually generic). Falling back to a
-        // signature-based approximation is sound (just less precise) and
-        // matches the same tradeoff already made elsewhere for expensive-
-        // to-trace cases (e.g. many BTreeSet/BTreeMap method stubs).
         debug!(
             "interp_fn_ptr: falling back for sigval with output {:?}",
             sigval.output
@@ -1008,8 +846,6 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("DIRECT CALL");
-
         let dest_ty = destination.ty(local_decls).unwrap();
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
         let ret_constraints = match co.const_.ty().kind() {
@@ -1042,8 +878,6 @@ impl<'a> InterpPass<'a> {
             kind @ _ => todo!("funccall const is another kind: {:?}", kind),
         };
 
-        // Set destination local to value in cmap
-        //debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
 
@@ -1062,7 +896,6 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    /// Interpret a function call from a FnDef object
     fn interp_fn_def(
         &self,
         term_span: &Span,
@@ -1075,17 +908,13 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("trying to resolve instance");
-        //debug!("fndef: {:?}", fndef);
-        //debug!("genargs: {:?}", genargs);
-        //debug!("args: {:?}", args);
         let instance = match Instance::resolve(fndef, genargs) {
             Ok(instance_) => instance_,
             Err(_) => {
                 // Support instances we can't resolve without more info
-                // (i.e. this is a declaration, not an implementation,
+                // (i.e. this is a declaration, not an implementation).
                 // We likely got here b/c we interpreted a trait func w a default implementation
-                // that calls a trait func without a default implementation)
+                // that calls a trait func without a default implementation
                 //
                 // The "more info" being:
                 // - is this a trait method without an implementation?
@@ -1131,11 +960,6 @@ impl<'a> InterpPass<'a> {
             return result;
         }
 
-        // Only Item/Shim instances have a body worth fetching. Virtual instances
-        // are dispatched dynamically at runtime and have no body of their own
-        // (calling `.body()` on one is a rustc ICE, not just an empty result);
-        // Intrinsic instances are handled via signature fallback in dispatch_call.
-        // Route anything else straight there without ever touching `.body()`.
         let fetchable_body = matches!(instance.kind, InstanceKind::Item | InstanceKind::Shim)
             && new_scope.0.has_body();
 
@@ -1170,11 +994,8 @@ impl<'a> InterpPass<'a> {
             let new_key = (new_scope.clone(), ArgSet::new(&new_cs));
 
             if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
-                //debug!("\trecursive call, hit summary");
                 return Ok(Some(cs));
             }
-
-            //debug!("\trecursive call, queueing...");
 
             let retty = self
                 .retty_fallback_from_poly(fndef.fn_sig())?
@@ -1253,59 +1074,7 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    /// Step 2: build a parametric summary for `scope`. Seeds each
-    /// argument-local with a `RunningConstraint::Param` placeholder instead
-    /// of real constraints, then visits the body exactly as an ordinary
-    /// call would. Every existing "unknown shape" fallback already in this
-    /// interpreter (CHA/FSA dispatch resolution falling back when it can't
-    /// resolve a concrete type, switchint's no-prune-on-unknown-discriminant
-    /// path, opaque-type flattening) already treats a Param placeholder
-    /// soundly with zero changes; only `step_field_one`/`filter_variant`
-    /// needed a new arm so a field/variant projection through a parameter
-    /// extends the placeholder's path instead of collapsing to "no info".
-    /// Runs against a throwaway, isolated `Context` (mirroring `run()`'s
-    /// own top-level call_stack/key_stack setup, not `resolve_args`'s) so
-    /// building a summary can't read from or write into the real
-    /// interpretation's per-scope stores.
-    ///
-    /// Self-recursive functions: if this scope calls itself while its own
-    /// summary is being built, `interp_fn_def`'s existing
-    /// `call_stack.contains(&new_scope)` check (upstream of this function)
-    /// already catches it and routes through the pre-existing, unmodified
-    /// recursion-breaking machinery (`summaries`/`wq`/`reinterp_recursive`)
-    /// rather than reaching this function again - so recursion itself isn't
-    /// new risk. What *is* new: a Param's projection path can grow by one
-    /// step per recursive level (e.g. `self.field.method()` called
-    /// recursively), so a pathological case could ride the existing
-    /// `MAX_DEPTH` recursion-limit guard all the way out rather than
-    /// converging quickly. That surfaces as `Error::RecurseLimit` here,
-    /// which the caller (`interp_static_call`) catches and treats as "not
-    /// summarizable" rather than propagating - see `ParamSummary::Unavailable`.
-    ///
-    /// CAVEAT (please read before trusting this at scale): this
-    /// deliberately does *not* wrap the build in `std::panic::catch_unwind`.
-    /// InterpPass's caches (`key_stack`, `wq`, `in_queue`, `exact_memo`,
-    /// `scope_epoch`, ...) are shared, process-wide `RefCell`s that ordinary
-    /// interpretation also depends on; if a panic occurred mid-way through a
-    /// nested call during summary-building, those RefCells could be left
-    /// with unbalanced pushes/pops that would then corrupt *unrelated*,
-    /// later, real interpretation if execution were allowed to continue past
-    /// a caught panic. A hard stop (today's existing behavior for any other
-    /// unhandled shape elsewhere in this interpreter) is safer than a
-    /// silent, subtly wrong continuation. If this hits a case Param-handling
-    /// doesn't cover (most likely: some other match on `RunningConstraint`'s
-    /// shape, elsewhere in the crate, that I haven't reviewed and that lacks
-    /// a graceful fallback), you'll see it exactly as you would any other
-    /// `todo!()`/panic in this interpreter - please treat it the same way
-    /// (patch the missing case there) rather than assuming this design is
-    /// unsound. I'd recommend validating against your test suite
-    /// function-by-function before trusting this on ripgrep-scale runs.
     fn build_param_summary(&self, scope: &VOID) -> Result<Option<Constraints>, Error> {
-        // Register this scope as currently being built - see
-        // building_summaries' doc comment. interp_static_call already
-        // checked this scope wasn't in the set before calling us, so this
-        // insert should always be the first one for `scope`; removed
-        // unconditionally below regardless of outcome.
         self.building_summaries.borrow_mut().insert(scope.clone());
 
         let body = self.get_body(scope);
@@ -1338,58 +1107,17 @@ impl<'a> InterpPass<'a> {
             Box::new(MapValue::Store(substore, None)),
         );
 
-        // Mirrors run()'s own top-level setup exactly (direct call_stack
-        // seed + a single manual key_stack push, no manual pop afterward -
-        // visit_body's eventual finish_frame/prepare_return pops it exactly
-        // once on the way out), rather than reinterp_recursive's pattern of
-        // pushing onto an already non-empty, restored caller stack.
         let mut summary_stack = vec![scope.clone()];
         self.key_stack
             .borrow_mut()
             .push((scope.clone(), ArgSet::new(&param_cs)));
 
-        // Snapshot the shared, accumulating per-call-site bookkeeping that
-        // interp_virtual_call/finish_frame write into as a side effect
-        // (dispatch_cha/dispatch_targets/dispatch_tags/dependencies) plus
-        // `incomplete`. Unlike exact_memo/summaries/param_summaries (keyed
-        // by ArgSet or scope, so a Param-tainted entry from this build can
-        // never be looked up by a real call later), these are keyed by
-        // (DefId, bb) / Span / VOID alone and *accumulate* rather than get
-        // overwritten - dispatch_targets in particular only ever grows a
-        // call site's candidate list, never shrinks it. If this build
-        // turns out imprecise (or errors) and gets discarded, any
-        // candidates/tags/etc it wrote for call sites *inside* the body
-        // being summarized must be rolled back too - otherwise a later,
-        // real call to this same body would find its own correct,
-        // narrowed dispatch decision permanently unioned with whatever a
-        // Param-driven CHA fallback pulled in during this abandoned
-        // attempt (exactly what happened here: wrap_dyn_call's summary
-        // build had no concrete receiver, fell back to CHA, and recorded
-        // *both* Cat and Dog as dispatch_targets candidates for that call
-        // site - and since dispatch_targets only adds, never removes, the
-        // real re-interpretation's correct Cat-only answer never displaced
-        // it, and the rewrite pass devirtualized against both).
-        //
-        // PERFORMANCE NOTE (resolved): these five fields are now `im`'s
-        // structurally-shared persistent collections (see the aliased
-        // imports at the top of this file), the same pattern
-        // ConstraintStore.cmap already uses for exactly this reason - so
-        // each `.clone()` below is O(1) (a refcount bump on the shared
-        // tree), not an O(size of these maps so far) deep copy, regardless
-        // of how large the maps have grown over the run. This was a real,
-        // growing-with-program-size cost before this migration; it no
-        // longer is.
         let dispatch_cha_snapshot = self.dispatch_cha.borrow().clone();
         let dispatch_targets_snapshot = self.dispatch_targets.borrow().clone();
         let dispatch_tags_snapshot = self.dispatch_tags.borrow().clone();
         let dependencies_snapshot = self.dependencies.borrow().clone();
         let incomplete_snapshot = self.incomplete.borrow().clone();
 
-        // Push this build's own taint slot - see summary_build_taint_stack's
-        // doc comment for why this needs to be a stack, not a flag (nested
-        // summary builds are real). Always popped below regardless of
-        // outcome, so an error here can't leave an outer, in-progress
-        // build's slot misaligned.
         self.summary_build_taint_stack.borrow_mut().push(false);
         let result = self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body);
         let tainted = self
@@ -1406,12 +1134,6 @@ impl<'a> InterpPass<'a> {
             *self.incomplete.borrow_mut() = incomplete_snapshot;
         }
 
-        // Always remove, regardless of outcome - matches the taint
-        // stack's discipline above. Once this build finishes (success,
-        // taint, or error), it's no longer "in progress"; a later,
-        // unrelated call to this same scope should get a fresh attempt
-        // (or the cached Built/Unavailable result), not be permanently
-        // treated as recursive just because this one attempt existed.
         self.building_summaries.borrow_mut().remove(scope);
 
         match result {
@@ -1433,22 +1155,10 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         cur_cs: &Vec<Constraints>,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("INTERP STATIC CALL");
-        //debug!("fndef: {:?}", fndef);
-        //debug!("genargs: {:?}", genargs);
-
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
             let key = (cur_scope.clone(), ArgSet::new(cur_cs));
 
-            // Step 2: a cached parametric summary answers *any* ArgSet by
-            // pure substitution, without visiting the callee at all - try
-            // it before falling back to Step 1's exact-argset memo.
-            // `ParamSummary::Unavailable` means build_param_summary already
-            // tried once for this scope and hit something it couldn't
-            // safely summarize (see that function's doc comment) - fall
-            // through to Step 1 permanently for it rather than retrying a
-            // build already known to fail.
             let cached_summary = self.param_summaries.borrow().get(cur_scope).cloned();
             match cached_summary {
                 Some(ParamSummary::Built(summary)) => {
@@ -1461,26 +1171,6 @@ impl<'a> InterpPass<'a> {
                 }
                 None => {
                     if self.building_summaries.borrow().contains(cur_scope) {
-                        // A summary build for this exact scope is already
-                        // in progress somewhere up the current chain of
-                        // nested build_param_summary calls (mutual/self
-                        // recursion through summary-building - see
-                        // building_summaries' doc comment). Recursing into
-                        // build_param_summary again here would start yet
-                        // another fresh, isolated call_stack that can't
-                        // see the outer attempt either, continuing straight
-                        // through raw Rust stack frames toward a real stack
-                        // overflow instead of ever reaching the
-                        // interpreter's own bounded cycle-breaking
-                        // machinery. Bail to Step 1 immediately instead:
-                        // Step 1 threads the real call_stack through
-                        // properly, so if this really is a cycle,
-                        // interp_fn_def's existing call_stack.contains
-                        // check will correctly catch it there. If the
-                        // outer build later completes successfully, its
-                        // own Built(..) insert below overwrites this
-                        // Unavailable marking, so this doesn't permanently
-                        // block a summary that turns out to be fine.
                         debug!(
                             "param_summary unavailable for {:?}: already building (recursive)",
                             cur_scope.0.name()
@@ -1498,16 +1188,6 @@ impl<'a> InterpPass<'a> {
                                 let substituted = built.map(|s| substitute_params(&s, cur_cs));
                                 return Ok(substituted);
                             }
-                            // Any failure to build a trustworthy summary -
-                            // hit the recursion depth limit, or (see
-                            // summary_build_taint_stack) the return value
-                            // turned out to depend on control flow driven
-                            // by a parameter's concrete value rather than
-                            // being a pure structural function of it -
-                            // falls back to Step 1 for this scope
-                            // permanently, rather than caching a result
-                            // that could be silently wrong or
-                            // re-attempting a build already known to fail.
                             Err(e) => {
                                 debug!(
                                     "param_summary unavailable for {:?}: {:?}",
@@ -1524,16 +1204,6 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
-            // Step 1: exact-call memoization. `call_stack.contains` already
-            // guards the *recursive* case above (in interp_fn_def) via
-            // `summaries`; this is the much more common non-recursive case -
-            // the same function called from many different call sites with
-            // the same resolved argument constraints (helpers, iterator
-            // methods, Vec/HashMap ops, etc). If cur_scope's shared
-            // substore hasn't been widened by some other call since we last
-            // computed this exact (scope, ArgSet), the previous result is
-            // still exactly what visit_body would recompute - reuse it
-            // without re-walking the callee (and everything it calls).
             let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
             if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&key) {
                 if *cached_epoch == epoch_before {
@@ -1561,9 +1231,6 @@ impl<'a> InterpPass<'a> {
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
 
             if let Ok(ref cs) = result {
-                // Snapshot the epoch *after* resolve_args ran for this call,
-                // so a later call is only trusted to reuse this result while
-                // cur_scope's substore hasn't grown again since.
                 let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
                 self.exact_memo
                     .borrow_mut()
@@ -1572,14 +1239,10 @@ impl<'a> InterpPass<'a> {
 
             result
         } else {
-            // No body, so not visiting/updating call stack
-            //debug!("NO BODY");
             self.retty_fallback_from_poly(fndef.fn_sig())
         }
     }
 
-    /// Create new subscope for the callee function, and put the resolved argument constraints into
-    /// it. Then, if another subscope already exists for this callee, merge it with the new one and update
     fn resolve_args(
         &self,
         ctxt: &mut Context,
@@ -1588,16 +1251,11 @@ impl<'a> InterpPass<'a> {
         body: &Body,
         callee_scope: &VOID,
         local_decls: &[LocalDecl],
-        //fndef: FnDef,
         args: &Vec<Operand>,
         _genargs: &GenericArgs,
         is_closure: bool,
     ) {
-        //debug!("RESOLVING ARGS");
-        //debug!("IS TARGET FN CLOSURE?: {}", is_closure);
-
         let mut new_ctxt = Context::empty();
-        // Resolve generics + add arg values into new substore
         self.resolve_args_helper(
             ctxt,
             term_span,
@@ -1642,7 +1300,6 @@ impl<'a> InterpPass<'a> {
             *e += 1;
         }
 
-        // Add new substore in top-level store
         ctxt.set_cstore_scope(callee_scope, store.0, store.1);
     }
 
@@ -1739,7 +1396,6 @@ impl<'a> InterpPass<'a> {
             debug!("arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);
 
-            // Copy found constraints into new scope cmap
             new_ctxt.cstore.cmap.insert(
                 MapKey::Var(place.clone()),
                 Box::new(MapValue::Constraints(constraints)),
@@ -1770,41 +1426,16 @@ impl<'a> InterpPass<'a> {
                         let (_maybe_traitobjty, constraint) = self
                             .converter
                             .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
-                        //if let Some(_tot) = maybe_traitobjty {
-                        //    todo!();
-                        //}
                         Constraints::from(constraint)
                     }
                 }
             }
-            // TODO can maybe get a more precise VORval depending on kind
             Operand::Constant(const_op) => self
                 .converter
                 .convert_const(&Location::unknown(), &const_op),
             _ => todo!("runtime check arg"),
         }
     }
-
-    /*
-    fn get_place_constraints(
-        &self,
-        ctxt: &Context,
-        caller_scope: &VOID,
-        maybe_trait_argty: &Option<Vec<TraitObjTy>>,
-        place: &Place,
-        is_closure: bool,
-    ) -> Option<Constraints> {
-        match ctxt.get_constraints(caller_scope, place, is_closure) {
-            Some(val) => match val {
-                MapValue::Constraints(constraints_) => {
-                    Some(self.lift_traitobjtys(maybe_trait_argty, constraints_))
-                }
-                _ => panic!("arg is a scope"),
-            },
-            _ => None,
-        }
-    }
-    */
 
     fn check_sig_boundvars(&self, sig: &PolyFnSig) {
         if !sig.bound_vars.is_empty() {
@@ -1835,22 +1466,12 @@ impl<'a> InterpPass<'a> {
     fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
         //debug!("sigval: {:?}", sigval);
         if !sigval.bound_tys.is_empty() {
-            // Mirrors check_sig_boundvars' still-unhandled case: a Ty-kind
-            // bound variable means skip_binder() (already applied when
-            // SigVal::new_from_poly built `output`) may have left a bound
-            // type-var index that's meaningless outside its original
-            // binder context. Not yet safe to just proceed - keep this a
-            // loud, informative panic rather than silently guessing.
             todo!(
                 "SigVal fallback with bound type-vars in signature: {:?}",
                 sigval.bound_tys
             );
         }
 
-        // Return output type that matches type info (widening) - same
-        // pattern as retty_fallback_from_poly, just sourced from SigVal's
-        // already skip_binder()'d output instead of re-deriving it from a
-        // fresh PolyFnSig.
         let (_, constraint) = self
             .converter
             .convert_ty(&Location::unknown(), &sigval.output);
@@ -1873,7 +1494,6 @@ impl<'a> InterpPass<'a> {
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         caller_scope: &VOID,
-        //callee_scope: Option<VOID>,
         local_decls: &[LocalDecl],
         bb: usize,
         fndef: &FnDef,
@@ -1882,8 +1502,6 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         debug!("\nDYNAMIC CALL - fndef: {:?}\n", fndef);
         log_scope(caller_scope);
-        //debug!("args: {:?}", args);
-        //debug!("genargs: {:?}", genargs);
 
         // Get trait that this function is associated with
         // - tstore.assoc_fn_traits (Map<AssocFn, Trait>)
@@ -1902,11 +1520,6 @@ impl<'a> InterpPass<'a> {
         } else {
             assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
         }
-        //debug!(
-        //    "CHA impls (len={:?}): {:?}",
-        //    assoc_fn_impls_cha.len(),
-        //    assoc_fn_impls_cha
-        //);
 
         for (cha_impl, _) in &assoc_fn_impls_cha {
             if *cha_impl == fndef.0 {
@@ -1923,11 +1536,6 @@ impl<'a> InterpPass<'a> {
             &fndef.0,
             args,
         );
-        //debug!(
-        //    "FSA impls (len={:?}): {:?}",
-        //    assoc_fn_impls_fsa.len(),
-        //    assoc_fn_impls_fsa
-        //);
 
         for fsa_impl in &assoc_fn_impls_fsa {
             if !assoc_fn_impls_cha.contains(&fsa_impl) {
@@ -1959,7 +1567,6 @@ impl<'a> InterpPass<'a> {
                 fndef,
             );
         }
-        //debug!("term_span: {:?}", term_span);
 
         self.dispatch_cha
             .borrow_mut()
@@ -2175,7 +1782,6 @@ impl<'a> InterpPass<'a> {
         ctxt: &Context,
         term_span: &Span,
         caller_scope: &VOID,
-        //callee_scope: &VOID,
         local_decls: &[LocalDecl],
         trait_defid: &DefId,
         assoc_fn_defid: &DefId,
@@ -2222,21 +1828,6 @@ impl<'a> InterpPass<'a> {
         // Get concrete type constraints for trait object
         match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
             Some(constraints) => {
-                // If we're inside a Step 2 summary build (see
-                // build_param_summary) and the receiver's tracked
-                // constraints trace back to a parameter we don't have a
-                // concrete value for yet, resolve_defid's existing
-                // Param(..) => (false, vec![]) arm is about to make this
-                // dispatch fall back to the full CHA candidate set - every
-                // known implementor of the trait, not just the one the
-                // real caller's concrete receiver would actually hit. That
-                // makes whatever gets returned here just as
-                // parameter-value-dependent as a switchint branch would be
-                // (see the identical check in interp_switchint) - flag it
-                // for the same reason: unioning every implementor's result
-                // into a cached, reused-for-every-call summary would be
-                // strictly less precise than any real call (which knows
-                // the concrete receiver type) would get.
                 if crate::constraints::contains_param(&constraints) {
                     if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
                         *tainted = true;
@@ -2244,17 +1835,6 @@ impl<'a> InterpPass<'a> {
                 }
                 constraints
             }
-            // No recorded constraints for this place isn't a bug on its
-            // own - it can genuinely happen for a trait object reached
-            // through a chain the interpreter doesn't yet track precisely
-            // (e.g. Arc<dyn Trait>'s raw-pointer/transmute-based internals -
-            // ArcInner, NonNull, ptr casts). An empty Constraints here means
-            // "FSA has no concrete-type information for this place", which
-            // is exactly the case interp_virtual_call already handles
-            // soundly by falling back to the coarser CHA-based candidate
-            // set (`if assoc_fn_impls_fsa.is_empty() { ...fall back to CHA...
-            // }`) - panicking here would turn an already-designed-for
-            // degradation path into a hard crash instead.
             None => {
                 debug!(
                     "place {:?} has no constraints - returning empty (FSA will fall back to CHA)",
@@ -2266,7 +1846,7 @@ impl<'a> InterpPass<'a> {
     }
 
     /// For each concrete type constraint, if it contains a type that implements the trait of the
-    /// traitobject we are dispatching on, return that type's DefId (FIXME remove: along with its generic args)
+    /// traitobject we are dispatching on, return that type's DefId
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
     fn get_fsa_constraint_defids(
@@ -2278,10 +1858,6 @@ impl<'a> InterpPass<'a> {
         let mut defids = Vec::new();
         let mut is_closure = false;
         for constraint in &tyconstraints.inner {
-            //debug!(
-            //    "FSA LOOP: cfc={:?} toc={:?}",
-            //    constraint.cfc, constraint.toc
-            //);
             let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, &constraint);
             is_closure = is_closure || is_closure_;
             unique_append(&mut defids, res);
@@ -2290,7 +1866,7 @@ impl<'a> InterpPass<'a> {
     }
 
     /// If a concrete type constraint contains a type that implements the trait of the
-    /// traitobject we are dispatching on, return that type's DefId (FIXME remove associated generic args?)
+    /// traitobject we are dispatching on, return that type's DefId
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
     fn resolve_defid(
@@ -2352,16 +1928,6 @@ impl<'a> InterpPass<'a> {
                         }
                         (false, defids)
                     }
-                    // Symbolic parameter from a summary being built (see
-                    // build_param_summary) - we can't know at summary-build
-                    // time what concrete type the real caller's argument
-                    // will turn out to be, so contribute nothing here,
-                    // exactly like an unresolved Dynamic constraint above.
-                    // The empty FSA result this produces already makes
-                    // interp_virtual_call fall back to the full CHA set
-                    // (every known implementor of the trait) - the same
-                    // sound degradation path used for any other
-                    // FSA-can't-tell-you-more case.
                     RunningConstraint::Param(..) => (false, vec![]),
                     _ => todo!("{:?}", cfc),
                 }
@@ -2386,38 +1952,28 @@ impl<'a> InterpPass<'a> {
             Some(traits) => {
                 if traits.contains(trait_defid) {
                     if genargs.0.is_empty() {
-                        //debug!("no genargs");
                         unique_push(&mut resvec, (adtdef.0, None));
                     } else {
-                        //debug!("some genargs");
                         unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
                     }
                 }
             }
             None => {}
         }
-        //debug!("RESVEC 0: {:?}", resvec);
 
         // Search in fields (in addition to genargs) b/c constraints are already there + don't need
-        // to reconstruct them; however, this might pose a termination problem - maybe only search in
-        // fields for types that are known to essentially be "wrappers" (e.g. Box, NonNull, Unique, etc)
+        // to reconstruct them; however, this might pose a termination problem
         for (_key, field_constraints) in fields {
-            //if self.converter.wrapper_kind(adtdef).is_some() {
             for fc in &field_constraints.inner {
-                //debug!("resolving defid for FIELD: {:?}", fc);
                 let (_is_closure, inner_resvec) = self.resolve_defid(term_span, trait_defid, fc);
                 unique_append(&mut resvec, inner_resvec);
             }
-            //}
         }
-        //debug!("RESVEC 1: {:?}", resvec);
 
         // Also search in genargs for an implementing type
-        //let mut resvec = Vec::new();
         for genarg in &genargs.0 {
             match self.converter.convert_genarg(&Location::unknown(), &genarg) {
                 Some(genarg_constraint) => {
-                    //debug!("resolving defid for GENARG: {:?}", genarg_constraint);
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
                     unique_append(&mut resvec, inner_resvec);
@@ -2425,9 +1981,7 @@ impl<'a> InterpPass<'a> {
                 _ => {}
             }
         }
-        //debug!("RESVEC 2: {:?}", resvec);
 
-        //debug!("RETURNED RESVEC: {:?}", resvec);
         (false, resvec)
     }
 
@@ -2446,7 +2000,6 @@ impl<'a> InterpPass<'a> {
         is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
         let mut results = Vec::<Option<Constraints>>::new();
-        //let mut ctxt_vec = Vec::new();
 
         debug!("\nSIMULATING STATIC CALL(S)");
         let len = assoc_fn_impls.len();
@@ -2475,7 +2028,6 @@ impl<'a> InterpPass<'a> {
             } else {
                 method_genargs.clone()
             };
-            //debug!("TOTAL genargs: {:?}", genargs);
 
             // TODO different resolves for fn_ptr / closure
             let fndef = FnDef(*assoc_fn_impl);
@@ -2574,31 +2126,17 @@ impl<'a> InterpPass<'a> {
                     None => ctxt_clone,
                     Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
                 });
-
-                //ctxt_vec.push(ctxt_clone);
             }
         }
 
-        //self.merge_ctxts_and_set(ctxt, &mut ctxt_vec);
         *ctxt = acc.unwrap();
         self.merge_results_and_ret(&mut results)
     }
-
-    //fn merge_ctxts_and_set(&self, ctxt: &mut Context, ctxt_vec: &mut Vec<Context>) {
-    //    match ctxt_vec.merge() {
-    //        Ok(Some(merged_ctxt)) => {
-    //            *ctxt = merged_ctxt;
-    //        }
-    //        Ok(None) => panic!("ctxts empty?"),
-    //        Err(_) => panic!(),
-    //    }
-    //}
 
     fn merge_results_and_ret(
         &self,
         results: &mut Vec<Option<Constraints>>,
     ) -> Result<Option<Constraints>, Error> {
-        // Filter out None constraints and unwrap all Some options
         let filtered_results: Vec<Constraints> = results
             .into_iter()
             .filter(|option| option.is_some())
@@ -2628,17 +2166,6 @@ impl<'a> InterpPass<'a> {
             Operand::Copy(place) | Operand::Move(place) => {
                 match ctxt.get_constraints(cur_scope, local_decls, place, false) {
                     Some(constraints) => {
-                        // If we're inside a Step 2 summary build (see
-                        // build_param_summary) and this switch's outcome
-                        // depends on a parameter we don't have a concrete
-                        // value for yet, set_bytemap's existing "unknown ->
-                        // don't prune, visit every branch" fallback below
-                        // is about to silently union all branches into
-                        // whatever summary is being built - flag it so
-                        // build_param_summary discards the result instead
-                        // of caching a result that's less precise than any
-                        // real call (which would know the concrete value)
-                        // would have gotten.
                         if crate::constraints::contains_param(&constraints) {
                             if let Some(tainted) =
                                 self.summary_build_taint_stack.borrow_mut().last_mut()
@@ -2674,7 +2201,6 @@ impl<'a> InterpPass<'a> {
     fn set_bytemap(
         &self,
         constraints: &Constraints,
-        //branches: impl Iterator<Item = (u128, BasicBlockIdx)>,
         targets: &SwitchTargets,
         discr_vals: &mut [u8],
     ) {
@@ -2699,7 +2225,6 @@ impl<'a> InterpPass<'a> {
                         let mut set = false;
                         for (i, (val, _bb)) in targets.branches().enumerate() {
                             if *num == <u128 as TryInto<i128>>::try_into(val).unwrap() {
-                                //if num == val.try_into().unwrap() {
                                 discr_vals[usize::try_from(i).unwrap()] += 1;
                                 set = true;
                             }
@@ -2831,10 +2356,8 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("\n\n\n#############################");
         debug!("RETURNING from scope {:?}...", cur_scope.0.name());
         log_call_stack(call_stack);
-        //debug!("#############################\n\n");
 
         let ret_place = Place {
             local: 0,
@@ -2876,8 +2399,6 @@ impl<'a> InterpPass<'a> {
 
         let old_scope = self.prepare_return(call_stack);
         if old_scope.clone().unwrap() != *cur_scope {
-            //debug!("\nold_scope: {:?}", old_scope.unwrap().0.name());
-            //debug!("cur_scope: {:?}", cur_scope.0.name());
             log_call_stack(call_stack);
             panic!("call stack out of sorts");
         }
@@ -2909,8 +2430,6 @@ impl<'a> InterpPass<'a> {
 
         *self.rec_depth.borrow_mut() += 1;
         for (scope, constraints, stack) in queued {
-            //debug!("\treinterp queued recursive {:?}", scope.0.name());
-
             let depth = call_stack.len();
 
             // reevaluate recursive calls

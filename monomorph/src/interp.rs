@@ -1534,7 +1534,7 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        let (is_closure, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
+        let (is_closure, receiver_is_param, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
             ctxt,
             term_span,
             caller_scope,
@@ -1544,13 +1544,35 @@ impl<'a> InterpPass<'a> {
             args,
         );
 
+        let fsa_empty = assoc_fn_impls_fsa.is_empty();
+
+        // The receiver's constraint is a `Param` placeholder, not a real (even if
+        // unresolvable) value - we're inside `build_param_summary`, interpreting this
+        // function generically before any caller's concrete argument is known. An empty
+        // FSA set here means "not yet known", not "known and CHA-sized"; falling back to
+        // CHA and simulating its impls would (a) permanently bake an inflated/wrong answer
+        // into `dispatch_cha`/`dispatch_targets` for this call site, before the real
+        // per-call-site receiver type - which is exactly what would let FSA beat CHA here -
+        // is ever consulted, and (b) simulate those impls with genargs that still carry the
+        // trait-object receiver's type, which can resolve back to the same `Virtual`
+        // instance being dispatched and crash rustc's mono/shim machinery. Bail out the same
+        // way other param-driven control flow does, so `build_param_summary` discards this
+        // build (`ParamSummary::Unavailable`) and the call gets re-interpreted for real once
+        // a concrete receiver is available.
+        if fsa_empty && receiver_is_param {
+            debug!(
+                "FSA empty because receiver is an unresolved summary param (not yet known) - \
+                 deferring to real call site instead of falling back to CHA"
+            );
+            return Err(Error::SummaryImprecise);
+        }
+
         for fsa_impl in &assoc_fn_impls_fsa {
             if !assoc_fn_impls_cha.contains(&fsa_impl) {
                 error!("CHA missing impl: {:?}", fsa_impl);
             }
         }
 
-        let fsa_empty = assoc_fn_impls_fsa.is_empty();
         if fsa_empty {
             debug!("nothing to call, FSA set is empty, falling back to CHA");
             assoc_fn_impls_fsa = assoc_fn_impls_cha.clone();
@@ -1804,6 +1826,9 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// Returns `(is_closure, receiver_is_unresolved_param, impls)`. See
+    /// `get_fsa_tyconstraints` for what `receiver_is_unresolved_param` means and why callers must
+    /// not conflate it with a genuinely-empty FSA result.
     fn get_impls_fsa(
         &self,
         ctxt: &Context,
@@ -1813,11 +1838,12 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
-    ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+    ) -> (bool, bool, Vec<(DefId, Option<GenericArgs>)>) {
         debug!("\n\nGETTING FSA IMPLS");
         let place = self.get_traitobj_place(args);
         debug!("traitobj place: {:?}", place);
-        let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
+        let (receiver_is_param, tyconstraints) =
+            self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
         debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
@@ -1828,6 +1854,7 @@ impl<'a> InterpPass<'a> {
         //);
         (
             is_closure,
+            receiver_is_param,
             self.get_impls_from_defids(assoc_fn_defid, &constraint_defids, true),
         )
     }
@@ -1845,29 +1872,36 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// Returns `(receiver_is_unresolved_param, constraints)`. `receiver_is_unresolved_param` is
+    /// true when the trait-object receiver's constraint is (or contains) a `Param` placeholder -
+    /// i.e. we're inside `build_param_summary`, interpreting this function generically before any
+    /// real caller's argument is known, rather than genuinely having no concrete-type info about a
+    /// real value. Callers must NOT treat that case the same as a real "FSA has nothing" answer:
+    /// a `Param` receiver means "not yet known", not "known to be unresolvable".
     fn get_fsa_tyconstraints(
         &self,
         ctxt: &Context,
         caller_scope: &VOID,
         local_decls: &[LocalDecl],
         place: Place,
-    ) -> Constraints {
+    ) -> (bool, Constraints) {
         // Get concrete type constraints for trait object
         match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
             Some(constraints) => {
-                if crate::constraints::contains_param(&constraints) {
+                let is_param = crate::constraints::contains_param(&constraints);
+                if is_param {
                     if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
                         *tainted = true;
                     }
                 }
-                constraints
+                (is_param, constraints)
             }
             None => {
                 debug!(
                     "place {:?} has no constraints - returning empty (FSA will fall back to CHA)",
                     place
                 );
-                Constraints::new()
+                (false, Constraints::new())
             }
         }
     }

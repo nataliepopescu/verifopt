@@ -1058,6 +1058,7 @@ impl<'a> InterpPass<'a> {
                 args,
                 &genargs,
                 &new_cs,
+                false,
             ),
             InstanceKind::Virtual { .. } => self.interp_virtual_call(
                 term_span,
@@ -1074,7 +1075,11 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    fn build_param_summary(&self, scope: &VOID) -> Result<Option<Constraints>, Error> {
+    fn build_param_summary(
+        &self,
+        scope: &VOID,
+        is_closure: bool,
+    ) -> Result<Option<Constraints>, Error> {
         self.building_summaries.borrow_mut().insert(scope.clone());
 
         let body = self.get_body(scope);
@@ -1091,8 +1096,9 @@ impl<'a> InterpPass<'a> {
 
         let mut substore = ConstraintStore::new();
         for (i, cs) in param_cs.iter().enumerate() {
+            let local = if is_closure { i + 2 } else { i + 1 };
             let place = Place {
-                local: i + 1,
+                local,
                 projection: vec![],
             };
             substore.cmap.insert(
@@ -1154,6 +1160,7 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         genargs: &GenericArgs,
         cur_cs: &Vec<Constraints>,
+        is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
@@ -1179,7 +1186,7 @@ impl<'a> InterpPass<'a> {
                             .borrow_mut()
                             .insert(cur_scope.clone(), ParamSummary::Unavailable);
                     } else {
-                        match self.build_param_summary(cur_scope) {
+                        match self.build_param_summary(cur_scope, is_closure) {
                             Ok(built) => {
                                 debug!("built param_summary for {:?}", cur_scope.0.name());
                                 self.param_summaries
@@ -1225,7 +1232,7 @@ impl<'a> InterpPass<'a> {
                 local_decls,
                 args,
                 genargs,
-                false,
+                is_closure,
             );
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
@@ -2091,9 +2098,7 @@ impl<'a> InterpPass<'a> {
                     self.get_body(&callee_scope)
                 };
 
-                let key = summary_key(
-                    self,
-                    callee_scope.clone(),
+                let cs = self.collect_resolved_args(
                     ctxt,
                     term_span,
                     cur_scope,
@@ -2103,23 +2108,18 @@ impl<'a> InterpPass<'a> {
                     is_closure,
                 );
 
-                self.resolve_args(
-                    &mut ctxt_clone,
+                results.push(self.interp_static_call(
                     term_span,
-                    cur_scope,
-                    &body,
-                    &callee_scope,
-                    local_decls,
-                    args,
-                    &genargs,
-                    is_closure,
-                );
-                self.prepare_call(&mut call_stack_clone, &key);
-                results.push(self.visit_body(
                     &mut ctxt_clone,
                     &mut call_stack_clone,
+                    cur_scope,
                     &callee_scope,
-                    &body,
+                    local_decls,
+                    fndef,
+                    args,
+                    &genargs,
+                    &cs,
+                    is_closure,
                 )?);
 
                 acc = Some(match acc {

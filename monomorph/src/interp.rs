@@ -1744,6 +1744,16 @@ impl<'a> InterpPass<'a> {
     /// If there are no candidates based on input constraints, and this is on the FSA path, add the default
     /// implementation to the returned candidate function set, if there exists one.
     /// For CHA, add the default implementation (if it exists) no matter what.
+    // True if ty is an Adt with a free TyKind::Param in its own GenericArgs.
+    fn ty_has_unresolved_param(ty: &Ty) -> bool {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Adt(_, args)) => args.0.iter().any(
+                |k| matches!(k, GenericArgKind::Type(t) if matches!(t.kind(), TyKind::Param(_))),
+            ),
+            _ => false,
+        }
+    }
+
     fn get_impls_from_defids(
         &self,
         assoc_fn_defid: &DefId,
@@ -1761,24 +1771,26 @@ impl<'a> InterpPass<'a> {
                         assoc_fn_impl
                             .clone()
                             .into_iter()
-                            .map(|x| {
+                            .filter_map(|x| {
                                 if x == *assoc_fn_defid {
-                                    // Inherited default (trait_collect fills
-                                    // this in as (default_defid, default_defid) -
-                                    // no per-impl DefId exists). x is the
-                                    // trait's own declaration, generic over
-                                    // Self - Instance::resolve needs Self
-                                    // substituted or it resolves to Virtual.
-                                    // First GenericArgs slot is always Self;
-                                    // simulate_static_calls fills in the rest
-                                    // from the call site's own genargs.
+                                    // Inherited default method - x is the trait's own
+                                    // decl defid, generic over Self.
                                     let self_ty = match genargs {
                                         Some(g) => AdtDef(*defid).ty_with_args(g),
                                         None => AdtDef(*defid).ty(),
                                     };
-                                    (x, Some(GenericArgs(vec![GenericArgKind::Type(self_ty)])))
+                                    if Self::ty_has_unresolved_param(&self_ty) {
+                                        // defid itself generic, no concrete
+                                        // instantiation available - skip.
+                                        None
+                                    } else {
+                                        Some((
+                                            x,
+                                            Some(GenericArgs(vec![GenericArgKind::Type(self_ty)])),
+                                        ))
+                                    }
                                 } else {
-                                    (x, genargs.clone())
+                                    Some((x, genargs.clone()))
                                 }
                             })
                             .collect(),
@@ -2127,7 +2139,13 @@ impl<'a> InterpPass<'a> {
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                 continue;
             }
-            let instance_ = Instance::resolve(fndef, &genargs).unwrap();
+            let instance_ = match Instance::resolve(fndef, &genargs) {
+                Ok(i) => i,
+                Err(_) => {
+                    results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                    continue;
+                }
+            };
             let (is_virtual, instance) = match instance_.kind {
                 // Likely a default trait method implementation, convert to a concrete InstanceKind
                 // so we can interpret it

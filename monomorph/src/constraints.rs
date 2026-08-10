@@ -1,6 +1,5 @@
 use crate::interp::InterpPass;
 use crate::rustc_public::CrateDef;
-//use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
 
 use rustc_public::DefId;
@@ -16,30 +15,10 @@ use crate::wto::BBDeps;
 
 //use log::debug;
 
+use im::HashMap as ImHashMap;
 use indexmap::IndexSet;
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-
-// Persistent/structurally-shared map: cloning an im::HashMap is O(1) (just
-// bumps a refcount on the shared tree) instead of walking and deep-cloning
-// every entry, unlike std/Fx HashMap. cstore.cmap accumulates one entry per
-// scope/variable visited across the *entire* program, and Context::clone()
-// (derived Clone) clones it wholesale once per candidate at every dynamic-
-// dispatch site - so with a plain HashMap that clone cost grows with how
-// much of the program has been analyzed so far, compounding badly at
-// dispatch-heavy points (e.g. a trait with 100+ impls). Aliased distinctly
-// from `HashMap` above (FxHashMap) since this crate's API mirrors std's
-// closely enough that call sites (.get/.get_mut/.insert/.remove/.iter) need
-// no changes beyond the field's declared type.
-use im::HashMap as ImHashMap;
-
-//pub fn unique_update(ret: ConstraintsAndFields, new: ConstraintsAndFields) -> ConstraintsAndFields {
-//    let (mut old_constraints, mut old_fields) = ret;
-//    let (new_constraints, new_fields) = new;
-//    unique_append(&mut old_constraints, new_constraints.to_vec());
-//    unique_append(&mut old_fields, new_fields.to_vec());
-//    (old_constraints, old_fields)
-//}
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -73,14 +52,6 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
-/// Extracts the field index from a `ProjectionElem::Field`. `ADTFields` is
-/// keyed on this `usize` alone - not the whole `ProjectionElem` - since a
-/// field's type is fully determined by its index for a given ADT/variant,
-/// and the embedded `Ty` carries an interned id that isn't guaranteed
-/// identical across every derivation of "the same type" (see the sip::State
-/// oscillation bug this replaced). Public so callers building/reading
-/// `ADTFields` outside this module (convert.rs, interp.rs, stdlib_stubs.rs)
-/// can key it the same way.
 pub fn adt_field_idx(elem: &ProjectionElem) -> usize {
     match elem {
         ProjectionElem::Field(idx, _) => *idx,
@@ -94,15 +65,6 @@ pub struct Constraints {
     pub inner: IndexSet<Constraint>,
 }
 
-// IndexSet<T> intentionally doesn't implement Hash even when T: Hash - same
-// reason std::collections::HashSet doesn't: its PartialEq/Eq (which it does
-// provide) compares as an unordered set, so a consistent Hash needs a
-// commutative combining function, which the std/indexmap authors leave to
-// the caller rather than choosing one for you. Needed here because
-// RunningConstraint::Idk(Box<Constraints>) requires Constraints: Hash for
-// its own #[derive(Hash)] to resolve. XOR-folding each element's individual
-// hash keeps this order-independent, matching the Eq above (a == b must
-// imply hash(a) == hash(b), and a/b can differ in insertion order here).
 impl Hash for Constraints {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let mut combined: u64 = 0;
@@ -201,12 +163,6 @@ impl Constraints {
             // as filter_variant on the read side.
             (1, target_variant) => {
                 let idx = adt_field_idx(&field[0]);
-                // Can't mutate elements of an IndexSet in place via iter_mut()
-                // (it doesn't exist - an element IS its own hash key, so an
-                // in-place edit that changes the hash would silently corrupt
-                // the set's bucket layout). Take ownership of every disjunct,
-                // transform it, and reinsert - insert() recomputes the hash
-                // correctly for the new content.
                 self.inner = std::mem::take(&mut self.inner)
                     .into_iter()
                     .map(|mut c| {
@@ -401,27 +357,13 @@ pub enum RunningConstraint {
     Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),
     /// Symbolic placeholder used only while building a *parametric function
-    /// summary* (see `InterpPass::build_param_summary`): "the value in
-    /// argument position `usize`, with the given projection path already
-    /// applied." Never appears during ordinary interpretation of concrete
-    /// calls - only while visiting a function body seeded with these
-    /// placeholders instead of real argument constraints, so the resulting
-    /// Constraints can later be replayed against any real ArgSet via
-    /// `substitute_params` without re-interpreting the body at all.
-    /// Every existing "unknown shape" fallback in this interpreter (CHA/FSA
-    /// dispatch resolution, switchint's no-prune-on-unknown path, opaque
-    /// flattening) already treats this conservatively/correctly with no
-    /// changes needed; only step_field_one/filter_variant needed a new arm
-    /// so a param survives a field/variant projection instead of collapsing
-    /// to "no info" the moment code touches it.
+    /// summary*: "the value in argument position `usize`, with the given
+    /// projection path already applied."
     Param(usize, Vec<ProjStep>),
 }
 
 /// One step of a projection path recorded onto a `Param` placeholder while
-/// building a parametric summary. Deliberately a small mirror of just the
-/// two `ProjectionElem` cases `step_field_one`/`filter_variant` understand -
-/// not the full `ProjectionElem` enum - since those are the only two kinds
-/// of projection this interpreter models with field-level precision.
+/// building a parametric summary.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProjStep {
     Field(usize),
@@ -497,18 +439,6 @@ fn substitute_toc(
 /// Ptr / List / Idk / trait-obj-constraint fields the summary wrapped
 /// them in) and replaces each with `actual_args[i]` after replaying its
 /// recorded projection path.
-/// Detects whether `cs` contains a `Param` placeholder anywhere -
-/// transitively, through Adt fields / Tuple elements / Ptr / List / Idk
-/// wrapping, mirroring the same traversal shape as `flatten_one`. Used by
-/// `InterpPass::interp_switchint` to notice when a switch's discriminant is
-/// driven by an as-yet-unresolved summary parameter rather than a concrete
-/// value: unioning both branches in that case (which is what
-/// `set_bytemap`'s existing "unknown -> don't prune" fallback already does,
-/// soundly) would silently bake a strictly-less-precise result into a
-/// *cached, reused-for-every-call* summary - e.g. a `match arg { 0 => A, _
-/// => B }` constructor selector, where every real call actually knows which
-/// branch it took. `InterpPass::build_param_summary` uses this to detect
-/// that case and bail the whole build rather than caching it.
 pub fn contains_param(cs: &Constraints) -> bool {
     cs.inner.iter().any(constraint_contains_param)
 }
@@ -729,17 +659,9 @@ pub fn summary_key(
         args,
         is_closure,
     );
-    //.into_iter()
-    //.map(|(cs, _)| cs)
-    //.collect();
 
     (scope, ArgSet::new(&cs))
 }
-
-// These should only be Field ProjectionElems. The convention is that any time one of these
-// field projections is used, it will be prepended by a Deref ProjectionElem
-//pub type FieldProjections = Vec<ProjectionElem>;
-//pub type FieldPlace = Place;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Context {
@@ -798,9 +720,7 @@ impl Context {
     /// `step_field`/`filter_variant` for reads through types we've decided
     /// not to model with precise field indices (see `is_opaque_internal`)
     /// - safe even though it's imprecise, since it can only ever surface
-    /// *more* candidates than a precise lookup would, never fewer: nothing
-    /// nested inside gets lost just because we don't trust the requested
-    /// index/variant.
+    /// *more* candidates than a precise lookup would, never fewer
     pub fn flatten_all(&self, constraints: &Constraints) -> Constraints {
         let mut out = Constraints::new();
         for constraint in &constraints.inner {
@@ -882,13 +802,7 @@ impl Context {
             }
             // Scalar/Float/Dynamic/Closure/etc: this disjunct has no field structure at all,
             // so it contributes no information to the projection - not an error.
-            _ => {
-                //debug!(
-                //    "unexpected running constraint type to have projections: {:?}",
-                //    constraint.cfc
-                //);
-                Constraints::new()
-            }
+            _ => Constraints::new(),
         }
     }
 
@@ -937,11 +851,9 @@ impl Context {
                         if !opaque_from_here {
                             match elem {
                                 ProjectionElem::Downcast(vidx) => {
-                                    //debug!("\ndowncast projection: {:?}", elem);
                                     cur = cur.filter_variant(*vidx);
                                 }
                                 ProjectionElem::Field(..) => {
-                                    //debug!("\nfield projection: {:?}", elem);
                                     cur = self.step_field(scope, &cur, elem);
                                 }
                                 _ => {}

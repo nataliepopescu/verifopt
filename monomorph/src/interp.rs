@@ -1634,6 +1634,7 @@ impl<'a> InterpPass<'a> {
             genargs,
             args,
             is_closure,
+            &fndef.0,
         )
     }
 
@@ -1738,7 +1739,26 @@ impl<'a> InterpPass<'a> {
                         assoc_fn_impl
                             .clone()
                             .into_iter()
-                            .map(|x| (x, genargs.clone()))
+                            .map(|x| {
+                                if x == *assoc_fn_defid {
+                                    // Inherited default (trait_collect fills
+                                    // this in as (default_defid, default_defid) -
+                                    // no per-impl DefId exists). x is the
+                                    // trait's own declaration, generic over
+                                    // Self - Instance::resolve needs Self
+                                    // substituted or it resolves to Virtual.
+                                    // First GenericArgs slot is always Self;
+                                    // simulate_static_calls fills in the rest
+                                    // from the call site's own genargs.
+                                    let self_ty = match genargs {
+                                        Some(g) => AdtDef(*defid).ty_with_args(g),
+                                        None => AdtDef(*defid).ty(),
+                                    };
+                                    (x, Some(GenericArgs(vec![GenericArgKind::Type(self_ty)])))
+                                } else {
+                                    (x, genargs.clone())
+                                }
+                            })
                             .collect(),
                     );
                 }
@@ -1798,7 +1818,7 @@ impl<'a> InterpPass<'a> {
         let place = self.get_traitobj_place(args);
         debug!("traitobj place: {:?}", place);
         let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
-        //debug!("tyconstraints: {:?}", tyconstraints);
+        debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
         //debug!(
@@ -2005,6 +2025,7 @@ impl<'a> InterpPass<'a> {
         method_genargs: &GenericArgs,
         args: &Vec<Operand>,
         is_closure: bool,
+        assoc_fn_defid: &DefId,
     ) -> Result<Option<Constraints>, Error> {
         let mut results = Vec::<Option<Constraints>>::new();
 
@@ -2019,7 +2040,26 @@ impl<'a> InterpPass<'a> {
                 i + 1,
                 len
             );
-            let genargs = if is_closure && adt_genargs.is_some() {
+            let genargs = if *assoc_fn_impl == *assoc_fn_defid {
+                // Inherited default method: assoc_fn_impl is the trait's own
+                // decl defid, generic over Self, not a per-impl defid.
+                // get_impls_from_defids packed Self's Ty as adt_genargs'
+                // only element - splice it with whatever else the method's
+                // own params need, borrowed from the working call-site
+                // genargs (position 0 there is Self=dyn Trait, replaced;
+                // anything after is preserved as-is).
+                let self_ty = adt_genargs
+                    .as_ref()
+                    .and_then(|g| g.0.first())
+                    .and_then(|k| k.ty())
+                    .copied()
+                    .expect("get_impls_from_defids should set Self for a default method");
+                GenericArgs(
+                    std::iter::once(GenericArgKind::Type(self_ty))
+                        .chain(method_genargs.0.iter().skip(1).cloned())
+                        .collect(),
+                )
+            } else if is_closure && adt_genargs.is_some() {
                 GenericArgs(
                     adt_genargs
                         .clone()

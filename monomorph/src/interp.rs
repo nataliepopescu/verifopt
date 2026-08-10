@@ -3,15 +3,17 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
 use rustc_public::DefId;
-use rustc_public::mir::mono::{Instance, InstanceKind};
+use rustc_public::mir::mono::{Instance, InstanceKind, StaticDef};
 use rustc_public::mir::{
     BasicBlock, Body, BorrowKind, ConstOperand, CopyNonOverlapping, LocalDecl, Mutability,
     NonDivergingIntrinsic, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
+
+use rustc_public::mir::alloc::GlobalAlloc;
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
-    PolyFnSig, RigidTy, Span, Ty, TyKind,
+    PolyFnSig, RigidTy, Span, Ty, TyKind, ConstantKind, Prov,
 };
 use rustc_public::{CrateDef, CrateDefType};
 
@@ -20,7 +22,7 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, Prov,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, TagProv,
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
@@ -352,6 +354,55 @@ impl<'a> InterpPass<'a> {
         None
     }
 
+    fn static_rvalue(&self, rval: &Rvalue) -> Option<DefId> {
+        let op = match rval {
+            Rvalue::Use(op) | Rvalue::Cast(_, op, _) => op,
+            _ => return None,
+        };
+
+        if let Operand::Constant(co) = op
+            && let ConstantKind::Allocated(alloc) = co.const_.kind()
+        {
+            for (_off, Prov(aid)) in alloc.provenance.ptrs.iter() {
+                if let GlobalAlloc::Static(StaticDef(defid)) = GlobalAlloc::from(*aid) {
+                    return Some(defid);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn static_get_constraints(&self, ctxt: &mut Context, defid: DefId) -> Constraints {
+        if let Some(cs) = ctxt.get_static(defid) {
+            return cs;
+        }
+
+        let sdef = StaticDef(defid);
+        let ty = sdef.ty();
+
+        let alloc = match sdef.eval_initializer() {
+            Ok(a) => a,
+            Err(_) => {
+                let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+                return Constraints::from(c);
+            }
+        };
+
+        let mut seen = Vec::new();
+        let frozen = matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
+
+        let constraints = if frozen {
+            self.converter.convert_static_const(&Location::unknown(), &ty, &alloc)
+        } else {
+            let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+            Constraints::from(c)
+        };
+
+        ctxt.set_static(defid, constraints.clone());
+        constraints
+    }
+
     /// If any of the constraints contain a type that implements one of the Traits listed in
     /// `maybe_trait_destty`, copy those types and put them into the TraitObjConstraint field
     /// of the constraint, leaving the RunningConstraint field unchanged
@@ -431,6 +482,8 @@ impl<'a> InterpPass<'a> {
                         },
                     );
                     Constraints::new()
+                } else if let Some(defid) = self.static_rvalue(rvalue) {
+                    self.static_get_constraints(ctxt, defid)
                 } else {
                     self.converter.convert(
                         ctxt,
@@ -1644,7 +1697,7 @@ impl<'a> InterpPass<'a> {
 
         for c in cs.inner {
             let tags = match &c.prov {
-                Prov::Tags(t) if !t.is_empty() => t,
+                TagProv::Tags(t) if !t.is_empty() => t,
                 _ => return TagPlan::Poisoned,
             };
 

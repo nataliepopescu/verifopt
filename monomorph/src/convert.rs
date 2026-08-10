@@ -573,10 +573,8 @@ impl<'a> RvalConverter<'a> {
                         match self.tstore.struct_traits.get(&adtdef.0) {
                             Some(possible_traits) => {
                                 if let Some(trait_tys) = maybe_trait_ty {
-                                    if trait_tys.len() > 1 {
-                                        todo!();
-                                    }
-                                    if !possible_traits.contains(&trait_tys[0].def.0) {
+                                    if !trait_tys.iter().all(|t| possible_traits.contains(&t.def.0))
+                                    {
                                         return None;
                                     }
                                     return Some((
@@ -596,10 +594,6 @@ impl<'a> RvalConverter<'a> {
                     RunningConstraint::Closure(cdef, genargs) => {
                         // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
                         if let Some(trait_ty) = maybe_trait_ty {
-                            if trait_ty.len() > 1 {
-                                todo!();
-                            }
-
                             return Some((
                                 trait_ty[0].clone(),
                                 TraitObjConstraint::Closure(cdef.clone(), genargs.clone()),

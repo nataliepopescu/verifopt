@@ -66,6 +66,7 @@ pub struct InterpPass<'a> {
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
 
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
+    pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
     pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
     pub building_summaries: RefCell<HashSet<VOID>>,
@@ -101,6 +102,7 @@ impl<'a> InterpPass<'a> {
             incomplete: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
+            scope_exact_memo_count: HashMap::new().into(),
             param_summaries: HashMap::new().into(),
             summary_build_taint_stack: Vec::new().into(),
             building_summaries: HashSet::new().into(),
@@ -409,7 +411,7 @@ impl<'a> InterpPass<'a> {
 
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
-                debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
+                //debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
 
                 let mut write_proj = place.projection.as_slice();
                 while let [ProjectionElem::Deref, rest @ ..] = write_proj {
@@ -1211,8 +1213,23 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
+            let precise_count = *self
+                .scope_exact_memo_count
+                .borrow()
+                .get(cur_scope)
+                .unwrap_or(&0);
+            let memo_key: SummaryKey = if precise_count >= 50 {
+                let widened: Vec<Constraints> = cur_cs
+                    .iter()
+                    .map(crate::constraints::widen_constraints)
+                    .collect();
+                (cur_scope.clone(), ArgSet::new(&widened))
+            } else {
+                key.clone()
+            };
+
             let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
-            if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&key) {
+            if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
                 if *cached_epoch == epoch_before {
                     debug!(
                         "exact_memo hit for {:?} at epoch {}",
@@ -1239,9 +1256,17 @@ impl<'a> InterpPass<'a> {
 
             if let Ok(ref cs) = result {
                 let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+                let is_new = !self.exact_memo.borrow().contains_key(&memo_key);
                 self.exact_memo
                     .borrow_mut()
-                    .insert(key.clone(), (cs.clone(), epoch_after));
+                    .insert(memo_key.clone(), (cs.clone(), epoch_after));
+                if is_new && precise_count < 50 {
+                    *self
+                        .scope_exact_memo_count
+                        .borrow_mut()
+                        .entry(cur_scope.clone())
+                        .or_insert(0) += 1;
+                }
             }
 
             result
@@ -1400,7 +1425,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
-            debug!("arg constraints: {:?}", constraints);
+            //debug!("arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);
 
             new_ctxt.cstore.cmap.insert(
@@ -1856,7 +1881,7 @@ impl<'a> InterpPass<'a> {
         debug!("traitobj place: {:?}", place);
         let (receiver_is_param, tyconstraints) =
             self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
-        debug!("tyconstraints: {:?}", tyconstraints);
+        //debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
         //debug!(

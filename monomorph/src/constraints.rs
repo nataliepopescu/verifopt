@@ -439,6 +439,64 @@ fn substitute_toc(
 /// Ptr / List / Idk / trait-obj-constraint fields the summary wrapped
 /// them in) and replaces each with `actual_args[i]` after replaying its
 /// recorded projection path.
+// Strips value-level detail (concrete scalar values, Adt variant/fields,
+// provenance) while keeping structural identity (which AdtDef, which
+// closure/fn, which trait). Used past a per-scope exact_memo cap so
+// high-cardinality functions (quicksort-style value-dependent recursion,
+// Vec growth) collapse to one cache entry per type shape instead of one
+// per distinct value ever seen.
+pub fn widen_constraints(cs: &Constraints) -> Constraints {
+    let mut out = Constraints::new();
+    for c in &cs.inner {
+        out.push(widen_constraint(c));
+    }
+    out
+}
+
+fn widen_constraint(c: &Constraint) -> Constraint {
+    let toc = c.toc.as_ref().map(|(ty, tc)| (ty.clone(), widen_toc(tc)));
+    let cfc = c.cfc.as_ref().map(widen_rc);
+    Constraint::new(toc, cfc)
+}
+
+fn widen_toc(tc: &TraitObjConstraint) -> TraitObjConstraint {
+    match tc {
+        TraitObjConstraint::Adt(def, genargs, _, _) => {
+            TraitObjConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
+        }
+        TraitObjConstraint::Closure(cdef, genargs) => {
+            TraitObjConstraint::Closure(*cdef, genargs.clone())
+        }
+    }
+}
+
+fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
+    match rc {
+        RunningConstraint::Scalar(_) => RunningConstraint::Scalar(None),
+        RunningConstraint::Float => RunningConstraint::Float,
+        RunningConstraint::Adt(def, genargs, _, _) => {
+            RunningConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
+        }
+        RunningConstraint::Ptr(inner) => RunningConstraint::Ptr(Box::new(widen_constraint(inner))),
+        RunningConstraint::Closure(cdef, genargs) => {
+            RunningConstraint::Closure(*cdef, genargs.clone())
+        }
+        RunningConstraint::FnDef(fndef, genargs) => {
+            RunningConstraint::FnDef(*fndef, genargs.clone())
+        }
+        RunningConstraint::FnPtr(sig) => RunningConstraint::FnPtr(sig.clone()),
+        RunningConstraint::Dynamic(tys) => RunningConstraint::Dynamic(tys.clone()),
+        RunningConstraint::List(inner) => {
+            RunningConstraint::List(Box::new(widen_constraint(inner)))
+        }
+        RunningConstraint::Tuple(elems) => {
+            RunningConstraint::Tuple(elems.iter().map(widen_constraints).collect())
+        }
+        RunningConstraint::Idk(inner) => RunningConstraint::Idk(Box::new(widen_constraints(inner))),
+        RunningConstraint::Param(i, path) => RunningConstraint::Param(*i, path.clone()),
+    }
+}
+
 pub fn contains_param(cs: &Constraints) -> bool {
     cs.inner.iter().any(constraint_contains_param)
 }

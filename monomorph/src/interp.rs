@@ -65,6 +65,42 @@ pub enum TagPlan {
     ),
 }
 
+impl TagPlan {
+    fn join(&mut self, o: &TagPlan) {
+        match (&*self, o) {
+            (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => {
+                *self = TagPlan::Poisoned
+            }
+
+            (TagPlan::Tagged(a), TagPlan::Tagged(b)) => {
+                let mut by_site = HashMap::new();
+
+                for &(bb, stmt, did) in a.iter().chain(b.iter()) {
+                    match by_site.entry((bb, stmt)) {
+                        Entry::Vacant(e) => {
+                            e.insert(did);
+                        }
+                        Entry::Occupied(e) => {
+                            if *e.get() != did {
+                                *self = TagPlan::Poisoned;
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                let mut out: Vec<(usize, usize, DefId)> = by_site
+                    .into_iter()
+                    .map(|((bb, stmt), impl_did)| (bb, stmt, impl_did))
+                    .collect();
+                out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
+
+                *self = TagPlan::Tagged(out);
+            }
+        }
+    }
+}
+
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
@@ -1555,18 +1591,13 @@ impl<'a> InterpPass<'a> {
             args,
             fsa_empty,
         );
-        {
-            let mut dt = self.dispatch_tags.borrow_mut();
-            match dt.entry(key) {
-                Entry::Occupied(mut e) => {
-                    // disagreements between body walks
-                    if *e.get() != plan {
-                        e.insert(TagPlan::Poisoned);
-                    }
-                }
-                Entry::Vacant(e) => {
-                    e.insert(plan);
-                }
+        let mut dt = self.dispatch_tags.borrow_mut();
+        match dt.entry(key) {
+            Entry::Occupied(mut e) => {
+                e.get_mut().join(&plan);
+            }
+            Entry::Vacant(e) => {
+                e.insert(plan);
             }
         }
 

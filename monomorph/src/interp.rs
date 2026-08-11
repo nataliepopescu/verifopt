@@ -432,14 +432,18 @@ impl<'a> InterpPass<'a> {
                     )
                 };
                 debug!(
-                    "HERE1 disjuncts={}",
+                    "HERE1 scope={:?} local={} disjuncts={}",
+                    cur_scope.0.name(),
+                    place.local,
                     crate::constraints::constraints_size(&constraints)
                 );
 
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
                 debug!(
-                    "HERE2 disjuncts={}",
+                    "HERE2 scope={:?} local={} disjuncts={}",
+                    cur_scope.0.name(),
+                    place.local,
                     crate::constraints::constraints_size(&final_constraints)
                 );
                 //debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
@@ -451,7 +455,12 @@ impl<'a> InterpPass<'a> {
                 debug!("HERE3");
 
                 if write_proj.is_empty() {
-                    debug!("HERE3.1");
+                    debug!(
+                        "HERE3.1 scope={:?} local={} disjuncts={}",
+                        cur_scope.0.name(),
+                        place.local,
+                        crate::constraints::constraints_size(&final_constraints)
+                    );
                     ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
                 } else {
                     let base = Place {
@@ -462,19 +471,28 @@ impl<'a> InterpPass<'a> {
                     match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
                         Some(mut base_constraints) => {
                             debug!(
-                                "HERE3.2Ai base_disjuncts={}",
+                                "HERE3.2Ai scope={:?} local={} base_disjuncts={}",
+                                cur_scope.0.name(),
+                                base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
                             debug!(
-                                "HERE3.2Aii base_disjuncts={}",
+                                "HERE3.2Aii scope={:?} local={} base_disjuncts={}",
+                                cur_scope.0.name(),
+                                base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
                             debug!("HERE3.2Aiii");
                         }
                         None => {
+                            debug!(
+                                "HERE3.2B scope={:?} local={} (fresh base)",
+                                cur_scope.0.name(),
+                                base.local
+                            );
                             let mut base_constraints = Constraints::new();
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);

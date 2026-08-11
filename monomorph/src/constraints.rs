@@ -21,6 +21,21 @@ use std::collections::{BTreeMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::rc::Rc;
 
+// Once a base's own disjunct count has already proven itself this large,
+// write_field's per-disjunct loop (clone one, insert the new field into
+// it) costs O(base size) per call regardless of how cheap each individual
+// clone is - and that cost compounds across every subsequent write to the
+// same place. Matches the 50-entry convention used for the exact_memo/
+// summaries caps elsewhere in this codebase.
+const WRITE_FIELD_WIDEN_THRESHOLD: usize = 50;
+
+// Separate, much higher threshold for checking the *incoming* value's own
+// recursive size (constraints_size, not just top-level disjunct count).
+// Ordinary, non-pathological values legitimately reach into the low
+// thousands here (e.g. a struct's own field values observed up to ~3,330);
+// this only needs to catch cases orders of magnitude beyond that.
+const NEW_VALUE_WIDEN_THRESHOLD: usize = 5_000;
+
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
         Some(elem)
@@ -137,6 +152,19 @@ impl Constraints {
     // Write: strong-update the field within EVERY disjunct currently in scope.
     // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
     pub fn write_field(&mut self, projection: Vec<ProjectionElem>, new: Constraints) {
+        // The base-size cap below only catches "many base disjuncts, each
+        // getting a copy of new". It misses the other half: new itself
+        // already being huge before it ever reaches here, in which case
+        // even a single base disjunct ends up holding a multi-million-node
+        // value. Recursive size (not just new.inner.len()) is what matters,
+        // since new's own size could be hiding in nested fields rather
+        // than at its own top level.
+        let new = if constraints_size(&new) > NEW_VALUE_WIDEN_THRESHOLD {
+            widen_constraints(&new)
+        } else {
+            new
+        };
+
         let target_variant = projection.iter().find_map(|e| match e {
             ProjectionElem::Downcast(v) => Some(*v),
             _ => None,
@@ -166,6 +194,9 @@ impl Constraints {
             // as filter_variant on the read side.
             (1, target_variant) => {
                 let idx = adt_field_idx(&field[0]);
+                if self.inner.len() > WRITE_FIELD_WIDEN_THRESHOLD {
+                    *self = widen_constraints(self);
+                }
                 let old = std::mem::take(&mut self.inner);
                 let new_set: IndexSet<Constraint> = old
                     .iter()
@@ -191,6 +222,9 @@ impl Constraints {
                 let idx = adt_field_idx(first);
                 let rest = rest.to_vec();
 
+                if self.inner.len() > WRITE_FIELD_WIDEN_THRESHOLD {
+                    *self = widen_constraints(self);
+                }
                 let old = std::mem::take(&mut self.inner);
                 let new_set: IndexSet<Constraint> = old
                     .iter()

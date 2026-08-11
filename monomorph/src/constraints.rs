@@ -13,12 +13,13 @@ use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-use log::debug;
+//use log::debug;
 
 use im::HashMap as ImHashMap;
 use indexmap::IndexSet;
 use std::collections::{BTreeMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::rc::Rc;
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -62,13 +63,13 @@ pub fn adt_field_idx(elem: &ProjectionElem) -> usize {
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Constraints {
-    pub inner: IndexSet<Constraint>,
+    pub inner: Rc<IndexSet<Constraint>>,
 }
 
 impl Hash for Constraints {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let mut combined: u64 = 0;
-        for elem in &self.inner {
+        for elem in self.inner.iter() {
             let mut h = DefaultHasher::new();
             elem.hash(&mut h);
             combined ^= h.finish();
@@ -80,19 +81,21 @@ impl Hash for Constraints {
 impl Constraints {
     pub fn new() -> Constraints {
         Self {
-            inner: IndexSet::new(),
+            inner: Rc::new(IndexSet::new()),
         }
     }
 
     pub fn from(constraint: Constraint) -> Constraints {
-        let mut inner = IndexSet::with_capacity(1);
-        inner.insert(constraint);
-        Self { inner }
+        let mut set = IndexSet::with_capacity(1);
+        set.insert(constraint);
+        Self {
+            inner: Rc::new(set),
+        }
     }
 
     pub fn from_vec(inner: Vec<Constraint>) -> Constraints {
         Self {
-            inner: inner.into_iter().collect(),
+            inner: Rc::new(inner.into_iter().collect()),
         }
     }
 
@@ -119,15 +122,15 @@ impl Constraints {
         if let Some(existing) = self.inner.get(&new_constraint) {
             let mut merged = existing.clone();
             merged.prov.join(&new_constraint.prov);
-            self.inner.replace(merged);
+            Rc::make_mut(&mut self.inner).replace(merged);
         } else {
-            self.inner.insert(new_constraint);
+            Rc::make_mut(&mut self.inner).insert(new_constraint);
         }
     }
 
     pub fn append(&mut self, new_constraints: Constraints) {
-        for c in new_constraints.inner {
-            self.push(c);
+        for c in new_constraints.inner.iter() {
+            self.push(c.clone());
         }
     }
 
@@ -144,7 +147,6 @@ impl Constraints {
             .filter(|e| matches!(e, ProjectionElem::Field(..)))
             .collect();
 
-        debug!("FIELD LEN: {:?}", field.len());
         match (field.len(), target_variant) {
             // *x = v - no field, no downcast: replace the whole pointee outright.
             (0, None) => {
@@ -164,9 +166,11 @@ impl Constraints {
             // as filter_variant on the read side.
             (1, target_variant) => {
                 let idx = adt_field_idx(&field[0]);
-                self.inner = std::mem::take(&mut self.inner)
-                    .into_iter()
-                    .map(|mut c| {
+                let old = std::mem::take(&mut self.inner);
+                let new_set: IndexSet<Constraint> = old
+                    .iter()
+                    .map(|c| {
+                        let mut c = c.clone();
                         if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
                             let applies = match target_variant {
                                 Some(v) => variant.is_none() || *variant == Some(v),
@@ -179,6 +183,7 @@ impl Constraints {
                         c
                     })
                     .collect();
+                self.inner = Rc::new(new_set);
             }
 
             (_, _) => {
@@ -186,9 +191,11 @@ impl Constraints {
                 let idx = adt_field_idx(first);
                 let rest = rest.to_vec();
 
-                self.inner = std::mem::take(&mut self.inner)
-                    .into_iter()
-                    .map(|mut c| {
+                let old = std::mem::take(&mut self.inner);
+                let new_set: IndexSet<Constraint> = old
+                    .iter()
+                    .map(|c| {
+                        let mut c = c.clone();
                         if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
                             let applies = match target_variant {
                                 Some(v) => variant.is_none() || *variant == Some(v),
@@ -204,13 +211,14 @@ impl Constraints {
                         c
                     })
                     .collect();
+                self.inner = Rc::new(new_set);
             }
         }
     }
 
     pub fn filter_variant(&self, vidx: VariantIdx) -> Constraints {
         let mut out = Constraints::new();
-        for c in &self.inner {
+        for c in self.inner.iter() {
             match &c.cfc {
                 Some(RunningConstraint::Adt(_, _, variant, _)) => {
                     if variant.is_none() || *variant == Some(vidx) {
@@ -380,7 +388,7 @@ pub enum ProjStep {
 /// needing one.
 fn apply_field_idx(base: &Constraints, idx: usize) -> Constraints {
     let mut out = Constraints::new();
-    for c in &base.inner {
+    for c in base.inner.iter() {
         match &c.cfc {
             Some(RunningConstraint::Adt(_, _, _, fields)) => {
                 out.append(fields.get(&idx).cloned().unwrap_or_else(Constraints::new));
@@ -479,7 +487,7 @@ fn toc_size(tc: &TraitObjConstraint) -> usize {
 
 pub fn widen_constraints(cs: &Constraints) -> Constraints {
     let mut out = Constraints::new();
-    for c in &cs.inner {
+    for c in cs.inner.iter() {
         out.push(widen_constraint(c));
     }
     out
@@ -548,7 +556,7 @@ fn constraint_contains_param(c: &Constraint) -> bool {
 
 pub fn substitute_params(summary: &Constraints, actual_args: &[Constraints]) -> Constraints {
     let mut out = Constraints::new();
-    for c in &summary.inner {
+    for c in summary.inner.iter() {
         out.append(substitute_params_constraint(c, actual_args));
     }
     out
@@ -601,9 +609,9 @@ fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> 
         Some(RunningConstraint::Ptr(inner)) => {
             let substituted = substitute_params(&Constraints::from((**inner).clone()), actual_args);
             let mut out = Constraints::new();
-            for sc in substituted.inner {
+            for sc in substituted.inner.iter() {
                 out.push(
-                    Constraint::new(toc.clone(), Some(RunningConstraint::Ptr(Box::new(sc))))
+                    Constraint::new(toc.clone(), Some(RunningConstraint::Ptr(Box::new(sc.clone()))))
                         .with_prov(c.prov.clone()),
                 );
             }
@@ -612,9 +620,9 @@ fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> 
         Some(RunningConstraint::List(inner)) => {
             let substituted = substitute_params(&Constraints::from((**inner).clone()), actual_args);
             let mut out = Constraints::new();
-            for sc in substituted.inner {
+            for sc in substituted.inner.iter() {
                 out.push(
-                    Constraint::new(toc.clone(), Some(RunningConstraint::List(Box::new(sc))))
+                    Constraint::new(toc.clone(), Some(RunningConstraint::List(Box::new(sc.clone()))))
                         .with_prov(c.prov.clone()),
                 );
             }
@@ -800,7 +808,7 @@ impl Context {
         elem: &ProjectionElem,
     ) -> Constraints {
         let mut out = Constraints::new();
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             out.append(self.step_field_one(scope, constraint, elem));
         }
         out
@@ -814,7 +822,7 @@ impl Context {
     /// *more* candidates than a precise lookup would, never fewer
     pub fn flatten_all(&self, constraints: &Constraints) -> Constraints {
         let mut out = Constraints::new();
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             out.append(self.flatten_one(constraint));
         }
         out
@@ -874,7 +882,7 @@ impl Context {
             Some(RunningConstraint::Ptr(box inner)) => self.step_field_one(scope, inner, elem),
             Some(RunningConstraint::Idk(box inner_cs)) => {
                 let mut out = Constraints::new();
-                for ic in &inner_cs.inner {
+                for ic in inner_cs.inner.iter() {
                     out.append(self.step_field_one(scope, ic, elem));
                 }
                 out

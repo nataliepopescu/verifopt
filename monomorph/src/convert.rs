@@ -395,7 +395,7 @@ impl<'a> RvalConverter<'a> {
         let mut new_constraints = Constraints::new();
 
         for traitobjty in traitobjtys {
-            for constraint in &constraints.inner {
+            for constraint in constraints.inner.iter() {
                 match constraint {
                     Constraint { toc: Some(_), .. } => {
                         new_constraints.push(constraint.clone());

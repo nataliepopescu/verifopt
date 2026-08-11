@@ -353,7 +353,8 @@ impl<'a> InterpPass<'a> {
         old_constraints: Constraints,
     ) -> Constraints {
         let mut constraints = Constraints::new();
-        for constraint in old_constraints.inner {
+        for constraint in old_constraints.inner.iter() {
+            let constraint = constraint.clone();
             match self.converter.get_traitobj(maybe_trait_destty, &constraint) {
                 toc @ Some(_) => match constraint {
                     Constraint {
@@ -614,7 +615,7 @@ impl<'a> InterpPass<'a> {
 
     fn get_usize(&self, constraints: &Constraints) -> Option<Vec<usize>> {
         let mut nums = Vec::new();
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             match constraint.cfc {
                 Some(RunningConstraint::Scalar(Some(num))) => nums.push(num.try_into().unwrap()),
                 _ => {}
@@ -708,7 +709,8 @@ impl<'a> InterpPass<'a> {
         let mut ret_constraints = Constraints::new();
         match ctxt.get_constraints(cur_scope, local_decls, place, false) {
             Some(constraints) => {
-                for constraint in constraints.inner {
+                for constraint in constraints.inner.iter() {
+                    let constraint = constraint.clone();
                     match constraint {
                         Constraint {
                             toc: _,
@@ -1920,7 +1922,8 @@ impl<'a> InterpPass<'a> {
 
         let mut by_site = HashMap::new();
 
-        for c in cs.inner {
+        for c in cs.inner.iter() {
+            let c = c.clone();
             let tags = match &c.prov {
                 Prov::Tags(t) if !t.is_empty() => t,
                 _ => return TagPlan::Poisoned,
@@ -2162,7 +2165,7 @@ impl<'a> InterpPass<'a> {
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         let mut defids = Vec::new();
         let mut is_closure = false;
-        for constraint in &tyconstraints.inner {
+        for constraint in tyconstraints.inner.iter() {
             let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, &constraint);
             is_closure = is_closure || is_closure_;
             unique_append(&mut defids, res);
@@ -2227,7 +2230,7 @@ impl<'a> InterpPass<'a> {
                     RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
                     RunningConstraint::Idk(box cs) => {
                         let mut defids = Vec::new();
-                        for c in &cs.inner {
+                        for c in cs.inner.iter() {
                             let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
                             unique_append(&mut defids, res_defids);
                         }
@@ -2269,7 +2272,7 @@ impl<'a> InterpPass<'a> {
         // Search in fields (in addition to genargs) b/c constraints are already there + don't need
         // to reconstruct them; however, this might pose a termination problem
         for (_key, field_constraints) in fields {
-            for fc in &field_constraints.inner {
+            for fc in field_constraints.inner.iter() {
                 let (_is_closure, inner_resvec) = self.resolve_defid(term_span, trait_defid, fc);
                 unique_append(&mut resvec, inner_resvec);
             }
@@ -2537,7 +2540,7 @@ impl<'a> InterpPass<'a> {
             return;
         }
 
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             match constraint {
                 Constraint {
                     toc: _,

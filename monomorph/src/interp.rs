@@ -1207,64 +1207,73 @@ impl<'a> InterpPass<'a> {
     }
 
     fn log_bb_cache_sizes(&self, n: u64, cur_scope: &VOID, ctxt: &Context, ordering_len: usize) {
-        let (ps_max, ps_sum) = {
+        let (ps_max, ps_sum, ps_max_scope) = {
             let ps = self.param_summaries.borrow();
             let mut max = 0usize;
             let mut sum = 0usize;
-            for v in ps.values() {
+            let mut max_scope = String::new();
+            for (scope, v) in ps.iter() {
                 if let ParamSummary::Built(Some(cs)) = v {
                     let s = crate::constraints::constraints_size(cs);
                     sum += s;
                     if s > max {
                         max = s;
+                        max_scope = format!("{:?}", scope.0.name());
                     }
                 }
             }
-            (max, sum)
+            (max, sum, max_scope)
         };
-        let (em_max, em_sum) = {
+        let (em_max, em_sum, em_max_scope) = {
             let em = self.exact_memo.borrow();
             let mut max = 0usize;
             let mut sum = 0usize;
-            for (cs, _) in em.values() {
+            let mut max_scope = String::new();
+            for (key, (cs, _)) in em.iter() {
                 if let Some(c) = cs.as_ref() {
                     let s = crate::constraints::constraints_size(c);
                     sum += s;
                     if s > max {
                         max = s;
+                        max_scope = format!("{:?}", key.0.0.name());
                     }
                 }
             }
-            (max, sum)
+            (max, sum, max_scope)
         };
-        let (sm_max, sm_sum) = {
+        let (sm_max, sm_sum, sm_max_scope) = {
             let sm = self.summaries.borrow();
             let mut max = 0usize;
             let mut sum = 0usize;
-            for cs in sm.values() {
+            let mut max_scope = String::new();
+            for (key, cs) in sm.iter() {
                 let s = crate::constraints::constraints_size(cs);
                 sum += s;
                 if s > max {
                     max = s;
+                    max_scope = format!("{:?}", key.0.0.name());
                 }
             }
-            (max, sum)
+            (max, sum, max_scope)
         };
         debug!(
-            "\nBB CACHE SIZES at bb visit {} for {:?}: cstore_cmap={} ordering_remaining={} exact_memo={} (max_disjuncts={} sum_disjuncts={}) summaries={} (max_disjuncts={} sum_disjuncts={}) wq={} param_summaries={} (max_disjuncts={} sum_disjuncts={}) dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={}\n",
+            "\nBB CACHE SIZES at bb visit {} for {:?}: cstore_cmap={} ordering_remaining={} exact_memo={} (max_disjuncts={} max_scope={} sum_disjuncts={}) summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) wq={} param_summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={}\n",
             n,
             cur_scope.0.name(),
             ctxt.cstore.cmap.len(),
             ordering_len,
             self.exact_memo.borrow().len(),
             em_max,
+            em_max_scope,
             em_sum,
             self.summaries.borrow().len(),
             sm_max,
+            sm_max_scope,
             sm_sum,
             self.wq.borrow().len(),
             self.param_summaries.borrow().len(),
             ps_max,
+            ps_max_scope,
             ps_sum,
             self.dispatch_targets.borrow().len(),
             self.dispatch_cha.borrow().len(),

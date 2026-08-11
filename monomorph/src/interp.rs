@@ -60,6 +60,8 @@ pub struct InterpPass<'a> {
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
+    pub call_count: RefCell<u64>,
+    pub bb_visit_count: RefCell<u64>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
 
@@ -67,6 +69,7 @@ pub struct InterpPass<'a> {
 
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
+    pub scope_summaries_count: RefCell<HashMap<VOID, u32>>,
     pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
     pub building_summaries: RefCell<HashSet<VOID>>,
@@ -98,11 +101,14 @@ impl<'a> InterpPass<'a> {
             in_queue: HashSet::new().into(),
             key_stack: Vec::new().into(),
             rec_depth: 0.into(),
+            call_count: 0.into(),
+            bb_visit_count: 0.into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
             scope_exact_memo_count: HashMap::new().into(),
+            scope_summaries_count: HashMap::new().into(),
             param_summaries: HashMap::new().into(),
             summary_build_taint_stack: Vec::new().into(),
             building_summaries: HashSet::new().into(),
@@ -190,6 +196,14 @@ impl<'a> InterpPass<'a> {
         loop {
             if bb_deps.ordering.is_empty() {
                 break;
+            }
+
+            {
+                let mut n = self.bb_visit_count.borrow_mut();
+                *n += 1;
+                if *n % 2_000 == 0 {
+                    self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
+                }
             }
 
             let bb = bb_deps.ordering.pop_front().unwrap();
@@ -993,7 +1007,20 @@ impl<'a> InterpPass<'a> {
         );
 
         if call_stack.contains(&new_scope) {
-            let new_key = (new_scope.clone(), ArgSet::new(&new_cs));
+            let precise_count = *self
+                .scope_summaries_count
+                .borrow()
+                .get(&new_scope)
+                .unwrap_or(&0);
+            let new_key = if precise_count >= 50 {
+                let widened: Vec<Constraints> = new_cs
+                    .iter()
+                    .map(crate::constraints::widen_constraints)
+                    .collect();
+                (new_scope.clone(), ArgSet::new(&widened))
+            } else {
+                (new_scope.clone(), ArgSet::new(&new_cs))
+            };
 
             if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
                 return Ok(Some(cs));
@@ -1005,6 +1032,13 @@ impl<'a> InterpPass<'a> {
             self.summaries
                 .borrow_mut()
                 .insert(new_key.clone(), retty.clone());
+            if precise_count < 50 {
+                *self
+                    .scope_summaries_count
+                    .borrow_mut()
+                    .entry(new_scope.clone())
+                    .or_insert(0) += 1;
+            }
 
             let cur_key = self.key_stack.borrow().last().cloned().unwrap();
 
@@ -1150,6 +1184,95 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    fn log_cache_sizes(&self, n: u64) {
+        debug!(
+            "\nCACHE SIZES at call {}: exact_memo={} summaries={} wq={} in_queue={} param_summaries={} building_summaries={} dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={} incomplete={} scope_epoch={} scope_exact_memo_count={} scope_summaries_count={} key_stack={}\n",
+            n,
+            self.exact_memo.borrow().len(),
+            self.summaries.borrow().len(),
+            self.wq.borrow().len(),
+            self.in_queue.borrow().len(),
+            self.param_summaries.borrow().len(),
+            self.building_summaries.borrow().len(),
+            self.dispatch_targets.borrow().len(),
+            self.dispatch_cha.borrow().len(),
+            self.dispatch_tags.borrow().len(),
+            self.dependencies.borrow().len(),
+            self.incomplete.borrow().len(),
+            self.scope_epoch.borrow().len(),
+            self.scope_exact_memo_count.borrow().len(),
+            self.scope_summaries_count.borrow().len(),
+            self.key_stack.borrow().len(),
+        );
+    }
+
+    fn log_bb_cache_sizes(&self, n: u64, cur_scope: &VOID, ctxt: &Context, ordering_len: usize) {
+        let (ps_max, ps_sum) = {
+            let ps = self.param_summaries.borrow();
+            let mut max = 0usize;
+            let mut sum = 0usize;
+            for v in ps.values() {
+                if let ParamSummary::Built(Some(cs)) = v {
+                    let s = crate::constraints::constraints_size(cs);
+                    sum += s;
+                    if s > max {
+                        max = s;
+                    }
+                }
+            }
+            (max, sum)
+        };
+        let (em_max, em_sum) = {
+            let em = self.exact_memo.borrow();
+            let mut max = 0usize;
+            let mut sum = 0usize;
+            for (cs, _) in em.values() {
+                if let Some(c) = cs.as_ref() {
+                    let s = crate::constraints::constraints_size(c);
+                    sum += s;
+                    if s > max {
+                        max = s;
+                    }
+                }
+            }
+            (max, sum)
+        };
+        let (sm_max, sm_sum) = {
+            let sm = self.summaries.borrow();
+            let mut max = 0usize;
+            let mut sum = 0usize;
+            for cs in sm.values() {
+                let s = crate::constraints::constraints_size(cs);
+                sum += s;
+                if s > max {
+                    max = s;
+                }
+            }
+            (max, sum)
+        };
+        debug!(
+            "\nBB CACHE SIZES at bb visit {} for {:?}: cstore_cmap={} ordering_remaining={} exact_memo={} (max_disjuncts={} sum_disjuncts={}) summaries={} (max_disjuncts={} sum_disjuncts={}) wq={} param_summaries={} (max_disjuncts={} sum_disjuncts={}) dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={}\n",
+            n,
+            cur_scope.0.name(),
+            ctxt.cstore.cmap.len(),
+            ordering_len,
+            self.exact_memo.borrow().len(),
+            em_max,
+            em_sum,
+            self.summaries.borrow().len(),
+            sm_max,
+            sm_sum,
+            self.wq.borrow().len(),
+            self.param_summaries.borrow().len(),
+            ps_max,
+            ps_sum,
+            self.dispatch_targets.borrow().len(),
+            self.dispatch_cha.borrow().len(),
+            self.dispatch_tags.borrow().len(),
+            self.dependencies.borrow().len(),
+        );
+    }
+
     fn interp_static_call(
         &self,
         term_span: &Span,
@@ -1164,6 +1287,14 @@ impl<'a> InterpPass<'a> {
         cur_cs: &Vec<Constraints>,
         is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
+        {
+            let mut n = self.call_count.borrow_mut();
+            *n += 1;
+            if *n % 10_000 == 0 {
+                self.log_cache_sizes(*n);
+            }
+        }
+
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
             let key = (cur_scope.clone(), ArgSet::new(cur_cs));

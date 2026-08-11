@@ -445,6 +445,37 @@ fn substitute_toc(
 // high-cardinality functions (quicksort-style value-dependent recursion,
 // Vec growth) collapse to one cache entry per type shape instead of one
 // per distinct value ever seen.
+// Cheap proxy for "how big is this Constraints tree" - total disjunct
+// count, recursively through Adt fields / Tuple elements / Ptr / List /
+// Idk / trait-obj-constraint fields. Diagnostic only: used to tell apart
+// "many small cached entries" from "a few enormous ones".
+pub fn constraints_size(cs: &Constraints) -> usize {
+    cs.inner.iter().map(constraint_size).sum()
+}
+
+fn constraint_size(c: &Constraint) -> usize {
+    1 + c.cfc.as_ref().map(rc_size).unwrap_or(0)
+        + c.toc.as_ref().map(|(_, tc)| toc_size(tc)).unwrap_or(0)
+}
+
+fn rc_size(rc: &RunningConstraint) -> usize {
+    match rc {
+        RunningConstraint::Adt(_, _, _, fields) => fields.values().map(constraints_size).sum(),
+        RunningConstraint::Ptr(inner) => constraint_size(inner),
+        RunningConstraint::List(inner) => constraint_size(inner),
+        RunningConstraint::Tuple(elems) => elems.iter().map(constraints_size).sum(),
+        RunningConstraint::Idk(inner) => constraints_size(inner),
+        _ => 0,
+    }
+}
+
+fn toc_size(tc: &TraitObjConstraint) -> usize {
+    match tc {
+        TraitObjConstraint::Adt(_, _, _, fields) => fields.values().map(constraints_size).sum(),
+        _ => 0,
+    }
+}
+
 pub fn widen_constraints(cs: &Constraints) -> Constraints {
     let mut out = Constraints::new();
     for c in &cs.inner {

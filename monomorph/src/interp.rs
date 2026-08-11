@@ -430,11 +430,17 @@ impl<'a> InterpPass<'a> {
                         rvalue,
                     )
                 };
-                debug!("HERE1");
+                debug!(
+                    "HERE1 disjuncts={}",
+                    crate::constraints::constraints_size(&constraints)
+                );
 
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
-                debug!("HERE2");
+                debug!(
+                    "HERE2 disjuncts={}",
+                    crate::constraints::constraints_size(&final_constraints)
+                );
                 //debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
 
                 let mut write_proj = place.projection.as_slice();
@@ -454,22 +460,24 @@ impl<'a> InterpPass<'a> {
                     debug!("HERE3.2");
                     match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
                         Some(mut base_constraints) => {
-                            debug!("HERE3.2Ai");
+                            debug!(
+                                "HERE3.2Ai base_disjuncts={}",
+                                crate::constraints::constraints_size(&base_constraints)
+                            );
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
-                            debug!("HERE3.2Aii");
+                            debug!(
+                                "HERE3.2Aii base_disjuncts={}",
+                                crate::constraints::constraints_size(&base_constraints)
+                            );
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
                             debug!("HERE3.2Aiii");
                         }
                         None => {
-                            debug!("HERE3.2Bi");
                             let mut base_constraints = Constraints::new();
-                            debug!("HERE3.2Bii");
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
-                            debug!("HERE3.2Biii");
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
-                            debug!("HERE3.2Biv");
                         }
                     }
                 }

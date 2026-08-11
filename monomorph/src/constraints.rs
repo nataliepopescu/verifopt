@@ -13,7 +13,7 @@ use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-//use log::debug;
+use log::debug;
 
 use im::HashMap as ImHashMap;
 use indexmap::IndexSet;
@@ -144,6 +144,7 @@ impl Constraints {
             .filter(|e| matches!(e, ProjectionElem::Field(..)))
             .collect();
 
+        debug!("FIELD LEN: {:?}", field.len());
         match (field.len(), target_variant) {
             // *x = v - no field, no downcast: replace the whole pointee outright.
             (0, None) => {

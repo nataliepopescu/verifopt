@@ -123,14 +123,31 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    fn assert_stacks_synced(&self, call_stack: &[VOID], where_: &str) {
+        let key_len = self.key_stack.borrow().len();
+        if call_stack.len() != key_len {
+            let names: Vec<String> = call_stack.iter().map(|v| format!("{:?}", v.0.name())).collect();
+            panic!(
+                "STACK DESYNC at {}: call_stack.len()={} key_stack.len()={}\ncall_stack contents:\n{:#?}",
+                where_,
+                call_stack.len(),
+                key_len,
+                names
+            );
+        }
+    }
+
     fn prepare_call(&self, call_stack: &mut Vec<VOID>, key: &SummaryKey) {
         call_stack.push(key.0.clone());
         self.key_stack.borrow_mut().push(key.clone());
+        self.assert_stacks_synced(call_stack, "prepare_call");
     }
 
     fn prepare_return(&self, call_stack: &mut Vec<VOID>) -> Option<VOID> {
         self.key_stack.borrow_mut().pop();
-        call_stack.pop()
+        let popped = call_stack.pop();
+        self.assert_stacks_synced(call_stack, "prepare_return");
+        popped
     }
 
     pub fn run(
@@ -2685,7 +2702,13 @@ impl<'a> InterpPass<'a> {
         let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
         self.prepare_call(call_stack, &key);
         let body = self.get_body(callee_scope);
-        let refined = self.visit_body(ctxt, call_stack, callee_scope, &body)?;
+        let refined = match self.visit_body(ctxt, call_stack, callee_scope, &body) {
+            Ok(r) => r,
+            Err(e) => {
+                self.prepare_return(call_stack);
+                return Err(e);
+            }
+        };
 
         // publish refined summary for widened constraints
         self.summaries
@@ -2782,9 +2805,16 @@ impl<'a> InterpPass<'a> {
             let res = self.reinterp_recursive(ctxt, &mut restored.clone(), &scope, &constraints);
 
             if matches!(res, Err(Error::RecurseLimit(_))) {
+                debug!(
+                    "STACK STATE before RecurseLimit truncate: call_stack.len()={} key_stack.len()={} target_depth={}",
+                    call_stack.len(),
+                    self.key_stack.borrow().len(),
+                    depth
+                );
                 // truncate to before call on error
                 call_stack.truncate(depth);
                 self.key_stack.borrow_mut().truncate(depth);
+                self.assert_stacks_synced(call_stack, "finish_frame RecurseLimit truncate");
 
                 self.incomplete.borrow_mut().insert(cur_scope.clone());
 

@@ -201,6 +201,13 @@ impl<'a> InterpPass<'a> {
             {
                 let mut n = self.bb_visit_count.borrow_mut();
                 *n += 1;
+                if *n % 200 == 0 {
+                    debug!(
+                        "\nRSS at bb visit {} rss_kb={}\n",
+                        *n,
+                        Self::current_rss_kb().unwrap_or(0)
+                    );
+                }
                 if *n % 2_000 == 0 {
                     self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
                 }
@@ -1206,6 +1213,16 @@ impl<'a> InterpPass<'a> {
         );
     }
 
+    fn current_rss_kb() -> Option<u64> {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        for line in status.lines() {
+            if let Some(rest) = line.strip_prefix("VmRSS:") {
+                return rest.trim().split_whitespace().next()?.parse().ok();
+            }
+        }
+        None
+    }
+
     fn log_bb_cache_sizes(&self, n: u64, cur_scope: &VOID, ctxt: &Context, ordering_len: usize) {
         let (ps_max, ps_sum, ps_max_scope) = {
             let ps = self.param_summaries.borrow();
@@ -1257,8 +1274,9 @@ impl<'a> InterpPass<'a> {
             (max, sum, max_scope)
         };
         debug!(
-            "\nBB CACHE SIZES at bb visit {} for {:?}: cstore_cmap={} ordering_remaining={} exact_memo={} (max_disjuncts={} max_scope={} sum_disjuncts={}) summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) wq={} param_summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={}\n",
+            "\nBB CACHE SIZES at bb visit {} rss_kb={} for {:?}: cstore_cmap={} ordering_remaining={} exact_memo={} (max_disjuncts={} max_scope={} sum_disjuncts={}) summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) wq={} param_summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={}\n",
             n,
+            Self::current_rss_kb().unwrap_or(0),
             cur_scope.0.name(),
             ctxt.cstore.cmap.len(),
             ordering_len,

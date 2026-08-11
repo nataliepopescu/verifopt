@@ -1386,6 +1386,24 @@ impl<'a> InterpPass<'a> {
                 key.clone()
             };
 
+            let scope_name = format!("{:?}", cur_scope.0.name());
+            if scope_name.contains("RawVecInner") {
+                let will_hit = self
+                    .exact_memo
+                    .borrow()
+                    .get(&memo_key)
+                    .map(|(_, e)| *e == *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0))
+                    .unwrap_or(false);
+                debug!(
+                    "\nRAWVEC TRACE for {}: precise_count={} widened={} exact_memo_hit={} exact_memo_key_hash={:?}\n",
+                    scope_name,
+                    precise_count,
+                    precise_count >= 50,
+                    will_hit,
+                    memo_key.1,
+                );
+            }
+
             let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
             if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
                 if *cached_epoch == epoch_before {
@@ -2722,7 +2740,6 @@ impl<'a> InterpPass<'a> {
                 return res;
             }
         }
-        *self.rec_depth.borrow_mut() -= 1;
 
         for (scope, old) in saved {
             match old {
@@ -2733,6 +2750,12 @@ impl<'a> InterpPass<'a> {
                     ctxt.cstore.cmap.remove(&MapKey::ScopeId(scope));
                 }
             }
+        }
+
+        if *self.rec_depth.borrow() > MAX_DEPTH {
+            *self.rec_depth.borrow_mut() -= 1;
+            self.incomplete.borrow_mut().insert(cur_scope.clone());
+            return Ok(retval);
         }
 
         // final traverse after recursive wq drained
@@ -2756,6 +2779,8 @@ impl<'a> InterpPass<'a> {
         );
 
         self.prepare_call(call_stack, &key);
-        self.visit_body(ctxt, call_stack, cur_scope, &body)
+        let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
+        *self.rec_depth.borrow_mut() -= 1;
+        result
     }
 }

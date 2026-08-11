@@ -401,6 +401,7 @@ impl<'a> InterpPass<'a> {
                 let dest_ty = place.ty(local_decls).unwrap();
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
 
+                debug!("HERE0");
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
@@ -429,37 +430,50 @@ impl<'a> InterpPass<'a> {
                         rvalue,
                     )
                 };
+                debug!("HERE1");
 
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
+                debug!("HERE2");
                 //debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
 
                 let mut write_proj = place.projection.as_slice();
                 while let [ProjectionElem::Deref, rest @ ..] = write_proj {
                     write_proj = rest;
                 }
+                debug!("HERE3");
 
                 if write_proj.is_empty() {
+                    debug!("HERE3.1");
                     ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
                 } else {
                     let base = Place {
                         local: place.local,
                         projection: vec![],
                     };
+                    debug!("HERE3.2");
                     match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
                         Some(mut base_constraints) => {
+                            debug!("HERE3.2Ai");
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
+                            debug!("HERE3.2Aii");
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            debug!("HERE3.2Aiii");
                         }
                         None => {
+                            debug!("HERE3.2Bi");
                             let mut base_constraints = Constraints::new();
+                            debug!("HERE3.2Bii");
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
+                            debug!("HERE3.2Biii");
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            debug!("HERE3.2Biv");
                         }
                     }
                 }
+                debug!("HERE4");
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -1329,8 +1343,17 @@ impl<'a> InterpPass<'a> {
             let cached_summary = self.param_summaries.borrow().get(cur_scope).cloned();
             match cached_summary {
                 Some(ParamSummary::Built(summary)) => {
-                    debug!("param_summary hit for {:?}", cur_scope.0.name());
+                    let summary_size = summary
+                        .as_ref()
+                        .map(crate::constraints::constraints_size)
+                        .unwrap_or(0);
+                    debug!(
+                        "param_summary hit for {:?} (summary_disjuncts={}) - about to substitute",
+                        cur_scope.0.name(),
+                        summary_size
+                    );
                     let substituted = summary.as_ref().map(|s| substitute_params(s, cur_cs));
+                    debug!("substitute_params returned for {:?}", cur_scope.0.name());
                     return Ok(substituted);
                 }
                 Some(ParamSummary::Unavailable) => {

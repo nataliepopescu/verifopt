@@ -524,7 +524,8 @@ fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
             RunningConstraint::Tuple(elems.iter().map(widen_constraints).collect())
         }
         RunningConstraint::Idk(inner) => RunningConstraint::Idk(Box::new(widen_constraints(inner))),
-        RunningConstraint::Param(i, path) => RunningConstraint::Param(*i, path.clone()),
+        // Drop the projection path entirely, not just its shape
+        RunningConstraint::Param(i, _) => RunningConstraint::Param(*i, vec![]),
     }
 }
 

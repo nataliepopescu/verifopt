@@ -896,7 +896,13 @@ impl<'a> InterpPass<'a> {
                 true,
             );
             self.prepare_call(call_stack, &key);
-            self.visit_body(ctxt, call_stack, &new_scope, &body)
+            match self.visit_body(ctxt, call_stack, &new_scope, &body) {
+                Ok(r) => Ok(r),
+                Err(e) => {
+                    self.prepare_return(call_stack);
+                    Err(e)
+                }
+            }
         } else {
             todo!("closure has no body");
         }
@@ -1216,9 +1222,18 @@ impl<'a> InterpPass<'a> {
         );
 
         let mut summary_stack = vec![scope.clone()];
-        self.key_stack
-            .borrow_mut()
-            .push((scope.clone(), ArgSet::new(&param_cs)));
+        // summary_stack is a fresh, isolated call stack for exploring this
+        // scope independent of whoever's calling chain led here - but
+        // key_stack is shared, global state. Pushing one entry onto it
+        // directly (bypassing prepare_call) leaves it desynced from
+        // summary_stack's own length the moment this is invoked from
+        // partway through an already-in-progress interpretation (i.e.
+        // whenever key_stack isn't already empty). Snapshot and fully
+        // replace it instead, matching summary_stack's isolated baseline,
+        // then restore the caller's real contents afterward.
+        let saved_key_stack = self
+            .key_stack
+            .replace(vec![(scope.clone(), ArgSet::new(&param_cs))]);
 
         let dispatch_cha_snapshot = self.dispatch_cha.borrow().clone();
         let dispatch_targets_snapshot = self.dispatch_targets.borrow().clone();
@@ -1228,6 +1243,11 @@ impl<'a> InterpPass<'a> {
 
         self.summary_build_taint_stack.borrow_mut().push(false);
         let result = self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body);
+        // key_stack should be back to the one-entry baseline this
+        // exploration started it at (popped via the normal Return path for
+        // scope itself) - restore the caller's actual contents now that
+        // the isolated exploration is done, regardless of outcome.
+        self.key_stack.replace(saved_key_stack);
         let tainted = self
             .summary_build_taint_stack
             .borrow_mut()
@@ -1513,7 +1533,13 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
-            result
+            match result {
+                Ok(r) => Ok(r),
+                Err(e) => {
+                    self.prepare_return(call_stack);
+                    Err(e)
+                }
+            }
         } else {
             self.retty_fallback_from_poly(fndef.fn_sig())
         }
@@ -2700,15 +2726,31 @@ impl<'a> InterpPass<'a> {
         );
 
         let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
+        // call_stack here is a clone the caller made - isolated from
+        // whatever the "real" call stack actually is right now - but
+        // key_stack is shared, global state with no notion of that
+        // isolation. Snapshot it and replace it with a fresh stack of
+        // matching depth before operating on this clone, then restore the
+        // caller's real contents afterward regardless of outcome. Content
+        // below the top entry doesn't matter: key_stack is only ever read
+        // via .last() (never indexed), and prepare_call's own push below
+        // sets the top entry correctly.
+        let saved_key_stack = self.key_stack.replace(
+            std::iter::repeat_with(|| key.clone())
+                .take(call_stack.len())
+                .collect(),
+        );
+
         self.prepare_call(call_stack, &key);
         let body = self.get_body(callee_scope);
         let refined = match self.visit_body(ctxt, call_stack, callee_scope, &body) {
             Ok(r) => r,
             Err(e) => {
-                self.prepare_return(call_stack);
+                self.key_stack.replace(saved_key_stack);
                 return Err(e);
             }
         };
+        self.key_stack.replace(saved_key_stack);
 
         // publish refined summary for widened constraints
         self.summaries
@@ -2801,7 +2843,15 @@ impl<'a> InterpPass<'a> {
             let depth = call_stack.len();
 
             // reevaluate recursive calls
-            let restored = stack;
+            // stack was snapshotted while cur_scope was still active (the
+            // deferral happened from within cur_scope's own body), so its
+            // last entry is always cur_scope itself. But prepare_return, at
+            // the top of this function, already popped cur_scope off both
+            // the real call_stack and key_stack before this loop ever
+            // runs - so the saved snapshot is one frame stale relative to
+            // key_stack's current reality unless we pop that entry back off.
+            let mut restored = stack;
+            restored.pop();
             let res = self.reinterp_recursive(ctxt, &mut restored.clone(), &scope, &constraints);
 
             if matches!(res, Err(Error::RecurseLimit(_))) {
@@ -2863,6 +2913,12 @@ impl<'a> InterpPass<'a> {
         self.prepare_call(call_stack, &key);
         let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
         *self.rec_depth.borrow_mut() -= 1;
-        result
+        match result {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                self.prepare_return(call_stack);
+                Err(e)
+            }
+        }
     }
 }

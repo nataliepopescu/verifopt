@@ -10,19 +10,22 @@
         - [ ] widening vs stubbing
         - [ ] loops
         - [ ] inline asm
-        - [ ] fn sig narrowing (scope?)
         - [ ] fn ptrs to nested fn decls
+        - [ ] ~fn sig narrowing (scope?)~
 
     - [ ] baselines
-        - [ ] naive Rust
-            - already implemented (ofc), but still need to check against
+        - [x] naive Rust
+            - already implemented (ofc), but still need machinery to check against
+            - [x] votrace!
         - [x] CHA
             - fixed one bug already
             - [ ] correct?
-        - [ ] RTA
         - [ ] Rupta
+        - [ ] RTA
+            - either skip or do _after_ Rupta
 
     - [ ] general rewrite
+        - [x] tag-based rewrite (doesn't use vtables)
         - [ ] vtable ptr mod
 
     - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
@@ -32,15 +35,16 @@
 
 
 - [ ] eval
-    - [ ] perf bottlenecks!
+    - [ ] perf bottlenecks / tool benchamrks (verifopt performance)
 
-    - [ ] may require being able to hook verifopt into non-main entry points
+    - [ ] how to validate FSA
 
-    - [ ] tool benchamrks (verifopt performance)
+    - [ ] hook verifopt into non-main entry points (for benchmarks)
 
     - [ ] microbenchmarks
         - [ ] look into fallback rewrite - why performs worse than initial dyn
           call?
+        - [ ] whats the expected speedup amount for different cases?
 
     - [ ] complete runs on 10 full binaries
         - [ ] ripgrep
@@ -56,8 +60,6 @@
 
     - [ ] macrobenchmarks
 
-    - [ ] how to validate FSA
-
 - [ ] paper writing
 
 ## Tentative Milestones
@@ -72,8 +74,11 @@ by aug 14
 - [ ] run on 4 examples total
 - [ ] write summary/synthesis
 - [ ] general rewrite / use vtable ptrs
+- [ ] fn summaries
+- [ ] widening
 
 by aug 21
+- [ ] loops
 - [ ] run on 7 examples total
 - [ ] write summary/synthesis
 - [ ] microbenchmarks

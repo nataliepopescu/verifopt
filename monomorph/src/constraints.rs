@@ -851,17 +851,23 @@ pub fn summary_key(
 pub struct Context {
     pub cstore: ConstraintStore,
     pub wtos: ImHashMap<VOID, BBDeps>,
+    pub bb_written_places: HashMap<VOID, HashSet<Place>>,
 }
 
 impl Context {
     pub fn new(cstore: ConstraintStore, wtos: ImHashMap<VOID, BBDeps>) -> Context {
-        Self { cstore, wtos }
+        Self {
+            cstore,
+            wtos,
+            bb_written_places: HashMap::new(),
+        }
     }
 
     pub fn empty() -> Context {
         Self {
             cstore: ConstraintStore::new(),
             wtos: ImHashMap::default(),
+            bb_written_places: HashMap::new(),
         }
     }
 
@@ -879,11 +885,28 @@ impl Context {
         place: &Place,
         constraints: Constraints,
     ) {
-        self.cstore.scoped_update(
-            scope,
-            MapKey::Var(place.clone()),
-            Box::new(MapValue::Constraints(constraints)),
-        );
+        let already_written = self
+            .bb_written_places
+            .get(scope)
+            .map(|s| s.contains(place))
+            .unwrap_or(false);
+        if already_written {
+            self.cstore.scoped_replace(
+                scope,
+                MapKey::Var(place.clone()),
+                Box::new(MapValue::Constraints(constraints)),
+            );
+        } else {
+            self.bb_written_places
+                .entry(scope.clone())
+                .or_default()
+                .insert(place.clone());
+            self.cstore.scoped_update(
+                scope,
+                MapKey::Var(place.clone()),
+                Box::new(MapValue::Constraints(constraints)),
+            );
+        }
     }
 
     pub fn step_field(
@@ -1236,6 +1259,46 @@ impl ConstraintStore {
 
                     // modify scope w new key/val
                     store.cmap.insert(key, new_val);
+                    self.cmap.insert(
+                        MapKey::ScopeId(scope.clone()),
+                        Box::new(MapValue::Store(store, enclosing_scope)),
+                    );
+                }
+                MapValue::Constraints(..) => {
+                    panic!("defid is not a scope: {:?}", scope);
+                }
+            },
+            None => {
+                // initialize new scope w key/val
+                let mut new_store = ConstraintStore::new();
+                new_store.cmap.insert(key, value);
+                self.cmap.insert(
+                    MapKey::ScopeId(scope.clone()),
+                    Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
+                );
+            }
+        }
+    }
+
+    // Same as scoped_update, but never merges with whatever's already
+    // there - always overwrites outright. Correct specifically for a
+    // second (or later) write to a place already written during the
+    // current basic-block visit: within one basic block there's no
+    // branching by MIR's own definition, so there's no alternative
+    // incoming path the prior value could represent.
+    pub fn scoped_replace(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
+        let (scope, key) = match key {
+            MapKey::Var(place) => {
+                let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
+                (scope, MapKey::Var(place))
+            }
+            MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
+        };
+
+        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
+            Some(vartype) => match *vartype.clone() {
+                MapValue::Store(mut store, enclosing_scope) => {
+                    store.cmap.insert(key, value);
                     self.cmap.insert(
                         MapKey::ScopeId(scope.clone()),
                         Box::new(MapValue::Store(store, enclosing_scope)),

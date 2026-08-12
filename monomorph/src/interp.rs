@@ -319,6 +319,8 @@ impl<'a> InterpPass<'a> {
             cur_scope.0.name()
         );
 
+        ctxt.bb_written_places.remove(cur_scope);
+
         self.check_call_stack(call_stack, cur_scope);
 
         let num_stmts = data.statements.len();

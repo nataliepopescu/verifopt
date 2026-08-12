@@ -6,7 +6,7 @@
     - [ ] FSA interp (DRIVEN BY EVAL)
         - [x] hierarchical field support
         - [x] exact function memoization
-        - [ ] generalize function summaries
+        - [x] generalize function summaries
         - [ ] widening vs stubbing
         - [ ] loops
         - [ ] inline asm
@@ -17,6 +17,7 @@
         - [ ] naive Rust
             - already implemented (ofc), but still need to check against
         - [x] CHA
+            - fixed one bug already
             - [ ] correct?
         - [ ] RTA
         - [ ] Rupta
@@ -31,6 +32,8 @@
 
 
 - [ ] eval
+    - [ ] perf bottlenecks!
+
     - [ ] may require being able to hook verifopt into non-main entry points
 
     - [ ] tool benchamrks (verifopt performance)

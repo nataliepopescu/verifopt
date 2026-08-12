@@ -2868,15 +2868,7 @@ impl<'a> InterpPass<'a> {
             let depth = call_stack.len();
 
             // reevaluate recursive calls
-            // stack was snapshotted while cur_scope was still active (the
-            // deferral happened from within cur_scope's own body), so its
-            // last entry is always cur_scope itself. But prepare_return, at
-            // the top of this function, already popped cur_scope off both
-            // the real call_stack and key_stack before this loop ever
-            // runs - so the saved snapshot is one frame stale relative to
-            // key_stack's current reality unless we pop that entry back off.
-            let mut restored = stack;
-            restored.pop();
+            let restored = stack;
             let res = self.reinterp_recursive(ctxt, &mut restored.clone(), &scope, &constraints);
 
             if matches!(res, Err(Error::RecurseLimit(_))) {

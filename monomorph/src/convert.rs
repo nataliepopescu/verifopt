@@ -382,6 +382,21 @@ impl<'a> RvalConverter<'a> {
             // No concrete defid to get
             RunningConstraint::Dynamic(_) => vec![],
             RunningConstraint::Param(..) => vec![],
+            RunningConstraint::List(box co) => match &co.cfc {
+                Some(c) => self.get_defid_candidates(&c),
+                None => vec![],
+            }
+            RunningConstraint::Tuple(cs) => cs
+                .iter()
+                .flat_map(|inner| {
+                    inner
+                        .inner
+                        .iter()
+                        .filter_map(|c| c.cfc.as_ref())
+                        .flat_map(|cfc| self.get_defid_candidates(cfc))
+                        .collect::<Vec<_>>()
+                })
+            .collect(),
             _ => todo!("cfc: {:?}", cfc),
         }
     }

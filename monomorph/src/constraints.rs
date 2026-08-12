@@ -17,9 +17,10 @@ use crate::wto::BBDeps;
 
 use im::HashMap as ImHashMap;
 use indexmap::IndexSet;
-use std::collections::{BTreeMap, HashSet};
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 // Once a base's own disjunct count has already proven itself this large,
 // write_field's per-disjunct loop (clone one, insert the new field into
@@ -492,8 +493,52 @@ fn substitute_toc(
 // count, recursively through Adt fields / Tuple elements / Ptr / List /
 // Idk / trait-obj-constraint fields. Diagnostic only: used to tell apart
 // "many small cached entries" from "a few enormous ones".
+// Memoizes a computation keyed by the pointer identity of cs.inner, plus
+// a caller-supplied extra key for any other inputs the computation
+// depends on. Sound against Rc pointer reuse: holds a Weak reference
+// alongside the cached value and only trusts a hit if that Weak still
+// upgrades - a live Weak prevents the allocator from reusing that address
+// for an unrelated Rc, so a successful upgrade proves this is genuinely
+// the same allocation, not a coincidentally-reused address at the same
+// spot a since-dropped one used to occupy.
+pub fn memoize_by_rc<K, T>(
+    cache: &RefCell<HashMap<(usize, K), (Weak<IndexSet<Constraint>>, T)>>,
+    cs: &Constraints,
+    extra_key: K,
+    compute: impl FnOnce() -> T,
+) -> T
+where
+    K: Hash + Eq,
+    T: Clone,
+{
+    let full_key = (Rc::as_ptr(&cs.inner) as usize, extra_key);
+    if let Some((weak, cached)) = cache.borrow().get(&full_key) {
+        if weak.upgrade().is_some() {
+            return cached.clone();
+        }
+    }
+    let result = compute();
+    cache
+        .borrow_mut()
+        .insert(full_key, (Rc::downgrade(&cs.inner), result.clone()));
+    result
+}
+
+pub fn hash_val<T: Hash>(val: &T) -> u64 {
+    let mut h = DefaultHasher::new();
+    val.hash(&mut h);
+    h.finish()
+}
+
+thread_local! {
+    static CONSTRAINTS_SIZE_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, usize)>> = RefCell::new(HashMap::new());
+    static CONTAINS_PARAM_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, bool)>> = RefCell::new(HashMap::new());
+    static WIDEN_CONSTRAINTS_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+}
+
 pub fn constraints_size(cs: &Constraints) -> usize {
-    cs.inner.iter().map(constraint_size).sum()
+    CONSTRAINTS_SIZE_CACHE
+        .with(|cache| memoize_by_rc(cache, cs, (), || cs.inner.iter().map(constraint_size).sum()))
 }
 
 fn constraint_size(c: &Constraint) -> usize {
@@ -520,11 +565,15 @@ fn toc_size(tc: &TraitObjConstraint) -> usize {
 }
 
 pub fn widen_constraints(cs: &Constraints) -> Constraints {
-    let mut out = Constraints::new();
-    for c in cs.inner.iter() {
-        out.push(widen_constraint(c));
-    }
-    out
+    WIDEN_CONSTRAINTS_CACHE.with(|cache| {
+        memoize_by_rc(cache, cs, (), || {
+            let mut out = Constraints::new();
+            for c in cs.inner.iter() {
+                out.push(widen_constraint(c));
+            }
+            out
+        })
+    })
 }
 
 fn widen_constraint(c: &Constraint) -> Constraint {
@@ -573,7 +622,8 @@ fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
 }
 
 pub fn contains_param(cs: &Constraints) -> bool {
-    cs.inner.iter().any(constraint_contains_param)
+    CONTAINS_PARAM_CACHE
+        .with(|cache| memoize_by_rc(cache, cs, (), || cs.inner.iter().any(constraint_contains_param)))
 }
 
 fn constraint_contains_param(c: &Constraint) -> bool {

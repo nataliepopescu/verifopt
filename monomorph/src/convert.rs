@@ -16,11 +16,14 @@ use crate::constraints::{
     Constraint, Constraints, Context, Location, Prov, RunningConstraint, TraitObjConstraint,
     TraitObjTy, VOID,
 };
+use crate::constraints::{hash_val, memoize_by_rc};
 use crate::sig_collect::SigVal;
 
 //use log::debug;
+use indexmap::IndexSet;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Weak;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WrapperKind {
@@ -104,6 +107,10 @@ pub fn is_opaque_internal(ty: &Ty) -> bool {
     };
 
     is_opaque_internal_defid(&adtdef)
+}
+
+thread_local! {
+    static CONVERT_CAST_HELPER_CACHE: RefCell<std::collections::HashMap<(usize, (u64, u64)), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(std::collections::HashMap::new());
 }
 
 impl<'a> RvalConverter<'a> {
@@ -402,6 +409,27 @@ impl<'a> RvalConverter<'a> {
     }
 
     fn convert_cast_helper(
+        &self,
+        traitobjtys: &Vec<TraitObjTy>,
+        constraints: &Constraints,
+        span: &Location,
+    ) -> Constraints {
+        // traitobjtys/span are small (a handful of trait defs, one MIR
+        // location) - cheap to hash even though constraints itself may be
+        // huge. The expensive part this avoids is re-walking constraints
+        // (and every get_defid_candidates call it triggers) when the same
+        // Constraints allocation gets passed here again with the same
+        // trait/span args, which happens whenever a shared, Rc-backed
+        // value is referenced from multiple call sites or disjuncts.
+        let extra_key = (hash_val(traitobjtys), hash_val(span));
+        CONVERT_CAST_HELPER_CACHE.with(|cache| {
+            memoize_by_rc(cache, constraints, extra_key, || {
+                self.convert_cast_helper_uncached(traitobjtys, constraints, span)
+            })
+        })
+    }
+
+    fn convert_cast_helper_uncached(
         &self,
         traitobjtys: &Vec<TraitObjTy>,
         constraints: &Constraints,

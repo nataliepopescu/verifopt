@@ -25,11 +25,13 @@ use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
     ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, Prov,
-    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, substitute_params,
-    summary_key,
+    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, hash_val, memoize_by_rc,
+    substitute_params, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
+use indexmap::IndexSet;
+use std::rc::Weak;
 use crate::error::Error;
 use crate::merge::Merge;
 use crate::merge::merge_stores;
@@ -85,6 +87,10 @@ pub enum TagPlan {
             DefId, /* impl */
         )>,
     ),
+}
+
+thread_local! {
+    static LIFT_TRAITOBJTYS_CACHE: RefCell<HashMap<(usize, u64), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
 }
 
 impl<'a> InterpPass<'a> {
@@ -368,6 +374,25 @@ impl<'a> InterpPass<'a> {
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
+    ) -> Constraints {
+        // maybe_trait_destty is small (a handful of trait defs at most) -
+        // cheap to hash even though old_constraints itself may be huge.
+        // This is called once per assignment statement, and the same
+        // Rc-backed value legitimately gets passed here again whenever
+        // it's referenced from multiple places (e.g. shared via a struct
+        // field written into many disjuncts).
+        let extra_key = hash_val(maybe_trait_destty);
+        LIFT_TRAITOBJTYS_CACHE.with(|cache| {
+            memoize_by_rc(cache, &old_constraints, extra_key, || {
+                self.lift_traitobjtys_uncached(maybe_trait_destty, &old_constraints)
+            })
+        })
+    }
+
+    fn lift_traitobjtys_uncached(
+        &self,
+        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
+        old_constraints: &Constraints,
     ) -> Constraints {
         let mut constraints = Constraints::new();
         for constraint in old_constraints.inner.iter() {

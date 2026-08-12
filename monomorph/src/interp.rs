@@ -2,6 +2,10 @@ use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 
+use im::HashMap as ImHashMap;
+use im::HashSet as ImHashSet;
+use im::hashmap::Entry as ImEntry;
+
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind, StaticDef};
 use rustc_public::mir::{
@@ -23,10 +27,13 @@ use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
     ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, TagProv,
-    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, summary_key,
+    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, hash_val, memoize_by_rc,
+    substitute_params, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
+use indexmap::IndexSet;
+use std::rc::Weak;
 use crate::error::Error;
 use crate::merge::Merge;
 use crate::merge::merge_stores;
@@ -36,23 +43,44 @@ use crate::wto::BBDeps;
 
 const MAX_DEPTH: u32 = 50;
 
+#[derive(Debug, Clone)]
+pub enum ParamSummary {
+    Built(Option<Constraints>),
+    Unavailable,
+}
+
 pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
 
     pub dispatch_targets:
-        RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
-    pub dispatch_cha: RefCell<HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
-    pub dispatch_tags: RefCell<HashMap<(DefId, usize), TagPlan>>,
+        RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    pub dispatch_cha: RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    pub dispatch_tags: RefCell<ImHashMap<(DefId, usize), TagPlan>>,
 
     pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
-    pub dependencies: RefCell<HashMap<Span, HashSet<VOID>>>,
-    pub incomplete: RefCell<HashSet<VOID>>,
+    pub call_count: RefCell<u64>,
+    pub bb_visit_count: RefCell<u64>,
+    pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
+    pub incomplete: RefCell<ImHashSet<VOID>>,
+
+    pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
+
+    pub scope_epoch: RefCell<HashMap<VOID, u64>>,
+    pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
+    pub scope_summaries_count: RefCell<HashMap<VOID, u32>>,
+    pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
+    pub summary_build_taint_stack: RefCell<Vec<bool>>,
+    pub building_summaries: RefCell<HashSet<VOID>>,
+}
+
+thread_local! {
+    static LIFT_TRAITOBJTYS_CACHE: RefCell<HashMap<(usize, u64), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
 }
 
 #[derive(Clone, PartialEq)]
@@ -109,16 +137,25 @@ impl<'a> InterpPass<'a> {
             sigstore,
             tstore,
             converter: RvalConverter::new(tstore),
-            dispatch_targets: HashMap::new().into(),
-            dispatch_cha: HashMap::new().into(),
-            dispatch_tags: HashMap::new().into(),
+            dispatch_targets: ImHashMap::new().into(),
+            dispatch_cha: ImHashMap::new().into(),
+            dispatch_tags: ImHashMap::new().into(),
             wq: HashMap::new().into(),
             summaries: HashMap::new().into(),
             in_queue: HashSet::new().into(),
             key_stack: Vec::new().into(),
             rec_depth: 0.into(),
-            dependencies: HashMap::new().into(),
-            incomplete: HashSet::new().into(),
+            call_count: 0.into(),
+            bb_visit_count: 0.into(),
+            dependencies: ImHashMap::new().into(),
+            incomplete: ImHashSet::new().into(),
+            exact_memo: HashMap::new().into(),
+            scope_epoch: HashMap::new().into(),
+            scope_exact_memo_count: HashMap::new().into(),
+            scope_summaries_count: HashMap::new().into(),
+            param_summaries: HashMap::new().into(),
+            summary_build_taint_stack: Vec::new().into(),
+            building_summaries: HashSet::new().into(),
         }
     }
 
@@ -130,14 +167,31 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    fn assert_stacks_synced(&self, call_stack: &[VOID], where_: &str) {
+        let key_len = self.key_stack.borrow().len();
+        if call_stack.len() != key_len {
+            let names: Vec<String> = call_stack.iter().map(|v| format!("{:?}", v.0.name())).collect();
+            panic!(
+                "STACK DESYNC at {}: call_stack.len()={} key_stack.len()={}\ncall_stack contents:\n{:#?}",
+                where_,
+                call_stack.len(),
+                key_len,
+                names
+            );
+        }
+    }
+
     fn prepare_call(&self, call_stack: &mut Vec<VOID>, key: &SummaryKey) {
         call_stack.push(key.0.clone());
         self.key_stack.borrow_mut().push(key.clone());
+        self.assert_stacks_synced(call_stack, "prepare_call");
     }
 
     fn prepare_return(&self, call_stack: &mut Vec<VOID>) -> Option<VOID> {
         self.key_stack.borrow_mut().pop();
-        call_stack.pop()
+        let popped = call_stack.pop();
+        self.assert_stacks_synced(call_stack, "prepare_return");
+        popped
     }
 
     pub fn run(
@@ -152,7 +206,6 @@ impl<'a> InterpPass<'a> {
             .borrow_mut()
             .push((start_scope.clone(), ArgSet::new(&[])));
 
-        // Initialize Context with entry_fn's constraint substore
         let entry_fn_cstore = ConstraintStore::new();
         ctxt.set_cstore_scope(&start_scope, entry_fn_cstore, None);
 
@@ -175,50 +228,53 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         body: &Body,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("\n\n\n#############################");
         debug!(
             "###### INTERP-ING NEW BODY for func {:?}",
             cur_scope.0.name()
         );
         log_call_stack(call_stack);
-        //log_mir(&body);
-        //debug!("#############################\n\n");
 
         self.check_call_stack(call_stack, cur_scope);
 
-        // If there exists a memoized WTO, use it; otherwise, create it
         let mut bb_deps;
         if let Some(mem_bb_deps) = ctxt.get_wto(cur_scope) {
             bb_deps = mem_bb_deps.clone();
             if !bb_deps.has_ret {
-                // This block does not explicitly return - likely a panicker, thus we can skip
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
-            //debug!("OLD ordering: {:?}", bb_deps.ordering);
         } else {
             bb_deps = BBDeps::new(body);
             if !bb_deps.has_ret {
-                // This block does not explicitly return - likely a panicker, thus we can skip
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
             ctxt.set_wto(cur_scope, &bb_deps);
         }
 
-        // Loop through basic blocks in WTO
         let mut last_res = None;
         let num_bbs = bb_deps.ordering.len();
         let mut saw_return = false;
 
         loop {
-            //debug!("\n\nGETTING NEXT BB");
-            //debug!("pre-pop ordering: {:?}", bb_deps.ordering);
             if bb_deps.ordering.is_empty() {
-                //debug!("DONE INTERPING");
                 break;
             }
 
+            {
+                let mut n = self.bb_visit_count.borrow_mut();
+                *n += 1;
+                if *n % 200 == 0 {
+                    debug!(
+                        "\nRSS at bb visit {} rss_kb={}\n",
+                        *n,
+                        Self::current_rss_kb().unwrap_or(0)
+                    );
+                }
+                if *n % 2_000 == 0 {
+                    self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
+                }
+            }
+
             let bb = bb_deps.ordering.pop_front().unwrap();
-            //debug!("\n\n--NEW BB: {:?}", bb);
 
             let data = body.blocks.get(bb).unwrap();
             if matches!(data.terminator.kind, TerminatorKind::Return) {
@@ -301,8 +357,6 @@ impl<'a> InterpPass<'a> {
         Ok(res)
     }
 
-    /// If this type contains one or more (RigidTy) Dynamics, return the associated TraitObjTys
-    /// (i.e. the Dynamic info converted into VerifOpt semantics)
     fn contains_dyn(&self, ty: &Ty) -> Option<Vec<TraitObjTy>> {
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
@@ -411,10 +465,29 @@ impl<'a> InterpPass<'a> {
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
     ) -> Constraints {
+        // maybe_trait_destty is small (a handful of trait defs at most) -
+        // cheap to hash even though old_constraints itself may be huge.
+        // This is called once per assignment statement, and the same
+        // Rc-backed value legitimately gets passed here again whenever
+        // it's referenced from multiple places (e.g. shared via a struct
+        // field written into many disjuncts).
+        let extra_key = hash_val(maybe_trait_destty);
+        LIFT_TRAITOBJTYS_CACHE.with(|cache| {
+            memoize_by_rc(cache, &old_constraints, extra_key, || {
+                self.lift_traitobjtys_uncached(maybe_trait_destty, &old_constraints)
+            })
+        })
+    }
+
+    fn lift_traitobjtys_uncached(
+        &self,
+        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
+        old_constraints: &Constraints,
+    ) -> Constraints {
         let mut constraints = Constraints::new();
-        for constraint in old_constraints.inner {
+        for constraint in old_constraints.inner.iter() {
+            let constraint = constraint.clone();
             match self.converter.get_traitobj(maybe_trait_destty, &constraint) {
-                // Add into traitobj constraint
                 toc @ Some(_) => match constraint {
                     Constraint {
                         toc: None,
@@ -435,7 +508,6 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                 },
-                // Push constraint unchanged
                 None => {
                     constraints.push(constraint);
                 }
@@ -455,7 +527,6 @@ impl<'a> InterpPass<'a> {
         stmt_idx: usize,
     ) {
         match &stmt.kind {
-            // Only interp assignments to track type constraint changes
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!\nplace: {:?}\nrval: {:?}", place, rvalue);
                 log_scope(cur_scope);
@@ -463,7 +534,7 @@ impl<'a> InterpPass<'a> {
                 let dest_ty = place.ty(local_decls).unwrap();
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
 
-                // convert MIR Rvalue to Constraint
+                debug!("HERE0");
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
@@ -494,31 +565,68 @@ impl<'a> InterpPass<'a> {
                         rvalue,
                     )
                 };
+                debug!(
+                    "HERE1 scope={:?} local={} disjuncts={}",
+                    cur_scope.0.name(),
+                    place.local,
+                    crate::constraints::constraints_size(&constraints)
+                );
 
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
-                debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
+                debug!(
+                    "HERE2 scope={:?} local={} disjuncts={}",
+                    cur_scope.0.name(),
+                    place.local,
+                    crate::constraints::constraints_size(&final_constraints)
+                );
+                //debug!("FINAL CONSTRAINTS: {:?}", final_constraints);
 
                 let mut write_proj = place.projection.as_slice();
                 while let [ProjectionElem::Deref, rest @ ..] = write_proj {
                     write_proj = rest;
                 }
+                debug!("HERE3");
 
                 if write_proj.is_empty() {
+                    debug!(
+                        "HERE3.1 scope={:?} local={} disjuncts={}",
+                        cur_scope.0.name(),
+                        place.local,
+                        crate::constraints::constraints_size(&final_constraints)
+                    );
                     ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
                 } else {
                     let base = Place {
                         local: place.local,
                         projection: vec![],
                     };
+                    debug!("HERE3.2");
                     match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
                         Some(mut base_constraints) => {
+                            debug!(
+                                "HERE3.2Ai scope={:?} local={} base_disjuncts={}",
+                                cur_scope.0.name(),
+                                base.local,
+                                crate::constraints::constraints_size(&base_constraints)
+                            );
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
+                            debug!(
+                                "HERE3.2Aii scope={:?} local={} base_disjuncts={}",
+                                cur_scope.0.name(),
+                                base.local,
+                                crate::constraints::constraints_size(&base_constraints)
+                            );
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            debug!("HERE3.2Aiii");
                         }
                         None => {
-                            //debug!("no base constraints");
+                            debug!(
+                                "HERE3.2B scope={:?} local={} (fresh base)",
+                                cur_scope.0.name(),
+                                base.local
+                            );
                             let mut base_constraints = Constraints::new();
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
@@ -526,6 +634,7 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                 }
+                debug!("HERE4");
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -547,10 +656,6 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         cno: &CopyNonOverlapping,
     ) {
-        //debug!("CNO src: {:?}", cno.src);
-        //debug!("CNO dst: {:?}", cno.dst);
-        //debug!("CNO cnt: {:?}", cno.count);
-
         let count =
             match self.get_operand_constraints(ctxt, cur_scope, local_decls, &cno.count, false) {
                 Some(constraints) => self.get_usize(&constraints),
@@ -578,13 +683,11 @@ impl<'a> InterpPass<'a> {
                                 let pointee = if always_one {
                                     (**inner).clone()
                                 } else {
-                                    // preserve the pointee's own toc when wrapping it in a List
                                     Constraint::new(
                                         inner.toc.clone(),
                                         Some(RunningConstraint::List(inner.clone())),
                                     )
                                 };
-                                // preserve src's outer Ptr-constraint toc on the new outer Ptr constraint
                                 Some(Constraint::new(
                                     c.toc.clone(),
                                     Some(RunningConstraint::Ptr(Box::new(pointee))),
@@ -664,7 +767,7 @@ impl<'a> InterpPass<'a> {
 
     fn get_usize(&self, constraints: &Constraints) -> Option<Vec<usize>> {
         let mut nums = Vec::new();
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             match constraint.cfc {
                 Some(RunningConstraint::Scalar(Some(num))) => nums.push(num.try_into().unwrap()),
                 _ => {}
@@ -752,18 +855,14 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("INTERPING INDIRECT CALL");
-
-        //debug!("CHECKING FOR DYN IN PLACE TY");
         let dest_ty = place.ty(local_decls).unwrap();
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
-        //debug!("lval ty: {:?}", dest_ty);
-        //debug!("dyn lval ty? {:?}", maybe_trait_destty);
 
         let mut ret_constraints = Constraints::new();
         match ctxt.get_constraints(cur_scope, local_decls, place, false) {
             Some(constraints) => {
-                for constraint in constraints.inner {
+                for constraint in constraints.inner.iter() {
+                    let constraint = constraint.clone();
                     match constraint {
                         Constraint {
                             toc: _,
@@ -794,11 +893,6 @@ impl<'a> InterpPass<'a> {
             None => panic!("fnptr value not found in cmap"),
         }
 
-        // Set destination local to value in cmap
-        //debug!(
-        //    "RET FROM INDIRECT FUNC CALL: {:?}",
-        //    ret_constraints
-        //);
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
         let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints);
@@ -850,6 +944,12 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 args,
             ),
+            RunningConstraint::Param(..) => {
+                if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
+                    *tainted = true;
+                }
+                Ok(None)
+            }
             _ => panic!("other vorval interp as fn?: {:?}", constraint),
         }
     }
@@ -864,20 +964,6 @@ impl<'a> InterpPass<'a> {
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        // A raw fn pointer only carries a signature, not which concrete
-        // function it points to - `sigstore.sigs` maps that signature to
-        // every function in the program sharing it (candidates), but we
-        // deliberately don't try to interpret each candidate and merge
-        // results here: candidates found by signature-matching alone may
-        // themselves be generic, and there's no principled way yet to know
-        // what concrete GenericArgs to interpret them with (a raw fn
-        // pointer erases that information entirely) - a previous draft of
-        // this attempted exactly that and got stuck on precisely this gap
-        // (passing an empty GenericArgs as a placeholder, which is wrong
-        // for any candidate that's actually generic). Falling back to a
-        // signature-based approximation is sound (just less precise) and
-        // matches the same tradeoff already made elsewhere for expensive-
-        // to-trace cases (e.g. many BTreeSet/BTreeMap method stubs).
         debug!(
             "interp_fn_ptr: falling back for sigval with output {:?}",
             sigval.output
@@ -927,7 +1013,13 @@ impl<'a> InterpPass<'a> {
                 true,
             );
             self.prepare_call(call_stack, &key);
-            self.visit_body(ctxt, call_stack, &new_scope, &body)
+            match self.visit_body(ctxt, call_stack, &new_scope, &body) {
+                Ok(r) => Ok(r),
+                Err(e) => {
+                    self.prepare_return(call_stack);
+                    Err(e)
+                }
+            }
         } else {
             todo!("closure has no body");
         }
@@ -959,8 +1051,6 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         destination: &Place,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("DIRECT CALL");
-
         let dest_ty = destination.ty(local_decls).unwrap();
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
         let ret_constraints = match co.const_.ty().kind() {
@@ -993,8 +1083,6 @@ impl<'a> InterpPass<'a> {
             kind @ _ => todo!("funccall const is another kind: {:?}", kind),
         };
 
-        // Set destination local to value in cmap
-        //debug!("RET FROM FUNC CALL ret_constraints: {:?}", ret_constraints);
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
 
@@ -1009,11 +1097,10 @@ impl<'a> InterpPass<'a> {
                 return Ok(Some(constraints));
             }
             Ok(None) => Ok(None),
-            err @ Err(Error::RecurseLimit(_)) => return err,
+            err @ Err(_) => return err,
         }
     }
 
-    /// Interpret a function call from a FnDef object
     fn interp_fn_def(
         &self,
         term_span: &Span,
@@ -1026,17 +1113,13 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("trying to resolve instance");
-        //debug!("fndef: {:?}", fndef);
-        //debug!("genargs: {:?}", genargs);
-        //debug!("args: {:?}", args);
         let instance = match Instance::resolve(fndef, genargs) {
             Ok(instance_) => instance_,
             Err(_) => {
                 // Support instances we can't resolve without more info
-                // (i.e. this is a declaration, not an implementation,
+                // (i.e. this is a declaration, not an implementation).
                 // We likely got here b/c we interpreted a trait func w a default implementation
-                // that calls a trait func without a default implementation)
+                // that calls a trait func without a default implementation
                 //
                 // The "more info" being:
                 // - is this a trait method without an implementation?
@@ -1082,11 +1165,6 @@ impl<'a> InterpPass<'a> {
             return result;
         }
 
-        // Only Item/Shim instances have a body worth fetching. Virtual instances
-        // are dispatched dynamically at runtime and have no body of their own
-        // (calling `.body()` on one is a rustc ICE, not just an empty result);
-        // Intrinsic instances are handled via signature fallback in dispatch_call.
-        // Route anything else straight there without ever touching `.body()`.
         let fetchable_body = matches!(instance.kind, InstanceKind::Item | InstanceKind::Shim)
             && new_scope.0.has_body();
 
@@ -1118,14 +1196,24 @@ impl<'a> InterpPass<'a> {
         );
 
         if call_stack.contains(&new_scope) {
-            let new_key = (new_scope.clone(), ArgSet::new(&new_cs));
+            let precise_count = *self
+                .scope_summaries_count
+                .borrow()
+                .get(&new_scope)
+                .unwrap_or(&0);
+            let new_key = if precise_count >= 50 {
+                let widened: Vec<Constraints> = new_cs
+                    .iter()
+                    .map(crate::constraints::widen_constraints)
+                    .collect();
+                (new_scope.clone(), ArgSet::new(&widened))
+            } else {
+                (new_scope.clone(), ArgSet::new(&new_cs))
+            };
 
             if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
-                //debug!("\trecursive call, hit summary");
                 return Ok(Some(cs));
             }
-
-            //debug!("\trecursive call, queueing...");
 
             let retty = self
                 .retty_fallback_from_poly(fndef.fn_sig())?
@@ -1133,6 +1221,13 @@ impl<'a> InterpPass<'a> {
             self.summaries
                 .borrow_mut()
                 .insert(new_key.clone(), retty.clone());
+            if precise_count < 50 {
+                *self
+                    .scope_summaries_count
+                    .borrow_mut()
+                    .entry(new_scope.clone())
+                    .or_insert(0) += 1;
+            }
 
             let cur_key = self.key_stack.borrow().last().cloned().unwrap();
 
@@ -1188,6 +1283,7 @@ impl<'a> InterpPass<'a> {
                 args,
                 &genargs,
                 &new_cs,
+                false,
             ),
             InstanceKind::Virtual { .. } => self.interp_virtual_call(
                 term_span,
@@ -1204,6 +1300,202 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    fn build_param_summary(
+        &self,
+        scope: &VOID,
+        is_closure: bool,
+    ) -> Result<Option<Constraints>, Error> {
+        self.building_summaries.borrow_mut().insert(scope.clone());
+
+        let body = self.get_body(scope);
+        let n_args = body.arg_locals().len();
+
+        let param_cs: Vec<Constraints> = (0..n_args)
+            .map(|i| {
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Param(i, vec![])),
+                ))
+            })
+            .collect();
+
+        let mut substore = ConstraintStore::new();
+        for (i, cs) in param_cs.iter().enumerate() {
+            let local = if is_closure { i + 2 } else { i + 1 };
+            let place = Place {
+                local,
+                projection: vec![],
+            };
+            substore.cmap.insert(
+                MapKey::Var(place),
+                Box::new(MapValue::Constraints(cs.clone())),
+            );
+        }
+
+        let mut summary_ctxt = Context::empty();
+        summary_ctxt.cstore.cmap.insert(
+            MapKey::ScopeId(scope.clone()),
+            Box::new(MapValue::Store(substore, None)),
+        );
+
+        let mut summary_stack = vec![scope.clone()];
+        // summary_stack is a fresh, isolated call stack for exploring this
+        // scope independent of whoever's calling chain led here - but
+        // key_stack is shared, global state. Pushing one entry onto it
+        // directly (bypassing prepare_call) leaves it desynced from
+        // summary_stack's own length the moment this is invoked from
+        // partway through an already-in-progress interpretation (i.e.
+        // whenever key_stack isn't already empty). Snapshot and fully
+        // replace it instead, matching summary_stack's isolated baseline,
+        // then restore the caller's real contents afterward.
+        let saved_key_stack = self
+            .key_stack
+            .replace(vec![(scope.clone(), ArgSet::new(&param_cs))]);
+
+        let dispatch_cha_snapshot = self.dispatch_cha.borrow().clone();
+        let dispatch_targets_snapshot = self.dispatch_targets.borrow().clone();
+        let dispatch_tags_snapshot = self.dispatch_tags.borrow().clone();
+        let dependencies_snapshot = self.dependencies.borrow().clone();
+        let incomplete_snapshot = self.incomplete.borrow().clone();
+
+        self.summary_build_taint_stack.borrow_mut().push(false);
+        let result = self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body);
+        // key_stack should be back to the one-entry baseline this
+        // exploration started it at (popped via the normal Return path for
+        // scope itself) - restore the caller's actual contents now that
+        // the isolated exploration is done, regardless of outcome.
+        self.key_stack.replace(saved_key_stack);
+        let tainted = self
+            .summary_build_taint_stack
+            .borrow_mut()
+            .pop()
+            .expect("summary_build_taint_stack: push/pop imbalance");
+
+        if tainted || result.is_err() {
+            *self.dispatch_cha.borrow_mut() = dispatch_cha_snapshot;
+            *self.dispatch_targets.borrow_mut() = dispatch_targets_snapshot;
+            *self.dispatch_tags.borrow_mut() = dispatch_tags_snapshot;
+            *self.dependencies.borrow_mut() = dependencies_snapshot;
+            *self.incomplete.borrow_mut() = incomplete_snapshot;
+        }
+
+        self.building_summaries.borrow_mut().remove(scope);
+
+        match result {
+            Ok(_) if tainted => Err(Error::SummaryImprecise),
+            other => other,
+        }
+    }
+
+    fn log_cache_sizes(&self, n: u64) {
+        debug!(
+            "\nCACHE SIZES at call {}: exact_memo={} summaries={} wq={} in_queue={} param_summaries={} building_summaries={} dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={} incomplete={} scope_epoch={} scope_exact_memo_count={} scope_summaries_count={} key_stack={}\n",
+            n,
+            self.exact_memo.borrow().len(),
+            self.summaries.borrow().len(),
+            self.wq.borrow().len(),
+            self.in_queue.borrow().len(),
+            self.param_summaries.borrow().len(),
+            self.building_summaries.borrow().len(),
+            self.dispatch_targets.borrow().len(),
+            self.dispatch_cha.borrow().len(),
+            self.dispatch_tags.borrow().len(),
+            self.dependencies.borrow().len(),
+            self.incomplete.borrow().len(),
+            self.scope_epoch.borrow().len(),
+            self.scope_exact_memo_count.borrow().len(),
+            self.scope_summaries_count.borrow().len(),
+            self.key_stack.borrow().len(),
+        );
+    }
+
+    fn current_rss_kb() -> Option<u64> {
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
+        for line in status.lines() {
+            if let Some(rest) = line.strip_prefix("VmRSS:") {
+                return rest.trim().split_whitespace().next()?.parse().ok();
+            }
+        }
+        None
+    }
+
+    fn log_bb_cache_sizes(&self, n: u64, cur_scope: &VOID, ctxt: &Context, ordering_len: usize) {
+        let (ps_max, ps_sum, ps_max_scope) = {
+            let ps = self.param_summaries.borrow();
+            let mut max = 0usize;
+            let mut sum = 0usize;
+            let mut max_scope = String::new();
+            for (scope, v) in ps.iter() {
+                if let ParamSummary::Built(Some(cs)) = v {
+                    let s = crate::constraints::constraints_size(cs);
+                    sum += s;
+                    if s > max {
+                        max = s;
+                        max_scope = format!("{:?}", scope.0.name());
+                    }
+                }
+            }
+            (max, sum, max_scope)
+        };
+        let (em_max, em_sum, em_max_scope) = {
+            let em = self.exact_memo.borrow();
+            let mut max = 0usize;
+            let mut sum = 0usize;
+            let mut max_scope = String::new();
+            for (key, (cs, _)) in em.iter() {
+                if let Some(c) = cs.as_ref() {
+                    let s = crate::constraints::constraints_size(c);
+                    sum += s;
+                    if s > max {
+                        max = s;
+                        max_scope = format!("{:?}", key.0.0.name());
+                    }
+                }
+            }
+            (max, sum, max_scope)
+        };
+        let (sm_max, sm_sum, sm_max_scope) = {
+            let sm = self.summaries.borrow();
+            let mut max = 0usize;
+            let mut sum = 0usize;
+            let mut max_scope = String::new();
+            for (key, cs) in sm.iter() {
+                let s = crate::constraints::constraints_size(cs);
+                sum += s;
+                if s > max {
+                    max = s;
+                    max_scope = format!("{:?}", key.0.0.name());
+                }
+            }
+            (max, sum, max_scope)
+        };
+        debug!(
+            "\nBB CACHE SIZES at bb visit {} rss_kb={} for {:?}: cstore_cmap={} ordering_remaining={} exact_memo={} (max_disjuncts={} max_scope={} sum_disjuncts={}) summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) wq={} param_summaries={} (max_disjuncts={} max_scope={} sum_disjuncts={}) dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={}\n",
+            n,
+            Self::current_rss_kb().unwrap_or(0),
+            cur_scope.0.name(),
+            ctxt.cstore.cmap.len(),
+            ordering_len,
+            self.exact_memo.borrow().len(),
+            em_max,
+            em_max_scope,
+            em_sum,
+            self.summaries.borrow().len(),
+            sm_max,
+            sm_max_scope,
+            sm_sum,
+            self.wq.borrow().len(),
+            self.param_summaries.borrow().len(),
+            ps_max,
+            ps_max_scope,
+            ps_sum,
+            self.dispatch_targets.borrow().len(),
+            self.dispatch_cha.borrow().len(),
+            self.dispatch_tags.borrow().len(),
+            self.dependencies.borrow().len(),
+        );
+    }
+
     fn interp_static_call(
         &self,
         term_span: &Span,
@@ -1216,14 +1508,119 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         genargs: &GenericArgs,
         cur_cs: &Vec<Constraints>,
+        is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("INTERP STATIC CALL");
-        //debug!("fndef: {:?}", fndef);
-        //debug!("genargs: {:?}", genargs);
+        {
+            let mut n = self.call_count.borrow_mut();
+            *n += 1;
+            if *n % 10_000 == 0 {
+                self.log_cache_sizes(*n);
+            }
+        }
 
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
             let key = (cur_scope.clone(), ArgSet::new(cur_cs));
+
+            let cached_summary = self.param_summaries.borrow().get(cur_scope).cloned();
+            match cached_summary {
+                Some(ParamSummary::Built(summary)) => {
+                    let summary_size = summary
+                        .as_ref()
+                        .map(crate::constraints::constraints_size)
+                        .unwrap_or(0);
+                    debug!(
+                        "param_summary hit for {:?} (summary_disjuncts={}) - about to substitute",
+                        cur_scope.0.name(),
+                        summary_size
+                    );
+                    let substituted = summary.as_ref().map(|s| substitute_params(s, cur_cs));
+                    debug!("substitute_params returned for {:?}", cur_scope.0.name());
+                    return Ok(substituted);
+                }
+                Some(ParamSummary::Unavailable) => {
+                    // fall through to Step 1 below
+                }
+                None => {
+                    if self.building_summaries.borrow().contains(cur_scope) {
+                        debug!(
+                            "param_summary unavailable for {:?}: already building (recursive)",
+                            cur_scope.0.name()
+                        );
+                        self.param_summaries
+                            .borrow_mut()
+                            .insert(cur_scope.clone(), ParamSummary::Unavailable);
+                    } else {
+                        match self.build_param_summary(cur_scope, is_closure) {
+                            Ok(built) => {
+                                debug!("built param_summary for {:?}", cur_scope.0.name());
+                                self.param_summaries
+                                    .borrow_mut()
+                                    .insert(cur_scope.clone(), ParamSummary::Built(built.clone()));
+                                let substituted = built.map(|s| substitute_params(&s, cur_cs));
+                                return Ok(substituted);
+                            }
+                            Err(e) => {
+                                debug!(
+                                    "param_summary unavailable for {:?}: {:?}",
+                                    cur_scope.0.name(),
+                                    e
+                                );
+                                self.param_summaries
+                                    .borrow_mut()
+                                    .insert(cur_scope.clone(), ParamSummary::Unavailable);
+                                // fall through to Step 1 below
+                            }
+                        }
+                    }
+                }
+            }
+
+            let precise_count = *self
+                .scope_exact_memo_count
+                .borrow()
+                .get(cur_scope)
+                .unwrap_or(&0);
+            let memo_key: SummaryKey = if precise_count >= 50 {
+                let widened: Vec<Constraints> = cur_cs
+                    .iter()
+                    .map(crate::constraints::widen_constraints)
+                    .collect();
+                (cur_scope.clone(), ArgSet::new(&widened))
+            } else {
+                key.clone()
+            };
+
+            let scope_name = format!("{:?}", cur_scope.0.name());
+            if scope_name.contains("RawVecInner") {
+                let will_hit = self
+                    .exact_memo
+                    .borrow()
+                    .get(&memo_key)
+                    .map(|(_, e)| *e == *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0))
+                    .unwrap_or(false);
+                debug!(
+                    "\nRAWVEC TRACE for {}: precise_count={} widened={} exact_memo_hit={} exact_memo_key_hash={:?}\n",
+                    scope_name,
+                    precise_count,
+                    precise_count >= 50,
+                    will_hit,
+                    memo_key.1,
+                );
+            }
+
+            let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+            if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
+                if *cached_epoch == epoch_before {
+                    debug!(
+                        "exact_memo hit for {:?} at epoch {}",
+                        cur_scope.0.name(),
+                        epoch_before
+                    );
+                    return Ok(cached.clone());
+                }
+            }
+
             self.resolve_args(
                 ctxt,
                 term_span,
@@ -1233,19 +1630,38 @@ impl<'a> InterpPass<'a> {
                 local_decls,
                 args,
                 genargs,
-                false,
+                is_closure,
             );
             self.prepare_call(call_stack, &key);
-            self.visit_body(ctxt, call_stack, cur_scope, &body)
+            let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
+
+            if let Ok(ref cs) = result {
+                let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+                let is_new = !self.exact_memo.borrow().contains_key(&memo_key);
+                self.exact_memo
+                    .borrow_mut()
+                    .insert(memo_key.clone(), (cs.clone(), epoch_after));
+                if is_new && precise_count < 50 {
+                    *self
+                        .scope_exact_memo_count
+                        .borrow_mut()
+                        .entry(cur_scope.clone())
+                        .or_insert(0) += 1;
+                }
+            }
+
+            match result {
+                Ok(r) => Ok(r),
+                Err(e) => {
+                    self.prepare_return(call_stack);
+                    Err(e)
+                }
+            }
         } else {
-            // No body, so not visiting/updating call stack
-            //debug!("NO BODY");
             self.retty_fallback_from_poly(fndef.fn_sig())
         }
     }
 
-    /// Create new subscope for the callee function, and put the resolved argument constraints into
-    /// it. Then, if another subscope already exists for this callee, merge it with the new one and update
     fn resolve_args(
         &self,
         ctxt: &mut Context,
@@ -1254,16 +1670,11 @@ impl<'a> InterpPass<'a> {
         body: &Body,
         callee_scope: &VOID,
         local_decls: &[LocalDecl],
-        //fndef: FnDef,
         args: &Vec<Operand>,
         _genargs: &GenericArgs,
         is_closure: bool,
     ) {
-        //debug!("RESOLVING ARGS");
-        //debug!("IS TARGET FN CLOSURE?: {}", is_closure);
-
         let mut new_ctxt = Context::empty();
-        // Resolve generics + add arg values into new substore
         self.resolve_args_helper(
             ctxt,
             term_span,
@@ -1278,6 +1689,7 @@ impl<'a> InterpPass<'a> {
 
         // Merge new substore into existing substore at this scopeId
         let store;
+        let mut widened = false;
         match ctxt.get_cstore_scope(callee_scope) {
             Some(box MapValue::Store(old_substore, old_es)) => {
                 store = merge_stores(
@@ -1286,12 +1698,27 @@ impl<'a> InterpPass<'a> {
                     &new_ctxt.cstore,
                     &Some(vec![caller_scope.clone()]),
                 );
+                // Same O(1) fast path Merge<ConstraintStore> already relies
+                // on: if the merged map still shares its underlying tree
+                // with the old one, this call's args added nothing new to
+                // callee_scope's substore (e.g. an identical repeat call),
+                // so exact_memo entries keyed on this scope stay valid.
+                widened = !store.0.cmap.ptr_eq(&old_substore.cmap);
             }
             Some(_) => panic!("got constraint, expected store"),
-            None => store = (new_ctxt.cstore, Some(vec![caller_scope.clone()])),
+            None => {
+                store = (new_ctxt.cstore, Some(vec![caller_scope.clone()]));
+                // First-ever visit to this scope: nothing was cached under
+                // it before now, so there's nothing to invalidate - no bump.
+            }
         }
 
-        // Add new substore in top-level store
+        if widened {
+            let mut epochs = self.scope_epoch.borrow_mut();
+            let e = epochs.entry(callee_scope.clone()).or_insert(0);
+            *e += 1;
+        }
+
         ctxt.set_cstore_scope(callee_scope, store.0, store.1);
     }
 
@@ -1385,10 +1812,9 @@ impl<'a> InterpPass<'a> {
                 }
             }
 
-            debug!("arg constraints: {:?}", constraints);
+            //debug!("arg constraints: {:?}", constraints);
             debug!("arg place in new scope: {:?}\n", place);
 
-            // Copy found constraints into new scope cmap
             new_ctxt.cstore.cmap.insert(
                 MapKey::Var(place.clone()),
                 Box::new(MapValue::Constraints(constraints)),
@@ -1419,41 +1845,16 @@ impl<'a> InterpPass<'a> {
                         let (_maybe_traitobjty, constraint) = self
                             .converter
                             .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
-                        //if let Some(_tot) = maybe_traitobjty {
-                        //    todo!();
-                        //}
                         Constraints::from(constraint)
                     }
                 }
             }
-            // TODO can maybe get a more precise VORval depending on kind
             Operand::Constant(const_op) => self
                 .converter
                 .convert_const(&Location::unknown(), &const_op),
             _ => todo!("runtime check arg"),
         }
     }
-
-    /*
-    fn get_place_constraints(
-        &self,
-        ctxt: &Context,
-        caller_scope: &VOID,
-        maybe_trait_argty: &Option<Vec<TraitObjTy>>,
-        place: &Place,
-        is_closure: bool,
-    ) -> Option<Constraints> {
-        match ctxt.get_constraints(caller_scope, place, is_closure) {
-            Some(val) => match val {
-                MapValue::Constraints(constraints_) => {
-                    Some(self.lift_traitobjtys(maybe_trait_argty, constraints_))
-                }
-                _ => panic!("arg is a scope"),
-            },
-            _ => None,
-        }
-    }
-    */
 
     fn check_sig_boundvars(&self, sig: &PolyFnSig) {
         if !sig.bound_vars.is_empty() {
@@ -1484,22 +1885,12 @@ impl<'a> InterpPass<'a> {
     fn retty_fallback_from_sigval(&self, sigval: &SigVal) -> Result<Option<Constraints>, Error> {
         //debug!("sigval: {:?}", sigval);
         if !sigval.bound_tys.is_empty() {
-            // Mirrors check_sig_boundvars' still-unhandled case: a Ty-kind
-            // bound variable means skip_binder() (already applied when
-            // SigVal::new_from_poly built `output`) may have left a bound
-            // type-var index that's meaningless outside its original
-            // binder context. Not yet safe to just proceed - keep this a
-            // loud, informative panic rather than silently guessing.
             todo!(
                 "SigVal fallback with bound type-vars in signature: {:?}",
                 sigval.bound_tys
             );
         }
 
-        // Return output type that matches type info (widening) - same
-        // pattern as retty_fallback_from_poly, just sourced from SigVal's
-        // already skip_binder()'d output instead of re-deriving it from a
-        // fresh PolyFnSig.
         let (_, constraint) = self
             .converter
             .convert_ty(&Location::unknown(), &sigval.output);
@@ -1522,7 +1913,6 @@ impl<'a> InterpPass<'a> {
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,
         caller_scope: &VOID,
-        //callee_scope: Option<VOID>,
         local_decls: &[LocalDecl],
         bb: usize,
         fndef: &FnDef,
@@ -1531,8 +1921,6 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         debug!("\nDYNAMIC CALL - fndef: {:?}\n", fndef);
         log_scope(caller_scope);
-        //debug!("args: {:?}", args);
-        //debug!("genargs: {:?}", genargs);
 
         // Get trait that this function is associated with
         // - tstore.assoc_fn_traits (Map<AssocFn, Trait>)
@@ -1551,11 +1939,6 @@ impl<'a> InterpPass<'a> {
         } else {
             assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
         }
-        //debug!(
-        //    "CHA impls (len={:?}): {:?}",
-        //    assoc_fn_impls_cha.len(),
-        //    assoc_fn_impls_cha
-        //);
 
         for (cha_impl, _) in &assoc_fn_impls_cha {
             if *cha_impl == fndef.0 {
@@ -1563,7 +1946,7 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        let (is_closure, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
+        let (is_closure, receiver_is_param, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
             ctxt,
             term_span,
             caller_scope,
@@ -1572,11 +1955,29 @@ impl<'a> InterpPass<'a> {
             &fndef.0,
             args,
         );
-        //debug!(
-        //    "FSA impls (len={:?}): {:?}",
-        //    assoc_fn_impls_fsa.len(),
-        //    assoc_fn_impls_fsa
-        //);
+
+        let fsa_empty = assoc_fn_impls_fsa.is_empty();
+
+        // The receiver's constraint is a `Param` placeholder, not a real (even if
+        // unresolvable) value - we're inside `build_param_summary`, interpreting this
+        // function generically before any caller's concrete argument is known. An empty
+        // FSA set here means "not yet known", not "known and CHA-sized"; falling back to
+        // CHA and simulating its impls would (a) permanently bake an inflated/wrong answer
+        // into `dispatch_cha`/`dispatch_targets` for this call site, before the real
+        // per-call-site receiver type - which is exactly what would let FSA beat CHA here -
+        // is ever consulted, and (b) simulate those impls with genargs that still carry the
+        // trait-object receiver's type, which can resolve back to the same `Virtual`
+        // instance being dispatched and crash rustc's mono/shim machinery. Bail out the same
+        // way other param-driven control flow does, so `build_param_summary` discards this
+        // build (`ParamSummary::Unavailable`) and the call gets re-interpreted for real once
+        // a concrete receiver is available.
+        if fsa_empty && receiver_is_param {
+            debug!(
+                "FSA empty because receiver is an unresolved summary param (not yet known) - \
+                 deferring to real call site instead of falling back to CHA"
+            );
+            return Err(Error::SummaryImprecise);
+        }
 
         for fsa_impl in &assoc_fn_impls_fsa {
             if !assoc_fn_impls_cha.contains(&fsa_impl) {
@@ -1584,7 +1985,6 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        let fsa_empty = assoc_fn_impls_fsa.is_empty();
         if fsa_empty {
             debug!("nothing to call, FSA set is empty, falling back to CHA");
             assoc_fn_impls_fsa = assoc_fn_impls_cha.clone();
@@ -1608,7 +2008,6 @@ impl<'a> InterpPass<'a> {
                 fndef,
             );
         }
-        //debug!("term_span: {:?}", term_span);
 
         self.dispatch_cha
             .borrow_mut()
@@ -1644,13 +2043,15 @@ impl<'a> InterpPass<'a> {
             args,
             fsa_empty,
         );
-        let mut dt = self.dispatch_tags.borrow_mut();
-        match dt.entry(key) {
-            Entry::Occupied(mut e) => {
-                e.get_mut().join(&plan);
-            }
-            Entry::Vacant(e) => {
-                e.insert(plan);
+        {
+            let mut dt = self.dispatch_tags.borrow_mut();
+            match dt.entry(key) {
+                ImEntry::Occupied(mut e) => {
+                    e.get_mut().join(&plan);
+                }
+                ImEntry::Vacant(e) => {
+                    e.insert(plan);
+                }
             }
         }
 
@@ -1664,6 +2065,7 @@ impl<'a> InterpPass<'a> {
             genargs,
             args,
             is_closure,
+            &fndef.0,
         )
     }
 
@@ -1695,7 +2097,8 @@ impl<'a> InterpPass<'a> {
 
         let mut by_site = HashMap::new();
 
-        for c in cs.inner {
+        for c in cs.inner.iter() {
+            let c = c.clone();
             let tags = match &c.prov {
                 TagProv::Tags(t) if !t.is_empty() => t,
                 _ => return TagPlan::Poisoned,
@@ -1751,6 +2154,16 @@ impl<'a> InterpPass<'a> {
     /// If there are no candidates based on input constraints, and this is on the FSA path, add the default
     /// implementation to the returned candidate function set, if there exists one.
     /// For CHA, add the default implementation (if it exists) no matter what.
+    // True if ty is an Adt with a free TyKind::Param in its own GenericArgs.
+    fn ty_has_unresolved_param(ty: &Ty) -> bool {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Adt(_, args)) => args.0.iter().any(
+                |k| matches!(k, GenericArgKind::Type(t) if matches!(t.kind(), TyKind::Param(_))),
+            ),
+            _ => false,
+        }
+    }
+
     fn get_impls_from_defids(
         &self,
         assoc_fn_defid: &DefId,
@@ -1768,7 +2181,28 @@ impl<'a> InterpPass<'a> {
                         assoc_fn_impl
                             .clone()
                             .into_iter()
-                            .map(|x| (x, genargs.clone()))
+                            .filter_map(|x| {
+                                if x == *assoc_fn_defid {
+                                    // Inherited default method - x is the trait's own
+                                    // decl defid, generic over Self.
+                                    let self_ty = match genargs {
+                                        Some(g) => AdtDef(*defid).ty_with_args(g),
+                                        None => AdtDef(*defid).ty(),
+                                    };
+                                    if Self::ty_has_unresolved_param(&self_ty) {
+                                        // defid itself generic, no concrete
+                                        // instantiation available - skip.
+                                        None
+                                    } else {
+                                        Some((
+                                            x,
+                                            Some(GenericArgs(vec![GenericArgKind::Type(self_ty)])),
+                                        ))
+                                    }
+                                } else {
+                                    Some((x, genargs.clone()))
+                                }
+                            })
                             .collect(),
                     );
                 }
@@ -1814,21 +2248,24 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// Returns `(is_closure, receiver_is_unresolved_param, impls)`. See
+    /// `get_fsa_tyconstraints` for what `receiver_is_unresolved_param` means and why callers must
+    /// not conflate it with a genuinely-empty FSA result.
     fn get_impls_fsa(
         &self,
         ctxt: &Context,
         term_span: &Span,
         caller_scope: &VOID,
-        //callee_scope: &VOID,
         local_decls: &[LocalDecl],
         trait_defid: &DefId,
         assoc_fn_defid: &DefId,
         args: &Vec<Operand>,
-    ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+    ) -> (bool, bool, Vec<(DefId, Option<GenericArgs>)>) {
         debug!("\n\nGETTING FSA IMPLS");
         let place = self.get_traitobj_place(args);
         debug!("traitobj place: {:?}", place);
-        let tyconstraints = self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
+        let (receiver_is_param, tyconstraints) =
+            self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
         //debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
@@ -1839,6 +2276,7 @@ impl<'a> InterpPass<'a> {
         //);
         (
             is_closure,
+            receiver_is_param,
             self.get_impls_from_defids(assoc_fn_defid, &constraint_defids, true),
         )
     }
@@ -1856,39 +2294,42 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// Returns `(receiver_is_unresolved_param, constraints)`. `receiver_is_unresolved_param` is
+    /// true when the trait-object receiver's constraint is (or contains) a `Param` placeholder -
+    /// i.e. we're inside `build_param_summary`, interpreting this function generically before any
+    /// real caller's argument is known, rather than genuinely having no concrete-type info about a
+    /// real value. Callers must NOT treat that case the same as a real "FSA has nothing" answer:
+    /// a `Param` receiver means "not yet known", not "known to be unresolvable".
     fn get_fsa_tyconstraints(
         &self,
         ctxt: &Context,
         caller_scope: &VOID,
         local_decls: &[LocalDecl],
         place: Place,
-    ) -> Constraints {
+    ) -> (bool, Constraints) {
         // Get concrete type constraints for trait object
         match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
-            Some(constraints) => constraints,
-            // No recorded constraints for this place isn't a bug on its
-            // own - it can genuinely happen for a trait object reached
-            // through a chain the interpreter doesn't yet track precisely
-            // (e.g. Arc<dyn Trait>'s raw-pointer/transmute-based internals -
-            // ArcInner, NonNull, ptr casts). An empty Constraints here means
-            // "FSA has no concrete-type information for this place", which
-            // is exactly the case interp_virtual_call already handles
-            // soundly by falling back to the coarser CHA-based candidate
-            // set (`if assoc_fn_impls_fsa.is_empty() { ...fall back to CHA...
-            // }`) - panicking here would turn an already-designed-for
-            // degradation path into a hard crash instead.
+            Some(constraints) => {
+                let is_param = crate::constraints::contains_param(&constraints);
+                if is_param {
+                    if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
+                        *tainted = true;
+                    }
+                }
+                (is_param, constraints)
+            }
             None => {
                 debug!(
                     "place {:?} has no constraints - returning empty (FSA will fall back to CHA)",
                     place
                 );
-                Constraints::new()
+                (false, Constraints::new())
             }
         }
     }
 
     /// For each concrete type constraint, if it contains a type that implements the trait of the
-    /// traitobject we are dispatching on, return that type's DefId (FIXME remove: along with its generic args)
+    /// traitobject we are dispatching on, return that type's DefId
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
     fn get_fsa_constraint_defids(
@@ -1899,11 +2340,7 @@ impl<'a> InterpPass<'a> {
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         let mut defids = Vec::new();
         let mut is_closure = false;
-        for constraint in &tyconstraints.inner {
-            //debug!(
-            //    "FSA LOOP: cfc={:?} toc={:?}",
-            //    constraint.cfc, constraint.toc
-            //);
+        for constraint in tyconstraints.inner.iter() {
             let (is_closure_, res) = self.resolve_defid(term_span, trait_defid, &constraint);
             is_closure = is_closure || is_closure_;
             unique_append(&mut defids, res);
@@ -1912,7 +2349,7 @@ impl<'a> InterpPass<'a> {
     }
 
     /// If a concrete type constraint contains a type that implements the trait of the
-    /// traitobject we are dispatching on, return that type's DefId (FIXME remove associated generic args?)
+    /// traitobject we are dispatching on, return that type's DefId
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
     fn resolve_defid(
@@ -1968,12 +2405,13 @@ impl<'a> InterpPass<'a> {
                     RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
                     RunningConstraint::Idk(box cs) => {
                         let mut defids = Vec::new();
-                        for c in &cs.inner {
+                        for c in cs.inner.iter() {
                             let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
                             unique_append(&mut defids, res_defids);
                         }
                         (false, defids)
                     }
+                    RunningConstraint::Param(..) => (false, vec![]),
                     _ => todo!("{:?}", cfc),
                 }
             }
@@ -1997,38 +2435,28 @@ impl<'a> InterpPass<'a> {
             Some(traits) => {
                 if traits.contains(trait_defid) {
                     if genargs.0.is_empty() {
-                        //debug!("no genargs");
                         unique_push(&mut resvec, (adtdef.0, None));
                     } else {
-                        //debug!("some genargs");
                         unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
                     }
                 }
             }
             None => {}
         }
-        //debug!("RESVEC 0: {:?}", resvec);
 
         // Search in fields (in addition to genargs) b/c constraints are already there + don't need
-        // to reconstruct them; however, this might pose a termination problem - maybe only search in
-        // fields for types that are known to essentially be "wrappers" (e.g. Box, NonNull, Unique, etc)
+        // to reconstruct them; however, this might pose a termination problem
         for (_key, field_constraints) in fields {
-            //if self.converter.wrapper_kind(adtdef).is_some() {
-            for fc in &field_constraints.inner {
-                //debug!("resolving defid for FIELD: {:?}", fc);
+            for fc in field_constraints.inner.iter() {
                 let (_is_closure, inner_resvec) = self.resolve_defid(term_span, trait_defid, fc);
                 unique_append(&mut resvec, inner_resvec);
             }
-            //}
         }
-        //debug!("RESVEC 1: {:?}", resvec);
 
         // Also search in genargs for an implementing type
-        //let mut resvec = Vec::new();
         for genarg in &genargs.0 {
             match self.converter.convert_genarg(&Location::unknown(), &genarg) {
                 Some(genarg_constraint) => {
-                    //debug!("resolving defid for GENARG: {:?}", genarg_constraint);
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
                     unique_append(&mut resvec, inner_resvec);
@@ -2036,9 +2464,7 @@ impl<'a> InterpPass<'a> {
                 _ => {}
             }
         }
-        //debug!("RESVEC 2: {:?}", resvec);
 
-        //debug!("RETURNED RESVEC: {:?}", resvec);
         (false, resvec)
     }
 
@@ -2055,9 +2481,9 @@ impl<'a> InterpPass<'a> {
         method_genargs: &GenericArgs,
         args: &Vec<Operand>,
         is_closure: bool,
+        assoc_fn_defid: &DefId,
     ) -> Result<Option<Constraints>, Error> {
         let mut results = Vec::<Option<Constraints>>::new();
-        //let mut ctxt_vec = Vec::new();
 
         debug!("\nSIMULATING STATIC CALL(S)");
         let len = assoc_fn_impls.len();
@@ -2070,7 +2496,26 @@ impl<'a> InterpPass<'a> {
                 i + 1,
                 len
             );
-            let genargs = if is_closure && adt_genargs.is_some() {
+            let genargs = if *assoc_fn_impl == *assoc_fn_defid {
+                // Inherited default method: assoc_fn_impl is the trait's own
+                // decl defid, generic over Self, not a per-impl defid.
+                // get_impls_from_defids packed Self's Ty as adt_genargs'
+                // only element - splice it with whatever else the method's
+                // own params need, borrowed from the working call-site
+                // genargs (position 0 there is Self=dyn Trait, replaced;
+                // anything after is preserved as-is).
+                let self_ty = adt_genargs
+                    .as_ref()
+                    .and_then(|g| g.0.first())
+                    .and_then(|k| k.ty())
+                    .copied()
+                    .expect("get_impls_from_defids should set Self for a default method");
+                GenericArgs(
+                    std::iter::once(GenericArgKind::Type(self_ty))
+                        .chain(method_genargs.0.iter().skip(1).cloned())
+                        .collect(),
+                )
+            } else if is_closure && adt_genargs.is_some() {
                 GenericArgs(
                     adt_genargs
                         .clone()
@@ -2086,7 +2531,6 @@ impl<'a> InterpPass<'a> {
             } else {
                 method_genargs.clone()
             };
-            //debug!("TOTAL genargs: {:?}", genargs);
 
             // TODO different resolves for fn_ptr / closure
             let fndef = FnDef(*assoc_fn_impl);
@@ -2105,7 +2549,13 @@ impl<'a> InterpPass<'a> {
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                 continue;
             }
-            let instance_ = Instance::resolve(fndef, &genargs).unwrap();
+            let instance_ = match Instance::resolve(fndef, &genargs) {
+                Ok(i) => i,
+                Err(_) => {
+                    results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                    continue;
+                }
+            };
             let (is_virtual, instance) = match instance_.kind {
                 // Likely a default trait method implementation, convert to a concrete InstanceKind
                 // so we can interpret it
@@ -2150,9 +2600,7 @@ impl<'a> InterpPass<'a> {
                     self.get_body(&callee_scope)
                 };
 
-                let key = summary_key(
-                    self,
-                    callee_scope.clone(),
+                let cs = self.collect_resolved_args(
                     ctxt,
                     term_span,
                     cur_scope,
@@ -2162,54 +2610,35 @@ impl<'a> InterpPass<'a> {
                     is_closure,
                 );
 
-                self.resolve_args(
-                    &mut ctxt_clone,
+                results.push(self.interp_static_call(
                     term_span,
-                    cur_scope,
-                    &body,
-                    &callee_scope,
-                    local_decls,
-                    args,
-                    &genargs,
-                    is_closure,
-                );
-                self.prepare_call(&mut call_stack_clone, &key);
-                results.push(self.visit_body(
                     &mut ctxt_clone,
                     &mut call_stack_clone,
+                    cur_scope,
                     &callee_scope,
-                    &body,
+                    local_decls,
+                    fndef,
+                    args,
+                    &genargs,
+                    &cs,
+                    is_closure,
                 )?);
 
                 acc = Some(match acc {
                     None => ctxt_clone,
                     Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
                 });
-
-                //ctxt_vec.push(ctxt_clone);
             }
         }
 
-        //self.merge_ctxts_and_set(ctxt, &mut ctxt_vec);
         *ctxt = acc.unwrap();
         self.merge_results_and_ret(&mut results)
     }
-
-    //fn merge_ctxts_and_set(&self, ctxt: &mut Context, ctxt_vec: &mut Vec<Context>) {
-    //    match ctxt_vec.merge() {
-    //        Ok(Some(merged_ctxt)) => {
-    //            *ctxt = merged_ctxt;
-    //        }
-    //        Ok(None) => panic!("ctxts empty?"),
-    //        Err(_) => panic!(),
-    //    }
-    //}
 
     fn merge_results_and_ret(
         &self,
         results: &mut Vec<Option<Constraints>>,
     ) -> Result<Option<Constraints>, Error> {
-        // Filter out None constraints and unwrap all Some options
         let filtered_results: Vec<Constraints> = results
             .into_iter()
             .filter(|option| option.is_some())
@@ -2239,6 +2668,14 @@ impl<'a> InterpPass<'a> {
             Operand::Copy(place) | Operand::Move(place) => {
                 match ctxt.get_constraints(cur_scope, local_decls, place, false) {
                     Some(constraints) => {
+                        if crate::constraints::contains_param(&constraints) {
+                            if let Some(tainted) =
+                                self.summary_build_taint_stack.borrow_mut().last_mut()
+                            {
+                                *tainted = true;
+                            }
+                        }
+
                         // Create a byte-map for finding statically-impossible successors
                         let mut discr_vals_uninit = Box::<[u8]>::new_zeroed_slice(targets.len());
                         let discr_vals = discr_vals_uninit.write_filled(0);
@@ -2266,7 +2703,6 @@ impl<'a> InterpPass<'a> {
     fn set_bytemap(
         &self,
         constraints: &Constraints,
-        //branches: impl Iterator<Item = (u128, BasicBlockIdx)>,
         targets: &SwitchTargets,
         discr_vals: &mut [u8],
     ) {
@@ -2279,7 +2715,7 @@ impl<'a> InterpPass<'a> {
             return;
         }
 
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             match constraint {
                 Constraint {
                     toc: _,
@@ -2291,7 +2727,6 @@ impl<'a> InterpPass<'a> {
                         let mut set = false;
                         for (i, (val, _bb)) in targets.branches().enumerate() {
                             if *num == <u128 as TryInto<i128>>::try_into(val).unwrap() {
-                                //if num == val.try_into().unwrap() {
                                 discr_vals[usize::try_from(i).unwrap()] += 1;
                                 set = true;
                             }
@@ -2405,9 +2840,31 @@ impl<'a> InterpPass<'a> {
         );
 
         let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
+        // call_stack here is a clone the caller made - isolated from
+        // whatever the "real" call stack actually is right now - but
+        // key_stack is shared, global state with no notion of that
+        // isolation. Snapshot it and replace it with a fresh stack of
+        // matching depth before operating on this clone, then restore the
+        // caller's real contents afterward regardless of outcome. Content
+        // below the top entry doesn't matter: key_stack is only ever read
+        // via .last() (never indexed), and prepare_call's own push below
+        // sets the top entry correctly.
+        let saved_key_stack = self.key_stack.replace(
+            std::iter::repeat_with(|| key.clone())
+                .take(call_stack.len())
+                .collect(),
+        );
+
         self.prepare_call(call_stack, &key);
         let body = self.get_body(callee_scope);
-        let refined = self.visit_body(ctxt, call_stack, callee_scope, &body)?;
+        let refined = match self.visit_body(ctxt, call_stack, callee_scope, &body) {
+            Ok(r) => r,
+            Err(e) => {
+                self.key_stack.replace(saved_key_stack);
+                return Err(e);
+            }
+        };
+        self.key_stack.replace(saved_key_stack);
 
         // publish refined summary for widened constraints
         self.summaries
@@ -2423,10 +2880,8 @@ impl<'a> InterpPass<'a> {
         call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
-        //debug!("\n\n\n#############################");
         debug!("RETURNING from scope {:?}...", cur_scope.0.name());
         log_call_stack(call_stack);
-        //debug!("#############################\n\n");
 
         let ret_place = Place {
             local: 0,
@@ -2468,8 +2923,6 @@ impl<'a> InterpPass<'a> {
 
         let old_scope = self.prepare_return(call_stack);
         if old_scope.clone().unwrap() != *cur_scope {
-            //debug!("\nold_scope: {:?}", old_scope.unwrap().0.name());
-            //debug!("cur_scope: {:?}", cur_scope.0.name());
             log_call_stack(call_stack);
             panic!("call stack out of sorts");
         }
@@ -2501,8 +2954,6 @@ impl<'a> InterpPass<'a> {
 
         *self.rec_depth.borrow_mut() += 1;
         for (scope, constraints, stack) in queued {
-            //debug!("\treinterp queued recursive {:?}", scope.0.name());
-
             let depth = call_stack.len();
 
             // reevaluate recursive calls
@@ -2510,9 +2961,16 @@ impl<'a> InterpPass<'a> {
             let res = self.reinterp_recursive(ctxt, &mut restored.clone(), &scope, &constraints);
 
             if matches!(res, Err(Error::RecurseLimit(_))) {
+                debug!(
+                    "STACK STATE before RecurseLimit truncate: call_stack.len()={} key_stack.len()={} target_depth={}",
+                    call_stack.len(),
+                    self.key_stack.borrow().len(),
+                    depth
+                );
                 // truncate to before call on error
                 call_stack.truncate(depth);
                 self.key_stack.borrow_mut().truncate(depth);
+                self.assert_stacks_synced(call_stack, "finish_frame RecurseLimit truncate");
 
                 self.incomplete.borrow_mut().insert(cur_scope.clone());
 
@@ -2520,7 +2978,6 @@ impl<'a> InterpPass<'a> {
                 return res;
             }
         }
-        *self.rec_depth.borrow_mut() -= 1;
 
         for (scope, old) in saved {
             match old {
@@ -2531,6 +2988,12 @@ impl<'a> InterpPass<'a> {
                     ctxt.cstore.cmap.remove(&MapKey::ScopeId(scope));
                 }
             }
+        }
+
+        if *self.rec_depth.borrow() > MAX_DEPTH {
+            *self.rec_depth.borrow_mut() -= 1;
+            self.incomplete.borrow_mut().insert(cur_scope.clone());
+            return Ok(retval);
         }
 
         // final traverse after recursive wq drained
@@ -2554,6 +3017,14 @@ impl<'a> InterpPass<'a> {
         );
 
         self.prepare_call(call_stack, &key);
-        self.visit_body(ctxt, call_stack, cur_scope, &body)
+        let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
+        *self.rec_depth.borrow_mut() -= 1;
+        match result {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                self.prepare_return(call_stack);
+                Err(e)
+            }
+        }
     }
 }

@@ -113,7 +113,17 @@ pub fn start_verifopt(
         })
         .collect();
 
-    let _ = logger.log_stats(&fsa, cha);
+    // log_stats' signature is pinned to std::HashMap (a purely diagnostic,
+    // one-time-at-the-very-end call, unlike the InterpPass fields above -
+    // no need to touch its signature just for this). interp.dispatch_cha
+    // is `im::HashMap` now (see interp.rs's ImHashMap import) so build_
+    // param_summary's per-attempt snapshot/restore stays O(1) instead of
+    // O(program size so far) - this one conversion back to std::HashMap
+    // happens exactly once for the whole run, not per summary-build
+    // attempt, so it isn't the cost that migration was about avoiding.
+    let cha_std: HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
+        cha.iter().map(|(k, v)| (*k, v.clone())).collect();
+    let _ = logger.log_stats(&fsa, &cha_std);
 
     (fsa, tags)
 }

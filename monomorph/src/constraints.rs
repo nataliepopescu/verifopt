@@ -1,6 +1,5 @@
 use crate::interp::InterpPass;
 use crate::rustc_public::CrateDef;
-//use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::mir::mono::Instance;
 
 use rustc_public::DefId;
@@ -16,30 +15,27 @@ use crate::wto::BBDeps;
 
 //use log::debug;
 
-use indexmap::IndexSet;
-use std::collections::{BTreeMap, HashSet};
-use std::hash::{DefaultHasher, Hash, Hasher};
-
-// Persistent/structurally-shared map: cloning an im::HashMap is O(1) (just
-// bumps a refcount on the shared tree) instead of walking and deep-cloning
-// every entry, unlike std/Fx HashMap. cstore.cmap accumulates one entry per
-// scope/variable visited across the *entire* program, and Context::clone()
-// (derived Clone) clones it wholesale once per candidate at every dynamic-
-// dispatch site - so with a plain HashMap that clone cost grows with how
-// much of the program has been analyzed so far, compounding badly at
-// dispatch-heavy points (e.g. a trait with 100+ impls). Aliased distinctly
-// from `HashMap` above (FxHashMap) since this crate's API mirrors std's
-// closely enough that call sites (.get/.get_mut/.insert/.remove/.iter) need
-// no changes beyond the field's declared type.
 use im::HashMap as ImHashMap;
+use indexmap::IndexSet;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::rc::{Rc, Weak};
 
-//pub fn unique_update(ret: ConstraintsAndFields, new: ConstraintsAndFields) -> ConstraintsAndFields {
-//    let (mut old_constraints, mut old_fields) = ret;
-//    let (new_constraints, new_fields) = new;
-//    unique_append(&mut old_constraints, new_constraints.to_vec());
-//    unique_append(&mut old_fields, new_fields.to_vec());
-//    (old_constraints, old_fields)
-//}
+// Once a base's own disjunct count has already proven itself this large,
+// write_field's per-disjunct loop (clone one, insert the new field into
+// it) costs O(base size) per call regardless of how cheap each individual
+// clone is - and that cost compounds across every subsequent write to the
+// same place. Matches the 50-entry convention used for the exact_memo/
+// summaries caps elsewhere in this codebase.
+const WRITE_FIELD_WIDEN_THRESHOLD: usize = 50;
+
+// Separate, much higher threshold for checking the *incoming* value's own
+// recursive size (constraints_size, not just top-level disjunct count).
+// Ordinary, non-pathological values legitimately reach into the low
+// thousands here (e.g. a struct's own field values observed up to ~3,330);
+// this only needs to catch cases orders of magnitude beyond that.
+const NEW_VALUE_WIDEN_THRESHOLD: usize = 5_000;
 
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
@@ -74,14 +70,6 @@ pub enum MapValue {
     Constraints(Constraints),
 }
 
-/// Extracts the field index from a `ProjectionElem::Field`. `ADTFields` is
-/// keyed on this `usize` alone - not the whole `ProjectionElem` - since a
-/// field's type is fully determined by its index for a given ADT/variant,
-/// and the embedded `Ty` carries an interned id that isn't guaranteed
-/// identical across every derivation of "the same type" (see the sip::State
-/// oscillation bug this replaced). Public so callers building/reading
-/// `ADTFields` outside this module (convert.rs, interp.rs, stdlib_stubs.rs)
-/// can key it the same way.
 pub fn adt_field_idx(elem: &ProjectionElem) -> usize {
     match elem {
         ProjectionElem::Field(idx, _) => *idx,
@@ -92,22 +80,13 @@ pub fn adt_field_idx(elem: &ProjectionElem) -> usize {
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Constraints {
-    pub inner: IndexSet<Constraint>,
+    pub inner: Rc<IndexSet<Constraint>>,
 }
 
-// IndexSet<T> intentionally doesn't implement Hash even when T: Hash - same
-// reason std::collections::HashSet doesn't: its PartialEq/Eq (which it does
-// provide) compares as an unordered set, so a consistent Hash needs a
-// commutative combining function, which the std/indexmap authors leave to
-// the caller rather than choosing one for you. Needed here because
-// RunningConstraint::Idk(Box<Constraints>) requires Constraints: Hash for
-// its own #[derive(Hash)] to resolve. XOR-folding each element's individual
-// hash keeps this order-independent, matching the Eq above (a == b must
-// imply hash(a) == hash(b), and a/b can differ in insertion order here).
 impl Hash for Constraints {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let mut combined: u64 = 0;
-        for elem in &self.inner {
+        for elem in self.inner.iter() {
             let mut h = DefaultHasher::new();
             elem.hash(&mut h);
             combined ^= h.finish();
@@ -119,19 +98,21 @@ impl Hash for Constraints {
 impl Constraints {
     pub fn new() -> Constraints {
         Self {
-            inner: IndexSet::new(),
+            inner: Rc::new(IndexSet::new()),
         }
     }
 
     pub fn from(constraint: Constraint) -> Constraints {
-        let mut inner = IndexSet::with_capacity(1);
-        inner.insert(constraint);
-        Self { inner }
+        let mut set = IndexSet::with_capacity(1);
+        set.insert(constraint);
+        Self {
+            inner: Rc::new(set),
+        }
     }
 
     pub fn from_vec(inner: Vec<Constraint>) -> Constraints {
         Self {
-            inner: inner.into_iter().collect(),
+            inner: Rc::new(inner.into_iter().collect()),
         }
     }
 
@@ -158,21 +139,34 @@ impl Constraints {
         if let Some(existing) = self.inner.get(&new_constraint) {
             let mut merged = existing.clone();
             merged.prov.join(&new_constraint.prov);
-            self.inner.replace(merged);
+            Rc::make_mut(&mut self.inner).replace(merged);
         } else {
-            self.inner.insert(new_constraint);
+            Rc::make_mut(&mut self.inner).insert(new_constraint);
         }
     }
 
     pub fn append(&mut self, new_constraints: Constraints) {
-        for c in new_constraints.inner {
-            self.push(c);
+        for c in new_constraints.inner.iter() {
+            self.push(c.clone());
         }
     }
 
     // Write: strong-update the field within EVERY disjunct currently in scope.
     // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
     pub fn write_field(&mut self, projection: Vec<ProjectionElem>, new: Constraints) {
+        // The base-size cap below only catches "many base disjuncts, each
+        // getting a copy of new". It misses the other half: new itself
+        // already being huge before it ever reaches here, in which case
+        // even a single base disjunct ends up holding a multi-million-node
+        // value. Recursive size (not just new.inner.len()) is what matters,
+        // since new's own size could be hiding in nested fields rather
+        // than at its own top level.
+        let new = if constraints_size(&new) > NEW_VALUE_WIDEN_THRESHOLD {
+            widen_constraints(&new)
+        } else {
+            new
+        };
+
         let target_variant = projection.iter().find_map(|e| match e {
             ProjectionElem::Downcast(v) => Some(*v),
             _ => None,
@@ -202,15 +196,14 @@ impl Constraints {
             // as filter_variant on the read side.
             (1, target_variant) => {
                 let idx = adt_field_idx(&field[0]);
-                // Can't mutate elements of an IndexSet in place via iter_mut()
-                // (it doesn't exist - an element IS its own hash key, so an
-                // in-place edit that changes the hash would silently corrupt
-                // the set's bucket layout). Take ownership of every disjunct,
-                // transform it, and reinsert - insert() recomputes the hash
-                // correctly for the new content.
-                self.inner = std::mem::take(&mut self.inner)
-                    .into_iter()
-                    .map(|mut c| {
+                if self.inner.len() > WRITE_FIELD_WIDEN_THRESHOLD {
+                    *self = widen_constraints(self);
+                }
+                let old = std::mem::take(&mut self.inner);
+                let new_set: IndexSet<Constraint> = old
+                    .iter()
+                    .map(|c| {
+                        let mut c = c.clone();
                         if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
                             let applies = match target_variant {
                                 Some(v) => variant.is_none() || *variant == Some(v),
@@ -223,6 +216,7 @@ impl Constraints {
                         c
                     })
                     .collect();
+                self.inner = Rc::new(new_set);
             }
 
             (_, _) => {
@@ -230,9 +224,14 @@ impl Constraints {
                 let idx = adt_field_idx(first);
                 let rest = rest.to_vec();
 
-                self.inner = std::mem::take(&mut self.inner)
-                    .into_iter()
-                    .map(|mut c| {
+                if self.inner.len() > WRITE_FIELD_WIDEN_THRESHOLD {
+                    *self = widen_constraints(self);
+                }
+                let old = std::mem::take(&mut self.inner);
+                let new_set: IndexSet<Constraint> = old
+                    .iter()
+                    .map(|c| {
+                        let mut c = c.clone();
                         if let Some(RunningConstraint::Adt(_, _, variant, fields)) = &mut c.cfc {
                             let applies = match target_variant {
                                 Some(v) => variant.is_none() || *variant == Some(v),
@@ -248,18 +247,32 @@ impl Constraints {
                         c
                     })
                     .collect();
+                self.inner = Rc::new(new_set);
             }
         }
     }
 
     pub fn filter_variant(&self, vidx: VariantIdx) -> Constraints {
         let mut out = Constraints::new();
-        for c in &self.inner {
+        for c in self.inner.iter() {
             match &c.cfc {
                 Some(RunningConstraint::Adt(_, _, variant, _)) => {
                     if variant.is_none() || *variant == Some(vidx) {
                         out.push(c.clone());
                     }
+                }
+                // Unknown-yet placeholder from a parametric summary: we
+                // can't know at summary-build time whether the real
+                // argument's variant will match `vidx`, so conservatively
+                // assume it might and record the downcast onto the path -
+                // substitute_params replays it against the real value later.
+                Some(RunningConstraint::Param(i, path)) => {
+                    let mut new_path = path.clone();
+                    new_path.push(ProjStep::Downcast(vidx));
+                    out.push(Constraint::new(
+                        None,
+                        Some(RunningConstraint::Param(*i, new_path)),
+                    ));
                 }
                 _ => {}
             }
@@ -388,6 +401,329 @@ pub enum RunningConstraint {
     List(Box<Constraint>),
     Tuple(Vec<Constraints>),
     Idk(Box<Constraints>),
+    /// Symbolic placeholder used only while building a *parametric function
+    /// summary*: "the value in argument position `usize`, with the given
+    /// projection path already applied."
+    Param(usize, Vec<ProjStep>),
+}
+
+/// One step of a projection path recorded onto a `Param` placeholder while
+/// building a parametric summary.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProjStep {
+    Field(usize),
+    Downcast(VariantIdx),
+}
+
+/// Replays a `Param` placeholder's recorded projection path against a real
+/// argument's constraints. Deliberately duplicates (rather than reuses)
+/// `Context::step_field_one`/`filter_variant`'s Adt/Tuple matching: those
+/// take a `&ProjectionElem`/`VariantIdx` tied to real MIR type info, and
+/// there's no legitimate `Ty` to fabricate for a placeholder step recorded
+/// during summary-building - operating on a raw field index instead avoids
+/// needing one.
+fn apply_field_idx(base: &Constraints, idx: usize) -> Constraints {
+    let mut out = Constraints::new();
+    for c in base.inner.iter() {
+        match &c.cfc {
+            Some(RunningConstraint::Adt(_, _, _, fields)) => {
+                out.append(fields.get(&idx).cloned().unwrap_or_else(Constraints::new));
+            }
+            Some(RunningConstraint::Tuple(inner)) => {
+                out.append(inner.get(idx).cloned().unwrap_or_else(Constraints::new));
+            }
+            Some(RunningConstraint::Ptr(box inner)) => {
+                out.append(apply_field_idx(&Constraints::from(inner.clone()), idx));
+            }
+            Some(RunningConstraint::Idk(box inner_cs)) => {
+                out.append(apply_field_idx(inner_cs, idx));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn apply_proj_path(base: &Constraints, path: &[ProjStep]) -> Constraints {
+    let mut cur = base.clone();
+    for step in path {
+        cur = match step {
+            ProjStep::Field(idx) => apply_field_idx(&cur, *idx),
+            ProjStep::Downcast(vidx) => cur.filter_variant(*vidx),
+        };
+    }
+    cur
+}
+
+fn substitute_toc(
+    toc: &Option<(TraitObjTy, TraitObjConstraint)>,
+    actual_args: &[Constraints],
+) -> Option<(TraitObjTy, TraitObjConstraint)> {
+    toc.as_ref().map(|(ty, tc)| {
+        let new_tc = match tc {
+            TraitObjConstraint::Adt(def, genargs, variant, fields) => {
+                let mut new_fields = ADTFields::new();
+                for (k, v) in fields {
+                    new_fields.insert(*k, substitute_params(v, actual_args));
+                }
+                TraitObjConstraint::Adt(def.clone(), genargs.clone(), *variant, new_fields)
+            }
+            TraitObjConstraint::Closure(cdef, genargs) => {
+                TraitObjConstraint::Closure(*cdef, genargs.clone())
+            }
+        };
+        (ty.clone(), new_tc)
+    })
+}
+
+/// Applies a parametric function summary to a real call's resolved
+/// argument constraints, producing the same `Constraints` a full
+/// re-interpretation of the callee would have produced - without visiting
+/// the callee's body at all. Walks the summary tree looking for `Param`
+/// leaves (however deeply nested inside Adt fields / Tuple elements /
+/// Ptr / List / Idk / trait-obj-constraint fields the summary wrapped
+/// them in) and replaces each with `actual_args[i]` after replaying its
+/// recorded projection path.
+// Strips value-level detail (concrete scalar values, Adt variant/fields,
+// provenance) while keeping structural identity (which AdtDef, which
+// closure/fn, which trait). Used past a per-scope exact_memo cap so
+// high-cardinality functions (quicksort-style value-dependent recursion,
+// Vec growth) collapse to one cache entry per type shape instead of one
+// per distinct value ever seen.
+// Cheap proxy for "how big is this Constraints tree" - total disjunct
+// count, recursively through Adt fields / Tuple elements / Ptr / List /
+// Idk / trait-obj-constraint fields. Diagnostic only: used to tell apart
+// "many small cached entries" from "a few enormous ones".
+// Memoizes a computation keyed by the pointer identity of cs.inner, plus
+// a caller-supplied extra key for any other inputs the computation
+// depends on. Sound against Rc pointer reuse: holds a Weak reference
+// alongside the cached value and only trusts a hit if that Weak still
+// upgrades - a live Weak prevents the allocator from reusing that address
+// for an unrelated Rc, so a successful upgrade proves this is genuinely
+// the same allocation, not a coincidentally-reused address at the same
+// spot a since-dropped one used to occupy.
+pub fn memoize_by_rc<K, T>(
+    cache: &RefCell<HashMap<(usize, K), (Weak<IndexSet<Constraint>>, T)>>,
+    cs: &Constraints,
+    extra_key: K,
+    compute: impl FnOnce() -> T,
+) -> T
+where
+    K: Hash + Eq,
+    T: Clone,
+{
+    let full_key = (Rc::as_ptr(&cs.inner) as usize, extra_key);
+    if let Some((weak, cached)) = cache.borrow().get(&full_key) {
+        if weak.upgrade().is_some() {
+            return cached.clone();
+        }
+    }
+    let result = compute();
+    cache
+        .borrow_mut()
+        .insert(full_key, (Rc::downgrade(&cs.inner), result.clone()));
+    result
+}
+
+pub fn hash_val<T: Hash>(val: &T) -> u64 {
+    let mut h = DefaultHasher::new();
+    val.hash(&mut h);
+    h.finish()
+}
+
+thread_local! {
+    static CONSTRAINTS_SIZE_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, usize)>> = RefCell::new(HashMap::new());
+    static CONTAINS_PARAM_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, bool)>> = RefCell::new(HashMap::new());
+    static WIDEN_CONSTRAINTS_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+}
+
+pub fn constraints_size(cs: &Constraints) -> usize {
+    CONSTRAINTS_SIZE_CACHE
+        .with(|cache| memoize_by_rc(cache, cs, (), || cs.inner.iter().map(constraint_size).sum()))
+}
+
+fn constraint_size(c: &Constraint) -> usize {
+    1 + c.cfc.as_ref().map(rc_size).unwrap_or(0)
+        + c.toc.as_ref().map(|(_, tc)| toc_size(tc)).unwrap_or(0)
+}
+
+fn rc_size(rc: &RunningConstraint) -> usize {
+    match rc {
+        RunningConstraint::Adt(_, _, _, fields) => fields.values().map(constraints_size).sum(),
+        RunningConstraint::Ptr(inner) => constraint_size(inner),
+        RunningConstraint::List(inner) => constraint_size(inner),
+        RunningConstraint::Tuple(elems) => elems.iter().map(constraints_size).sum(),
+        RunningConstraint::Idk(inner) => constraints_size(inner),
+        _ => 0,
+    }
+}
+
+fn toc_size(tc: &TraitObjConstraint) -> usize {
+    match tc {
+        TraitObjConstraint::Adt(_, _, _, fields) => fields.values().map(constraints_size).sum(),
+        _ => 0,
+    }
+}
+
+pub fn widen_constraints(cs: &Constraints) -> Constraints {
+    WIDEN_CONSTRAINTS_CACHE.with(|cache| {
+        memoize_by_rc(cache, cs, (), || {
+            let mut out = Constraints::new();
+            for c in cs.inner.iter() {
+                out.push(widen_constraint(c));
+            }
+            out
+        })
+    })
+}
+
+fn widen_constraint(c: &Constraint) -> Constraint {
+    let toc = c.toc.as_ref().map(|(ty, tc)| (ty.clone(), widen_toc(tc)));
+    let cfc = c.cfc.as_ref().map(widen_rc);
+    Constraint::new(toc, cfc)
+}
+
+fn widen_toc(tc: &TraitObjConstraint) -> TraitObjConstraint {
+    match tc {
+        TraitObjConstraint::Adt(def, genargs, _, _) => {
+            TraitObjConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
+        }
+        TraitObjConstraint::Closure(cdef, genargs) => {
+            TraitObjConstraint::Closure(*cdef, genargs.clone())
+        }
+    }
+}
+
+fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
+    match rc {
+        RunningConstraint::Scalar(_) => RunningConstraint::Scalar(None),
+        RunningConstraint::Float => RunningConstraint::Float,
+        RunningConstraint::Adt(def, genargs, _, _) => {
+            RunningConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
+        }
+        RunningConstraint::Ptr(inner) => RunningConstraint::Ptr(Box::new(widen_constraint(inner))),
+        RunningConstraint::Closure(cdef, genargs) => {
+            RunningConstraint::Closure(*cdef, genargs.clone())
+        }
+        RunningConstraint::FnDef(fndef, genargs) => {
+            RunningConstraint::FnDef(*fndef, genargs.clone())
+        }
+        RunningConstraint::FnPtr(sig) => RunningConstraint::FnPtr(sig.clone()),
+        RunningConstraint::Dynamic(tys) => RunningConstraint::Dynamic(tys.clone()),
+        RunningConstraint::List(inner) => {
+            RunningConstraint::List(Box::new(widen_constraint(inner)))
+        }
+        RunningConstraint::Tuple(elems) => {
+            RunningConstraint::Tuple(elems.iter().map(widen_constraints).collect())
+        }
+        RunningConstraint::Idk(inner) => RunningConstraint::Idk(Box::new(widen_constraints(inner))),
+        // Drop the projection path entirely, not just its shape
+        RunningConstraint::Param(i, _) => RunningConstraint::Param(*i, vec![]),
+    }
+}
+
+pub fn contains_param(cs: &Constraints) -> bool {
+    CONTAINS_PARAM_CACHE
+        .with(|cache| memoize_by_rc(cache, cs, (), || cs.inner.iter().any(constraint_contains_param)))
+}
+
+fn constraint_contains_param(c: &Constraint) -> bool {
+    match &c.cfc {
+        Some(RunningConstraint::Param(..)) => true,
+        Some(RunningConstraint::Adt(_, _, _, fields)) => fields.values().any(contains_param),
+        Some(RunningConstraint::Tuple(inner)) => inner.iter().any(contains_param),
+        Some(RunningConstraint::Ptr(box inner)) => constraint_contains_param(inner),
+        Some(RunningConstraint::List(box inner)) => constraint_contains_param(inner),
+        Some(RunningConstraint::Idk(box inner_cs)) => contains_param(inner_cs),
+        _ => false,
+    }
+}
+
+pub fn substitute_params(summary: &Constraints, actual_args: &[Constraints]) -> Constraints {
+    let mut out = Constraints::new();
+    for c in summary.inner.iter() {
+        out.append(substitute_params_constraint(c, actual_args));
+    }
+    out
+}
+
+fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> Constraints {
+    let toc = substitute_toc(&c.toc, actual_args);
+
+    match &c.cfc {
+        Some(RunningConstraint::Param(i, path)) => {
+            // A bare Param can carry its own toc from resolve_arg (e.g. a
+            // trait-object argument passed straight through), which the
+            // caller-substituted toc above would double up on - the actual
+            // argument's own toc (if any) is exactly what belongs here
+            // instead, since this whole disjunct *is* that argument.
+            let base = actual_args
+                .get(*i)
+                .cloned()
+                .unwrap_or_else(Constraints::new);
+            apply_proj_path(&base, path)
+        }
+        Some(RunningConstraint::Adt(def, genargs, variant, fields)) => {
+            let mut new_fields = ADTFields::new();
+            for (k, v) in fields {
+                new_fields.insert(*k, substitute_params(v, actual_args));
+            }
+            Constraints::from(
+                Constraint::new(
+                    toc,
+                    Some(RunningConstraint::Adt(
+                        def.clone(),
+                        genargs.clone(),
+                        *variant,
+                        new_fields,
+                    )),
+                )
+                .with_prov(c.prov.clone()),
+            )
+        }
+        Some(RunningConstraint::Tuple(inner)) => {
+            let new_inner = inner
+                .iter()
+                .map(|cs| substitute_params(cs, actual_args))
+                .collect();
+            Constraints::from(
+                Constraint::new(toc, Some(RunningConstraint::Tuple(new_inner)))
+                    .with_prov(c.prov.clone()),
+            )
+        }
+        Some(RunningConstraint::Ptr(inner)) => {
+            let substituted = substitute_params(&Constraints::from((**inner).clone()), actual_args);
+            let mut out = Constraints::new();
+            for sc in substituted.inner.iter() {
+                out.push(
+                    Constraint::new(toc.clone(), Some(RunningConstraint::Ptr(Box::new(sc.clone()))))
+                        .with_prov(c.prov.clone()),
+                );
+            }
+            out
+        }
+        Some(RunningConstraint::List(inner)) => {
+            let substituted = substitute_params(&Constraints::from((**inner).clone()), actual_args);
+            let mut out = Constraints::new();
+            for sc in substituted.inner.iter() {
+                out.push(
+                    Constraint::new(toc.clone(), Some(RunningConstraint::List(Box::new(sc.clone()))))
+                        .with_prov(c.prov.clone()),
+                );
+            }
+            out
+        }
+        Some(RunningConstraint::Idk(inner_cs)) => {
+            let substituted = substitute_params(inner_cs, actual_args);
+            Constraints::from(
+                Constraint::new(toc, Some(RunningConstraint::Idk(Box::new(substituted))))
+                    .with_prov(c.prov.clone()),
+            )
+        }
+        // Scalar/Float/Dynamic/Closure/FnDef/FnPtr/None: nothing nested that
+        // summary-building could have planted a Param inside.
+        _ => Constraints::from(Constraint::new(toc, c.cfc.clone()).with_prov(c.prov.clone())),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -507,17 +843,9 @@ pub fn summary_key(
         args,
         is_closure,
     );
-    //.into_iter()
-    //.map(|(cs, _)| cs)
-    //.collect();
 
     (scope, ArgSet::new(&cs))
 }
-
-// These should only be Field ProjectionElems. The convention is that any time one of these
-// field projections is used, it will be prepended by a Deref ProjectionElem
-//pub type FieldProjections = Vec<ProjectionElem>;
-//pub type FieldPlace = Place;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Context {
@@ -565,7 +893,7 @@ impl Context {
         elem: &ProjectionElem,
     ) -> Constraints {
         let mut out = Constraints::new();
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             out.append(self.step_field_one(scope, constraint, elem));
         }
         out
@@ -576,12 +904,10 @@ impl Context {
     /// `step_field`/`filter_variant` for reads through types we've decided
     /// not to model with precise field indices (see `is_opaque_internal`)
     /// - safe even though it's imprecise, since it can only ever surface
-    /// *more* candidates than a precise lookup would, never fewer: nothing
-    /// nested inside gets lost just because we don't trust the requested
-    /// index/variant.
+    /// *more* candidates than a precise lookup would, never fewer
     pub fn flatten_all(&self, constraints: &Constraints) -> Constraints {
         let mut out = Constraints::new();
-        for constraint in &constraints.inner {
+        for constraint in constraints.inner.iter() {
             out.append(self.flatten_one(constraint));
         }
         out
@@ -641,20 +967,26 @@ impl Context {
             Some(RunningConstraint::Ptr(box inner)) => self.step_field_one(scope, inner, elem),
             Some(RunningConstraint::Idk(box inner_cs)) => {
                 let mut out = Constraints::new();
-                for ic in &inner_cs.inner {
+                for ic in inner_cs.inner.iter() {
                     out.append(self.step_field_one(scope, ic, elem));
                 }
                 out
             }
+            // Unknown-yet placeholder from a parametric summary: don't
+            // collapse to "no info" the moment code reads a field off a
+            // parameter - extend the path instead, so substitute_params can
+            // replay this exact field access against the real argument.
+            Some(RunningConstraint::Param(i, path)) => {
+                let mut new_path = path.clone();
+                new_path.push(ProjStep::Field(adt_field_idx(elem)));
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Param(*i, new_path)),
+                ))
+            }
             // Scalar/Float/Dynamic/Closure/etc: this disjunct has no field structure at all,
             // so it contributes no information to the projection - not an error.
-            _ => {
-                //debug!(
-                //    "unexpected running constraint type to have projections: {:?}",
-                //    constraint.cfc
-                //);
-                Constraints::new()
-            }
+            _ => Constraints::new(),
         }
     }
 
@@ -703,11 +1035,9 @@ impl Context {
                         if !opaque_from_here {
                             match elem {
                                 ProjectionElem::Downcast(vidx) => {
-                                    //debug!("\ndowncast projection: {:?}", elem);
                                     cur = cur.filter_variant(*vidx);
                                 }
                                 ProjectionElem::Field(..) => {
-                                    //debug!("\nfield projection: {:?}", elem);
                                     cur = self.step_field(scope, &cur, elem);
                                 }
                                 _ => {}

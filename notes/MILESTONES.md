@@ -5,9 +5,11 @@
 - [ ] impl / design
     - [ ] FSA interp (DRIVEN BY EVAL)
         - [x] hierarchical field support
-        - [ ] handle loops
-        - [ ] generalize function summaries
-        - [ ] handle inline asm
+        - [x] exact function memoization
+        - [x] generalize function summaries
+        - [ ] widening vs stubbing
+        - [ ] loops
+        - [ ] inline asm
         - [ ] fn sig narrowing (scope?)
         - [ ] fn ptrs to nested fn decls
 
@@ -15,6 +17,7 @@
         - [ ] naive Rust
             - already implemented (ofc), but still need to check against
         - [x] CHA
+            - fixed one bug already
             - [ ] correct?
         - [ ] RTA
         - [ ] Rupta
@@ -24,11 +27,16 @@
 
     - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
         - [ ] make call_stack and friends use interior mutability
-        - [ ] unique-vec data structure/api
+        - [x] unique-vec data structure/api
+        - [ ] span cleanup
 
 
 - [ ] eval
+    - [ ] perf bottlenecks!
+
     - [ ] may require being able to hook verifopt into non-main entry points
+
+    - [ ] tool benchamrks (verifopt performance)
 
     - [ ] microbenchmarks
         - [ ] look into fallback rewrite - why performs worse than initial dyn
@@ -47,6 +55,8 @@
         - [ ] ?
 
     - [ ] macrobenchmarks
+
+    - [ ] how to validate FSA
 
 - [ ] paper writing
 

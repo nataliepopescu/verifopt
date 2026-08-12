@@ -7,15 +7,17 @@ use im::HashSet as ImHashSet;
 use im::hashmap::Entry as ImEntry;
 
 use rustc_public::DefId;
-use rustc_public::mir::mono::{Instance, InstanceKind};
+use rustc_public::mir::mono::{Instance, InstanceKind, StaticDef};
 use rustc_public::mir::{
     BasicBlock, Body, BorrowKind, ConstOperand, CopyNonOverlapping, LocalDecl, Mutability,
     NonDivergingIntrinsic, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
+
+use rustc_public::mir::alloc::GlobalAlloc;
 use rustc_public::ty::{
     AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
-    PolyFnSig, RigidTy, Span, Ty, TyKind,
+    PolyFnSig, RigidTy, Span, Ty, TyKind, ConstantKind, Prov,
 };
 use rustc_public::{CrateDef, CrateDefType};
 
@@ -24,7 +26,7 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, Prov,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, TagProv,
     RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, hash_val, memoize_by_rc,
     substitute_params, summary_key,
 };
@@ -77,6 +79,10 @@ pub struct InterpPass<'a> {
     pub building_summaries: RefCell<HashSet<VOID>>,
 }
 
+thread_local! {
+    static LIFT_TRAITOBJTYS_CACHE: RefCell<HashMap<(usize, u64), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+}
+
 #[derive(Clone, PartialEq)]
 pub enum TagPlan {
     Poisoned,
@@ -89,8 +95,40 @@ pub enum TagPlan {
     ),
 }
 
-thread_local! {
-    static LIFT_TRAITOBJTYS_CACHE: RefCell<HashMap<(usize, u64), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+impl TagPlan {
+    fn join(&mut self, o: &TagPlan) {
+        match (&*self, o) {
+            (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => {
+                *self = TagPlan::Poisoned
+            }
+
+            (TagPlan::Tagged(a), TagPlan::Tagged(b)) => {
+                let mut by_site = HashMap::new();
+
+                for &(bb, stmt, did) in a.iter().chain(b.iter()) {
+                    match by_site.entry((bb, stmt)) {
+                        Entry::Vacant(e) => {
+                            e.insert(did);
+                        }
+                        Entry::Occupied(e) => {
+                            if *e.get() != did {
+                                *self = TagPlan::Poisoned;
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                let mut out: Vec<(usize, usize, DefId)> = by_site
+                    .into_iter()
+                    .map(|((bb, stmt), impl_did)| (bb, stmt, impl_did))
+                    .collect();
+                out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
+
+                *self = TagPlan::Tagged(out);
+            }
+        }
+    }
 }
 
 impl<'a> InterpPass<'a> {
@@ -370,6 +408,58 @@ impl<'a> InterpPass<'a> {
         None
     }
 
+    fn static_rvalue(&self, rval: &Rvalue) -> Option<DefId> {
+        let op = match rval {
+            Rvalue::Use(op) | Rvalue::Cast(_, op, _) => op,
+            _ => return None,
+        };
+
+        if let Operand::Constant(co) = op
+            && let ConstantKind::Allocated(alloc) = co.const_.kind()
+        {
+            for (_off, Prov(aid)) in alloc.provenance.ptrs.iter() {
+                if let GlobalAlloc::Static(StaticDef(defid)) = GlobalAlloc::from(*aid) {
+                    return Some(defid);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn static_get_constraints(&self, ctxt: &mut Context, defid: DefId) -> Constraints {
+        if let Some(cs) = ctxt.get_static(defid) {
+            return cs;
+        }
+
+        let sdef = StaticDef(defid);
+        let ty = sdef.ty();
+
+        let alloc = match sdef.eval_initializer() {
+            Ok(a) => a,
+            Err(_) => {
+                let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+                return Constraints::from(c);
+            }
+        };
+
+        let mut seen = Vec::new();
+        let frozen = matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
+
+        let constraints = if frozen {
+            self.converter.convert_static_const(&Location::unknown(), &ty, &alloc)
+        } else {
+            let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+            Constraints::from(c)
+        };
+
+        ctxt.set_static(defid, constraints.clone());
+        constraints
+    }
+
+    /// If any of the constraints contain a type that implements one of the Traits listed in
+    /// `maybe_trait_destty`, copy those types and put them into the TraitObjConstraint field
+    /// of the constraint, leaving the RunningConstraint field unchanged
     fn lift_traitobjtys(
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
@@ -463,6 +553,8 @@ impl<'a> InterpPass<'a> {
                         },
                     );
                     Constraints::new()
+                } else if let Some(defid) = self.static_rvalue(rvalue) {
+                    self.static_get_constraints(ctxt, defid)
                 } else {
                     self.converter.convert(
                         ctxt,
@@ -1955,10 +2047,7 @@ impl<'a> InterpPass<'a> {
             let mut dt = self.dispatch_tags.borrow_mut();
             match dt.entry(key) {
                 ImEntry::Occupied(mut e) => {
-                    // disagreements between body walks
-                    if *e.get() != plan {
-                        e.insert(TagPlan::Poisoned);
-                    }
+                    e.get_mut().join(&plan);
                 }
                 ImEntry::Vacant(e) => {
                     e.insert(plan);
@@ -2011,7 +2100,7 @@ impl<'a> InterpPass<'a> {
         for c in cs.inner.iter() {
             let c = c.clone();
             let tags = match &c.prov {
-                Prov::Tags(t) if !t.is_empty() => t,
+                TagProv::Tags(t) if !t.is_empty() => t,
                 _ => return TagPlan::Poisoned,
             };
 

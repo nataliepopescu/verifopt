@@ -96,6 +96,7 @@ example_test!(mut_refs, "mut_refs", Passing);
 example_test!(mut_refs2, "mut_refs2", Passing);
 example_test!(simple, "simple", Passing);
 example_test!(simple_single, "simple_single", Passing);
+example_test!(r#static, "static", Passing);
 
 // Not yet characterized at all — run and report, don't assert.
 example_test!(no_vtable_check, "no_vtable_check", Unclassified);

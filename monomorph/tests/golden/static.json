@@ -1,0 +1,18 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:41:26: 41:35",
+      "is_maybe_example": true,
+      "cha": [
+        "<static::Cat as static::Animal>::speak",
+        "<static::Dog as static::Animal>::speak",
+        "<static::Fish as static::Animal>::speak"
+      ],
+      "fsa": [
+        "<static::Cat as static::Animal>::speak"
+      ]
+    }
+  ]
+}

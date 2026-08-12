@@ -13,7 +13,7 @@ use rustc_public::ty::{
 use crate::TraitStore;
 use crate::constraints::{ADTFields, unique_append, unique_push};
 use crate::constraints::{
-    Constraint, Constraints, Context, Location, Prov, RunningConstraint, TraitObjConstraint,
+    Constraint, Constraints, Context, Location, TagProv, RunningConstraint, TraitObjConstraint,
     TraitObjTy, VOID,
 };
 use crate::constraints::{hash_val, memoize_by_rc};
@@ -465,10 +465,10 @@ impl<'a> RvalConverter<'a> {
                                                 Some(cfc_.clone()),
                                             )
                                             .with_prov(match span.scope {
-                                                Some(s) => Prov::Tags(
+                                                Some(s) => TagProv::Tags(
                                                     [(s, span.bb, span.stmt)].into_iter().collect(),
                                                 ),
-                                                None => Prov::Unknown,
+                                                None => TagProv::Unknown,
                                             });
                                             new_constraints.push(new_constraint);
                                         } else {
@@ -493,10 +493,10 @@ impl<'a> RvalConverter<'a> {
                                                 Some(cfc_.clone()),
                                             )
                                             .with_prov(match span.scope {
-                                                Some(s) => Prov::Tags(
+                                                Some(s) => TagProv::Tags(
                                                     [(s, span.bb, span.stmt)].into_iter().collect(),
                                                 ),
-                                                None => Prov::Unknown,
+                                                None => TagProv::Unknown,
                                             });
                                             new_constraints.push(new_constraint);
                                         }
@@ -1262,5 +1262,55 @@ impl<'a> RvalConverter<'a> {
                 prov: _,
             } => Constraint::new(to, Some(RunningConstraint::Scalar(None))),
         }
+    }
+
+    fn is_unsafe_cell(&self, def: &AdtDef) -> bool {
+        let name = def.0.name();
+        let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
+        suffix == "cell::UnsafeCell"
+    }
+
+    pub fn is_frozen(&self, ty: &Ty, seen: &mut Vec<Ty>) -> bool {
+        if seen.contains(ty) {
+            return true;
+        }
+        seen.push(*ty);
+
+        match ty.kind() {
+            TyKind::RigidTy(rty) => match rty {
+                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) | RigidTy::Float(_)
+                | RigidTy::Char | RigidTy::Str | RigidTy::Never
+                | RigidTy::FnDef(..) | RigidTy::FnPtr(_) => true,
+
+                RigidTy::Adt(adtdef, genargs) => {
+                    if self.is_unsafe_cell(&adtdef) {
+                        return false;
+                    }
+                    for var in adtdef.variants() {
+                        for field in var.fields() {
+                            if !self.is_frozen(&field.ty_with_args(&genargs), seen) {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                }
+
+                RigidTy::Tuple(tys) => tys.iter().all(|t| self.is_frozen(t, seen)),
+                RigidTy::Array(t, _) | RigidTy::Slice(t) => self.is_frozen(&t, seen),
+                RigidTy::Ref(..) | RigidTy::RawPtr(..) => true,
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    pub fn convert_static_const(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        alloc: &Allocation,
+    ) -> Constraints {
+        self.convert_allocated_const(span, ty, alloc)
     }
 }

@@ -64,8 +64,10 @@ pub struct InterpPass<'a> {
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
-    pub call_count: RefCell<u64>,
-    pub bb_visit_count: RefCell<u64>,
+    //pub call_count: RefCell<u64>,
+    //pub bb_visit_count: RefCell<u64>,
+    pub self_time_child_accum: RefCell<Vec<std::time::Duration>>,
+    pub scope_self_time: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
 
@@ -129,6 +131,38 @@ impl TagPlan {
     }
 }
 
+struct SelfTimeGuard<'a, 'b> {
+    pass: &'a InterpPass<'b>,
+    scope: VOID,
+    start: std::time::Instant,
+}
+
+impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
+    fn drop(&mut self) {
+        let total_elapsed = self.start.elapsed();
+        let child_time = self
+            .pass
+            .self_time_child_accum
+            .borrow_mut()
+            .pop()
+            .unwrap_or(std::time::Duration::ZERO);
+        let self_elapsed = total_elapsed.saturating_sub(child_time);
+
+        {
+            let mut map = self.pass.scope_self_time.borrow_mut();
+            let entry = map
+                .entry(self.scope.clone())
+                .or_insert((std::time::Duration::ZERO, 0));
+            entry.0 += self_elapsed;
+            entry.1 += 1;
+        }
+
+        if let Some(parent_accum) = self.pass.self_time_child_accum.borrow_mut().last_mut() {
+            *parent_accum += total_elapsed;
+        }
+    }
+}
+
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
@@ -143,8 +177,10 @@ impl<'a> InterpPass<'a> {
             in_queue: HashSet::new().into(),
             key_stack: Vec::new().into(),
             rec_depth: 0.into(),
-            call_count: 0.into(),
-            bb_visit_count: 0.into(),
+            //call_count: 0.into(),
+            //bb_visit_count: 0.into(),
+            self_time_child_accum: Vec::new().into(),
+            scope_self_time: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
@@ -210,12 +246,51 @@ impl<'a> InterpPass<'a> {
         let entry_fn_cstore = ConstraintStore::new();
         ctxt.set_cstore_scope(&start_scope, entry_fn_cstore, None);
 
-        self.visit_body(
+        let result = self.visit_body(
             ctxt,
             &mut call_stack,
             &start_scope,
             &self.get_body(&start_scope),
-        )
+        );
+
+        self.dump_self_time_report("FINAL");
+
+        result
+    }
+
+    fn dump_self_time_report(&self, label: &str) {
+        let map = self.scope_self_time.borrow();
+        let mut entries: Vec<(&VOID, &(std::time::Duration, u64))> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+
+        let mut lines = String::new();
+        lines.push_str(&format!(
+            "\n=== SELF-TIME REPORT [{}] (top 50 by accumulated self time) ===\n",
+            label
+        ));
+        lines.push_str(&format!(
+            "{:>12} {:>10} {:>14}  scope\n",
+            "self_time", "calls", "avg_per_call"
+        ));
+        for entry in entries.iter().take(50) {
+            let scope = entry.0;
+            let total = entry.1.0;
+            let count = entry.1.1;
+            let avg = if count > 0 {
+                total / (count as u32)
+            } else {
+                std::time::Duration::ZERO
+            };
+            lines.push_str(&format!(
+                "{:>10.3}ms {:>10} {:>12.3}ms  {:?}\n",
+                total.as_secs_f64() * 1000.0,
+                count,
+                avg.as_secs_f64() * 1000.0,
+                scope.0.name()
+            ));
+        }
+        lines.push_str(&format!("=== END SELF-TIME REPORT [{}] ===\n", label));
+        debug!("{}", lines);
     }
 
     fn get_body(&self, cur_scope: &VOID) -> Body {
@@ -229,6 +304,15 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         body: &Body,
     ) -> Result<Option<Constraints>, Error> {
+        self.self_time_child_accum
+            .borrow_mut()
+            .push(std::time::Duration::ZERO);
+        let _self_time_guard = SelfTimeGuard {
+            pass: self,
+            scope: cur_scope.clone(),
+            start: std::time::Instant::now(),
+        };
+
         debug!(
             "###### INTERP-ING NEW BODY for func {:?}",
             cur_scope.0.name()
@@ -261,17 +345,18 @@ impl<'a> InterpPass<'a> {
             }
 
             {
-                let mut n = self.bb_visit_count.borrow_mut();
-                *n += 1;
-                if *n % 200 == 0 {
-                    debug!(
-                        "\nRSS at bb visit {} rss_kb={}\n",
-                        *n,
-                        Self::current_rss_kb().unwrap_or(0)
-                    );
-                }
+                //let mut n = self.bb_visit_count.borrow_mut();
+                //*n += 1;
+                //if *n % 200 == 0 {
+                //    debug!(
+                //        "\nRSS at bb visit {} rss_kb={}\n",
+                //        *n,
+                //        Self::current_rss_kb().unwrap_or(0)
+                //    );
+                //}
                 if *n % 2_000 == 0 {
-                    self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
+                    //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
+                    self.dump_self_time_report(&format!("bb visit {}", *n));
                 }
             }
 
@@ -539,7 +624,6 @@ impl<'a> InterpPass<'a> {
                 let dest_ty = place.ty(local_decls).unwrap();
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
 
-                debug!("HERE0");
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
@@ -969,10 +1053,10 @@ impl<'a> InterpPass<'a> {
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        debug!(
-            "interp_fn_ptr: falling back for sigval with output {:?}",
-            sigval.output
-        );
+        //debug!(
+        //    "interp_fn_ptr: falling back for sigval with output {:?}",
+        //    sigval.output
+        //);
 
         self.retty_fallback_from_sigval(sigval)
     }
@@ -1515,13 +1599,13 @@ impl<'a> InterpPass<'a> {
         cur_cs: &Vec<Constraints>,
         is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
-        {
-            let mut n = self.call_count.borrow_mut();
-            *n += 1;
-            if *n % 10_000 == 0 {
-                self.log_cache_sizes(*n);
-            }
-        }
+        //{
+        //    let mut n = self.call_count.borrow_mut();
+        //    *n += 1;
+        //    if *n % 10_000 == 0 {
+        //        self.log_cache_sizes(*n);
+        //    }
+        //}
 
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
@@ -2392,39 +2476,37 @@ impl<'a> InterpPass<'a> {
                 toc: None,
                 cfc: Some(cfc),
                 prov: _,
-            } => {
-                match cfc {
-                    RunningConstraint::Adt(adtdef, genargs, _, fields) => {
-                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
-                    }
-                    RunningConstraint::Closure(cdef, genargs) => {
-                        if genargs.0.is_empty() {
-                            (true, vec![(cdef.0, None)])
-                        } else {
-                            (true, vec![(cdef.0, Some(genargs.clone()))])
-                        }
-                    }
-                    RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
-                    RunningConstraint::Dynamic(tys) => {
-                        if tys.iter().any(|ty| ty.def.0 == *trait_defid) {
-                            (false, self.get_cha_tyconstraint_defids(trait_defid))
-                        } else {
-                            (false, vec![])
-                        }
-                    }
-                    RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
-                    RunningConstraint::Idk(box cs) => {
-                        let mut defids = Vec::new();
-                        for c in cs.inner.iter() {
-                            let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
-                            unique_append(&mut defids, res_defids);
-                        }
-                        (false, defids)
-                    }
-                    RunningConstraint::Param(..) => (false, vec![]),
-                    _ => todo!("{:?}", cfc),
+            } => match cfc {
+                RunningConstraint::Adt(adtdef, genargs, _, fields) => {
+                    self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                 }
-            }
+                RunningConstraint::Closure(cdef, genargs) => {
+                    if genargs.0.is_empty() {
+                        (true, vec![(cdef.0, None)])
+                    } else {
+                        (true, vec![(cdef.0, Some(genargs.clone()))])
+                    }
+                }
+                RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
+                RunningConstraint::Dynamic(tys) => {
+                    if tys.iter().any(|ty| ty.def.0 == *trait_defid) {
+                        (false, self.get_cha_tyconstraint_defids(trait_defid))
+                    } else {
+                        (false, vec![])
+                    }
+                }
+                RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
+                RunningConstraint::Idk(box cs) => {
+                    let mut defids = Vec::new();
+                    for c in cs.inner.iter() {
+                        let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
+                        unique_append(&mut defids, res_defids);
+                    }
+                    (false, defids)
+                }
+                RunningConstraint::Param(..) => (false, vec![]),
+                _ => todo!("{:?}", cfc),
+            },
             _ => (false, vec![]),
         }
     }

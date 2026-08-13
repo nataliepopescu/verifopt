@@ -65,7 +65,7 @@ pub struct InterpPass<'a> {
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
     //pub call_count: RefCell<u64>,
-    //pub bb_visit_count: RefCell<u64>,
+    pub bb_visit_count: RefCell<u64>,
     pub self_time_child_accum: RefCell<Vec<std::time::Duration>>,
     pub scope_self_time: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
@@ -163,6 +163,35 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
     }
 }
 
+// Targeted, filtered per-statement timing - only logs for scopes matching
+// the hardcoded substrings below, to pinpoint exactly which statement
+// within a specific expensive scope (found via the self-time report)
+// dominates its runtime. visit_statement handles statements, not
+// terminators (Call lives in visit_terminator), so it never recursively
+// calls visit_body itself - a plain wrap is correct here, no self-time
+// subtraction needed like visit_body's own guard does.
+struct StatementTimingGuard {
+    active: bool,
+    start: std::time::Instant,
+    scope_name: String,
+    bb: usize,
+    stmt_idx: usize,
+}
+
+impl Drop for StatementTimingGuard {
+    fn drop(&mut self) {
+        if self.active {
+            debug!(
+                "STATEMENT TIMING: scope={:?} bb={} stmt_idx={} elapsed_ms={:.3}",
+                self.scope_name,
+                self.bb,
+                self.stmt_idx,
+                self.start.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
+}
+
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
@@ -178,7 +207,7 @@ impl<'a> InterpPass<'a> {
             key_stack: Vec::new().into(),
             rec_depth: 0.into(),
             //call_count: 0.into(),
-            //bb_visit_count: 0.into(),
+            bb_visit_count: 0.into(),
             self_time_child_accum: Vec::new().into(),
             scope_self_time: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
@@ -345,8 +374,8 @@ impl<'a> InterpPass<'a> {
             }
 
             {
-                //let mut n = self.bb_visit_count.borrow_mut();
-                //*n += 1;
+                let mut n = self.bb_visit_count.borrow_mut();
+                *n += 1;
                 //if *n % 200 == 0 {
                 //    debug!(
                 //        "\nRSS at bb visit {} rss_kb={}\n",
@@ -616,6 +645,16 @@ impl<'a> InterpPass<'a> {
         bb: usize,
         stmt_idx: usize,
     ) {
+        let scope_name = format!("{:?}", cur_scope.0.name());
+        let _timing_guard = StatementTimingGuard {
+            active: scope_name.contains("Builder::build::{closure#3}")
+                || scope_name.contains("Searcher::memory_usage"),
+            start: std::time::Instant::now(),
+            scope_name,
+            bb,
+            stmt_idx,
+        };
+
         match &stmt.kind {
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!\nplace: {:?}\nrval: {:?}", place, rvalue);

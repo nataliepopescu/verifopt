@@ -46,11 +46,15 @@
           call?
         - [ ] whats the expected speedup amount for different cases?
 
-    - [ ] complete runs on 10 full binaries
+    - [ ] complete runs on at least 10 full binaries
         - [ ] ripgrep
+        - [ ] dynolog cli
+            - perf telemetry tool (facebook)
         - [ ] tock
-        - [ ] ?
-        - [ ] ?
+        - [ ] quixote
+            - "Blazing-fast blockchain event indexer"
+            - debug build time for unmodified Rustc was over 3 min
+            - release build time > 4 min
         - [ ] ?
         - [ ] ?
         - [ ] ?

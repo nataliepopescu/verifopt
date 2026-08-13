@@ -2405,8 +2405,13 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                     RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
-                    // truly a Dynamic constraint that we cannot resolve to any concrete types
-                    RunningConstraint::Dynamic(_) => (false, vec![]),
+                    RunningConstraint::Dynamic(tys) => {
+                        if tys.iter().any(|ty| ty.def.0 == *trait_defid) {
+                            (false, self.get_cha_tyconstraint_defids(trait_defid))
+                        } else {
+                            (false, vec![])
+                        }
+                    }
                     RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
                     RunningConstraint::Idk(box cs) => {
                         let mut defids = Vec::new();

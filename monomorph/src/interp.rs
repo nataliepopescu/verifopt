@@ -16,8 +16,8 @@ use rustc_public::mir::{
 
 use rustc_public::mir::alloc::GlobalAlloc;
 use rustc_public::ty::{
-    AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
-    PolyFnSig, RigidTy, Span, Ty, TyKind, ConstantKind, Prov,
+    AdtDef, BoundVariableKind, ClosureDef, ClosureKind, ConstantKind, FnDef, GenericArgKind,
+    GenericArgs, IntTy, PolyFnSig, Prov, RigidTy, Span, Ty, TyKind,
 };
 use rustc_public::{CrateDef, CrateDefType};
 
@@ -26,20 +26,20 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, TagProv,
-    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, hash_val, memoize_by_rc,
-    substitute_params, summary_key,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
+    RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy, VOID, hash_val,
+    memoize_by_rc, substitute_params, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
-use indexmap::IndexSet;
-use std::rc::Weak;
 use crate::error::Error;
 use crate::merge::Merge;
 use crate::merge::merge_stores;
 use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
+use indexmap::IndexSet;
+use std::rc::Weak;
 
 const MAX_DEPTH: u32 = 50;
 
@@ -98,9 +98,7 @@ pub enum TagPlan {
 impl TagPlan {
     fn join(&mut self, o: &TagPlan) {
         match (&*self, o) {
-            (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => {
-                *self = TagPlan::Poisoned
-            }
+            (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => *self = TagPlan::Poisoned,
 
             (TagPlan::Tagged(a), TagPlan::Tagged(b)) => {
                 let mut by_site = HashMap::new();
@@ -170,7 +168,10 @@ impl<'a> InterpPass<'a> {
     fn assert_stacks_synced(&self, call_stack: &[VOID], where_: &str) {
         let key_len = self.key_stack.borrow().len();
         if call_stack.len() != key_len {
-            let names: Vec<String> = call_stack.iter().map(|v| format!("{:?}", v.0.name())).collect();
+            let names: Vec<String> = call_stack
+                .iter()
+                .map(|v| format!("{:?}", v.0.name()))
+                .collect();
             panic!(
                 "STACK DESYNC at {}: call_stack.len()={} key_stack.len()={}\ncall_stack contents:\n{:#?}",
                 where_,
@@ -446,10 +447,12 @@ impl<'a> InterpPass<'a> {
         };
 
         let mut seen = Vec::new();
-        let frozen = matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
+        let frozen =
+            matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
 
         let constraints = if frozen {
-            self.converter.convert_static_const(&Location::unknown(), &ty, &alloc)
+            self.converter
+                .convert_static_const(&Location::unknown(), &ty, &alloc)
         } else {
             let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
             Constraints::from(c)

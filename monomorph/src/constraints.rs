@@ -623,8 +623,11 @@ fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
 }
 
 pub fn contains_param(cs: &Constraints) -> bool {
-    CONTAINS_PARAM_CACHE
-        .with(|cache| memoize_by_rc(cache, cs, (), || cs.inner.iter().any(constraint_contains_param)))
+    CONTAINS_PARAM_CACHE.with(|cache| {
+        memoize_by_rc(cache, cs, (), || {
+            cs.inner.iter().any(constraint_contains_param)
+        })
+    })
 }
 
 fn constraint_contains_param(c: &Constraint) -> bool {
@@ -696,8 +699,11 @@ fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> 
             let mut out = Constraints::new();
             for sc in substituted.inner.iter() {
                 out.push(
-                    Constraint::new(toc.clone(), Some(RunningConstraint::Ptr(Box::new(sc.clone()))))
-                        .with_prov(c.prov.clone()),
+                    Constraint::new(
+                        toc.clone(),
+                        Some(RunningConstraint::Ptr(Box::new(sc.clone()))),
+                    )
+                    .with_prov(c.prov.clone()),
                 );
             }
             out
@@ -707,8 +713,11 @@ fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> 
             let mut out = Constraints::new();
             for sc in substituted.inner.iter() {
                 out.push(
-                    Constraint::new(toc.clone(), Some(RunningConstraint::List(Box::new(sc.clone()))))
-                        .with_prov(c.prov.clone()),
+                    Constraint::new(
+                        toc.clone(),
+                        Some(RunningConstraint::List(Box::new(sc.clone()))),
+                    )
+                    .with_prov(c.prov.clone()),
                 );
             }
             out

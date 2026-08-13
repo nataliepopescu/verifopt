@@ -13,7 +13,7 @@ use rustc_public::ty::{
 use crate::TraitStore;
 use crate::constraints::{ADTFields, unique_append, unique_push};
 use crate::constraints::{
-    Constraint, Constraints, Context, Location, TagProv, RunningConstraint, TraitObjConstraint,
+    Constraint, Constraints, Context, Location, RunningConstraint, TagProv, TraitObjConstraint,
     TraitObjTy, VOID,
 };
 use crate::constraints::{hash_val, memoize_by_rc};
@@ -392,7 +392,7 @@ impl<'a> RvalConverter<'a> {
             RunningConstraint::List(box co) => match &co.cfc {
                 Some(c) => self.get_defid_candidates(&c),
                 None => vec![],
-            }
+            },
             RunningConstraint::Tuple(cs) => cs
                 .iter()
                 .flat_map(|inner| {
@@ -403,7 +403,7 @@ impl<'a> RvalConverter<'a> {
                         .flat_map(|cfc| self.get_defid_candidates(cfc))
                         .collect::<Vec<_>>()
                 })
-            .collect(),
+                .collect(),
             _ => todo!("cfc: {:?}", cfc),
         }
     }
@@ -1278,9 +1278,15 @@ impl<'a> RvalConverter<'a> {
 
         match ty.kind() {
             TyKind::RigidTy(rty) => match rty {
-                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) | RigidTy::Float(_)
-                | RigidTy::Char | RigidTy::Str | RigidTy::Never
-                | RigidTy::FnDef(..) | RigidTy::FnPtr(_) => true,
+                RigidTy::Bool
+                | RigidTy::Int(_)
+                | RigidTy::Uint(_)
+                | RigidTy::Float(_)
+                | RigidTy::Char
+                | RigidTy::Str
+                | RigidTy::Never
+                | RigidTy::FnDef(..)
+                | RigidTy::FnPtr(_) => true,
 
                 RigidTy::Adt(adtdef, genargs) => {
                     if self.is_unsafe_cell(&adtdef) {

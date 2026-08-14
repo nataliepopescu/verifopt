@@ -718,9 +718,17 @@ impl<'a> InterpPass<'a> {
                             Mutability::Not
                         },
                     );
+                    debug!("stmt: FROM REF (empty)");
                     Constraints::new()
                 } else if let Some(defid) = self.static_rvalue(rvalue) {
-                    self.static_get_constraints(ctxt, defid)
+                    let c = self.static_get_constraints(ctxt, defid);
+                    debug!(
+                        "stmt: FROM STATIC, scope={:?} local={} converted_disjuncts={}",
+                        cur_scope.0.name(),
+                        place.local,
+                        crate::constraints::constraints_size(&c)
+                    );
+                    c
                 } else {
                     let c = self.converter.convert(
                         ctxt,

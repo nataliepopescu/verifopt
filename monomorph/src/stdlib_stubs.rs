@@ -400,10 +400,10 @@ impl<'a> InterpPass<'a> {
                 //}
                 let key = resolve(1);
                 let val = resolve(2);
-                debug!(
-                    "stub_insert: kind={:?} key={:?} val={:?}",
-                    recv.kind, key, val
-                );
+                //debug!(
+                //    "stub_insert: kind={:?} key={:?} val={:?}",
+                //    recv.kind, key, val
+                //);
 
                 cur.write_field(vec![recv.key_field.clone()], key);
                 if let Some(val_field) = &recv.val_field {
@@ -515,7 +515,7 @@ impl<'a> InterpPass<'a> {
             }
             _ => unreachable!(),
         };
-        debug!("stub_make_iter: kind={:?} elem={:?}", recv.kind, elem);
+        //debug!("stub_make_iter: kind={:?} elem={:?}", recv.kind, elem);
 
         let fields: ADTFields = ADTFields::from([(adt_field_idx(&recv.key_field), elem)]);
         Some(Constraints::from(Constraint::new(
@@ -541,7 +541,7 @@ impl<'a> InterpPass<'a> {
     ) -> Option<Constraints> {
         let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false)?;
         let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field);
-        debug!("stub_next: elem = {:?}", elem);
+        //debug!("stub_next: elem = {:?}", elem);
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }
 
@@ -654,7 +654,7 @@ impl<'a> InterpPass<'a> {
             }
             None => Constraints::new(),
         };
-        debug!("stub_wrapper_new: {:?}", inner);
+        //debug!("stub_wrapper_new: {:?}", inner);
 
         let (adtdef, genargs) = match fndef.fn_sig().value.output().kind() {
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => (adtdef, genargs),

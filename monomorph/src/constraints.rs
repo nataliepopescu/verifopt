@@ -13,7 +13,7 @@ use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-//use log::debug;
+use log::debug;
 
 use im::HashMap as ImHashMap;
 use indexmap::IndexSet;
@@ -476,32 +476,6 @@ fn substitute_toc(
     })
 }
 
-/// Applies a parametric function summary to a real call's resolved
-/// argument constraints, producing the same `Constraints` a full
-/// re-interpretation of the callee would have produced - without visiting
-/// the callee's body at all. Walks the summary tree looking for `Param`
-/// leaves (however deeply nested inside Adt fields / Tuple elements /
-/// Ptr / List / Idk / trait-obj-constraint fields the summary wrapped
-/// them in) and replaces each with `actual_args[i]` after replaying its
-/// recorded projection path.
-// Strips value-level detail (concrete scalar values, Adt variant/fields,
-// provenance) while keeping structural identity (which AdtDef, which
-// closure/fn, which trait). Used past a per-scope exact_memo cap so
-// high-cardinality functions (quicksort-style value-dependent recursion,
-// Vec growth) collapse to one cache entry per type shape instead of one
-// per distinct value ever seen.
-// Cheap proxy for "how big is this Constraints tree" - total disjunct
-// count, recursively through Adt fields / Tuple elements / Ptr / List /
-// Idk / trait-obj-constraint fields. Diagnostic only: used to tell apart
-// "many small cached entries" from "a few enormous ones".
-// Memoizes a computation keyed by the pointer identity of cs.inner, plus
-// a caller-supplied extra key for any other inputs the computation
-// depends on. Sound against Rc pointer reuse: holds a Weak reference
-// alongside the cached value and only trusts a hit if that Weak still
-// upgrades - a live Weak prevents the allocator from reusing that address
-// for an unrelated Rc, so a successful upgrade proves this is genuinely
-// the same allocation, not a coincidentally-reused address at the same
-// spot a since-dropped one used to occupy.
 pub fn memoize_by_rc<K, T>(
     cache: &RefCell<HashMap<(usize, K), (Weak<IndexSet<Constraint>>, T)>>,
     cs: &Constraints,
@@ -900,12 +874,14 @@ impl Context {
             .map(|s| s.contains(place))
             .unwrap_or(false);
         if already_written {
+            debug!("REPLACE value (already written)");
             self.cstore.scoped_replace(
                 scope,
                 MapKey::Var(place.clone()),
                 Box::new(MapValue::Constraints(constraints)),
             );
         } else {
+            debug!("UPDATE value");
             self.bb_written_places
                 .entry(scope.clone())
                 .or_default()
@@ -1249,6 +1225,7 @@ impl ConstraintStore {
         let (scope, key) = match key {
             MapKey::Var(place) => {
                 let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
+                debug!("scoped_update: local={}", place.local);
                 (scope, MapKey::Var(place))
             }
             MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
@@ -1261,7 +1238,18 @@ impl ConstraintStore {
                     let old_val = store.cmap.get(&key);
                     match old_val {
                         Some(old_val_) => {
-                            new_val = Box::new(merge_mapvals(old_val_, &value));
+                            let merged = merge_mapvals(old_val_, &value);
+                            match &merged {
+                                MapValue::Constraints(constraints) => {
+                                    debug!(
+                                        "scoped_update: MERGE scope={:?} disjuncts={}",
+                                        scope.0.name(),
+                                        constraints_size(constraints),
+                                    );
+                                }
+                                _ => {}
+                            }
+                            new_val = Box::new(merged);
                         }
                         None => {}
                     }

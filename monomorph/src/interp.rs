@@ -171,27 +171,27 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
     }
 }
 
-struct StatementTimingGuard {
-    active: bool,
-    start: std::time::Instant,
-    scope_name: String,
-    bb: usize,
-    stmt_idx: usize,
-}
+//struct StatementTimingGuard {
+//    active: bool,
+//    start: std::time::Instant,
+//    scope_name: String,
+//    bb: usize,
+//    stmt_idx: usize,
+//}
 
-impl Drop for StatementTimingGuard {
-    fn drop(&mut self) {
-        if self.active {
-            debug!(
-                "STATEMENT TIMING: scope={:?} bb={} stmt_idx={} elapsed_ms={:.3}",
-                self.scope_name,
-                self.bb,
-                self.stmt_idx,
-                self.start.elapsed().as_secs_f64() * 1000.0
-            );
-        }
-    }
-}
+//impl Drop for StatementTimingGuard {
+//    fn drop(&mut self) {
+//        if self.active {
+//            debug!(
+//                "STATEMENT TIMING: scope={:?} bb={} stmt_idx={} elapsed_ms={:.3}",
+//                self.scope_name,
+//                self.bb,
+//                self.stmt_idx,
+//                self.start.elapsed().as_secs_f64() * 1000.0
+//            );
+//        }
+//    }
+//}
 
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
@@ -388,9 +388,12 @@ impl<'a> InterpPass<'a> {
                 //    );
                 //}
                 if *n % 200 == 0 {
+                    let is_main =
+                        Some(ctxt as *const Context as usize) == *self.main_ctxt_ptr.borrow();
                     debug!(
-                        "\nCMAP SIZE at bb visit {} cmap_len={}\n",
+                        "\nCMAP SIZE at bb visit {} is_main={} cmap_len={}\n",
                         *n,
+                        is_main,
                         ctxt.cstore.cmap.len()
                     );
                     debug!(
@@ -418,8 +421,8 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                     debug!(
-                        "\nVAR COUNTS at bb visit {} num_scopes={} sum_vars={} max_vars={} max_vars_scope={}\n",
-                        *n, num_scopes_with_vars, sum_vars, max_vars, max_vars_scope
+                        "\nVAR COUNTS at bb visit {} is_main={} num_scopes={} sum_vars={} max_vars={} max_vars_scope={}\n",
+                        *n, is_main, num_scopes_with_vars, sum_vars, max_vars, max_vars_scope
                     );
                 }
                 if *n % 2_000 == 0 {
@@ -678,15 +681,17 @@ impl<'a> InterpPass<'a> {
         bb: usize,
         stmt_idx: usize,
     ) {
-        let scope_name = format!("{:?}", cur_scope.0.name());
-        let _timing_guard = StatementTimingGuard {
-            active: scope_name.contains("Builder::build::{closure#3}")
-                || scope_name.contains("Searcher::memory_usage"),
-            start: std::time::Instant::now(),
-            scope_name,
-            bb,
-            stmt_idx,
-        };
+        //let scope_name = format!("{:?}", cur_scope.0.name());
+        //let _timing_guard = StatementTimingGuard {
+        //    active: scope_name.contains("Builder::build::{closure#3}")
+        //        || scope_name.contains("Searcher::memory_usage")
+        //        || scope_name.contains("meta::strategy::new")
+        //        || scope_name.contains("meta::strategy::ReverseInner::new"),
+        //    start: std::time::Instant::now(),
+        //    scope_name,
+        //    bb,
+        //    stmt_idx,
+        //};
 
         match &stmt.kind {
             StatementKind::Assign(place, rvalue) => {
@@ -717,17 +722,24 @@ impl<'a> InterpPass<'a> {
                 } else if let Some(defid) = self.static_rvalue(rvalue) {
                     self.static_get_constraints(ctxt, defid)
                 } else {
-                    self.converter.convert(
+                    let c = self.converter.convert(
                         ctxt,
                         &Location::new_at(cur_scope.0.def.def_id(), bb, stmt_idx),
                         local_decls,
                         cur_scope,
                         &dest_ty,
                         rvalue,
-                    )
+                    );
+                    debug!(
+                        "stmt: FROM CONVERTER, scope={:?} local={} converted_disjuncts={}",
+                        cur_scope.0.name(),
+                        place.local,
+                        crate::constraints::constraints_size(&c)
+                    );
+                    c
                 };
                 debug!(
-                    "HERE1 scope={:?} local={} disjuncts={}",
+                    "stmt: GENERAL scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
                     place.local,
                     crate::constraints::constraints_size(&constraints)
@@ -736,7 +748,7 @@ impl<'a> InterpPass<'a> {
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
                 debug!(
-                    "HERE2 scope={:?} local={} disjuncts={}",
+                    "stmt: GENERAL post-lift scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
                     place.local,
                     crate::constraints::constraints_size(&final_constraints)
@@ -747,26 +759,18 @@ impl<'a> InterpPass<'a> {
                 while let [ProjectionElem::Deref, rest @ ..] = write_proj {
                     write_proj = rest;
                 }
-                debug!("HERE3");
 
                 if write_proj.is_empty() {
-                    debug!(
-                        "HERE3.1 scope={:?} local={} disjuncts={}",
-                        cur_scope.0.name(),
-                        place.local,
-                        crate::constraints::constraints_size(&final_constraints)
-                    );
                     ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
                 } else {
                     let base = Place {
                         local: place.local,
                         projection: vec![],
                     };
-                    debug!("HERE3.2");
                     match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
                         Some(mut base_constraints) => {
                             debug!(
-                                "HERE3.2Ai scope={:?} local={} base_disjuncts={}",
+                                "stmt: OLD BASE scope={:?} local={} old_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
@@ -774,28 +778,32 @@ impl<'a> InterpPass<'a> {
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
                             debug!(
-                                "HERE3.2Aii scope={:?} local={} base_disjuncts={}",
+                                "stmt: OLD BASE post-field-write scope={:?} local={} old_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
-                            debug!("HERE3.2Aiii");
                         }
                         None => {
                             debug!(
-                                "HERE3.2B scope={:?} local={} (fresh base)",
+                                "stmt: FRESH BASE scope={:?} local={}",
                                 cur_scope.0.name(),
                                 base.local
                             );
                             let mut base_constraints = Constraints::new();
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
+                            debug!(
+                                "stmt: FRESH BASE post-field-write scope={:?} local={} fresh_disjuncts={}",
+                                cur_scope.0.name(),
+                                base.local,
+                                crate::constraints::constraints_size(&base_constraints)
+                            );
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
                         }
                     }
                 }
-                debug!("HERE4");
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -1055,8 +1063,14 @@ impl<'a> InterpPass<'a> {
         }
 
         log_scope(cur_scope);
-        debug!("destination: {:?}", destination);
         let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints);
+        debug!("destination: {:?}", destination);
+        debug!(
+            "indirect call: DESTINATION scope={:?} local={} disjuncts={}",
+            cur_scope.0.name(),
+            destination.local,
+            crate::constraints::constraints_size(&constraints)
+        );
         //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
         ctxt.set_scoped_constraints(cur_scope, destination, constraints);
 
@@ -1250,6 +1264,12 @@ impl<'a> InterpPass<'a> {
         match ret_constraints {
             Ok(Some(constraints_)) => {
                 let constraints = self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone());
+                debug!(
+                    "direct call: DESTINATION scope={:?} local={} disjuncts={}",
+                    cur_scope.0.name(),
+                    destination.local,
+                    crate::constraints::constraints_size(&constraints)
+                );
 
                 ctxt.set_scoped_constraints(cur_scope, destination, constraints.clone());
 
@@ -3005,7 +3025,7 @@ impl<'a> InterpPass<'a> {
         // Get and "return" the constraints at Place(0)
         let retval = match ctxt
             .cstore
-            .scoped_get(cur_scope, &MapKey::Var(ret_place), false)
+            .scoped_get(cur_scope, &MapKey::Var(ret_place.clone()), false)
         {
             Some(retval) => match retval {
                 MapValue::Constraints(retval_constraints) => {
@@ -3013,6 +3033,12 @@ impl<'a> InterpPass<'a> {
                     //    "\n###### RETURNING constraints:\n\t{:?}\n\n",
                     //    retval_constraints
                     //);
+                    debug!(
+                        "RETURNING scope={:?} local={} disjuncts={}",
+                        cur_scope.0.name(),
+                        ret_place.local,
+                        crate::constraints::constraints_size(&retval_constraints)
+                    );
                     Some(retval_constraints)
                 }
                 _ => panic!("should not be returning a scope"),

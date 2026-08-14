@@ -3,7 +3,7 @@ use crate::constraints::{ConstraintStore, Constraints, Context, EnclosingScopes,
 use crate::error::Error;
 use rustc_public::mir::Place;
 
-//use log::debug;
+use log::debug;
 
 pub fn merge_stores(
     cur_store: &ConstraintStore,
@@ -45,7 +45,17 @@ const MERGE_WIDEN_THRESHOLD: usize = 50;
 fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
     let mut merged = cur_constraints.clone();
     merged.append(new_constraints.clone());
+    debug!(
+        "merge_constraints: merged_disjuncts={}",
+        crate::constraints::constraints_size(&merged)
+    );
+    debug!(
+        "merge_constraints: merged.inner.len()={}",
+        merged.inner.len()
+    );
+    debug!("MERGED CONSTRAINTS: {:?}", merged);
     if merged.inner.len() > MERGE_WIDEN_THRESHOLD {
+        debug!("merge_constraints: WIDENING");
         crate::constraints::widen_constraints(&merged)
     } else {
         merged

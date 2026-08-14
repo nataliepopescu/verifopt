@@ -148,6 +148,13 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
             .unwrap_or(std::time::Duration::ZERO);
         let self_elapsed = total_elapsed.saturating_sub(child_time);
 
+        debug!(
+            "CALL SELF TIME: bb_visit_count={} scope={:?} self_time_ms={:.3}",
+            *self.pass.bb_visit_count.borrow(),
+            self.scope.0.name(),
+            self_elapsed.as_secs_f64() * 1000.0
+        );
+
         {
             let mut map = self.pass.scope_self_time.borrow_mut();
             let entry = map
@@ -163,13 +170,6 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
     }
 }
 
-// Targeted, filtered per-statement timing - only logs for scopes matching
-// the hardcoded substrings below, to pinpoint exactly which statement
-// within a specific expensive scope (found via the self-time report)
-// dominates its runtime. visit_statement handles statements, not
-// terminators (Call lives in visit_terminator), so it never recursively
-// calls visit_body itself - a plain wrap is correct here, no self-time
-// subtraction needed like visit_body's own guard does.
 struct StatementTimingGuard {
     active: bool,
     start: std::time::Instant,
@@ -383,6 +383,13 @@ impl<'a> InterpPass<'a> {
                 //        Self::current_rss_kb().unwrap_or(0)
                 //    );
                 //}
+                if *n % 200 == 0 {
+                    debug!(
+                        "\nCMAP SIZE at bb visit {} cmap_len={}\n",
+                        *n,
+                        ctxt.cstore.cmap.len()
+                    );
+                }
                 if *n % 2_000 == 0 {
                     //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
                     self.dump_self_time_report(&format!("bb visit {}", *n));
@@ -584,12 +591,6 @@ impl<'a> InterpPass<'a> {
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
     ) -> Constraints {
-        // maybe_trait_destty is small (a handful of trait defs at most) -
-        // cheap to hash even though old_constraints itself may be huge.
-        // This is called once per assignment statement, and the same
-        // Rc-backed value legitimately gets passed here again whenever
-        // it's referenced from multiple places (e.g. shared via a struct
-        // field written into many disjuncts).
         let extra_key = hash_val(maybe_trait_destty);
         LIFT_TRAITOBJTYS_CACHE.with(|cache| {
             memoize_by_rc(cache, &old_constraints, extra_key, || {
@@ -1467,15 +1468,6 @@ impl<'a> InterpPass<'a> {
         );
 
         let mut summary_stack = vec![scope.clone()];
-        // summary_stack is a fresh, isolated call stack for exploring this
-        // scope independent of whoever's calling chain led here - but
-        // key_stack is shared, global state. Pushing one entry onto it
-        // directly (bypassing prepare_call) leaves it desynced from
-        // summary_stack's own length the moment this is invoked from
-        // partway through an already-in-progress interpretation (i.e.
-        // whenever key_stack isn't already empty). Snapshot and fully
-        // replace it instead, matching summary_stack's isolated baseline,
-        // then restore the caller's real contents afterward.
         let saved_key_stack = self
             .key_stack
             .replace(vec![(scope.clone(), ArgSet::new(&param_cs))]);
@@ -1488,10 +1480,6 @@ impl<'a> InterpPass<'a> {
 
         self.summary_build_taint_stack.borrow_mut().push(false);
         let result = self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body);
-        // key_stack should be back to the one-entry baseline this
-        // exploration started it at (popped via the normal Return path for
-        // scope itself) - restore the caller's actual contents now that
-        // the isolated exploration is done, regardless of outcome.
         self.key_stack.replace(saved_key_stack);
         let tainted = self
             .summary_build_taint_stack
@@ -1515,6 +1503,7 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /*
     fn log_cache_sizes(&self, n: u64) {
         debug!(
             "\nCACHE SIZES at call {}: exact_memo={} summaries={} wq={} in_queue={} param_summaries={} building_summaries={} dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={} incomplete={} scope_epoch={} scope_exact_memo_count={} scope_summaries_count={} key_stack={}\n",
@@ -1623,6 +1612,7 @@ impl<'a> InterpPass<'a> {
             self.dependencies.borrow().len(),
         );
     }
+    */
 
     fn interp_static_call(
         &self,
@@ -1826,18 +1816,11 @@ impl<'a> InterpPass<'a> {
                     &new_ctxt.cstore,
                     &Some(vec![caller_scope.clone()]),
                 );
-                // Same O(1) fast path Merge<ConstraintStore> already relies
-                // on: if the merged map still shares its underlying tree
-                // with the old one, this call's args added nothing new to
-                // callee_scope's substore (e.g. an identical repeat call),
-                // so exact_memo entries keyed on this scope stay valid.
                 widened = !store.0.cmap.ptr_eq(&old_substore.cmap);
             }
             Some(_) => panic!("got constraint, expected store"),
             None => {
                 store = (new_ctxt.cstore, Some(vec![caller_scope.clone()]));
-                // First-ever visit to this scope: nothing was cached under
-                // it before now, so there's nothing to invalidate - no bump.
             }
         }
 
@@ -2088,17 +2071,7 @@ impl<'a> InterpPass<'a> {
 
         // The receiver's constraint is a `Param` placeholder, not a real (even if
         // unresolvable) value - we're inside `build_param_summary`, interpreting this
-        // function generically before any caller's concrete argument is known. An empty
-        // FSA set here means "not yet known", not "known and CHA-sized"; falling back to
-        // CHA and simulating its impls would (a) permanently bake an inflated/wrong answer
-        // into `dispatch_cha`/`dispatch_targets` for this call site, before the real
-        // per-call-site receiver type - which is exactly what would let FSA beat CHA here -
-        // is ever consulted, and (b) simulate those impls with genargs that still carry the
-        // trait-object receiver's type, which can resolve back to the same `Virtual`
-        // instance being dispatched and crash rustc's mono/shim machinery. Bail out the same
-        // way other param-driven control flow does, so `build_param_summary` discards this
-        // build (`ParamSummary::Unavailable`) and the call gets re-interpreted for real once
-        // a concrete receiver is available.
+        // function generically before any caller's concrete argument is known.
         if fsa_empty && receiver_is_param {
             debug!(
                 "FSA empty because receiver is an unresolved summary param (not yet known) - \
@@ -2422,12 +2395,6 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    /// Returns `(receiver_is_unresolved_param, constraints)`. `receiver_is_unresolved_param` is
-    /// true when the trait-object receiver's constraint is (or contains) a `Param` placeholder -
-    /// i.e. we're inside `build_param_summary`, interpreting this function generically before any
-    /// real caller's argument is known, rather than genuinely having no concrete-type info about a
-    /// real value. Callers must NOT treat that case the same as a real "FSA has nothing" answer:
-    /// a `Param` receiver means "not yet known", not "known to be unresolvable".
     fn get_fsa_tyconstraints(
         &self,
         ctxt: &Context,
@@ -2628,13 +2595,6 @@ impl<'a> InterpPass<'a> {
                 len
             );
             let genargs = if *assoc_fn_impl == *assoc_fn_defid {
-                // Inherited default method: assoc_fn_impl is the trait's own
-                // decl defid, generic over Self, not a per-impl defid.
-                // get_impls_from_defids packed Self's Ty as adt_genargs'
-                // only element - splice it with whatever else the method's
-                // own params need, borrowed from the working call-site
-                // genargs (position 0 there is Self=dyn Trait, replaced;
-                // anything after is preserved as-is).
                 let self_ty = adt_genargs
                     .as_ref()
                     .and_then(|g| g.0.first())
@@ -2971,15 +2931,6 @@ impl<'a> InterpPass<'a> {
         );
 
         let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
-        // call_stack here is a clone the caller made - isolated from
-        // whatever the "real" call stack actually is right now - but
-        // key_stack is shared, global state with no notion of that
-        // isolation. Snapshot it and replace it with a fresh stack of
-        // matching depth before operating on this clone, then restore the
-        // caller's real contents afterward regardless of outcome. Content
-        // below the top entry doesn't matter: key_stack is only ever read
-        // via .last() (never indexed), and prepare_call's own push below
-        // sets the top entry correctly.
         let saved_key_stack = self.key_stack.replace(
             std::iter::repeat_with(|| key.clone())
                 .take(call_stack.len())

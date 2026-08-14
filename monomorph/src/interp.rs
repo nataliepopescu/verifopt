@@ -66,6 +66,7 @@ pub struct InterpPass<'a> {
     pub rec_depth: RefCell<u32>,
     //pub call_count: RefCell<u64>,
     pub bb_visit_count: RefCell<u64>,
+    pub main_ctxt_ptr: RefCell<Option<usize>>,
     pub self_time_child_accum: RefCell<Vec<std::time::Duration>>,
     pub scope_self_time: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
@@ -208,6 +209,7 @@ impl<'a> InterpPass<'a> {
             rec_depth: 0.into(),
             //call_count: 0.into(),
             bb_visit_count: 0.into(),
+            main_ctxt_ptr: None.into(),
             self_time_child_accum: Vec::new().into(),
             scope_self_time: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
@@ -265,6 +267,8 @@ impl<'a> InterpPass<'a> {
         ctxt: &mut Context,
         start_instance: Instance,
     ) -> Result<Option<Constraints>, Error> {
+        *self.main_ctxt_ptr.borrow_mut() = Some(ctxt as *const Context as usize);
+
         let start_scope = (start_instance, GenericArgs(vec![]));
         let mut call_stack = vec![start_scope.clone()];
 
@@ -388,6 +392,34 @@ impl<'a> InterpPass<'a> {
                         "\nCMAP SIZE at bb visit {} cmap_len={}\n",
                         *n,
                         ctxt.cstore.cmap.len()
+                    );
+                    debug!(
+                        "\nMEMO SIZES at bb visit {} exact_memo={} summaries={} param_summaries={}\n",
+                        *n,
+                        self.exact_memo.borrow().len(),
+                        self.summaries.borrow().len(),
+                        self.param_summaries.borrow().len()
+                    );
+                    let mut max_vars = 0usize;
+                    let mut max_vars_scope = String::new();
+                    let mut sum_vars = 0usize;
+                    let mut num_scopes_with_vars = 0usize;
+                    for (key, val) in ctxt.cstore.cmap.iter() {
+                        if let (MapKey::ScopeId(scope), MapValue::Store(inner, _)) =
+                            (key, val.as_ref())
+                        {
+                            let vc = inner.cmap.len();
+                            sum_vars += vc;
+                            num_scopes_with_vars += 1;
+                            if vc > max_vars {
+                                max_vars = vc;
+                                max_vars_scope = format!("{:?}", scope.0.name());
+                            }
+                        }
+                    }
+                    debug!(
+                        "\nVAR COUNTS at bb visit {} num_scopes={} sum_vars={} max_vars={} max_vars_scope={}\n",
+                        *n, num_scopes_with_vars, sum_vars, max_vars, max_vars_scope
                     );
                 }
                 if *n % 2_000 == 0 {

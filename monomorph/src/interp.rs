@@ -184,6 +184,10 @@ enum TimingCat {
     StmtCurConstraints,
     StmtWriteFields,
     StmtSetScoped,
+    TermDirectCall,
+    TermIndirectCall,
+    TermReturn,
+    TermSwitch,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1117,33 +1121,52 @@ impl<'a> InterpPass<'a> {
                 destination,
                 ..
             } => match func {
-                Operand::Constant(co) => self.interp_direct_call(
-                    &term.span,
-                    ctxt,
-                    call_stack,
-                    cur_scope,
-                    local_decls,
-                    bb,
-                    co,
-                    args,
-                    destination,
-                ),
-                Operand::Copy(place) | Operand::Move(place) => self.interp_indirect_call(
-                    &term.span,
-                    ctxt,
-                    call_stack,
-                    cur_scope,
-                    local_decls,
-                    bb,
-                    place,
-                    args,
-                    destination,
-                ),
+                Operand::Constant(co) => {
+                    let start = std::time::Instant::now();
+                    let r = self.interp_direct_call(
+                        &term.span,
+                        ctxt,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        bb,
+                        co,
+                        args,
+                        destination,
+                    );
+                    self.record_timing(TimingCat::TermDirectCall, cur_scope, start.elapsed());
+                    r
+                }
+                Operand::Copy(place) | Operand::Move(place) => {
+                    let start = std::time::Instant::now();
+                    let r = self.interp_indirect_call(
+                        &term.span,
+                        ctxt,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        bb,
+                        place,
+                        args,
+                        destination,
+                    );
+                    self.record_timing(TimingCat::TermIndirectCall, cur_scope, start.elapsed());
+                    r
+                }
                 _ => todo!("calling runtime check operand?"),
             },
-            TerminatorKind::Return => self.interp_return(ctxt, call_stack, cur_scope),
+            TerminatorKind::Return => {
+                let start = std::time::Instant::now();
+                let r = self.interp_return(ctxt, call_stack, cur_scope);
+                self.record_timing(TimingCat::TermReturn, cur_scope, start.elapsed());
+                r
+            }
             TerminatorKind::SwitchInt { discr, targets } => {
-                self.interp_switchint(ctxt, cur_scope, local_decls, bb, bb_deps, discr, targets)
+                let start = std::time::Instant::now();
+                let r =
+                    self.interp_switchint(ctxt, cur_scope, local_decls, bb, bb_deps, discr, targets);
+                self.record_timing(TimingCat::TermSwitch, cur_scope, start.elapsed());
+                r
             }
             TerminatorKind::Assert { .. }
             | TerminatorKind::Drop { .. }

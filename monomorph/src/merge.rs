@@ -53,7 +53,7 @@ fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraint
         "merge_constraints: merged.inner.len()={}",
         merged.inner.len()
     );
-    debug!("MERGED CONSTRAINTS: {:?}", merged);
+    //debug!("MERGED CONSTRAINTS: {:?}", merged);
     if merged.inner.len() > MERGE_WIDEN_THRESHOLD {
         debug!("merge_constraints: WIDENING");
         crate::constraints::widen_constraints(&merged)

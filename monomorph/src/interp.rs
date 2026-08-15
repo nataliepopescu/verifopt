@@ -69,6 +69,9 @@ pub struct InterpPass<'a> {
     pub main_ctxt_ptr: RefCell<Option<usize>>,
     pub self_time_child_accum: RefCell<Vec<std::time::Duration>>,
     pub scope_self_time: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
+    timing_global: RefCell<HashMap<TimingCat, TimingStats>>,
+    timing_scope: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_window: RefCell<HashMap<TimingCat, TimingStats>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
 
@@ -171,27 +174,46 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
     }
 }
 
-//struct StatementTimingGuard {
-//    active: bool,
-//    start: std::time::Instant,
-//    scope_name: String,
-//    bb: usize,
-//    stmt_idx: usize,
-//}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum TimingCat {
+    BbStatements,
+    BbTerminator,
+    StmtContainsDyn,
+    StmtNewConstraints,
+    StmtLiftTraitobj,
+    StmtCurConstraints,
+    StmtWriteFields,
+    StmtSetScoped,
+}
 
-//impl Drop for StatementTimingGuard {
-//    fn drop(&mut self) {
-//        if self.active {
-//            debug!(
-//                "STATEMENT TIMING: scope={:?} bb={} stmt_idx={} elapsed_ms={:.3}",
-//                self.scope_name,
-//                self.bb,
-//                self.stmt_idx,
-//                self.start.elapsed().as_secs_f64() * 1000.0
-//            );
-//        }
-//    }
-//}
+#[derive(Clone, Copy, Default)]
+struct TimingStats {
+    total: std::time::Duration,
+    count: u64,
+    min: std::time::Duration,
+    max: std::time::Duration,
+}
+
+impl TimingStats {
+    fn record(&mut self, d: std::time::Duration) {
+        if self.count == 0 || d < self.min {
+            self.min = d;
+        }
+        if self.count == 0 || d > self.max {
+            self.max = d;
+        }
+        self.total += d;
+        self.count += 1;
+    }
+
+    fn avg(&self) -> std::time::Duration {
+        if self.count == 0 {
+            std::time::Duration::ZERO
+        } else {
+            self.total / self.count as u32
+        }
+    }
+}
 
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
@@ -212,6 +234,9 @@ impl<'a> InterpPass<'a> {
             main_ctxt_ptr: None.into(),
             self_time_child_accum: Vec::new().into(),
             scope_self_time: HashMap::new().into(),
+            timing_global: HashMap::new().into(),
+            timing_scope: HashMap::new().into(),
+            timing_window: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
@@ -287,6 +312,8 @@ impl<'a> InterpPass<'a> {
         );
 
         self.dump_self_time_report("FINAL");
+        self.dump_timing_report("FINAL GLOBAL", &self.timing_global.borrow());
+        self.dump_timing_by_scope_report("FINAL");
 
         result
     }
@@ -323,6 +350,73 @@ impl<'a> InterpPass<'a> {
             ));
         }
         lines.push_str(&format!("=== END SELF-TIME REPORT [{}] ===\n", label));
+        debug!("{}", lines);
+    }
+
+    fn record_timing(&self, cat: TimingCat, scope: &VOID, d: std::time::Duration) {
+        self.timing_global
+            .borrow_mut()
+            .entry(cat)
+            .or_default()
+            .record(d);
+        self.timing_scope
+            .borrow_mut()
+            .entry((scope.clone(), cat))
+            .or_default()
+            .record(d);
+        self.timing_window
+            .borrow_mut()
+            .entry(cat)
+            .or_default()
+            .record(d);
+    }
+
+    fn dump_timing_report(&self, label: &str, map: &HashMap<TimingCat, TimingStats>) {
+        let mut cats: Vec<(&TimingCat, &TimingStats)> = map.iter().collect();
+        cats.sort_by(|a, b| b.1.total.cmp(&a.1.total));
+
+        let mut lines = String::new();
+        lines.push_str(&format!("\n=== TIMING REPORT [{}] ===\n", label));
+        lines.push_str(&format!(
+            "{:>10} {:>10} {:>10} {:>10} {:>10}  category\n",
+            "total_ms", "count", "avg_ms", "min_ms", "max_ms"
+        ));
+        for (cat, stats) in cats {
+            lines.push_str(&format!(
+                "{:>10.3} {:>10} {:>10.3} {:>10.3} {:>10.3}  {:?}\n",
+                stats.total.as_secs_f64() * 1000.0,
+                stats.count,
+                stats.avg().as_secs_f64() * 1000.0,
+                stats.min.as_secs_f64() * 1000.0,
+                stats.max.as_secs_f64() * 1000.0,
+                cat,
+            ));
+        }
+        lines.push_str(&format!("=== END TIMING REPORT [{}] ===\n", label));
+        debug!("{}", lines);
+    }
+
+    fn dump_timing_by_scope_report(&self, label: &str) {
+        let map = self.timing_scope.borrow();
+        let mut entries: Vec<(&(VOID, TimingCat), &TimingStats)> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.total.cmp(&a.1.total));
+
+        let mut lines = String::new();
+        lines.push_str(&format!(
+            "\n=== TIMING BY SCOPE [{}] (top 50 by total) ===\n",
+            label
+        ));
+        for ((scope, cat), stats) in entries.iter().take(50) {
+            lines.push_str(&format!(
+                "{:>10.3}ms {:>10} {:>10.3}ms  {:?} {:?}\n",
+                stats.total.as_secs_f64() * 1000.0,
+                stats.count,
+                stats.avg().as_secs_f64() * 1000.0,
+                cat,
+                scope.0.name(),
+            ));
+        }
+        lines.push_str(&format!("=== END TIMING BY SCOPE [{}] ===\n", label));
         debug!("{}", lines);
     }
 
@@ -387,7 +481,7 @@ impl<'a> InterpPass<'a> {
                 //        Self::current_rss_kb().unwrap_or(0)
                 //    );
                 //}
-                if *n % 200 == 0 {
+                if *n % 10 == 0 {
                     let is_main =
                         Some(ctxt as *const Context as usize) == *self.main_ctxt_ptr.borrow();
                     debug!(
@@ -425,9 +519,17 @@ impl<'a> InterpPass<'a> {
                         *n, is_main, num_scopes_with_vars, sum_vars, max_vars, max_vars_scope
                     );
                 }
-                if *n % 2_000 == 0 {
+                if *n % 200 == 0 {
                     //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
                     self.dump_self_time_report(&format!("bb visit {}", *n));
+                    self.dump_timing_by_scope_report(&format!("bb visit {}", *n));
+                    //}
+                    //if *n % 200 == 0 {
+                    self.dump_timing_report(
+                        &format!("window ending bb visit {}", *n),
+                        &self.timing_window.borrow(),
+                    );
+                    self.timing_window.borrow_mut().clear();
                 }
             }
 
@@ -481,6 +583,7 @@ impl<'a> InterpPass<'a> {
         self.check_call_stack(call_stack, cur_scope);
 
         let num_stmts = data.statements.len();
+        let stmts_start = std::time::Instant::now();
         for (i, stmt) in data.statements.iter().enumerate() {
             debug!(
                 "\n\n# visiting STATEMENT {:?} ({:?}/{:?}) in BB{:?} for {:?}\n\nSPAN: {:?}",
@@ -493,6 +596,7 @@ impl<'a> InterpPass<'a> {
             );
             self.visit_statement(ctxt, cur_scope, local_decls, stmt, bb, i);
         }
+        self.record_timing(TimingCat::BbStatements, cur_scope, stmts_start.elapsed());
 
         debug!(
             "\n\n# visiting TERMINATOR in BB{:?} for {:?}\n\nSPAN: {:?}",
@@ -501,6 +605,7 @@ impl<'a> InterpPass<'a> {
             &data.terminator.span,
         );
 
+        let term_start = std::time::Instant::now();
         let res = self.visit_terminator(
             ctxt,
             call_stack,
@@ -510,6 +615,7 @@ impl<'a> InterpPass<'a> {
             bb,
             &data.terminator,
         )?;
+        self.record_timing(TimingCat::BbTerminator, cur_scope, term_start.elapsed());
 
         bb_deps.mark_visited(bb, cur_scope);
 
@@ -681,26 +787,21 @@ impl<'a> InterpPass<'a> {
         bb: usize,
         stmt_idx: usize,
     ) {
-        //let scope_name = format!("{:?}", cur_scope.0.name());
-        //let _timing_guard = StatementTimingGuard {
-        //    active: scope_name.contains("Builder::build::{closure#3}")
-        //        || scope_name.contains("Searcher::memory_usage")
-        //        || scope_name.contains("meta::strategy::new")
-        //        || scope_name.contains("meta::strategy::ReverseInner::new"),
-        //    start: std::time::Instant::now(),
-        //    scope_name,
-        //    bb,
-        //    stmt_idx,
-        //};
-
         match &stmt.kind {
             StatementKind::Assign(place, rvalue) => {
                 debug!("start assignment!\nplace: {:?}\nrval: {:?}", place, rvalue);
                 log_scope(cur_scope);
 
                 let dest_ty = place.ty(local_decls).unwrap();
+                let contains_dyn_start = std::time::Instant::now();
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
+                self.record_timing(
+                    TimingCat::StmtContainsDyn,
+                    cur_scope,
+                    contains_dyn_start.elapsed(),
+                );
 
+                let new_constraints_start = std::time::Instant::now();
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
@@ -746,6 +847,11 @@ impl<'a> InterpPass<'a> {
                     );
                     c
                 };
+                self.record_timing(
+                    TimingCat::StmtNewConstraints,
+                    cur_scope,
+                    new_constraints_start.elapsed(),
+                );
                 debug!(
                     "stmt: GENERAL scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
@@ -753,8 +859,10 @@ impl<'a> InterpPass<'a> {
                     crate::constraints::constraints_size(&constraints)
                 );
 
+                let lift_start = std::time::Instant::now();
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
+                self.record_timing(TimingCat::StmtLiftTraitobj, cur_scope, lift_start.elapsed());
                 debug!(
                     "stmt: GENERAL post-lift scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
@@ -769,13 +877,26 @@ impl<'a> InterpPass<'a> {
                 }
 
                 if write_proj.is_empty() {
+                    let set_scoped_start = std::time::Instant::now();
                     ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
+                    self.record_timing(
+                        TimingCat::StmtSetScoped,
+                        cur_scope,
+                        set_scoped_start.elapsed(),
+                    );
                 } else {
                     let base = Place {
                         local: place.local,
                         projection: vec![],
                     };
-                    match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
+                    let cur_constraints_start = std::time::Instant::now();
+                    let base_lookup = ctxt.get_constraints(cur_scope, local_decls, &base, false);
+                    self.record_timing(
+                        TimingCat::StmtCurConstraints,
+                        cur_scope,
+                        cur_constraints_start.elapsed(),
+                    );
+                    match base_lookup {
                         Some(mut base_constraints) => {
                             debug!(
                                 "stmt: OLD BASE scope={:?} local={} old_disjuncts={}",
@@ -783,15 +904,27 @@ impl<'a> InterpPass<'a> {
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
+                            let write_field_start = std::time::Instant::now();
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
+                            self.record_timing(
+                                TimingCat::StmtWriteFields,
+                                cur_scope,
+                                write_field_start.elapsed(),
+                            );
                             debug!(
                                 "stmt: OLD BASE post-field-write scope={:?} local={} old_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
+                            let set_scoped_start = std::time::Instant::now();
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            self.record_timing(
+                                TimingCat::StmtSetScoped,
+                                cur_scope,
+                                set_scoped_start.elapsed(),
+                            );
                         }
                         None => {
                             debug!(
@@ -800,15 +933,27 @@ impl<'a> InterpPass<'a> {
                                 base.local
                             );
                             let mut base_constraints = Constraints::new();
+                            let write_field_start = std::time::Instant::now();
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
+                            self.record_timing(
+                                TimingCat::StmtWriteFields,
+                                cur_scope,
+                                write_field_start.elapsed(),
+                            );
                             debug!(
                                 "stmt: FRESH BASE post-field-write scope={:?} local={} fresh_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
+                            let set_scoped_start = std::time::Instant::now();
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            self.record_timing(
+                                TimingCat::StmtSetScoped,
+                                cur_scope,
+                                set_scoped_start.elapsed(),
+                            );
                         }
                     }
                 }

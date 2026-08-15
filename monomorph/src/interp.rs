@@ -192,6 +192,9 @@ enum TimingCat {
     TermReturnFinishFrame,
     TermFinishFrameReinterp,
     TermFinishFrameRevisit,
+    StmtNewConstraintsRef,
+    StmtNewConstraintsStatic,
+    StmtNewConstraintsFromConvert,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -811,6 +814,7 @@ impl<'a> InterpPass<'a> {
 
                 let new_constraints_start = std::time::Instant::now();
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
+                    let ref_start = std::time::Instant::now();
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
                             local: to.local,
@@ -828,8 +832,15 @@ impl<'a> InterpPass<'a> {
                         },
                     );
                     debug!("stmt: FROM REF (empty)");
-                    Constraints::new()
+                    let c = Constraints::new();
+                    self.record_timing(
+                        TimingCat::StmtNewConstraintsRef,
+                        cur_scope,
+                        ref_start.elapsed(),
+                    );
+                    c
                 } else if let Some(defid) = self.static_rvalue(rvalue) {
+                    let static_start = std::time::Instant::now();
                     let c = self.static_get_constraints(ctxt, defid);
                     debug!(
                         "stmt: FROM STATIC, scope={:?} local={} converted_disjuncts={}",
@@ -837,8 +848,14 @@ impl<'a> InterpPass<'a> {
                         place.local,
                         crate::constraints::constraints_size(&c)
                     );
+                    self.record_timing(
+                        TimingCat::StmtNewConstraintsStatic,
+                        cur_scope,
+                        static_start.elapsed(),
+                    );
                     c
                 } else {
+                    let convert_start = std::time::Instant::now();
                     let c = self.converter.convert(
                         ctxt,
                         &Location::new_at(cur_scope.0.def.def_id(), bb, stmt_idx),
@@ -852,6 +869,11 @@ impl<'a> InterpPass<'a> {
                         cur_scope.0.name(),
                         place.local,
                         crate::constraints::constraints_size(&c)
+                    );
+                    self.record_timing(
+                        TimingCat::StmtNewConstraintsFromConvert,
+                        cur_scope,
+                        convert_start.elapsed(),
                     );
                     c
                 };

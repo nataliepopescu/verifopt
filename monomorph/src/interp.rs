@@ -188,6 +188,8 @@ enum TimingCat {
     TermIndirectCall,
     TermReturn,
     TermSwitch,
+    TermReturnScopedGet,
+    TermReturnFinishFrame,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -3199,10 +3201,17 @@ impl<'a> InterpPass<'a> {
         };
 
         // Get and "return" the constraints at Place(0)
-        let retval = match ctxt
+        let scoped_get_start = std::time::Instant::now();
+        let scoped_get_result = ctxt
             .cstore
-            .scoped_get(cur_scope, &MapKey::Var(ret_place.clone()), false)
-        {
+            .scoped_get(cur_scope, &MapKey::Var(ret_place.clone()), false);
+        self.record_timing(
+            TimingCat::TermReturnScopedGet,
+            cur_scope,
+            scoped_get_start.elapsed(),
+        );
+
+        let retval = match scoped_get_result {
             Some(retval) => match retval {
                 MapValue::Constraints(retval_constraints) => {
                     //debug!(
@@ -3225,7 +3234,14 @@ impl<'a> InterpPass<'a> {
             }
         };
 
-        self.finish_frame(ctxt, call_stack, cur_scope, retval)
+        let finish_frame_start = std::time::Instant::now();
+        let result = self.finish_frame(ctxt, call_stack, cur_scope, retval);
+        self.record_timing(
+            TimingCat::TermReturnFinishFrame,
+            cur_scope,
+            finish_frame_start.elapsed(),
+        );
+        result
     }
 
     fn finish_frame(

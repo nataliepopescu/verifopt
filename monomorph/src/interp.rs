@@ -481,6 +481,7 @@ impl<'a> InterpPass<'a> {
                 //        Self::current_rss_kb().unwrap_or(0)
                 //    );
                 //}
+                /*
                 if *n % 10 == 0 {
                     let is_main =
                         Some(ctxt as *const Context as usize) == *self.main_ctxt_ptr.borrow();
@@ -519,12 +520,11 @@ impl<'a> InterpPass<'a> {
                         *n, is_main, num_scopes_with_vars, sum_vars, max_vars, max_vars_scope
                     );
                 }
+                */
                 if *n % 200 == 0 {
                     //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
                     self.dump_self_time_report(&format!("bb visit {}", *n));
                     self.dump_timing_by_scope_report(&format!("bb visit {}", *n));
-                    //}
-                    //if *n % 200 == 0 {
                     self.dump_timing_report(
                         &format!("window ending bb visit {}", *n),
                         &self.timing_window.borrow(),

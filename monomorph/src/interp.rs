@@ -190,6 +190,8 @@ enum TimingCat {
     TermSwitch,
     TermReturnScopedGet,
     TermReturnFinishFrame,
+    TermFinishFrameReinterp,
+    TermFinishFrameRevisit,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -3285,6 +3287,7 @@ impl<'a> InterpPass<'a> {
             .collect();
 
         *self.rec_depth.borrow_mut() += 1;
+        let reinterp_start = std::time::Instant::now();
         for (scope, constraints, stack) in queued {
             let depth = call_stack.len();
 
@@ -3307,9 +3310,19 @@ impl<'a> InterpPass<'a> {
                 self.incomplete.borrow_mut().insert(cur_scope.clone());
 
                 *self.rec_depth.borrow_mut() -= 1;
+                self.record_timing(
+                    TimingCat::TermFinishFrameReinterp,
+                    cur_scope,
+                    reinterp_start.elapsed(),
+                );
                 return res;
             }
         }
+        self.record_timing(
+            TimingCat::TermFinishFrameReinterp,
+            cur_scope,
+            reinterp_start.elapsed(),
+        );
 
         for (scope, old) in saved {
             match old {
@@ -3329,6 +3342,7 @@ impl<'a> InterpPass<'a> {
         }
 
         // final traverse after recursive wq drained
+        let revisit_start = std::time::Instant::now();
         let body = self.get_body(cur_scope);
 
         // constrain arguments
@@ -3350,6 +3364,11 @@ impl<'a> InterpPass<'a> {
 
         self.prepare_call(call_stack, &key);
         let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
+        self.record_timing(
+            TimingCat::TermFinishFrameRevisit,
+            cur_scope,
+            revisit_start.elapsed(),
+        );
         *self.rec_depth.borrow_mut() -= 1;
         match result {
             Ok(r) => Ok(r),

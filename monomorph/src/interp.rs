@@ -195,6 +195,12 @@ enum TimingCat {
     StmtNewConstraintsRef,
     StmtNewConstraintsStatic,
     StmtNewConstraintsFromConvert,
+    TermCollectResolvedArgs,
+    TermResolveArgs,
+    TermInterpStaticCall,
+    TermInterpVirtualCall,
+    TermParamSummary,
+    TermMemo,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1508,7 +1514,8 @@ impl<'a> InterpPass<'a> {
                 // - is this a trait method without an implementation?
                 // - if so, who implements it? execute those implementations
                 // This tends to be stuff that dynamic dispatch does for us anyway
-                return self.interp_virtual_call(
+                let virtual_start = std::time::Instant::now();
+                let r = self.interp_virtual_call(
                     term_span,
                     ctxt,
                     call_stack,
@@ -1519,6 +1526,12 @@ impl<'a> InterpPass<'a> {
                     &genargs,
                     args,
                 );
+                self.record_timing(
+                    TimingCat::TermInterpVirtualCall,
+                    cur_scope,
+                    virtual_start.elapsed(),
+                );
+                return r;
             }
         };
 
@@ -1568,6 +1581,7 @@ impl<'a> InterpPass<'a> {
             );
         }
 
+        let collect_args_start = std::time::Instant::now();
         let new_cs: Vec<Constraints> = self.collect_resolved_args(
             ctxt,
             term_span,
@@ -1576,6 +1590,11 @@ impl<'a> InterpPass<'a> {
             local_decls,
             args,
             false,
+        );
+        self.record_timing(
+            TimingCat::TermCollectResolvedArgs,
+            cur_scope,
+            collect_args_start.elapsed(),
         );
 
         if call_stack.contains(&new_scope) {
@@ -1655,30 +1674,40 @@ impl<'a> InterpPass<'a> {
         new_cs: Vec<Constraints>,
     ) -> Result<Option<Constraints>, Error> {
         match instance.kind {
-            InstanceKind::Item | InstanceKind::Shim => self.interp_static_call(
-                term_span,
-                ctxt,
-                call_stack,
-                cur_scope,
-                &new_scope,
-                local_decls,
-                fndef,
-                args,
-                &genargs,
-                &new_cs,
-                false,
-            ),
-            InstanceKind::Virtual { .. } => self.interp_virtual_call(
-                term_span,
-                ctxt,
-                call_stack,
-                cur_scope,
-                local_decls,
-                bb,
-                &fndef,
-                &genargs,
-                args,
-            ),
+            InstanceKind::Item | InstanceKind::Shim => {
+                let start = std::time::Instant::now();
+                let r = self.interp_static_call(
+                    term_span,
+                    ctxt,
+                    call_stack,
+                    cur_scope,
+                    &new_scope,
+                    local_decls,
+                    fndef,
+                    args,
+                    &genargs,
+                    &new_cs,
+                    false,
+                );
+                self.record_timing(TimingCat::TermInterpStaticCall, cur_scope, start.elapsed());
+                r
+            }
+            InstanceKind::Virtual { .. } => {
+                let start = std::time::Instant::now();
+                let r = self.interp_virtual_call(
+                    term_span,
+                    ctxt,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    bb,
+                    &fndef,
+                    &genargs,
+                    args,
+                );
+                self.record_timing(TimingCat::TermInterpVirtualCall, cur_scope, start.elapsed());
+                r
+            }
             InstanceKind::Intrinsic => self.retty_fallback_from_poly(fndef.fn_sig()),
         }
     }
@@ -1894,6 +1923,7 @@ impl<'a> InterpPass<'a> {
             let body = self.get_body(cur_scope);
             let key = (cur_scope.clone(), ArgSet::new(cur_cs));
 
+            let summary_start = std::time::Instant::now();
             let cached_summary = self.param_summaries.borrow().get(cur_scope).cloned();
             match cached_summary {
                 Some(ParamSummary::Built(summary)) => {
@@ -1923,7 +1953,8 @@ impl<'a> InterpPass<'a> {
                             .borrow_mut()
                             .insert(cur_scope.clone(), ParamSummary::Unavailable);
                     } else {
-                        match self.build_param_summary(cur_scope, is_closure) {
+                        let build_result = self.build_param_summary(cur_scope, is_closure);
+                        match build_result {
                             Ok(built) => {
                                 debug!("built param_summary for {:?}", cur_scope.0.name());
                                 self.param_summaries
@@ -1947,7 +1978,13 @@ impl<'a> InterpPass<'a> {
                     }
                 }
             }
+            self.record_timing(
+                TimingCat::TermParamSummary,
+                cur_scope,
+                summary_start.elapsed(),
+            );
 
+            let memo_start = std::time::Instant::now();
             let precise_count = *self
                 .scope_exact_memo_count
                 .borrow()
@@ -1963,23 +2000,23 @@ impl<'a> InterpPass<'a> {
                 key.clone()
             };
 
-            let scope_name = format!("{:?}", cur_scope.0.name());
-            if scope_name.contains("RawVecInner") {
-                let will_hit = self
-                    .exact_memo
-                    .borrow()
-                    .get(&memo_key)
-                    .map(|(_, e)| *e == *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0))
-                    .unwrap_or(false);
-                debug!(
-                    "\nRAWVEC TRACE for {}: precise_count={} widened={} exact_memo_hit={} exact_memo_key_hash={:?}\n",
-                    scope_name,
-                    precise_count,
-                    precise_count >= 50,
-                    will_hit,
-                    memo_key.1,
-                );
-            }
+            //let scope_name = format!("{:?}", cur_scope.0.name());
+            //if scope_name.contains("RawVecInner") {
+            //    let will_hit = self
+            //        .exact_memo
+            //        .borrow()
+            //        .get(&memo_key)
+            //        .map(|(_, e)| *e == *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0))
+            //        .unwrap_or(false);
+            //    debug!(
+            //        "\nRAWVEC TRACE for {}: precise_count={} widened={} exact_memo_hit={} exact_memo_key_hash={:?}\n",
+            //        scope_name,
+            //        precise_count,
+            //        precise_count >= 50,
+            //        will_hit,
+            //        memo_key.1,
+            //    );
+            //}
 
             let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
             if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
@@ -1992,7 +2029,13 @@ impl<'a> InterpPass<'a> {
                     return Ok(cached.clone());
                 }
             }
+            self.record_timing(
+                TimingCat::TermMemo,
+                cur_scope,
+                memo_start.elapsed(),
+            );
 
+            let resolve_args_start = std::time::Instant::now();
             self.resolve_args(
                 ctxt,
                 term_span,
@@ -2003,6 +2046,11 @@ impl<'a> InterpPass<'a> {
                 args,
                 genargs,
                 is_closure,
+            );
+            self.record_timing(
+                TimingCat::TermResolveArgs,
+                cur_scope,
+                resolve_args_start.elapsed(),
             );
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);

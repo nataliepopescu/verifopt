@@ -211,6 +211,16 @@ enum TimingCat {
     TermInterpVirtualCall,
     //TermParamSummary,
     TermMemo,
+    TermGetImplsCha,
+    TermGetImplsFsa,
+    TermVirtualCallPrep,
+    TermSimulateCallPrep,
+    TermSimulateRecursiveFallback,
+    TermSimulateStdlibStub,
+    TermSimulateRealCall,
+    TermSigFallback,
+    TermSimulateMergeResults,
+    TermSimulateLoopMergeResults,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -2422,11 +2432,13 @@ impl<'a> InterpPass<'a> {
         // Get every concrete type constraint's impl of this function
         // - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
         let assoc_fn_impls_cha;
+        let _timing_guard = self.timing_span(TimingCat::TermGetImplsCha, caller_scope);
         if let Some(cha_impls) = self.dispatch_cha.borrow().get(&key) {
             assoc_fn_impls_cha = cha_impls.clone().1;
         } else {
             assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid, genargs);
         }
+        drop(_timing_guard);
 
         for (cha_impl, _) in &assoc_fn_impls_cha {
             if *cha_impl == fndef.0 {
@@ -2434,6 +2446,7 @@ impl<'a> InterpPass<'a> {
             }
         }
 
+        let _timing_guard = self.timing_span(TimingCat::TermGetImplsFsa, caller_scope);
         let (is_closure, receiver_is_param, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
             ctxt,
             term_span,
@@ -2443,7 +2456,9 @@ impl<'a> InterpPass<'a> {
             &fndef.0,
             args,
         );
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermVirtualCallPrep, caller_scope);
         let fsa_empty = assoc_fn_impls_fsa.is_empty();
 
         // The receiver's constraint is a `Param` placeholder, not a real (even if
@@ -2454,6 +2469,8 @@ impl<'a> InterpPass<'a> {
                 "FSA empty because receiver is an unresolved summary param (not yet known) - \
                  deferring to real call site instead of falling back to CHA"
             );
+            // `_timing_guard` (TermVirtualCallPrep) drops here automatically,
+            // correctly closing this span even on this early-return exit.
             return Err(Error::SummaryImprecise);
         }
 
@@ -2532,6 +2549,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
         }
+        drop(_timing_guard);
 
         self.simulate_static_calls(
             term_span,
@@ -3014,6 +3032,7 @@ impl<'a> InterpPass<'a> {
                 i + 1,
                 len
             );
+            let _timing_guard = self.timing_span(TimingCat::TermSimulateCallPrep, cur_scope);
             let genargs = if *assoc_fn_impl == *assoc_fn_defid {
                 let self_ty = adt_genargs
                     .as_ref()
@@ -3058,6 +3077,9 @@ impl<'a> InterpPass<'a> {
                     expected_count
                 );
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                // `_timing_guard` (TermSimulateCallPrep) drops here
+                // automatically, correctly closing this span even on this
+                // `continue`-driven early exit.
                 continue;
             }
             let instance_ = match Instance::resolve(fndef, &genargs) {
@@ -3080,14 +3102,23 @@ impl<'a> InterpPass<'a> {
                 _ => (false, instance_),
             };
             let callee_scope = (instance, genargs.clone());
+            drop(_timing_guard);
 
             // the `if` and `else if` blocks might be creating a soundness error...
             // if we're not actually stepping into new code + updating our cmap,
             // we could be omitting actually-used concrete type variants in our
             // eventual rewrite FIXME
-            if call_stack.contains(&callee_scope) {
+            let recursive_hit = call_stack.contains(&callee_scope);
+            if recursive_hit {
+                let _timing_guard =
+                    self.timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
                 results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-            } else if let Some(stub_result) = self.stdlib_stub(
+                drop(_timing_guard);
+                continue;
+            }
+
+            let _timing_guard = self.timing_span(TimingCat::TermSimulateStdlibStub, cur_scope);
+            let stub_attempt = self.stdlib_stub(
                 ctxt,
                 cur_scope,
                 term_span,
@@ -3095,58 +3126,80 @@ impl<'a> InterpPass<'a> {
                 &fndef,
                 &genargs,
                 args,
-            ) {
-                results.push(stub_result?);
-            } else {
-                let mut ctxt_clone = ctxt.clone();
-                let mut call_stack_clone = call_stack.clone();
-
-                if !instance.has_body() {
-                    panic!("instance has no body");
+            );
+            match stub_attempt {
+                Some(stub_result) => {
+                    drop(_timing_guard);
+                    results.push(stub_result?);
                 }
-                let body = if is_virtual {
-                    // FIXME not monomorphized
-                    fndef.body().unwrap()
-                } else {
-                    self.get_body(&callee_scope)
-                };
+                None => {
+                    drop(_timing_guard);
 
-                let cs = self.collect_resolved_args(
-                    ctxt,
-                    term_span,
-                    cur_scope,
-                    &body,
-                    local_decls,
-                    args,
-                    is_closure,
-                );
+                    if !instance.has_body() {
+                        let _timing_guard = self.timing_span(TimingCat::TermSigFallback, cur_scope);
+                        results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        drop(_timing_guard);
+                        continue;
+                    }
 
-                results.push(self.interp_static_call(
-                    term_span,
-                    &mut ctxt_clone,
-                    &mut call_stack_clone,
-                    cur_scope,
-                    &callee_scope,
-                    local_decls,
-                    fndef,
-                    args,
-                    &genargs,
-                    &cs,
-                    is_closure,
-                )?);
+                    let _timing_guard =
+                        self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
+                    let mut ctxt_clone = ctxt.clone();
+                    let mut call_stack_clone = call_stack.clone();
 
-                acc = Some(match acc {
-                    None => ctxt_clone,
-                    Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
-                });
+                    let body = if is_virtual {
+                        // FIXME not monomorphized
+                        fndef.body().unwrap()
+                    } else {
+                        self.get_body(&callee_scope)
+                    };
+
+                    let cs = self.collect_resolved_args(
+                        ctxt,
+                        term_span,
+                        cur_scope,
+                        &body,
+                        local_decls,
+                        args,
+                        is_closure,
+                    );
+
+                    // `_timing_guard` (TermSimulateRealCall) drops here
+                    // automatically on the `?`'s early-return exit, same as
+                    // every other guard in this file.
+                    results.push(self.interp_static_call(
+                        term_span,
+                        &mut ctxt_clone,
+                        &mut call_stack_clone,
+                        cur_scope,
+                        &callee_scope,
+                        local_decls,
+                        fndef,
+                        args,
+                        &genargs,
+                        &cs,
+                        is_closure,
+                    )?);
+                    drop(_timing_guard);
+
+                    let _timing_guard = self.timing_span(TimingCat::TermSimulateLoopMergeResults, cur_scope);
+                    acc = Some(match acc {
+                        None => ctxt_clone,
+                        Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
+                    });
+                    drop(_timing_guard);
+                }
             }
         }
 
+        let _timing_guard = self.timing_span(TimingCat::TermSimulateMergeResults, cur_scope);
         match acc {
             Some(acc) => *ctxt = acc,
             None => {}
         }
-        self.merge_results_and_ret(&mut results)
+        let result = self.merge_results_and_ret(&mut results);
+        drop(_timing_guard);
+        result
     }
 
     fn merge_results_and_ret(

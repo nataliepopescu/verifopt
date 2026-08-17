@@ -28,7 +28,7 @@ use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
     ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
     RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy, VOID, hash_val,
-    memoize_by_rc, substitute_params, summary_key,
+    memoize_by_rc, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -80,7 +80,7 @@ pub struct InterpPass<'a> {
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
     pub scope_summaries_count: RefCell<HashMap<VOID, u32>>,
-    pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
+    //pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
     pub building_summaries: RefCell<HashSet<VOID>>,
 }
@@ -199,7 +199,7 @@ enum TimingCat {
     TermResolveArgs,
     TermInterpStaticCall,
     TermInterpVirtualCall,
-    TermParamSummary,
+    //TermParamSummary,
     TermMemo,
 }
 
@@ -260,7 +260,7 @@ impl<'a> InterpPass<'a> {
             scope_epoch: HashMap::new().into(),
             scope_exact_memo_count: HashMap::new().into(),
             scope_summaries_count: HashMap::new().into(),
-            param_summaries: HashMap::new().into(),
+            //param_summaries: HashMap::new().into(),
             summary_build_taint_stack: Vec::new().into(),
             building_summaries: HashSet::new().into(),
         }
@@ -1712,6 +1712,7 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /*
     fn build_param_summary(
         &self,
         scope: &VOID,
@@ -1785,6 +1786,7 @@ impl<'a> InterpPass<'a> {
             other => other,
         }
     }
+    */
 
     /*
     fn log_cache_sizes(&self, n: u64) {
@@ -1923,6 +1925,7 @@ impl<'a> InterpPass<'a> {
             let body = self.get_body(cur_scope);
             let key = (cur_scope.clone(), ArgSet::new(cur_cs));
 
+            /*
             let summary_start = std::time::Instant::now();
             let cached_summary = self.param_summaries.borrow().get(cur_scope).cloned();
             match cached_summary {
@@ -1983,6 +1986,7 @@ impl<'a> InterpPass<'a> {
                 cur_scope,
                 summary_start.elapsed(),
             );
+            */
 
             let memo_start = std::time::Instant::now();
             let precise_count = *self
@@ -2029,11 +2033,7 @@ impl<'a> InterpPass<'a> {
                     return Ok(cached.clone());
                 }
             }
-            self.record_timing(
-                TimingCat::TermMemo,
-                cur_scope,
-                memo_start.elapsed(),
-            );
+            self.record_timing(TimingCat::TermMemo, cur_scope, memo_start.elapsed());
 
             let resolve_args_start = std::time::Instant::now();
             self.resolve_args(
@@ -3274,9 +3274,9 @@ impl<'a> InterpPass<'a> {
 
         // Get and "return" the constraints at Place(0)
         let scoped_get_start = std::time::Instant::now();
-        let scoped_get_result = ctxt
-            .cstore
-            .scoped_get(cur_scope, &MapKey::Var(ret_place.clone()), false);
+        let scoped_get_result =
+            ctxt.cstore
+                .scoped_get(cur_scope, &MapKey::Var(ret_place.clone()), false);
         self.record_timing(
             TimingCat::TermReturnScopedGet,
             cur_scope,

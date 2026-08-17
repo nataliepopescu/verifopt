@@ -156,6 +156,9 @@ impl<'a> InterpPass<'a> {
             "len" | "is_empty" | "contains" | "clear" | "remove" | "jaccard_index" => {
                 return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
             }
+            "entry" => {
+                return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
+            }
             _ => panic!(
                 "stdlib_stub: no summary for {:?}::{} - add one or handle it in wrapper_kind",
                 recv.adtdef, method

@@ -72,6 +72,16 @@ pub struct InterpPass<'a> {
     timing_global: RefCell<HashMap<TimingCat, TimingStats>>,
     timing_scope: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
     timing_window: RefCell<HashMap<TimingCat, TimingStats>>,
+    // Exclusive (self-time) counterparts to the three maps above - same
+    // shape, but excluding time spent inside any other timed span nested
+    // underneath. See `TimingSpanGuard`, which mirrors `SelfTimeGuard`'s
+    // existing push-on-create/pop-on-Drop pattern so this is correct on
+    // *every* exit path (early return, `?`, panic-unwind) rather than only
+    // the path that happens to reach an explicit "end of span" call site.
+    timing_child_stack: RefCell<Vec<std::time::Duration>>,
+    timing_global_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
+    timing_scope_exclusive: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_window_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
 
@@ -232,6 +242,61 @@ impl TimingStats {
     }
 }
 
+/// Mirrors `SelfTimeGuard` exactly, but tracks exclusive time per
+/// `(scope, TimingCat)` pair instead of per-scope only. Pushing on
+/// construction and popping via `Drop` (rather than an explicit
+/// end-of-span call) is the point: it's correct on *every* exit path -
+/// early return, `?`, panic-unwind - not just the one path that happens to
+/// reach an explicit "end of span" call site. (An earlier version of this
+/// used an explicit push/pop pair instead of `Drop`, and silently
+/// corrupted the exclusive-time accounting on every early-return exit,
+/// e.g. an `exact_memo` cache hit - hence this being a `Drop`-based guard
+/// now, not a repeat of that mistake.)
+struct TimingSpanGuard<'a, 'b> {
+    pass: &'a InterpPass<'b>,
+    cat: TimingCat,
+    scope: VOID,
+    start: std::time::Instant,
+}
+
+impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
+    fn drop(&mut self) {
+        let elapsed = self.start.elapsed();
+        self.pass.record_timing(self.cat, &self.scope, elapsed);
+
+        let child_time = self
+            .pass
+            .timing_child_stack
+            .borrow_mut()
+            .pop()
+            .unwrap_or(std::time::Duration::ZERO);
+        let exclusive = elapsed.saturating_sub(child_time);
+
+        self.pass
+            .timing_global_exclusive
+            .borrow_mut()
+            .entry(self.cat)
+            .or_default()
+            .record(exclusive);
+        self.pass
+            .timing_scope_exclusive
+            .borrow_mut()
+            .entry((self.scope.clone(), self.cat))
+            .or_default()
+            .record(exclusive);
+        self.pass
+            .timing_window_exclusive
+            .borrow_mut()
+            .entry(self.cat)
+            .or_default()
+            .record(exclusive);
+
+        if let Some(parent_accum) = self.pass.timing_child_stack.borrow_mut().last_mut() {
+            *parent_accum += elapsed;
+        }
+    }
+}
+
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
@@ -254,6 +319,10 @@ impl<'a> InterpPass<'a> {
             timing_global: HashMap::new().into(),
             timing_scope: HashMap::new().into(),
             timing_window: HashMap::new().into(),
+            timing_child_stack: Vec::new().into(),
+            timing_global_exclusive: HashMap::new().into(),
+            timing_scope_exclusive: HashMap::new().into(),
+            timing_window_exclusive: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
@@ -331,6 +400,11 @@ impl<'a> InterpPass<'a> {
         self.dump_self_time_report("FINAL");
         self.dump_timing_report("FINAL GLOBAL", &self.timing_global.borrow());
         self.dump_timing_by_scope_report("FINAL");
+        self.dump_timing_report(
+            "FINAL GLOBAL EXCLUSIVE",
+            &self.timing_global_exclusive.borrow(),
+        );
+        self.dump_timing_by_scope_exclusive_report("FINAL");
 
         result
     }
@@ -388,6 +462,25 @@ impl<'a> InterpPass<'a> {
             .record(d);
     }
 
+    /// Starts a timed span, tracked both inclusively (via `record_timing`,
+    /// called from `TimingSpanGuard::drop`) and exclusively (via the
+    /// child-time-stack mechanism also in `TimingSpanGuard::drop`). Keep
+    /// the returned guard alive for exactly as long as the span should
+    /// count; dropping it (on *any* exit path) ends the span. Nesting is
+    /// handled automatically: a span started while another is still alive
+    /// becomes that span's child.
+    fn timing_span<'b>(&'b self, cat: TimingCat, scope: &VOID) -> TimingSpanGuard<'b, 'a> {
+        self.timing_child_stack
+            .borrow_mut()
+            .push(std::time::Duration::ZERO);
+        TimingSpanGuard {
+            pass: self,
+            cat,
+            scope: scope.clone(),
+            start: std::time::Instant::now(),
+        }
+    }
+
     fn dump_timing_report(&self, label: &str, map: &HashMap<TimingCat, TimingStats>) {
         let mut cats: Vec<(&TimingCat, &TimingStats)> = map.iter().collect();
         cats.sort_by(|a, b| b.1.total.cmp(&a.1.total));
@@ -434,6 +527,33 @@ impl<'a> InterpPass<'a> {
             ));
         }
         lines.push_str(&format!("=== END TIMING BY SCOPE [{}] ===\n", label));
+        debug!("{}", lines);
+    }
+
+    /// Exclusive-time counterpart to `dump_timing_by_scope_report` - same
+    /// format, reading from `timing_scope_exclusive` instead of
+    /// `timing_scope`, so nested work isn't double-counted.
+    fn dump_timing_by_scope_exclusive_report(&self, label: &str) {
+        let map = self.timing_scope_exclusive.borrow();
+        let mut entries: Vec<(&(VOID, TimingCat), &TimingStats)> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.total.cmp(&a.1.total));
+
+        let mut lines = String::new();
+        lines.push_str(&format!(
+            "\n=== EXCLUSIVE TIMING BY SCOPE [{}] (top 50 by total) ===\n",
+            label
+        ));
+        for ((scope, cat), stats) in entries.iter().take(50) {
+            lines.push_str(&format!(
+                "{:>10.3}ms {:>10} {:>10.3}ms  {:?} {:?}\n",
+                stats.total.as_secs_f64() * 1000.0,
+                stats.count,
+                stats.avg().as_secs_f64() * 1000.0,
+                cat,
+                scope.0.name(),
+            ));
+        }
+        lines.push_str(&format!("=== END EXCLUSIVE TIMING BY SCOPE [{}] ===\n", label));
         debug!("{}", lines);
     }
 
@@ -547,6 +667,12 @@ impl<'a> InterpPass<'a> {
                         &self.timing_window.borrow(),
                     );
                     self.timing_window.borrow_mut().clear();
+                    self.dump_timing_by_scope_exclusive_report(&format!("bb visit {}", *n));
+                    self.dump_timing_report(
+                        &format!("window ending bb visit {} EXCLUSIVE", *n),
+                        &self.timing_window_exclusive.borrow(),
+                    );
+                    self.timing_window_exclusive.borrow_mut().clear();
                 }
             }
 
@@ -600,7 +726,7 @@ impl<'a> InterpPass<'a> {
         self.check_call_stack(call_stack, cur_scope);
 
         let num_stmts = data.statements.len();
-        let stmts_start = std::time::Instant::now();
+        let _timing_guard = self.timing_span(TimingCat::BbStatements, cur_scope);
         for (i, stmt) in data.statements.iter().enumerate() {
             debug!(
                 "\n\n# visiting STATEMENT {:?} ({:?}/{:?}) in BB{:?} for {:?}\n\nSPAN: {:?}",
@@ -613,7 +739,7 @@ impl<'a> InterpPass<'a> {
             );
             self.visit_statement(ctxt, cur_scope, local_decls, stmt, bb, i);
         }
-        self.record_timing(TimingCat::BbStatements, cur_scope, stmts_start.elapsed());
+        drop(_timing_guard);
 
         debug!(
             "\n\n# visiting TERMINATOR in BB{:?} for {:?}\n\nSPAN: {:?}",
@@ -622,7 +748,7 @@ impl<'a> InterpPass<'a> {
             &data.terminator.span,
         );
 
-        let term_start = std::time::Instant::now();
+        let _timing_guard = self.timing_span(TimingCat::BbTerminator, cur_scope);
         let res = self.visit_terminator(
             ctxt,
             call_stack,
@@ -632,7 +758,7 @@ impl<'a> InterpPass<'a> {
             bb,
             &data.terminator,
         )?;
-        self.record_timing(TimingCat::BbTerminator, cur_scope, term_start.elapsed());
+        drop(_timing_guard);
 
         bb_deps.mark_visited(bb, cur_scope);
 
@@ -810,17 +936,13 @@ impl<'a> InterpPass<'a> {
                 log_scope(cur_scope);
 
                 let dest_ty = place.ty(local_decls).unwrap();
-                let contains_dyn_start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::StmtContainsDyn, cur_scope);
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
-                self.record_timing(
-                    TimingCat::StmtContainsDyn,
-                    cur_scope,
-                    contains_dyn_start.elapsed(),
-                );
+                drop(_timing_guard);
 
-                let new_constraints_start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::StmtNewConstraints, cur_scope);
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
-                    let ref_start = std::time::Instant::now();
+                    let _timing_guard = self.timing_span(TimingCat::StmtNewConstraintsRef, cur_scope);
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
                             local: to.local,
@@ -838,15 +960,9 @@ impl<'a> InterpPass<'a> {
                         },
                     );
                     debug!("stmt: FROM REF (empty)");
-                    let c = Constraints::new();
-                    self.record_timing(
-                        TimingCat::StmtNewConstraintsRef,
-                        cur_scope,
-                        ref_start.elapsed(),
-                    );
-                    c
+                    Constraints::new()
                 } else if let Some(defid) = self.static_rvalue(rvalue) {
-                    let static_start = std::time::Instant::now();
+                    let _timing_guard = self.timing_span(TimingCat::StmtNewConstraintsStatic, cur_scope);
                     let c = self.static_get_constraints(ctxt, defid);
                     debug!(
                         "stmt: FROM STATIC, scope={:?} local={} converted_disjuncts={}",
@@ -854,14 +970,10 @@ impl<'a> InterpPass<'a> {
                         place.local,
                         crate::constraints::constraints_size(&c)
                     );
-                    self.record_timing(
-                        TimingCat::StmtNewConstraintsStatic,
-                        cur_scope,
-                        static_start.elapsed(),
-                    );
                     c
                 } else {
-                    let convert_start = std::time::Instant::now();
+                    let _timing_guard =
+                        self.timing_span(TimingCat::StmtNewConstraintsFromConvert, cur_scope);
                     let c = self.converter.convert(
                         ctxt,
                         &Location::new_at(cur_scope.0.def.def_id(), bb, stmt_idx),
@@ -876,18 +988,9 @@ impl<'a> InterpPass<'a> {
                         place.local,
                         crate::constraints::constraints_size(&c)
                     );
-                    self.record_timing(
-                        TimingCat::StmtNewConstraintsFromConvert,
-                        cur_scope,
-                        convert_start.elapsed(),
-                    );
                     c
                 };
-                self.record_timing(
-                    TimingCat::StmtNewConstraints,
-                    cur_scope,
-                    new_constraints_start.elapsed(),
-                );
+                drop(_timing_guard);
                 debug!(
                     "stmt: GENERAL scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
@@ -895,10 +998,10 @@ impl<'a> InterpPass<'a> {
                     crate::constraints::constraints_size(&constraints)
                 );
 
-                let lift_start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::StmtLiftTraitobj, cur_scope);
                 let final_constraints =
                     self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
-                self.record_timing(TimingCat::StmtLiftTraitobj, cur_scope, lift_start.elapsed());
+                drop(_timing_guard);
                 debug!(
                     "stmt: GENERAL post-lift scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
@@ -913,25 +1016,17 @@ impl<'a> InterpPass<'a> {
                 }
 
                 if write_proj.is_empty() {
-                    let set_scoped_start = std::time::Instant::now();
+                    let _timing_guard = self.timing_span(TimingCat::StmtSetScoped, cur_scope);
                     ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
-                    self.record_timing(
-                        TimingCat::StmtSetScoped,
-                        cur_scope,
-                        set_scoped_start.elapsed(),
-                    );
+                    drop(_timing_guard);
                 } else {
                     let base = Place {
                         local: place.local,
                         projection: vec![],
                     };
-                    let cur_constraints_start = std::time::Instant::now();
+                    let _timing_guard = self.timing_span(TimingCat::StmtCurConstraints, cur_scope);
                     let base_lookup = ctxt.get_constraints(cur_scope, local_decls, &base, false);
-                    self.record_timing(
-                        TimingCat::StmtCurConstraints,
-                        cur_scope,
-                        cur_constraints_start.elapsed(),
-                    );
+                    drop(_timing_guard);
                     match base_lookup {
                         Some(mut base_constraints) => {
                             debug!(
@@ -940,27 +1035,21 @@ impl<'a> InterpPass<'a> {
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
-                            let write_field_start = std::time::Instant::now();
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtWriteFields, cur_scope);
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
-                            self.record_timing(
-                                TimingCat::StmtWriteFields,
-                                cur_scope,
-                                write_field_start.elapsed(),
-                            );
+                            drop(_timing_guard);
                             debug!(
                                 "stmt: OLD BASE post-field-write scope={:?} local={} old_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
-                            let set_scoped_start = std::time::Instant::now();
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtSetScoped, cur_scope);
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
-                            self.record_timing(
-                                TimingCat::StmtSetScoped,
-                                cur_scope,
-                                set_scoped_start.elapsed(),
-                            );
+                            drop(_timing_guard);
                         }
                         None => {
                             debug!(
@@ -969,27 +1058,21 @@ impl<'a> InterpPass<'a> {
                                 base.local
                             );
                             let mut base_constraints = Constraints::new();
-                            let write_field_start = std::time::Instant::now();
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtWriteFields, cur_scope);
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
-                            self.record_timing(
-                                TimingCat::StmtWriteFields,
-                                cur_scope,
-                                write_field_start.elapsed(),
-                            );
+                            drop(_timing_guard);
                             debug!(
                                 "stmt: FRESH BASE post-field-write scope={:?} local={} fresh_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
-                            let set_scoped_start = std::time::Instant::now();
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtSetScoped, cur_scope);
                             ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
-                            self.record_timing(
-                                TimingCat::StmtSetScoped,
-                                cur_scope,
-                                set_scoped_start.elapsed(),
-                            );
+                            drop(_timing_guard);
                         }
                     }
                 }
@@ -1154,7 +1237,7 @@ impl<'a> InterpPass<'a> {
                 ..
             } => match func {
                 Operand::Constant(co) => {
-                    let start = std::time::Instant::now();
+                    let _timing_guard = self.timing_span(TimingCat::TermDirectCall, cur_scope);
                     let r = self.interp_direct_call(
                         &term.span,
                         ctxt,
@@ -1166,11 +1249,11 @@ impl<'a> InterpPass<'a> {
                         args,
                         destination,
                     );
-                    self.record_timing(TimingCat::TermDirectCall, cur_scope, start.elapsed());
+                    drop(_timing_guard);
                     r
                 }
                 Operand::Copy(place) | Operand::Move(place) => {
-                    let start = std::time::Instant::now();
+                    let _timing_guard = self.timing_span(TimingCat::TermIndirectCall, cur_scope);
                     let r = self.interp_indirect_call(
                         &term.span,
                         ctxt,
@@ -1182,22 +1265,22 @@ impl<'a> InterpPass<'a> {
                         args,
                         destination,
                     );
-                    self.record_timing(TimingCat::TermIndirectCall, cur_scope, start.elapsed());
+                    drop(_timing_guard);
                     r
                 }
                 _ => todo!("calling runtime check operand?"),
             },
             TerminatorKind::Return => {
-                let start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::TermReturn, cur_scope);
                 let r = self.interp_return(ctxt, call_stack, cur_scope);
-                self.record_timing(TimingCat::TermReturn, cur_scope, start.elapsed());
+                drop(_timing_guard);
                 r
             }
             TerminatorKind::SwitchInt { discr, targets } => {
-                let start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::TermSwitch, cur_scope);
                 let r =
                     self.interp_switchint(ctxt, cur_scope, local_decls, bb, bb_deps, discr, targets);
-                self.record_timing(TimingCat::TermSwitch, cur_scope, start.elapsed());
+                drop(_timing_guard);
                 r
             }
             TerminatorKind::Assert { .. }
@@ -1514,7 +1597,7 @@ impl<'a> InterpPass<'a> {
                 // - is this a trait method without an implementation?
                 // - if so, who implements it? execute those implementations
                 // This tends to be stuff that dynamic dispatch does for us anyway
-                let virtual_start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::TermInterpVirtualCall, cur_scope);
                 let r = self.interp_virtual_call(
                     term_span,
                     ctxt,
@@ -1526,11 +1609,7 @@ impl<'a> InterpPass<'a> {
                     &genargs,
                     args,
                 );
-                self.record_timing(
-                    TimingCat::TermInterpVirtualCall,
-                    cur_scope,
-                    virtual_start.elapsed(),
-                );
+                drop(_timing_guard);
                 return r;
             }
         };
@@ -1581,7 +1660,7 @@ impl<'a> InterpPass<'a> {
             );
         }
 
-        let collect_args_start = std::time::Instant::now();
+        let _timing_guard = self.timing_span(TimingCat::TermCollectResolvedArgs, cur_scope);
         let new_cs: Vec<Constraints> = self.collect_resolved_args(
             ctxt,
             term_span,
@@ -1591,11 +1670,7 @@ impl<'a> InterpPass<'a> {
             args,
             false,
         );
-        self.record_timing(
-            TimingCat::TermCollectResolvedArgs,
-            cur_scope,
-            collect_args_start.elapsed(),
-        );
+        drop(_timing_guard);
 
         if call_stack.contains(&new_scope) {
             let precise_count = *self
@@ -1675,7 +1750,7 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         match instance.kind {
             InstanceKind::Item | InstanceKind::Shim => {
-                let start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCall, cur_scope);
                 let r = self.interp_static_call(
                     term_span,
                     ctxt,
@@ -1689,11 +1764,11 @@ impl<'a> InterpPass<'a> {
                     &new_cs,
                     false,
                 );
-                self.record_timing(TimingCat::TermInterpStaticCall, cur_scope, start.elapsed());
+                drop(_timing_guard);
                 r
             }
             InstanceKind::Virtual { .. } => {
-                let start = std::time::Instant::now();
+                let _timing_guard = self.timing_span(TimingCat::TermInterpVirtualCall, cur_scope);
                 let r = self.interp_virtual_call(
                     term_span,
                     ctxt,
@@ -1705,7 +1780,7 @@ impl<'a> InterpPass<'a> {
                     &genargs,
                     args,
                 );
-                self.record_timing(TimingCat::TermInterpVirtualCall, cur_scope, start.elapsed());
+                drop(_timing_guard);
                 r
             }
             InstanceKind::Intrinsic => self.retty_fallback_from_poly(fndef.fn_sig()),
@@ -1988,7 +2063,7 @@ impl<'a> InterpPass<'a> {
             );
             */
 
-            let memo_start = std::time::Instant::now();
+            let _timing_guard = self.timing_span(TimingCat::TermMemo, cur_scope);
             let precise_count = *self
                 .scope_exact_memo_count
                 .borrow()
@@ -2030,12 +2105,16 @@ impl<'a> InterpPass<'a> {
                         cur_scope.0.name(),
                         epoch_before
                     );
+                    // `_timing_guard` (TermMemo) drops here automatically,
+                    // correctly closing this span even on this early-return
+                    // exit - the whole reason this uses a `Drop`-based guard
+                    // instead of an explicit end-of-span call.
                     return Ok(cached.clone());
                 }
             }
-            self.record_timing(TimingCat::TermMemo, cur_scope, memo_start.elapsed());
+            drop(_timing_guard);
 
-            let resolve_args_start = std::time::Instant::now();
+            let _timing_guard = self.timing_span(TimingCat::TermResolveArgs, cur_scope);
             self.resolve_args(
                 ctxt,
                 term_span,
@@ -2047,11 +2126,7 @@ impl<'a> InterpPass<'a> {
                 genargs,
                 is_closure,
             );
-            self.record_timing(
-                TimingCat::TermResolveArgs,
-                cur_scope,
-                resolve_args_start.elapsed(),
-            );
+            drop(_timing_guard);
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
 
@@ -3319,15 +3394,11 @@ impl<'a> InterpPass<'a> {
         };
 
         // Get and "return" the constraints at Place(0)
-        let scoped_get_start = std::time::Instant::now();
+        let _timing_guard = self.timing_span(TimingCat::TermReturnScopedGet, cur_scope);
         let scoped_get_result =
             ctxt.cstore
                 .scoped_get(cur_scope, &MapKey::Var(ret_place.clone()), false);
-        self.record_timing(
-            TimingCat::TermReturnScopedGet,
-            cur_scope,
-            scoped_get_start.elapsed(),
-        );
+        drop(_timing_guard);
 
         let retval = match scoped_get_result {
             Some(retval) => match retval {
@@ -3352,13 +3423,9 @@ impl<'a> InterpPass<'a> {
             }
         };
 
-        let finish_frame_start = std::time::Instant::now();
+        let _timing_guard = self.timing_span(TimingCat::TermReturnFinishFrame, cur_scope);
         let result = self.finish_frame(ctxt, call_stack, cur_scope, retval);
-        self.record_timing(
-            TimingCat::TermReturnFinishFrame,
-            cur_scope,
-            finish_frame_start.elapsed(),
-        );
+        drop(_timing_guard);
         result
     }
 
@@ -3403,7 +3470,7 @@ impl<'a> InterpPass<'a> {
             .collect();
 
         *self.rec_depth.borrow_mut() += 1;
-        let reinterp_start = std::time::Instant::now();
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameReinterp, cur_scope);
         for (scope, constraints, stack) in queued {
             let depth = call_stack.len();
 
@@ -3426,19 +3493,13 @@ impl<'a> InterpPass<'a> {
                 self.incomplete.borrow_mut().insert(cur_scope.clone());
 
                 *self.rec_depth.borrow_mut() -= 1;
-                self.record_timing(
-                    TimingCat::TermFinishFrameReinterp,
-                    cur_scope,
-                    reinterp_start.elapsed(),
-                );
+                // `_timing_guard` (TermFinishFrameReinterp) drops here
+                // automatically, correctly closing this span even on this
+                // early-return exit.
                 return res;
             }
         }
-        self.record_timing(
-            TimingCat::TermFinishFrameReinterp,
-            cur_scope,
-            reinterp_start.elapsed(),
-        );
+        drop(_timing_guard);
 
         for (scope, old) in saved {
             match old {
@@ -3458,7 +3519,7 @@ impl<'a> InterpPass<'a> {
         }
 
         // final traverse after recursive wq drained
-        let revisit_start = std::time::Instant::now();
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameRevisit, cur_scope);
         let body = self.get_body(cur_scope);
 
         // constrain arguments
@@ -3480,11 +3541,7 @@ impl<'a> InterpPass<'a> {
 
         self.prepare_call(call_stack, &key);
         let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
-        self.record_timing(
-            TimingCat::TermFinishFrameRevisit,
-            cur_scope,
-            revisit_start.elapsed(),
-        );
+        drop(_timing_guard);
         *self.rec_depth.borrow_mut() -= 1;
         match result {
             Ok(r) => Ok(r),

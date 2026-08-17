@@ -47,8 +47,9 @@ validation
     - will likely catch bugs here
 
 ripgrep: AFL
+- random strings are well suited for a grep/searching binary
 
-use binary's test suites
+also generally try to use binary's test suites
 
 maybe (imHashMap vs HashMap w backptrs)
 - collapse + clone

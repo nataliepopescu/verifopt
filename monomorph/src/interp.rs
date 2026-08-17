@@ -3032,162 +3032,184 @@ impl<'a> InterpPass<'a> {
                 i + 1,
                 len
             );
-            let _timing_guard = self.timing_span(TimingCat::TermSimulateCallPrep, cur_scope);
-            let genargs = if *assoc_fn_impl == *assoc_fn_defid {
-                let self_ty = adt_genargs
-                    .as_ref()
-                    .and_then(|g| g.0.first())
-                    .and_then(|k| k.ty())
-                    .copied()
-                    .expect("get_impls_from_defids should set Self for a default method");
-                GenericArgs(
-                    std::iter::once(GenericArgKind::Type(self_ty))
-                        .chain(method_genargs.0.iter().skip(1).cloned())
-                        .collect(),
-                )
-            } else if is_closure && adt_genargs.is_some() {
-                GenericArgs(
-                    adt_genargs
-                        .clone()
-                        .unwrap()
-                        .0
-                        .iter()
-                        .chain(method_genargs.0.iter())
-                        .cloned()
-                        .collect(),
-                )
-            } else if !is_closure && adt_genargs.is_some() {
-                adt_genargs.clone().unwrap()
-            } else {
-                method_genargs.clone()
-            };
+            let candidate_result: std::thread::Result<Result<(), Error>> =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), Error> {
+                    let _timing_guard =
+                        self.timing_span(TimingCat::TermSimulateCallPrep, cur_scope);
+                    let genargs = if *assoc_fn_impl == *assoc_fn_defid {
+                        let self_ty = adt_genargs
+                            .as_ref()
+                            .and_then(|g| g.0.first())
+                            .and_then(|k| k.ty())
+                            .copied()
+                            .expect("get_impls_from_defids should set Self for a default method");
+                        GenericArgs(
+                            std::iter::once(GenericArgKind::Type(self_ty))
+                                .chain(method_genargs.0.iter().skip(1).cloned())
+                                .collect(),
+                        )
+                    } else if is_closure && adt_genargs.is_some() {
+                        GenericArgs(
+                            adt_genargs
+                                .clone()
+                                .unwrap()
+                                .0
+                                .iter()
+                                .chain(method_genargs.0.iter())
+                                .cloned()
+                                .collect(),
+                        )
+                    } else if !is_closure && adt_genargs.is_some() {
+                        adt_genargs.clone().unwrap()
+                    } else {
+                        method_genargs.clone()
+                    };
 
-            // TODO different resolves for fn_ptr / closure
-            let fndef = FnDef(*assoc_fn_impl);
-            let expected_count = match fndef.ty().kind() {
-                TyKind::RigidTy(RigidTy::FnDef(_, identity_args)) => identity_args.0.len(),
-                _ => 0,
-            };
+                    // TODO different resolves for fn_ptr / closure
+                    let fndef = FnDef(*assoc_fn_impl);
+                    let expected_count = match fndef.ty().kind() {
+                        TyKind::RigidTy(RigidTy::FnDef(_, identity_args)) => identity_args.0.len(),
+                        _ => 0,
+                    };
 
-            if genargs.0.len() < expected_count {
-                debug!(
-                    "skipping {:?}: only {:?} genargs available but {:?} required, falling back to poly sig",
-                    assoc_fn_impl,
-                    genargs.0.len(),
-                    expected_count
-                );
-                results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-                // `_timing_guard` (TermSimulateCallPrep) drops here
-                // automatically, correctly closing this span even on this
-                // `continue`-driven early exit.
-                continue;
-            }
-            let instance_ = match Instance::resolve(fndef, &genargs) {
-                Ok(i) => i,
-                Err(_) => {
-                    results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-                    continue;
-                }
-            };
-            let (is_virtual, instance) = match instance_.kind {
-                // Likely a default trait method implementation, convert to a concrete InstanceKind
-                // so we can interpret it
-                InstanceKind::Virtual { .. } => (
-                    true,
-                    Instance {
-                        kind: InstanceKind::Item,
-                        def: instance_.def,
-                    },
-                ),
-                _ => (false, instance_),
-            };
-            let callee_scope = (instance, genargs.clone());
-            drop(_timing_guard);
-
-            // the `if` and `else if` blocks might be creating a soundness error...
-            // if we're not actually stepping into new code + updating our cmap,
-            // we could be omitting actually-used concrete type variants in our
-            // eventual rewrite FIXME
-            let recursive_hit = call_stack.contains(&callee_scope);
-            if recursive_hit {
-                let _timing_guard =
-                    self.timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
-                results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-                drop(_timing_guard);
-                continue;
-            }
-
-            let _timing_guard = self.timing_span(TimingCat::TermSimulateStdlibStub, cur_scope);
-            let stub_attempt = self.stdlib_stub(
-                ctxt,
-                cur_scope,
-                term_span,
-                local_decls,
-                &fndef,
-                &genargs,
-                args,
-            );
-            match stub_attempt {
-                Some(stub_result) => {
-                    drop(_timing_guard);
-                    results.push(stub_result?);
-                }
-                None => {
+                    if genargs.0.len() < expected_count {
+                        debug!(
+                            "skipping {:?}: only {:?} genargs available but {:?} required, falling back to poly sig",
+                            assoc_fn_impl,
+                            genargs.0.len(),
+                            expected_count
+                        );
+                        results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        return Ok(());
+                    }
+                    let instance_ = match Instance::resolve(fndef, &genargs) {
+                        Ok(i) => i,
+                        Err(_) => {
+                            results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                            return Ok(());
+                        }
+                    };
+                    let (is_virtual, instance) = match instance_.kind {
+                        // Likely a default trait method implementation, convert to a concrete InstanceKind
+                        // so we can interpret it
+                        InstanceKind::Virtual { .. } => (
+                            true,
+                            Instance {
+                                kind: InstanceKind::Item,
+                                def: instance_.def,
+                            },
+                        ),
+                        _ => (false, instance_),
+                    };
+                    let callee_scope = (instance, genargs.clone());
                     drop(_timing_guard);
 
-                    if !instance.has_body() {
-                        let _timing_guard = self.timing_span(TimingCat::TermSigFallback, cur_scope);
+                    // the `if` and `else if` blocks might be creating a soundness error...
+                    // if we're not actually stepping into new code + updating our cmap,
+                    // we could be omitting actually-used concrete type variants in our
+                    // eventual rewrite FIXME
+                    let recursive_hit = call_stack.contains(&callee_scope);
+                    if recursive_hit {
+                        let _timing_guard = self
+                            .timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         drop(_timing_guard);
-                        continue;
+                        return Ok(());
                     }
 
                     let _timing_guard =
-                        self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
-                    let mut ctxt_clone = ctxt.clone();
-                    let mut call_stack_clone = call_stack.clone();
-
-                    let body = if is_virtual {
-                        // FIXME not monomorphized
-                        fndef.body().unwrap()
-                    } else {
-                        self.get_body(&callee_scope)
-                    };
-
-                    let cs = self.collect_resolved_args(
+                        self.timing_span(TimingCat::TermSimulateStdlibStub, cur_scope);
+                    let stub_attempt = self.stdlib_stub(
                         ctxt,
-                        term_span,
                         cur_scope,
-                        &body,
-                        local_decls,
-                        args,
-                        is_closure,
-                    );
-
-                    // `_timing_guard` (TermSimulateRealCall) drops here
-                    // automatically on the `?`'s early-return exit, same as
-                    // every other guard in this file.
-                    results.push(self.interp_static_call(
                         term_span,
-                        &mut ctxt_clone,
-                        &mut call_stack_clone,
-                        cur_scope,
-                        &callee_scope,
                         local_decls,
-                        fndef,
-                        args,
+                        &fndef,
                         &genargs,
-                        &cs,
-                        is_closure,
-                    )?);
-                    drop(_timing_guard);
+                        args,
+                    );
+                    match stub_attempt {
+                        Some(stub_result) => {
+                            drop(_timing_guard);
+                            results.push(stub_result?);
+                        }
+                        None => {
+                            drop(_timing_guard);
 
-                    let _timing_guard = self.timing_span(TimingCat::TermSimulateLoopMergeResults, cur_scope);
-                    acc = Some(match acc {
-                        None => ctxt_clone,
-                        Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
-                    });
-                    drop(_timing_guard);
+                            if !instance.has_body() {
+                                let _timing_guard =
+                                    self.timing_span(TimingCat::TermSigFallback, cur_scope);
+                                results
+                                    .push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                                drop(_timing_guard);
+                                return Ok(());
+                            }
+
+                            let _timing_guard =
+                                self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
+                            let mut ctxt_clone = ctxt.clone();
+                            let mut call_stack_clone = call_stack.clone();
+
+                            let body = if is_virtual {
+                                // FIXME not monomorphized
+                                fndef.body().unwrap()
+                            } else {
+                                self.get_body(&callee_scope)
+                            };
+
+                            let cs = self.collect_resolved_args(
+                                ctxt,
+                                term_span,
+                                cur_scope,
+                                &body,
+                                local_decls,
+                                args,
+                                is_closure,
+                            );
+
+                            // `_timing_guard` (TermSimulateRealCall) drops here
+                            // automatically on the `?`'s early-return exit, same as
+                            // every other guard in this file.
+                            results.push(self.interp_static_call(
+                                term_span,
+                                &mut ctxt_clone,
+                                &mut call_stack_clone,
+                                cur_scope,
+                                &callee_scope,
+                                local_decls,
+                                fndef,
+                                args,
+                                &genargs,
+                                &cs,
+                                is_closure,
+                            )?);
+                            drop(_timing_guard);
+
+                            let _timing_guard = self
+                                .timing_span(TimingCat::TermSimulateLoopMergeResults, cur_scope);
+                            acc = Some(match acc.take() {
+                                None => ctxt_clone,
+                                Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
+                            });
+                            drop(_timing_guard);
+                        }
+                    }
+                    Ok(())
+                }));
+
+            match candidate_result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => return Err(e),
+                Err(panic_payload) => {
+                    let msg = panic_payload
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                    debug!(
+                        "candidate {:?} panicked during simulation, skipping (no fallback pushed): {}",
+                        assoc_fn_impl, msg
+                    );
                 }
             }
         }

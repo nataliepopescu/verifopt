@@ -2350,7 +2350,7 @@ impl<'a> InterpPass<'a> {
         if let Some(cha_impls) = self.dispatch_cha.borrow().get(&key) {
             assoc_fn_impls_cha = cha_impls.clone().1;
         } else {
-            assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
+            assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid, genargs);
         }
 
         for (cha_impl, _) in &assoc_fn_impls_cha {
@@ -2626,9 +2626,10 @@ impl<'a> InterpPass<'a> {
         //callee_scope: &VOID,
         assoc_fn_defid: &DefId,
         trait_defid: &DefId,
+        call_site_genargs: &GenericArgs,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
         debug!("\n\nGETTING CHA IMPLS");
-        let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
+        let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid, call_site_genargs);
         //debug!(
         //    "constraint defids ({:?} total): {:?}",
         //    constraint_defids.len(),
@@ -2640,15 +2641,55 @@ impl<'a> InterpPass<'a> {
     fn get_cha_tyconstraint_defids(
         &self,
         trait_defid: &DefId,
+        call_site_genargs: &GenericArgs,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
-        // Get concrete type constraints for trait object
+        // Get concrete type constraints for trait object, filtered to only
+        // those whose own trait parameterization (e.g. `Fn<Args>`'s `Args`)
+        // matches this call site's - a `Fn<(&u8,)>` impl is never a valid
+        // candidate for a `Fn<()>` call site, even though both implement
+        // "the same trait" by DefId.
         match self.tstore.trait_structs.get(trait_defid) {
             Some(tyconstraints) => tyconstraints
-                .into_iter()
-                .map(|x| (x.clone(), None))
+                .iter()
+                .filter(|(struct_defid, impl_genargs)| {
+                    Self::trait_params_compatible(call_site_genargs, struct_defid, impl_genargs)
+                })
+                .map(|(defid, _)| (defid.clone(), None))
                 .collect(),
             None => panic!("trait {:?} does not point to any structs", trait_defid),
         }
+    }
+
+    /// Compares a call site's own generic args (e.g. `std::ops::Fn::call`'s
+    /// `[Self, Args]`, where `Self` here is the erased `dyn Trait` object) -
+    /// against one specific impl's own `TraitRef` args
+    fn trait_params_compatible(
+        call_site_genargs: &GenericArgs,
+        impl_struct_defid: &DefId,
+        impl_genargs: &GenericArgs,
+    ) -> bool {
+        if call_site_genargs.0.len() != impl_genargs.0.len() {
+            // Different arities entirely - can't be the same trait
+            // instantiation regardless of which position is Self.
+            return false;
+        }
+
+        for (call_arg, impl_arg) in call_site_genargs.0.iter().zip(impl_genargs.0.iter()) {
+            let is_self_position = matches!(
+                impl_arg,
+                GenericArgKind::Type(ty) if matches!(
+                    ty.kind(),
+                    TyKind::RigidTy(RigidTy::Adt(adtdef, _)) if adtdef.0 == *impl_struct_defid
+                )
+            );
+            if is_self_position {
+                continue;
+            }
+            if call_arg != impl_arg {
+                return false;
+            }
+        }
+        true
     }
 
     /// Returns `(is_closure, receiver_is_unresolved_param, impls)`. See
@@ -2797,10 +2838,12 @@ impl<'a> InterpPass<'a> {
                 }
                 RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
                 RunningConstraint::Dynamic(tys) => {
-                    if tys.iter().any(|ty| ty.def.0 == *trait_defid) {
-                        (false, self.get_cha_tyconstraint_defids(trait_defid))
-                    } else {
-                        (false, vec![])
+                    match tys.iter().find(|ty| ty.def.0 == *trait_defid) {
+                        Some(matching_ty) => (
+                            false,
+                            self.get_cha_tyconstraint_defids(trait_defid, &matching_ty.genargs),
+                        ),
+                        None => (false, vec![]),
                     }
                 }
                 RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
@@ -3024,7 +3067,10 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        *ctxt = acc.unwrap();
+        match acc {
+            Some(acc) => *ctxt = acc,
+            None => {}
+        }
         self.merge_results_and_ret(&mut results)
     }
 

@@ -1,6 +1,6 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::ty::{
-    AssocContainer, AssocKind, FnDef, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind,
+    AssocContainer, AssocKind, FnDef, GenericArgs, ImplDef, ImplTrait, RigidTy, TyKind,
 };
 use rustc_public::{CrateDefItems, DefId};
 
@@ -11,8 +11,8 @@ pub struct TraitVal {}
 pub struct TraitStore {
     // HashMap<Struct, Vec<Trait>>
     pub struct_traits: HashMap<DefId, Vec<DefId>>,
-    // (CHA/RTA) HashMap<Trait, Vec<Struct>>
-    pub trait_structs: HashMap<DefId, Vec<DefId>>,
+    // (CHA/RTA) HashMap<Trait, Vec<(Struct, TraitRef's own GenericArgs)>>
+    pub trait_structs: HashMap<DefId, Vec<(DefId, GenericArgs)>>,
     // HashMap<AssocFnDecl, Trait>
     pub assoc_fn_traits: HashMap<DefId, DefId>,
     // HashMap<(Struct, AssocFnDecl), Vec<AssocFnImpl>>
@@ -153,10 +153,13 @@ impl TraitCollectPass {
             // Add struct to list of structs that impl this trait
             match tstore.trait_structs.get_mut(&trait_defid) {
                 Some(struct_vec) => {
-                    struct_vec.push(struct_defid);
+                    struct_vec.push((struct_defid, trait_impl.value.args().clone()));
                 }
                 None => {
-                    tstore.trait_structs.insert(trait_defid, vec![struct_defid]);
+                    tstore.trait_structs.insert(
+                        trait_defid,
+                        vec![(struct_defid, trait_impl.value.args().clone())],
+                    );
                 }
             }
 
@@ -244,56 +247,12 @@ impl TraitCollectPass {
         }
     }
 
-    /// Proxies the Self defid for this implementation as the first ADT encountered in the genargs
-    /// [This is probably wrong, needs fixing]
+    /// The Self type of this trait impl, via `TraitRef::self_ty()` directly
     fn get_struct_defid(&self, trait_impl: &ImplTrait) -> Option<DefId> {
-        // FIXME is there a better way to get Self type?
-        //debug!("all genargs: {:?}", &trait_impl.value.args().0);
-        let mut struct_defid = None;
-
-        for genarg in &trait_impl.value.args().0 {
-            //for (i, genarg) in trait_impl.value.args().0.clone().into_iter().enumerate() {
-            //    debug!("genarg #{}", i);
-            match genarg {
-                GenericArgKind::Lifetime(_region) => {} //debug!("lifetime: {:?}", region),
-                GenericArgKind::Type(ty) => {
-                    //debug!("type: {:?}", ty);
-                    //debug!("ty.kind: {:?}", ty.kind());
-                    match ty.kind() {
-                        TyKind::RigidTy(rigidty) => match rigidty {
-                            // TODO process _adt_genargs
-                            RigidTy::Adt(adtdef, adt_genargs) => {
-                                //debug!("ADT rigidty");
-                                if !adt_genargs.0.is_empty() {
-                                    //warn!("process adt generic args: {:?}", adt_genargs);
-                                }
-
-                                match struct_defid {
-                                    None => struct_defid = Some(adtdef.0),
-                                    Some(_existing_struct_defid) => {
-                                        //error!(
-                                        //    "already seen adt {:?} in this trait impls genargs",
-                                        //    existing_struct_defid
-                                        //);
-                                    }
-                                }
-                            }
-                            // TODO
-                            _ => {} //warn!("other rigidty kind"),
-                        },
-                        // TODO
-                        _ => {} //warn!("other ty kind"),
-                    }
-                }
-                GenericArgKind::Const(_tyconst) => {} //debug!("const: {:?}", tyconst),
-            }
+        match trait_impl.value.self_ty().kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, _adt_genargs)) => Some(adtdef.0),
+            _ => None,
         }
-
-        if struct_defid.is_none() {
-            //error!("never saw an Adt in this trait impls genargs");
-        }
-
-        struct_defid
     }
 
     /// Returns a vector of (concrete_impl_defid, decl_defid), one for each associated fn

@@ -31,6 +31,7 @@ SELFTIME_ROW = re.compile(r"^\s*([\d.]+)ms\s+(\d+)\s+([\d.]+)ms\s+(\".*\")\s*$")
 # every line regardless of what block (if any) we're currently inside.
 OVERLAP_STATS = re.compile(
     r"MERGE_OVERLAP_STATS kind=(\S+) bb_visit=(\d+) lhs_len=(\d+) rhs_len=(\d+) shared=(\d+)"
+    r"(?: ptr_identical=(true|false))?"
 )
 
 BB_N = re.compile(r"bb visit (\d+)|window ending bb visit (\d+)")
@@ -62,9 +63,10 @@ def parse(path):
         for line in f:
             m = OVERLAP_STATS.search(line)
             if m:
-                kind, bb_visit, lhs_len, rhs_len, shared = m.groups()
+                kind, bb_visit, lhs_len, rhs_len, shared, ptr_identical = m.groups()
                 overlap_rows.append(
-                    (int(bb_visit), kind, int(lhs_len), int(rhs_len), int(shared))
+                    (int(bb_visit), kind, int(lhs_len), int(rhs_len), int(shared),
+                     (ptr_identical == "true") if ptr_identical is not None else None)
                 )
                 continue
 
@@ -173,7 +175,7 @@ def main():
     )
     write_csv(
         overlap_rows,
-        ["bb_visit", "kind", "lhs_len", "rhs_len", "shared"],
+        ["bb_visit", "kind", "lhs_len", "rhs_len", "shared", "ptr_identical"],
         f"{args.outdir}/merge_overlap_stats.csv",
     )
 

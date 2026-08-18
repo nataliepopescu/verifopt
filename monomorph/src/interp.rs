@@ -246,10 +246,14 @@ pub(crate) enum TimingCat {
     TermMergeCstoresMerge,
     TermMergeIdentityCheck,
     TermMergePerKeyMapvals,
+    TermMergeMapsvalsMerge,
     TermMergeConstraintsAppend,
     TermMergeConstraintsWiden,
     TermMergeRefsUnion,
+    TermMergeRefsClone,
     TermMergeWtosUnion,
+    TermMergeWtosClone,
+    TermMergeWtosCloneInner,
     TermMergeContextsSetup,
     TermMergeNewContext,
 }
@@ -3327,11 +3331,16 @@ impl<'a> InterpPass<'a> {
         let m_cstores = self.merge_cstores_timed(scope, &cstores);
         drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermMergeWtosClone, scope);
+        let mut m_wtos = contexts[0].wtos.clone();
+        drop(_timing_guard);
         // HERE
         let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
-        let mut m_wtos = contexts[0].wtos.clone();
         for ctxt in contexts.iter().skip(1) {
-            m_wtos = m_wtos.union(ctxt.wtos.clone());
+            let _tg = self.timing_span(TimingCat::TermMergeWtosCloneInner, scope);
+            let wtos_clone = ctxt.wtos.clone();
+            drop(_tg);
+            m_wtos = m_wtos.union(wtos_clone);
         }
         drop(_timing_guard);
 
@@ -3369,8 +3378,11 @@ impl<'a> InterpPass<'a> {
             for (key, val) in store.cmap.iter() {
                 match merged.cmap.get_mut(key) {
                     Some(merged_val) => {
+                        // HERE
+                        let _tg = self.timing_span(TimingCat::TermMergeMapsvalsMerge, scope);
                         let new_merged_val =
                             crate::merge::merge_mapvals(merged_val, val, Some((self, scope)));
+                        drop(_tg);
                         merged.cmap.insert(key.clone(), Box::new(new_merged_val));
                     }
                     None => {
@@ -3380,9 +3392,12 @@ impl<'a> InterpPass<'a> {
             }
             drop(_timing_guard);
 
+            let _timing_guard = self.timing_span(TimingCat::TermMergeRefsClone, scope);
+            let refs_clone = store.refs.clone();
+            drop(_timing_guard);
             // HERE
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
-            merged.refs = merged.refs.union(store.refs.clone());
+            merged.refs = merged.refs.union(refs_clone);
             drop(_timing_guard);
         }
 

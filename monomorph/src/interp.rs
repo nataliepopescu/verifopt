@@ -242,7 +242,7 @@ pub(crate) enum TimingCat {
     Take,
     VecConstruction,
     // check here STILL
-    TermMergeCloneCstores,
+    //TermMergeCloneCstores,
     TermMergeCstoresMerge,
     TermMergeIdentityCheck,
     TermMergePerKeyMapvals,
@@ -250,10 +250,10 @@ pub(crate) enum TimingCat {
     TermMergeConstraintsAppend,
     TermMergeConstraintsWiden,
     TermMergeRefsUnion,
-    TermMergeRefsClone,
+    //TermMergeRefsClone,
     TermMergeWtosUnion,
-    TermMergeWtosClone,
-    TermMergeWtosCloneInner,
+    //TermMergeWtosClone,
+    //TermMergeWtosCloneInner,
     TermMergeContextsSetup,
     TermMergeNewContext,
 }
@@ -3245,10 +3245,13 @@ impl<'a> InterpPass<'a> {
                                 Some(a) => {
                                     let _tg =
                                         self.timing_span(TimingCat::VecConstruction, cur_scope);
-                                    let vec = [a, ctxt_clone];
+                                    // `Vec::from` moves the array's elements,
+                                    // same as the array itself already did -
+                                    // no clone introduced here.
+                                    let vec = Vec::from([a, ctxt_clone]);
                                     drop(_tg);
 
-                                    self.merge_contexts_timed(cur_scope, &vec)?.unwrap()
+                                    self.merge_contexts_timed(cur_scope, vec)?.unwrap()
                                 }
                             });
                             drop(_timing_guard);
@@ -3319,48 +3322,57 @@ impl<'a> InterpPass<'a> {
     fn merge_contexts_timed(
         &self,
         scope: &VOID,
-        contexts: &[Context],
+        contexts: Vec<Context>,
     ) -> Result<Option<Context>, Error> {
         let _timing_guard = self.timing_span(TimingCat::TermMergeContextsSetup, scope);
         if contexts.is_empty() {
             return Ok(None);
         }
         if contexts.len() == 1 {
-            return Ok(Some(contexts[0].clone()));
+            // Ownership means this is a move, not a clone - `contexts[0].clone()`
+            // used to be unavoidable here since `contexts` was only borrowed.
+            return Ok(Some(contexts.into_iter().next().unwrap()));
         }
         drop(_timing_guard);
 
-        let _timing_guard = self.timing_span(TimingCat::TermMergeCloneCstores, scope);
-        let mut cstores = Vec::new();
-        for ctxt in contexts.iter() {
-            cstores.push(ctxt.cstore.clone());
+        // Splitting each `Context` into its two fields, by move, instead of
+        // cloning `.cstore`/`.wtos` off a borrowed slice - see
+        // `merge_cstores_timed` and the `wtos` union loop below for why this
+        // matters: whichever side arrives here uniquely owned (refcount 1)
+        // lets `im::HashMap`'s copy-on-write `insert`/`entry` skip the
+        // forced-copy path entirely, rather than just deferring that same
+        // cost from this "clone" step into the very next "union" step.
+        let mut cstores = Vec::with_capacity(contexts.len());
+        let mut wtos_list = Vec::with_capacity(contexts.len());
+        for ctxt in contexts.into_iter() {
+            cstores.push(ctxt.cstore);
+            wtos_list.push(ctxt.wtos);
         }
-        drop(_timing_guard);
 
         let _timing_guard = self.timing_span(TimingCat::TermMergeCstoresMerge, scope);
-        let m_cstores = self.merge_cstores_timed(scope, &cstores);
+        let m_cstores = self.merge_cstores_timed(scope, cstores);
         drop(_timing_guard);
 
-        let _timing_guard = self.timing_span(TimingCat::TermMergeWtosClone, scope);
-        let mut m_wtos = contexts[0].wtos.clone();
-        drop(_timing_guard);
-        // HERE
+        let mut wtos_iter = wtos_list.into_iter();
+        // Moved, not cloned - this used to be `contexts[0].wtos.clone()`.
+        let mut m_wtos = wtos_iter.next().unwrap();
+
         let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
-        for ctxt in contexts.iter().skip(1) {
-            let _tg = self.timing_span(TimingCat::TermMergeWtosCloneInner, scope);
-            let wtos_clone = ctxt.wtos.clone();
-            drop(_tg);
-            let shared = Self::count_shared_keys(&m_wtos, &wtos_clone);
-            let ptr_identical = m_wtos.ptr_eq(&wtos_clone);
+        for wtos in wtos_iter {
+            // Also moved rather than cloned (used to be `ctxt.wtos.clone()`
+            // under `TermMergeWtosCloneInner`, now gone - there's nothing
+            // left to clone here).
+            let shared = Self::count_shared_keys(&m_wtos, &wtos);
+            let ptr_identical = m_wtos.ptr_eq(&wtos);
             debug!(
                 "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
                 *self.bb_visit_count.borrow(),
                 m_wtos.len(),
-                wtos_clone.len(),
+                wtos.len(),
                 shared,
                 ptr_identical
             );
-            m_wtos = m_wtos.union(wtos_clone);
+            m_wtos = m_wtos.union(wtos);
         }
         drop(_timing_guard);
 
@@ -3372,20 +3384,16 @@ impl<'a> InterpPass<'a> {
     }
 
     /// Instrumented equivalent of `Vec<ConstraintStore>::merge()` (see
-    /// `merge.rs`), called only from `merge_contexts_timed` above.
-    fn merge_cstores_timed(&self, scope: &VOID, stores: &[ConstraintStore]) -> ConstraintStore {
-        if stores.len() == 1 {
-            return stores[0].clone();
-        }
+    /// `merge.rs`), called only from `merge_contexts_timed` above. Takes
+    /// `stores` by value (not `&[ConstraintStore]`) for the same reason
+    /// `merge_contexts_timed` now takes `contexts` by value - see the
+    /// comments there.
+    fn merge_cstores_timed(&self, scope: &VOID, stores: Vec<ConstraintStore>) -> ConstraintStore {
+        let mut stores_iter = stores.into_iter();
+        // Moved, not cloned - this used to be `stores[0].clone()`.
+        let mut merged = stores_iter.next().unwrap();
 
-        let mut merged = stores[0].clone();
-        let mut first = true;
-        for store in stores.iter() {
-            if first {
-                first = false;
-                continue;
-            }
-
+        for store in stores_iter {
             let _timing_guard = self.timing_span(TimingCat::TermMergeIdentityCheck, scope);
             let identical = merged.cmap.ptr_eq(&store.cmap) && merged.refs == store.refs;
             drop(_timing_guard);
@@ -3412,22 +3420,21 @@ impl<'a> InterpPass<'a> {
             }
             drop(_timing_guard);
 
-            let _timing_guard = self.timing_span(TimingCat::TermMergeRefsClone, scope);
-            let refs_clone = store.refs.clone();
-            drop(_timing_guard);
-            // HERE
+            // HERE - `store.refs` moved directly into `union`, not cloned
+            // first (used to be `store.refs.clone()` under
+            // `TermMergeRefsClone`, now gone - nothing left to clone).
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
-            let shared = Self::count_shared_keys(&merged.refs, &refs_clone);
-            let ptr_identical = merged.refs.ptr_eq(&refs_clone);
+            let shared = Self::count_shared_keys(&merged.refs, &store.refs);
+            let ptr_identical = merged.refs.ptr_eq(&store.refs);
             debug!(
                 "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
                 *self.bb_visit_count.borrow(),
                 merged.refs.len(),
-                refs_clone.len(),
+                store.refs.len(),
                 shared,
                 ptr_identical
             );
-            merged.refs = merged.refs.union(refs_clone);
+            merged.refs = merged.refs.union(store.refs);
             drop(_timing_guard);
         }
 

@@ -3300,12 +3300,22 @@ impl<'a> InterpPass<'a> {
         result
     }
 
-    /// Instrumented equivalent of `Vec<Context>::merge()` (see
-    /// `merge.rs`'s `impl Merge<Context> for Vec<Context>`), used only
-    /// from the `simulate_static_calls` loop where we want fine-grained
-    /// timing on what's inside the merge - the generic trait-based
-    /// `.merge()` (used everywhere else `Vec<Context>`/`Vec<ConstraintStore>`
-    /// get merged) is untouched and stays untimed.
+    /// Instrumented equivalent of `Vec<Context>::merge()`
+    /// Counts how many keys `a` and `b` have in common, iterating whichever
+    /// is smaller. Used purely for diagnostics (see the `MERGE_OVERLAP_STATS`
+    /// log lines below) - this is *not* free (O(min(len)) lookups into the
+    /// other map), so it's a real, temporary addition to the run's cost
+    /// while this specific investigation is ongoing, not something to
+    /// leave on permanently.
+    fn count_shared_keys<K, V>(a: &ImHashMap<K, V>, b: &ImHashMap<K, V>) -> usize
+    where
+        K: std::hash::Hash + Eq + Clone,
+        V: Clone,
+    {
+        let (smaller, larger) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+        smaller.keys().filter(|k| larger.contains_key(k)).count()
+    }
+
     fn merge_contexts_timed(
         &self,
         scope: &VOID,
@@ -3340,6 +3350,14 @@ impl<'a> InterpPass<'a> {
             let _tg = self.timing_span(TimingCat::TermMergeWtosCloneInner, scope);
             let wtos_clone = ctxt.wtos.clone();
             drop(_tg);
+            let shared = Self::count_shared_keys(&m_wtos, &wtos_clone);
+            debug!(
+                "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={}",
+                *self.bb_visit_count.borrow(),
+                m_wtos.len(),
+                wtos_clone.len(),
+                shared
+            );
             m_wtos = m_wtos.union(wtos_clone);
         }
         drop(_timing_guard);
@@ -3397,6 +3415,14 @@ impl<'a> InterpPass<'a> {
             drop(_timing_guard);
             // HERE
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
+            let shared = Self::count_shared_keys(&merged.refs, &refs_clone);
+            debug!(
+                "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={}",
+                *self.bb_visit_count.borrow(),
+                merged.refs.len(),
+                refs_clone.len(),
+                shared
+            );
             merged.refs = merged.refs.union(refs_clone);
             drop(_timing_guard);
         }

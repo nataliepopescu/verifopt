@@ -27,6 +27,12 @@ SELFTIME_START = re.compile(r"=== SELF-TIME REPORT \[(.*)\] .*===")
 SELFTIME_END = re.compile(r"=== END SELF-TIME REPORT \[(.*)\] ===")
 SELFTIME_ROW = re.compile(r"^\s*([\d.]+)ms\s+(\d+)\s+([\d.]+)ms\s+(\".*\")\s*$")
 
+# Standalone lines, not block-delimited like the reports above - checked on
+# every line regardless of what block (if any) we're currently inside.
+OVERLAP_STATS = re.compile(
+    r"MERGE_OVERLAP_STATS kind=(\S+) bb_visit=(\d+) lhs_len=(\d+) rhs_len=(\d+) shared=(\d+)"
+)
+
 BB_N = re.compile(r"bb visit (\d+)|window ending bb visit (\d+)")
 
 
@@ -47,12 +53,21 @@ def parse(path):
     scope_rows = []              # (bb_n, label, scope, category, total_ms, count, avg_ms)
     scope_rows_exclusive = []    # same shape
     selftime_rows = []           # (bb_n, label, scope, self_ms, calls, avg_ms)
+    overlap_rows = []            # (bb_visit, kind, lhs_len, rhs_len, shared)
 
     mode = None
     label = None
 
     with open(path, errors="replace") as f:
         for line in f:
+            m = OVERLAP_STATS.search(line)
+            if m:
+                kind, bb_visit, lhs_len, rhs_len, shared = m.groups()
+                overlap_rows.append(
+                    (int(bb_visit), kind, int(lhs_len), int(rhs_len), int(shared))
+                )
+                continue
+
             if mode is None:
                 m = EXCLUSIVE_SCOPE_START.search(line)
                 if m:
@@ -123,7 +138,7 @@ def parse(path):
                     )
                 continue
 
-    return timing_rows, timing_rows_exclusive, scope_rows, scope_rows_exclusive, selftime_rows
+    return timing_rows, timing_rows_exclusive, scope_rows, scope_rows_exclusive, selftime_rows, overlap_rows
 
 
 def write_csv(rows, header, path):
@@ -142,7 +157,7 @@ def main():
 
     (timing_rows, timing_rows_exclusive,
      scope_rows, scope_rows_exclusive,
-     selftime_rows) = parse(args.logfile)
+     selftime_rows, overlap_rows) = parse(args.logfile)
 
     timing_header = ["bb_visit", "label", "category", "total_ms", "count", "avg_ms", "min_ms", "max_ms"]
     scope_header = ["bb_visit", "label", "scope", "category", "total_ms", "count", "avg_ms"]
@@ -156,12 +171,17 @@ def main():
         ["bb_visit", "label", "scope", "self_ms", "calls", "avg_ms"],
         f"{args.outdir}/self_time.csv",
     )
+    write_csv(
+        overlap_rows,
+        ["bb_visit", "kind", "lhs_len", "rhs_len", "shared"],
+        f"{args.outdir}/merge_overlap_stats.csv",
+    )
 
     print(f"parsed {len(timing_rows)} timing rows, {len(timing_rows_exclusive)} exclusive timing rows, "
           f"{len(scope_rows)} scope rows, {len(scope_rows_exclusive)} exclusive scope rows, "
-          f"{len(selftime_rows)} self-time rows")
+          f"{len(selftime_rows)} self-time rows, {len(overlap_rows)} merge-overlap rows")
 
-    ## Pivot: category -> [(bb_visit, avg_ms), ...] sorted by bb_visit, to eyeball trend
+    # Pivot: category -> [(bb_visit, avg_ms), ...] sorted by bb_visit, to eyeball trend
     #by_cat = {}
     #for bb_n, label, cat, total, count, avg, mn, mx in timing_rows:
     #    by_cat.setdefault(cat, []).append((bb_n, avg, mn, mx, total, count))
@@ -196,6 +216,27 @@ def main():
     #    print(f"\n=== top {args.top} (scope, category) by EXCLUSIVE time in latest snapshot ({latest_label}) ===")
     #    for bb_n, label, scope, cat, total, count, avg in latest[: args.top]:
     #        print(f"{total:>10.3f}ms  calls={count:<8} avg={avg:.4f}ms  {cat:<24} {scope}")
+
+    ## merge-overlap diagnostics: avg overlap fraction per kind, to see
+    ## whether the two sides of a union() call tend to share structure
+    ## (cheap case) or are mostly disjoint (expensive case for a
+    ## structural-sharing-dependent implementation)
+    #if overlap_rows:
+    #    print(f"\n=== merge overlap stats, by kind ===")
+    #    by_kind = {}
+    #    for bb_visit, kind, lhs_len, rhs_len, shared in overlap_rows:
+    #        by_kind.setdefault(kind, []).append((lhs_len, rhs_len, shared))
+    #    for kind, rows in sorted(by_kind.items()):
+    #        n = len(rows)
+    #        avg_lhs = sum(r[0] for r in rows) / n
+    #        avg_rhs = sum(r[1] for r in rows) / n
+    #        avg_shared = sum(r[2] for r in rows) / n
+    #        avg_min_len = sum(min(r[0], r[1]) for r in rows) / n
+    #        overlap_frac = (avg_shared / avg_min_len) if avg_min_len > 0 else 0.0
+    #        print(
+    #            f"  kind={kind:<8} n={n:<8} avg_lhs_len={avg_lhs:.1f} avg_rhs_len={avg_rhs:.1f} "
+    #            f"avg_shared={avg_shared:.1f} overlap_frac_of_smaller={overlap_frac:.3f}"
+    #        )
 
 
 if __name__ == "__main__":

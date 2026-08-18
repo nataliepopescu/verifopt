@@ -1,6 +1,8 @@
 use crate::constraints::unique_append;
 use crate::constraints::{ConstraintStore, Constraints, Context, EnclosingScopes, MapValue};
 use crate::error::Error;
+use crate::interp::{InterpPass, TimingCat};
+use crate::constraints::VOID;
 use rustc_public::mir::Place;
 
 use log::debug;
@@ -42,9 +44,15 @@ where
 
 const MERGE_WIDEN_THRESHOLD: usize = 50;
 
-fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
+fn merge_constraints(
+    cur_constraints: &Constraints,
+    new_constraints: &Constraints,
+    timing: Option<(&InterpPass, &VOID)>,
+) -> Constraints {
     let mut merged = cur_constraints.clone();
+    let append_guard = timing.map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsAppend, scope));
     merged.append(new_constraints.clone());
+    drop(append_guard);
     debug!(
         "merge_constraints: merged_disjuncts={}",
         crate::constraints::constraints_size(&merged)
@@ -56,16 +64,23 @@ fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraint
     //debug!("MERGED CONSTRAINTS: {:?}", merged);
     if merged.inner.len() > MERGE_WIDEN_THRESHOLD {
         debug!("merge_constraints: WIDENING");
-        crate::constraints::widen_constraints(&merged)
+        let widen_guard = timing.map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsWiden, scope));
+        let widened = crate::constraints::widen_constraints(&merged);
+        drop(widen_guard);
+        widened
     } else {
         merged
     }
 }
 
-pub fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
+pub fn merge_mapvals(
+    cur_val: &MapValue,
+    new_val: &MapValue,
+    timing: Option<(&InterpPass, &VOID)>,
+) -> MapValue {
     match (cur_val.clone(), new_val.clone()) {
         (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
-            MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
+            MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints, timing))
         }
         (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
             let (store, es) = merge_stores(&cur_store, &cur_es, &new_store, &new_es);
@@ -106,7 +121,7 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
             for (key, val) in store.cmap.iter() {
                 match merged.cmap.get_mut(key) {
                     Some(merged_val) => {
-                        let new_merged_val = merge_mapvals(merged_val, val);
+                        let new_merged_val = merge_mapvals(merged_val, val, None);
                         merged.cmap.insert(key.clone(), Box::new(new_merged_val));
                     }
                     None => {
@@ -133,7 +148,7 @@ impl Merge<Constraints> for Vec<Constraints> {
 
         let mut merged_constraints = self[0].clone();
         for constraints in self.iter() {
-            merged_constraints = merge_constraints(&merged_constraints, &constraints);
+            merged_constraints = merge_constraints(&merged_constraints, &constraints, None);
         }
 
         Ok(Some(merged_constraints))

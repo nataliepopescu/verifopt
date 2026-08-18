@@ -1238,7 +1238,7 @@ impl ConstraintStore {
                     let old_val = store.cmap.get(&key);
                     match old_val {
                         Some(old_val_) => {
-                            let merged = merge_mapvals(old_val_, &value);
+                            let merged = merge_mapvals(old_val_, &value, None);
                             match &merged {
                                 MapValue::Constraints(constraints) => {
                                     debug!(

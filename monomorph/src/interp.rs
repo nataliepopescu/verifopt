@@ -162,10 +162,28 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
             .unwrap_or(std::time::Duration::ZERO);
         let self_elapsed = total_elapsed.saturating_sub(child_time);
 
+        // `.name()` can itself panic - rustc's own generic-argument-
+        // folding machinery, triggered while pretty-printing this scope's
+        // Instance for the debug log below, can panic on a malformed
+        // Instance/GenericArgs pairing (the same class of bug
+        // `simulate_static_calls`'s `catch_unwind` wrapper defends
+        // against). This Drop runs unconditionally on *every* scope
+        // visited, though, not just inside that one wrapped call - so if
+        // this panics while already unwinding from some other panic
+        // (anywhere in the call stack, not just within that one
+        // `catch_unwind` boundary), it's fatal ("panic in a destructor
+        // during cleanup"), regardless of any `catch_unwind` elsewhere.
+        // Needs its own, local defense, not just reliance on the outer
+        // one.
+        let scope_name = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.scope.0.name()
+        }))
+        .unwrap_or_else(|_| "<unprintable scope: name() panicked>".to_string());
+
         debug!(
             "CALL SELF TIME: bb_visit_count={} scope={:?} self_time_ms={:.3}",
             *self.pass.bb_visit_count.borrow(),
-            self.scope.0.name(),
+            scope_name,
             self_elapsed.as_secs_f64() * 1000.0
         );
 
@@ -185,7 +203,7 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum TimingCat {
+pub(crate) enum TimingCat {
     BbStatements,
     BbTerminator,
     StmtContainsDyn,
@@ -220,7 +238,21 @@ enum TimingCat {
     TermSimulateRealCall,
     TermSigFallback,
     TermSimulateMergeResults,
+    // check here STILL
     TermSimulateLoopMergeResults,
+    TermMergeCloneCstores,
+    TermMergeCstoresMerge,
+    TermMergeIdentityCheck,
+    // check here
+    TermMergePerKeyMapvals,
+    TermMergeConstraintsAppend,
+    TermMergeConstraintsWiden,
+    // check here
+    TermMergeRefsUnion,
+    // check here
+    TermMergeWtosUnion,
+    TermMergeContextsSetup,
+    TermMergeNewContext,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -262,7 +294,7 @@ impl TimingStats {
 /// corrupted the exclusive-time accounting on every early-return exit,
 /// e.g. an `exact_memo` cache hit - hence this being a `Drop`-based guard
 /// now, not a repeat of that mistake.)
-struct TimingSpanGuard<'a, 'b> {
+pub(crate) struct TimingSpanGuard<'a, 'b> {
     pass: &'a InterpPass<'b>,
     cat: TimingCat,
     scope: VOID,
@@ -479,7 +511,7 @@ impl<'a> InterpPass<'a> {
     /// count; dropping it (on *any* exit path) ends the span. Nesting is
     /// handled automatically: a span started while another is still alive
     /// becomes that span's child.
-    fn timing_span<'b>(&'b self, cat: TimingCat, scope: &VOID) -> TimingSpanGuard<'b, 'a> {
+    pub(crate) fn timing_span<'b>(&'b self, cat: TimingCat, scope: &VOID) -> TimingSpanGuard<'b, 'a> {
         self.timing_child_stack
             .borrow_mut()
             .push(std::time::Duration::ZERO);
@@ -3080,6 +3112,12 @@ impl<'a> InterpPass<'a> {
                             expected_count
                         );
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        // `_timing_guard` (TermSimulateCallPrep) drops here
+                        // automatically, correctly closing this span even on this
+                        // early-return exit (a `return` from this closure, rather
+                        // than a `continue` from the loop directly - same effect,
+                        // since falling out of the closure just lets the outer
+                        // `for` loop move on to its next iteration as normal).
                         return Ok(());
                     }
                     let instance_ = match Instance::resolve(fndef, &genargs) {
@@ -3187,9 +3225,23 @@ impl<'a> InterpPass<'a> {
 
                             let _timing_guard = self
                                 .timing_span(TimingCat::TermSimulateLoopMergeResults, cur_scope);
+                            // `.take()` (rather than matching on `acc`
+                            // directly) so this only needs `&mut acc`, not
+                            // ownership of it - matching on `acc` by value
+                            // here would force the closure to *move* `acc`
+                            // in its entirety on capture, which breaks
+                            // across loop iterations (each iteration
+                            // creates a new closure, so the first one would
+                            // permanently consume `acc`, leaving nothing
+                            // for the rest of the loop or the code after
+                            // it - this is exactly what `cargo build`
+                            // caught as E0382, "value moved into closure
+                            // here, in previous iteration of loop").
                             acc = Some(match acc.take() {
                                 None => ctxt_clone,
-                                Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
+                                Some(a) => self
+                                    .merge_contexts_timed(cur_scope, &[a, ctxt_clone])?
+                                    .unwrap(),
                             });
                             drop(_timing_guard);
                         }
@@ -3201,6 +3253,30 @@ impl<'a> InterpPass<'a> {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => return Err(e),
                 Err(panic_payload) => {
+                    // Something inside rustc's own generic-argument-folding
+                    // machinery panicked while trying to process this one
+                    // CHA candidate - e.g. a struct parameterized by a
+                    // const generic (`DisplayBuffer<SIZE>`) offered as a
+                    // candidate for a call site that only supplies the
+                    // trait-level `Self` type, with nothing to fill
+                    // `SIZE`. This can happen at several different points
+                    // (`Instance::resolve`, `fn_sig()`, pretty-printing a
+                    // name for debugging) depending on exactly which kind
+                    // of generic-parameter mismatch it is, so rather than
+                    // add another one-off check for each new variant we
+                    // discover, treat *any* panic here the same way as
+                    // every other "can't simulate this candidate" case:
+                    // skip it and move on, rather than aborting the whole
+                    // analysis over one CHA candidate out of potentially
+                    // many. Deliberately not calling
+                    // `retty_fallback_from_poly(fndef.fn_sig())` as the
+                    // recovery action here, unlike the other skip cases -
+                    // `fn_sig()` is exactly the kind of call that can
+                    // trigger this in the first place, so using it to
+                    // "safely" recover risks panicking again. This omits
+                    // whatever constraint this specific candidate would
+                    // have contributed (a precision loss, not a soundness
+                    // one).
                     let msg = panic_payload
                         .downcast_ref::<&str>()
                         .map(|s| s.to_string())
@@ -3222,6 +3298,96 @@ impl<'a> InterpPass<'a> {
         let result = self.merge_results_and_ret(&mut results);
         drop(_timing_guard);
         result
+    }
+
+    /// Instrumented equivalent of `Vec<Context>::merge()` (see
+    /// `merge.rs`'s `impl Merge<Context> for Vec<Context>`), used only
+    /// from the `simulate_static_calls` loop where we want fine-grained
+    /// timing on what's inside the merge - the generic trait-based
+    /// `.merge()` (used everywhere else `Vec<Context>`/`Vec<ConstraintStore>`
+    /// get merged) is untouched and stays untimed.
+    fn merge_contexts_timed(
+        &self,
+        scope: &VOID,
+        contexts: &[Context],
+    ) -> Result<Option<Context>, Error> {
+        let _timing_guard = self.timing_span(TimingCat::TermMergeContextsSetup, scope);
+        if contexts.is_empty() {
+            return Ok(None);
+        }
+        if contexts.len() == 1 {
+            return Ok(Some(contexts[0].clone()));
+        }
+        drop(_timing_guard);
+
+        let _timing_guard = self.timing_span(TimingCat::TermMergeCloneCstores, scope);
+        let mut cstores = Vec::new();
+        for ctxt in contexts.iter() {
+            cstores.push(ctxt.cstore.clone());
+        }
+        drop(_timing_guard);
+
+        let _timing_guard = self.timing_span(TimingCat::TermMergeCstoresMerge, scope);
+        let m_cstores = self.merge_cstores_timed(scope, &cstores);
+        drop(_timing_guard);
+
+        let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
+        let mut m_wtos = contexts[0].wtos.clone();
+        for ctxt in contexts.iter().skip(1) {
+            m_wtos = m_wtos.union(ctxt.wtos.clone());
+        }
+        drop(_timing_guard);
+
+        let _timing_guard = self.timing_span(TimingCat::TermMergeNewContext, scope);
+        let c = Context::new(m_cstores, m_wtos);
+        drop(_timing_guard);
+
+        Ok(Some(c))
+    }
+
+    /// Instrumented equivalent of `Vec<ConstraintStore>::merge()` (see
+    /// `merge.rs`), called only from `merge_contexts_timed` above.
+    fn merge_cstores_timed(&self, scope: &VOID, stores: &[ConstraintStore]) -> ConstraintStore {
+        if stores.len() == 1 {
+            return stores[0].clone();
+        }
+
+        let mut merged = stores[0].clone();
+        let mut first = true;
+        for store in stores.iter() {
+            if first {
+                first = false;
+                continue;
+            }
+
+            let _timing_guard = self.timing_span(TimingCat::TermMergeIdentityCheck, scope);
+            let identical = merged.cmap.ptr_eq(&store.cmap) && merged.refs == store.refs;
+            drop(_timing_guard);
+            if identical {
+                continue;
+            }
+
+            let _timing_guard = self.timing_span(TimingCat::TermMergePerKeyMapvals, scope);
+            for (key, val) in store.cmap.iter() {
+                match merged.cmap.get_mut(key) {
+                    Some(merged_val) => {
+                        let new_merged_val =
+                            crate::merge::merge_mapvals(merged_val, val, Some((self, scope)));
+                        merged.cmap.insert(key.clone(), Box::new(new_merged_val));
+                    }
+                    None => {
+                        merged.cmap.insert(key.clone(), val.clone());
+                    }
+                }
+            }
+            drop(_timing_guard);
+
+            let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
+            merged.refs = merged.refs.union(store.refs.clone());
+            drop(_timing_guard);
+        }
+
+        merged
     }
 
     fn merge_results_and_ret(

@@ -3351,12 +3351,14 @@ impl<'a> InterpPass<'a> {
             let wtos_clone = ctxt.wtos.clone();
             drop(_tg);
             let shared = Self::count_shared_keys(&m_wtos, &wtos_clone);
+            let ptr_identical = m_wtos.ptr_eq(&wtos_clone);
             debug!(
-                "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={}",
+                "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
                 *self.bb_visit_count.borrow(),
                 m_wtos.len(),
                 wtos_clone.len(),
-                shared
+                shared,
+                ptr_identical
             );
             m_wtos = m_wtos.union(wtos_clone);
         }
@@ -3416,12 +3418,14 @@ impl<'a> InterpPass<'a> {
             // HERE
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
             let shared = Self::count_shared_keys(&merged.refs, &refs_clone);
+            let ptr_identical = merged.refs.ptr_eq(&refs_clone);
             debug!(
-                "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={}",
+                "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
                 *self.bb_visit_count.borrow(),
                 merged.refs.len(),
                 refs_clone.len(),
-                shared
+                shared,
+                ptr_identical
             );
             merged.refs = merged.refs.union(refs_clone);
             drop(_timing_guard);

@@ -239,16 +239,16 @@ pub(crate) enum TimingCat {
     TermSimulateMergeResults,
     // check here STILL
     TermSimulateLoopMergeResults,
+    Take,
+    VecConstruction,
+    // check here STILL
     TermMergeCloneCstores,
     TermMergeCstoresMerge,
     TermMergeIdentityCheck,
-    // check here
     TermMergePerKeyMapvals,
     TermMergeConstraintsAppend,
     TermMergeConstraintsWiden,
-    // check here
     TermMergeRefsUnion,
-    // check here
     TermMergeWtosUnion,
     TermMergeContextsSetup,
     TermMergeNewContext,
@@ -3231,11 +3231,21 @@ impl<'a> InterpPass<'a> {
 
                             let _timing_guard = self
                                 .timing_span(TimingCat::TermSimulateLoopMergeResults, cur_scope);
-                            acc = Some(match acc.take() {
+
+                            let _tg = self.timing_span(TimingCat::Take, cur_scope);
+                            let taken = acc.take();
+                            drop(_tg);
+
+                            acc = Some(match taken {
                                 None => ctxt_clone,
-                                Some(a) => self
-                                    .merge_contexts_timed(cur_scope, &[a, ctxt_clone])?
-                                    .unwrap(),
+                                Some(a) => {
+                                    let _tg =
+                                        self.timing_span(TimingCat::VecConstruction, cur_scope);
+                                    let vec = [a, ctxt_clone];
+                                    drop(_tg);
+
+                                    self.merge_contexts_timed(cur_scope, &vec)?.unwrap()
+                                }
                             });
                             drop(_timing_guard);
                         }
@@ -3317,6 +3327,7 @@ impl<'a> InterpPass<'a> {
         let m_cstores = self.merge_cstores_timed(scope, &cstores);
         drop(_timing_guard);
 
+        // HERE
         let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
         let mut m_wtos = contexts[0].wtos.clone();
         for ctxt in contexts.iter().skip(1) {
@@ -3353,6 +3364,7 @@ impl<'a> InterpPass<'a> {
                 continue;
             }
 
+            // HERE
             let _timing_guard = self.timing_span(TimingCat::TermMergePerKeyMapvals, scope);
             for (key, val) in store.cmap.iter() {
                 match merged.cmap.get_mut(key) {
@@ -3368,6 +3380,7 @@ impl<'a> InterpPass<'a> {
             }
             drop(_timing_guard);
 
+            // HERE
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
             merged.refs = merged.refs.union(store.refs.clone());
             drop(_timing_guard);

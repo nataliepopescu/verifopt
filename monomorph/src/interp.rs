@@ -3064,6 +3064,10 @@ impl<'a> InterpPass<'a> {
                 i + 1,
                 len
             );
+            // Snapshotted so a caught panic (below) can roll `call_stack`/
+            // `key_stack` back to exactly this point
+            let pre_candidate_call_stack_len = call_stack.len();
+            let pre_candidate_key_stack_len = self.key_stack.borrow().len();
             let candidate_result: std::thread::Result<Result<(), Error>> =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), Error> {
                     let _timing_guard =
@@ -3112,12 +3116,6 @@ impl<'a> InterpPass<'a> {
                             expected_count
                         );
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-                        // `_timing_guard` (TermSimulateCallPrep) drops here
-                        // automatically, correctly closing this span even on this
-                        // early-return exit (a `return` from this closure, rather
-                        // than a `continue` from the loop directly - same effect,
-                        // since falling out of the closure just lets the outer
-                        // `for` loop move on to its next iteration as normal).
                         return Ok(());
                     }
                     let instance_ = match Instance::resolve(fndef, &genargs) {
@@ -3225,18 +3223,6 @@ impl<'a> InterpPass<'a> {
 
                             let _timing_guard = self
                                 .timing_span(TimingCat::TermSimulateLoopMergeResults, cur_scope);
-                            // `.take()` (rather than matching on `acc`
-                            // directly) so this only needs `&mut acc`, not
-                            // ownership of it - matching on `acc` by value
-                            // here would force the closure to *move* `acc`
-                            // in its entirety on capture, which breaks
-                            // across loop iterations (each iteration
-                            // creates a new closure, so the first one would
-                            // permanently consume `acc`, leaving nothing
-                            // for the rest of the loop or the code after
-                            // it - this is exactly what `cargo build`
-                            // caught as E0382, "value moved into closure
-                            // here, in previous iteration of loop").
                             acc = Some(match acc.take() {
                                 None => ctxt_clone,
                                 Some(a) => self
@@ -3253,30 +3239,6 @@ impl<'a> InterpPass<'a> {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => return Err(e),
                 Err(panic_payload) => {
-                    // Something inside rustc's own generic-argument-folding
-                    // machinery panicked while trying to process this one
-                    // CHA candidate - e.g. a struct parameterized by a
-                    // const generic (`DisplayBuffer<SIZE>`) offered as a
-                    // candidate for a call site that only supplies the
-                    // trait-level `Self` type, with nothing to fill
-                    // `SIZE`. This can happen at several different points
-                    // (`Instance::resolve`, `fn_sig()`, pretty-printing a
-                    // name for debugging) depending on exactly which kind
-                    // of generic-parameter mismatch it is, so rather than
-                    // add another one-off check for each new variant we
-                    // discover, treat *any* panic here the same way as
-                    // every other "can't simulate this candidate" case:
-                    // skip it and move on, rather than aborting the whole
-                    // analysis over one CHA candidate out of potentially
-                    // many. Deliberately not calling
-                    // `retty_fallback_from_poly(fndef.fn_sig())` as the
-                    // recovery action here, unlike the other skip cases -
-                    // `fn_sig()` is exactly the kind of call that can
-                    // trigger this in the first place, so using it to
-                    // "safely" recover risks panicking again. This omits
-                    // whatever constraint this specific candidate would
-                    // have contributed (a precision loss, not a soundness
-                    // one).
                     let msg = panic_payload
                         .downcast_ref::<&str>()
                         .map(|s| s.to_string())
@@ -3286,6 +3248,22 @@ impl<'a> InterpPass<'a> {
                         "candidate {:?} panicked during simulation, skipping (no fallback pushed): {}",
                         assoc_fn_impl, msg
                     );
+
+                    debug!(
+                        "STACK STATE before catch_unwind-recovery truncate: call_stack.len()={} key_stack.len()={} target_len={}",
+                        call_stack.len(),
+                        self.key_stack.borrow().len(),
+                        pre_candidate_call_stack_len
+                    );
+                    call_stack.truncate(pre_candidate_call_stack_len);
+                    self.key_stack
+                        .borrow_mut()
+                        .truncate(pre_candidate_key_stack_len);
+                    self.assert_stacks_synced(
+                        call_stack,
+                        "simulate_static_calls catch_unwind recovery",
+                    );
+
                 }
             }
         }

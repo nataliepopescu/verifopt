@@ -175,10 +175,9 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
         // during cleanup"), regardless of any `catch_unwind` elsewhere.
         // Needs its own, local defense, not just reliance on the outer
         // one.
-        let scope_name = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.scope.0.name()
-        }))
-        .unwrap_or_else(|_| "<unprintable scope: name() panicked>".to_string());
+        let scope_name =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.scope.0.name()))
+                .unwrap_or_else(|_| "<unprintable scope: name() panicked>".to_string());
 
         debug!(
             "CALL SELF TIME: bb_visit_count={} scope={:?} self_time_ms={:.3}",
@@ -511,7 +510,11 @@ impl<'a> InterpPass<'a> {
     /// count; dropping it (on *any* exit path) ends the span. Nesting is
     /// handled automatically: a span started while another is still alive
     /// becomes that span's child.
-    pub(crate) fn timing_span<'b>(&'b self, cat: TimingCat, scope: &VOID) -> TimingSpanGuard<'b, 'a> {
+    pub(crate) fn timing_span<'b>(
+        &'b self,
+        cat: TimingCat,
+        scope: &VOID,
+    ) -> TimingSpanGuard<'b, 'a> {
         self.timing_child_stack
             .borrow_mut()
             .push(std::time::Duration::ZERO);
@@ -595,7 +598,10 @@ impl<'a> InterpPass<'a> {
                 scope.0.name(),
             ));
         }
-        lines.push_str(&format!("=== END EXCLUSIVE TIMING BY SCOPE [{}] ===\n", label));
+        lines.push_str(&format!(
+            "=== END EXCLUSIVE TIMING BY SCOPE [{}] ===\n",
+            label
+        ));
         debug!("{}", lines);
     }
 
@@ -984,7 +990,8 @@ impl<'a> InterpPass<'a> {
 
                 let _timing_guard = self.timing_span(TimingCat::StmtNewConstraints, cur_scope);
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
-                    let _timing_guard = self.timing_span(TimingCat::StmtNewConstraintsRef, cur_scope);
+                    let _timing_guard =
+                        self.timing_span(TimingCat::StmtNewConstraintsRef, cur_scope);
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
                             local: to.local,
@@ -1004,7 +1011,8 @@ impl<'a> InterpPass<'a> {
                     debug!("stmt: FROM REF (empty)");
                     Constraints::new()
                 } else if let Some(defid) = self.static_rvalue(rvalue) {
-                    let _timing_guard = self.timing_span(TimingCat::StmtNewConstraintsStatic, cur_scope);
+                    let _timing_guard =
+                        self.timing_span(TimingCat::StmtNewConstraintsStatic, cur_scope);
                     let c = self.static_get_constraints(ctxt, defid);
                     debug!(
                         "stmt: FROM STATIC, scope={:?} local={} converted_disjuncts={}",
@@ -3068,8 +3076,8 @@ impl<'a> InterpPass<'a> {
             // `key_stack` back to exactly this point
             let pre_candidate_call_stack_len = call_stack.len();
             let pre_candidate_key_stack_len = self.key_stack.borrow().len();
-            let candidate_result: std::thread::Result<Result<(), Error>> =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), Error> {
+            let candidate_result: std::thread::Result<Result<(), Error>> = std::panic::catch_unwind(
+                std::panic::AssertUnwindSafe(|| -> Result<(), Error> {
                     let _timing_guard =
                         self.timing_span(TimingCat::TermSimulateCallPrep, cur_scope);
                     let genargs = if *assoc_fn_impl == *assoc_fn_defid {
@@ -3146,8 +3154,8 @@ impl<'a> InterpPass<'a> {
                     // eventual rewrite FIXME
                     let recursive_hit = call_stack.contains(&callee_scope);
                     if recursive_hit {
-                        let _timing_guard = self
-                            .timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
+                        let _timing_guard =
+                            self.timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         drop(_timing_guard);
                         return Ok(());
@@ -3233,7 +3241,8 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                     Ok(())
-                }));
+                }),
+            );
 
             match candidate_result {
                 Ok(Ok(())) => {}
@@ -3263,7 +3272,6 @@ impl<'a> InterpPass<'a> {
                         call_stack,
                         "simulate_static_calls catch_unwind recovery",
                     );
-
                 }
             }
         }

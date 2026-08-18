@@ -1,8 +1,8 @@
+use crate::constraints::VOID;
 use crate::constraints::unique_append;
 use crate::constraints::{ConstraintStore, Constraints, Context, EnclosingScopes, MapValue};
 use crate::error::Error;
 use crate::interp::{InterpPass, TimingCat};
-use crate::constraints::VOID;
 use rustc_public::mir::Place;
 
 use log::debug;
@@ -50,7 +50,8 @@ fn merge_constraints(
     timing: Option<(&InterpPass, &VOID)>,
 ) -> Constraints {
     let mut merged = cur_constraints.clone();
-    let append_guard = timing.map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsAppend, scope));
+    let append_guard =
+        timing.map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsAppend, scope));
     merged.append(new_constraints.clone());
     drop(append_guard);
     debug!(
@@ -64,7 +65,8 @@ fn merge_constraints(
     //debug!("MERGED CONSTRAINTS: {:?}", merged);
     if merged.inner.len() > MERGE_WIDEN_THRESHOLD {
         debug!("merge_constraints: WIDENING");
-        let widen_guard = timing.map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsWiden, scope));
+        let widen_guard = timing
+            .map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsWiden, scope));
         let widened = crate::constraints::widen_constraints(&merged);
         drop(widen_guard);
         widened
@@ -80,7 +82,11 @@ pub fn merge_mapvals(
 ) -> MapValue {
     match (cur_val.clone(), new_val.clone()) {
         (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
-            MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints, timing))
+            MapValue::Constraints(merge_constraints(
+                &cur_constraints,
+                &new_constraints,
+                timing,
+            ))
         }
         (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
             let (store, es) = merge_stores(&cur_store, &cur_es, &new_store, &new_es);

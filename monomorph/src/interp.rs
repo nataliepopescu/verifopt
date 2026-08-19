@@ -72,18 +72,13 @@ pub struct InterpPass<'a> {
     pub rec_depth: RefCell<u32>,
     //pub call_count: RefCell<u64>,
     pub bb_visit_count: RefCell<u64>,
+    pub run_start: std::time::Instant,
     pub main_ctxt_ptr: RefCell<Option<usize>>,
     pub self_time_child_accum: RefCell<Vec<std::time::Duration>>,
     pub scope_self_time: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
     timing_global: RefCell<HashMap<TimingCat, TimingStats>>,
     timing_scope: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
     timing_window: RefCell<HashMap<TimingCat, TimingStats>>,
-    // Exclusive (self-time) counterparts to the three maps above - same
-    // shape, but excluding time spent inside any other timed span nested
-    // underneath. See `TimingSpanGuard`, which mirrors `SelfTimeGuard`'s
-    // existing push-on-create/pop-on-Drop pattern so this is correct on
-    // *every* exit path (early return, `?`, panic-unwind) rather than only
-    // the path that happens to reach an explicit "end of span" call site.
     timing_child_stack: RefCell<Vec<std::time::Duration>>,
     timing_global_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     timing_scope_exclusive: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
@@ -367,6 +362,7 @@ impl<'a> InterpPass<'a> {
             rec_depth: 0.into(),
             //call_count: 0.into(),
             bb_visit_count: 0.into(),
+            run_start: std::time::Instant::now(),
             main_ctxt_ptr: None.into(),
             self_time_child_accum: Vec::new().into(),
             scope_self_time: HashMap::new().into(),
@@ -452,6 +448,11 @@ impl<'a> InterpPass<'a> {
             &self.get_body(&start_scope),
         );
 
+        debug!(
+            "TOTAL WALL CLOCK bb_visit={} elapsed_ms={:.3}",
+            *self.bb_visit_count.borrow(),
+            self.run_start.elapsed().as_secs_f64() * 1000.0
+        );
         self.dump_self_time_report("FINAL");
         self.dump_timing_report("FINAL GLOBAL", &self.timing_global.borrow());
         self.dump_timing_by_scope_report("FINAL");
@@ -721,6 +722,11 @@ impl<'a> InterpPass<'a> {
                 }
                 */
                 if *n % 200 == 0 {
+                    debug!(
+                        "TOTAL WALL CLOCK bb_visit={} elapsed_ms={:.3}",
+                        *n,
+                        self.run_start.elapsed().as_secs_f64() * 1000.0
+                    );
                     //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
                     self.dump_self_time_report(&format!("bb visit {}", *n));
                     self.dump_timing_by_scope_report(&format!("bb visit {}", *n));
@@ -1480,7 +1486,27 @@ impl<'a> InterpPass<'a> {
                 }
                 Ok(None)
             }
-            _ => panic!("other vorval interp as fn?: {:?}", constraint),
+            // Same treatment as the `Param(..)` arm just above: this
+            // constraint isn't fn-like at all (e.g. seen in practice: an
+            // `Adt(Option<Backtrace>, ...)` value reached through an
+            // indirect call inside `anyhow::error::ErrorImpl::error` -
+            // plausibly a hand-rolled, non-`dyn`-based vtable field being
+            // conflated somewhere upstream with the value it would
+            // produce, rather than the callable itself). Rather than
+            // treat "we don't know how to call this" as fatal, degrade
+            // to imprecise-but-sound: mark the enclosing summary build (if
+            // any) tainted and contribute nothing, same as an unresolved
+            // `Param`.
+            _ => {
+                debug!(
+                    "interp_constraint_as_fn: constraint isn't fn-like, falling back to imprecise (Ok(None)): {:?}",
+                    constraint
+                );
+                if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
+                    *tainted = true;
+                }
+                Ok(None)
+            }
         }
     }
 

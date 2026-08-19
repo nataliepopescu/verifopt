@@ -34,6 +34,12 @@ OVERLAP_STATS = re.compile(
     r"(?: ptr_identical=(true|false))?"
 )
 
+# Standalone, cumulative-since-run-start wall-clock checkpoint - deliberately
+# outside the TimingCat machinery entirely, so it's an independent check on
+# how much real time the sum of every category accounts for, not just
+# another view of the same instrumented data.
+WALL_CLOCK = re.compile(r"TOTAL WALL CLOCK bb_visit=(\d+) elapsed_ms=([\d.]+)")
+
 BB_N = re.compile(r"bb visit (\d+)|window ending bb visit (\d+)")
 
 
@@ -55,12 +61,19 @@ def parse(path):
     scope_rows_exclusive = []    # same shape
     selftime_rows = []           # (bb_n, label, scope, self_ms, calls, avg_ms)
     overlap_rows = []            # (bb_visit, kind, lhs_len, rhs_len, shared)
+    wall_clock_rows = []         # (bb_visit, elapsed_ms)
 
     mode = None
     label = None
 
     with open(path, errors="replace") as f:
         for line in f:
+            m = WALL_CLOCK.search(line)
+            if m:
+                bb_visit, elapsed_ms = m.groups()
+                wall_clock_rows.append((int(bb_visit), float(elapsed_ms)))
+                continue
+
             m = OVERLAP_STATS.search(line)
             if m:
                 kind, bb_visit, lhs_len, rhs_len, shared, ptr_identical = m.groups()
@@ -140,7 +153,8 @@ def parse(path):
                     )
                 continue
 
-    return timing_rows, timing_rows_exclusive, scope_rows, scope_rows_exclusive, selftime_rows, overlap_rows
+    return (timing_rows, timing_rows_exclusive, scope_rows, scope_rows_exclusive,
+            selftime_rows, overlap_rows, wall_clock_rows)
 
 
 def write_csv(rows, header, path):
@@ -159,7 +173,7 @@ def main():
 
     (timing_rows, timing_rows_exclusive,
      scope_rows, scope_rows_exclusive,
-     selftime_rows, overlap_rows) = parse(args.logfile)
+     selftime_rows, overlap_rows, wall_clock_rows) = parse(args.logfile)
 
     timing_header = ["bb_visit", "label", "category", "total_ms", "count", "avg_ms", "min_ms", "max_ms"]
     scope_header = ["bb_visit", "label", "scope", "category", "total_ms", "count", "avg_ms"]
@@ -178,10 +192,32 @@ def main():
         ["bb_visit", "kind", "lhs_len", "rhs_len", "shared", "ptr_identical"],
         f"{args.outdir}/merge_overlap_stats.csv",
     )
+    write_csv(
+        wall_clock_rows,
+        ["bb_visit", "elapsed_ms"],
+        f"{args.outdir}/wall_clock.csv",
+    )
 
     print(f"parsed {len(timing_rows)} timing rows, {len(timing_rows_exclusive)} exclusive timing rows, "
           f"{len(scope_rows)} scope rows, {len(scope_rows_exclusive)} exclusive scope rows, "
-          f"{len(selftime_rows)} self-time rows, {len(overlap_rows)} merge-overlap rows")
+          f"{len(selftime_rows)} self-time rows, {len(overlap_rows)} merge-overlap rows, "
+          f"{len(wall_clock_rows)} wall-clock checkpoints")
+
+    # Independent sanity check: does the sum of every category's EXCLUSIVE
+    # total_ms up to the *last* wall-clock checkpoint roughly match that 
+    # checkpoint's own independently-measured elapsed time?
+    if wall_clock_rows and timing_rows_exclusive:
+        last_bb = max(bb for bb, _ in wall_clock_rows)
+        last_wall_ms = [ms for bb, ms in wall_clock_rows if bb == last_bb][-1]
+        summed_ms = sum(
+            total for bb, _, _, total, *_ in timing_rows_exclusive
+            if bb is not None and bb <= last_bb
+        )
+        print(f"\n=== independent wall-clock check (at bb_visit={last_bb}) ===")
+        print(f"  measured wall clock:          {last_wall_ms:10.1f}ms ({last_wall_ms/60000:.2f} min)")
+        print(f"  sum of all categories (excl): {summed_ms:10.1f}ms ({summed_ms/60000:.2f} min)")
+        if last_wall_ms > 0:
+            print(f"  ratio (categories/wallclock): {summed_ms/last_wall_ms:.3f}")
 
     # Pivot: category -> [(bb_visit, avg_ms), ...] sorted by bb_visit, to eyeball trend
     #by_cat = {}

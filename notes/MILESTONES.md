@@ -35,27 +35,24 @@
 
 
 - [ ] eval
-    - [ ] perf bottlenecks / tool benchamrks (verifopt performance)
+    - [ ] perf bottlenecks / tool benchmarks (verifopt performance)
 
     - [ ] how to validate FSA
+        - run binary tests
+        - sample dynamic dispatches
 
     - [ ] hook verifopt into non-main entry points (for benchmarks)
 
     - [ ] microbenchmarks
-        - [ ] look into fallback rewrite - why performs worse than initial dyn
-          call?
+        - [ ] look into fallback rewrite - why performs worse than initial dyn call?
         - [ ] whats the expected speedup amount for different cases?
 
-    - [ ] complete runs on at least 10 full binaries
+    - [ ] complete runs on _at least_ 10 full binaries
         - [ ] ripgrep
         - [ ] dynolog cli
-            - perf telemetry tool (facebook)
-        - [ ] tock
         - [ ] quixote
-            - "Blazing-fast blockchain event indexer"
-            - debug build time for unmodified Rustc was over 3 min
-            - release build time > 4 min
-        - [ ] ?
+        - [ ] zellij
+        - [ ] tock
         - [ ] ?
         - [ ] ?
         - [ ] ?

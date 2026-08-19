@@ -241,12 +241,9 @@ pub(crate) enum TimingCat {
     TermSimulateRealCall,
     TermSigFallback,
     TermSimulateMergeResults,
-    // check here STILL
     TermSimulateLoopMergeResults,
     Take,
     VecConstruction,
-    // check here STILL
-    //TermMergeCloneCstores,
     TermMergeCstoresMerge,
     TermMergeIdentityCheck,
     TermMergePerKeyMapvals,
@@ -254,10 +251,7 @@ pub(crate) enum TimingCat {
     TermMergeConstraintsAppend,
     TermMergeConstraintsWiden,
     TermMergeRefsUnion,
-    //TermMergeRefsClone,
     TermMergeWtosUnion,
-    //TermMergeWtosClone,
-    //TermMergeWtosCloneInner,
     TermMergeContextsSetup,
     TermMergeNewContext,
 }
@@ -345,6 +339,20 @@ impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
         }
     }
 }
+
+//fn cheaper_union<K: Hash + Eq + Clone, V: PartialEq + Clone>(
+//    base: ImHashMap<K, V>,
+//    other: ImHashMap<K, V>,
+//) -> ImHashMap<K, V> {
+//    let (mut to_mutate, to_check) = if base.len() >= other.len() { (base, other) } else { (other, base) };
+//    for (k, v) in to_check {
+//        match to_mutate.get(&k) {
+//            Some(existing) if *existing == v => continue, // read-only, no COW forced
+//            _ => { to_mutate.insert(k, v); }              // only pay the write cost when it's real
+//        }
+//    }
+//    to_mutate
+//}
 
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
@@ -3458,19 +3466,16 @@ impl<'a> InterpPass<'a> {
 
         let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
         for wtos in wtos_iter {
-            // Also moved rather than cloned (used to be `ctxt.wtos.clone()`
-            // under `TermMergeWtosCloneInner`, now gone - there's nothing
-            // left to clone here).
-            let shared = Self::count_shared_keys(&m_wtos, &wtos);
-            let ptr_identical = m_wtos.ptr_eq(&wtos);
-            debug!(
-                "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
-                *self.bb_visit_count.borrow(),
-                m_wtos.len(),
-                wtos.len(),
-                shared,
-                ptr_identical
-            );
+            //let shared = Self::count_shared_keys(&m_wtos, &wtos);
+            //let ptr_identical = m_wtos.ptr_eq(&wtos);
+            //debug!(
+            //    "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
+            //    *self.bb_visit_count.borrow(),
+            //    m_wtos.len(),
+            //    wtos.len(),
+            //    shared,
+            //    ptr_identical
+            //);
             m_wtos = m_wtos.union(wtos);
         }
         drop(_timing_guard);
@@ -3523,16 +3528,16 @@ impl<'a> InterpPass<'a> {
             // first (used to be `store.refs.clone()` under
             // `TermMergeRefsClone`, now gone - nothing left to clone).
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
-            let shared = Self::count_shared_keys(&merged.refs, &store.refs);
-            let ptr_identical = merged.refs.ptr_eq(&store.refs);
-            debug!(
-                "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
-                *self.bb_visit_count.borrow(),
-                merged.refs.len(),
-                store.refs.len(),
-                shared,
-                ptr_identical
-            );
+            //let shared = Self::count_shared_keys(&merged.refs, &store.refs);
+            //let ptr_identical = merged.refs.ptr_eq(&store.refs);
+            //debug!(
+            //    "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
+            //    *self.bb_visit_count.borrow(),
+            //    merged.refs.len(),
+            //    store.refs.len(),
+            //    shared,
+            //    ptr_identical
+            //);
             merged.refs = merged.refs.union(store.refs);
             drop(_timing_guard);
         }

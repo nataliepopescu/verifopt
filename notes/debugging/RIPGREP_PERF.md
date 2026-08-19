@@ -24,7 +24,20 @@ trying a timing approach
 
 next step: where exactly are these places and what is happening in them?
 
+took a break from this and tried instrumenting all the different blocks of code
+(getting gradually more granular for those that were expensive). top (worst)
+performers are:
+- TermMergeWtosUnion
+    - a loop around an ImHashMap union() operation
+- TermMergeRefsUnion
+    - a single ImHashMap union() operation
 
+then:
+- TermMergeMapvalsMerge
+    - wraps the merge_mapvals operation
+- TermMergePerKeyMapvals
+    - merging loop containing ImHashMap insert() operations (in addition to
+      TermMergeMapvalsMerge logic)
 
 
 ## first "big" disjunct

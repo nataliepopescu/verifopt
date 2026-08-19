@@ -32,6 +32,7 @@ SELFTIME_ROW = re.compile(r"^\s*([\d.]+)ms\s+(\d+)\s+([\d.]+)ms\s+(\".*\")\s*$")
 OVERLAP_STATS = re.compile(
     r"MERGE_OVERLAP_STATS kind=(\S+) bb_visit=(\d+) lhs_len=(\d+) rhs_len=(\d+) shared=(\d+)"
     r"(?: ptr_identical=(true|false))?"
+    r"(?: rhs_base_len=(\d+|n/a) rhs_new_entries=(\d+|n/a))?"
 )
 
 # Standalone, cumulative-since-run-start wall-clock checkpoint - deliberately
@@ -76,10 +77,16 @@ def parse(path):
 
             m = OVERLAP_STATS.search(line)
             if m:
-                kind, bb_visit, lhs_len, rhs_len, shared, ptr_identical = m.groups()
+                (kind, bb_visit, lhs_len, rhs_len, shared, ptr_identical,
+                 rhs_base_len, rhs_new_entries) = m.groups()
+
+                def _opt_int(x):
+                    return int(x) if x is not None and x != "n/a" else None
+
                 overlap_rows.append(
                     (int(bb_visit), kind, int(lhs_len), int(rhs_len), int(shared),
-                     (ptr_identical == "true") if ptr_identical is not None else None)
+                     (ptr_identical == "true") if ptr_identical is not None else None,
+                     _opt_int(rhs_base_len), _opt_int(rhs_new_entries))
                 )
                 continue
 
@@ -189,7 +196,7 @@ def main():
     )
     write_csv(
         overlap_rows,
-        ["bb_visit", "kind", "lhs_len", "rhs_len", "shared", "ptr_identical"],
+        ["bb_visit", "kind", "lhs_len", "rhs_len", "shared", "ptr_identical", "rhs_base_len", "rhs_new_entries"],
         f"{args.outdir}/merge_overlap_stats.csv",
     )
     write_csv(

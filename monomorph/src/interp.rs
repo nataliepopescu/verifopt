@@ -3298,6 +3298,22 @@ impl<'a> InterpPass<'a> {
 
                             let _timing_guard =
                                 self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
+                            // Recorded *before* the clone, so this is the
+                            // size `ctxt_clone.wtos` and `ctxt.wtos` (and
+                            // therefore whatever `acc.wtos` traces back to
+                            // from earlier candidates merged against this
+                            // same `ctxt`) have in common as of right now -
+                            // the "shared ancestor" point. Compared against
+                            // `ctxt_clone.wtos.len()` after this candidate's
+                            // own interpretation runs, the difference tells
+                            // us how many entries THIS candidate genuinely
+                            // added versus how many it's carrying forward
+                            // unchanged from that shared base - i.e.
+                            // whether a delta-based union would have
+                            // anything worth exploiting here, or whether
+                            // each side diverges too much for that to help.
+                            let base_wtos_len = ctxt.wtos.len();
+                            let base_refs_len = ctxt.cstore.refs.len();
                             let mut ctxt_clone = ctxt.clone();
                             let mut call_stack_clone = call_stack.clone();
 
@@ -3358,7 +3374,7 @@ impl<'a> InterpPass<'a> {
                                     let vec = Vec::from([a, ctxt_clone]);
                                     drop(_tg);
 
-                                    self.merge_contexts_timed(cur_scope, vec)?.unwrap()
+                                    self.merge_contexts_timed(cur_scope, vec, Some(base_wtos_len), Some(base_refs_len))?.unwrap()
                                 }
                             });
                             drop(_timing_guard);
@@ -3430,6 +3446,16 @@ impl<'a> InterpPass<'a> {
         &self,
         scope: &VOID,
         contexts: Vec<Context>,
+        // The shared-ancestor `wtos` size for the *last* context in
+        // `contexts` (the only caller passes exactly 2, so this
+        // corresponds 1:1 to the single wtos-union iteration below) - see
+        // where this gets computed in `simulate_static_calls`, right
+        // before that context's own clone is taken. `None` when the
+        // caller has no meaningful ancestor to report (e.g. the final
+        // top-level merge in `merge_results_and_ret`'s caller).
+        rhs_base_wtos_len: Option<usize>,
+        // Same idea, for `refs` (threaded through to `merge_cstores_timed`).
+        rhs_base_refs_len: Option<usize>,
     ) -> Result<Option<Context>, Error> {
         let _timing_guard = self.timing_span(TimingCat::TermMergeContextsSetup, scope);
         if contexts.is_empty() {
@@ -3457,7 +3483,7 @@ impl<'a> InterpPass<'a> {
         }
 
         let _timing_guard = self.timing_span(TimingCat::TermMergeCstoresMerge, scope);
-        let m_cstores = self.merge_cstores_timed(scope, cstores);
+        let m_cstores = self.merge_cstores_timed(scope, cstores, rhs_base_refs_len);
         drop(_timing_guard);
 
         let mut wtos_iter = wtos_list.into_iter();
@@ -3466,16 +3492,20 @@ impl<'a> InterpPass<'a> {
 
         let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
         for wtos in wtos_iter {
-            //let shared = Self::count_shared_keys(&m_wtos, &wtos);
-            //let ptr_identical = m_wtos.ptr_eq(&wtos);
-            //debug!(
-            //    "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
-            //    *self.bb_visit_count.borrow(),
-            //    m_wtos.len(),
-            //    wtos.len(),
-            //    shared,
-            //    ptr_identical
-            //);
+            let shared = Self::count_shared_keys(&m_wtos, &wtos);
+            let ptr_identical = m_wtos.ptr_eq(&wtos);
+            let rhs_len = wtos.len();
+            let new_entries = rhs_base_wtos_len.map(|base| rhs_len.saturating_sub(base));
+            debug!(
+                "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={} rhs_base_len={} rhs_new_entries={}",
+                *self.bb_visit_count.borrow(),
+                m_wtos.len(),
+                rhs_len,
+                shared,
+                ptr_identical,
+                rhs_base_wtos_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
+                new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
+            );
             m_wtos = m_wtos.union(wtos);
         }
         drop(_timing_guard);
@@ -3492,7 +3522,12 @@ impl<'a> InterpPass<'a> {
     /// `stores` by value (not `&[ConstraintStore]`) for the same reason
     /// `merge_contexts_timed` now takes `contexts` by value - see the
     /// comments there.
-    fn merge_cstores_timed(&self, scope: &VOID, stores: Vec<ConstraintStore>) -> ConstraintStore {
+    fn merge_cstores_timed(
+        &self,
+        scope: &VOID,
+        stores: Vec<ConstraintStore>,
+        rhs_base_refs_len: Option<usize>,
+    ) -> ConstraintStore {
         let mut stores_iter = stores.into_iter();
         // Moved, not cloned - this used to be `stores[0].clone()`.
         let mut merged = stores_iter.next().unwrap();
@@ -3528,16 +3563,20 @@ impl<'a> InterpPass<'a> {
             // first (used to be `store.refs.clone()` under
             // `TermMergeRefsClone`, now gone - nothing left to clone).
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
-            //let shared = Self::count_shared_keys(&merged.refs, &store.refs);
-            //let ptr_identical = merged.refs.ptr_eq(&store.refs);
-            //debug!(
-            //    "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={}",
-            //    *self.bb_visit_count.borrow(),
-            //    merged.refs.len(),
-            //    store.refs.len(),
-            //    shared,
-            //    ptr_identical
-            //);
+            let shared = Self::count_shared_keys(&merged.refs, &store.refs);
+            let ptr_identical = merged.refs.ptr_eq(&store.refs);
+            let rhs_len = store.refs.len();
+            let new_entries = rhs_base_refs_len.map(|base| rhs_len.saturating_sub(base));
+            debug!(
+                "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={} rhs_base_len={} rhs_new_entries={}",
+                *self.bb_visit_count.borrow(),
+                merged.refs.len(),
+                rhs_len,
+                shared,
+                ptr_identical,
+                rhs_base_refs_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
+                new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
+            );
             merged.refs = merged.refs.union(store.refs);
             drop(_timing_guard);
         }

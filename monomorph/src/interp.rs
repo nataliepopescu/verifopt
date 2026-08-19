@@ -43,6 +43,12 @@ use std::rc::Weak;
 
 const MAX_DEPTH: u32 = 50;
 
+/// Cache key for `virtual_call_memo` - the call site (caller function's
+/// DefId + basic block, same pair already used for `dispatch_cha`) plus
+/// an `ArgSet` fingerprint of the call's operands as seen from the
+/// caller's side. See `virtual_call_memo`'s field doc for the rationale.
+type VirtualCallKey = ((DefId, usize), ArgSet);
+
 #[derive(Debug, Clone)]
 pub enum ParamSummary {
     Built(Option<Constraints>),
@@ -86,6 +92,8 @@ pub struct InterpPass<'a> {
     pub incomplete: RefCell<ImHashSet<VOID>>,
 
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
+
+    pub virtual_call_memo: RefCell<HashMap<VirtualCallKey, (Option<Constraints>, u64)>>,
 
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
@@ -228,6 +236,7 @@ pub(crate) enum TimingCat {
     TermInterpVirtualCall,
     //TermParamSummary,
     TermMemo,
+    TermVirtualMemo,
     TermGetImplsCha,
     TermGetImplsFsa,
     TermVirtualCallPrep,
@@ -371,6 +380,7 @@ impl<'a> InterpPass<'a> {
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
+            virtual_call_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
             scope_exact_memo_count: HashMap::new().into(),
             scope_summaries_count: HashMap::new().into(),
@@ -2471,6 +2481,27 @@ impl<'a> InterpPass<'a> {
 
         let key = (caller_scope.0.def.def_id(), bb);
 
+        let _timing_guard = self.timing_span(TimingCat::TermVirtualMemo, caller_scope);
+        let resolved_args: Vec<Constraints> = args
+            .iter()
+            .map(|op| self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false))
+            .collect();
+        let virtual_key: VirtualCallKey = (key, ArgSet::new(&resolved_args));
+        let caller_epoch_before = *self.scope_epoch.borrow().get(caller_scope).unwrap_or(&0);
+        if let Some((cached, cached_epoch)) = self.virtual_call_memo.borrow().get(&virtual_key) {
+            if *cached_epoch == caller_epoch_before {
+                debug!(
+                    "virtual_call_memo hit for call site {:?} at epoch {}",
+                    key, caller_epoch_before
+                );
+                // `_timing_guard` (TermVirtualMemo) drops here automatically,
+                // correctly closing this span even on this early-return
+                // exit - same reasoning as `TermMemo`'s cache-hit path.
+                return Ok(cached.clone());
+            }
+        }
+        drop(_timing_guard);
+
         // Get concrete type constraints for trait object
         // - ctxt (FSA) / tstore (CHA / RTA)
         // Get every concrete type constraint's impl of this function
@@ -2486,7 +2517,7 @@ impl<'a> InterpPass<'a> {
 
         for (cha_impl, _) in &assoc_fn_impls_cha {
             if *cha_impl == fndef.0 {
-                debug!("CHA set has the virtual dyn function");
+                //debug!("CHA set has the virtual dyn function");
             }
         }
 
@@ -2532,19 +2563,21 @@ impl<'a> InterpPass<'a> {
         // Log CHA vs FSA diffs
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\tterm={:?}\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
                 fndef,
+                term_span,
             );
         } else {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\tterm={:?}\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
                 fndef,
+                term_span,
             );
         }
 
@@ -2595,7 +2628,7 @@ impl<'a> InterpPass<'a> {
         }
         drop(_timing_guard);
 
-        self.simulate_static_calls(
+        let result = self.simulate_static_calls(
             term_span,
             ctxt,
             call_stack,
@@ -2606,7 +2639,19 @@ impl<'a> InterpPass<'a> {
             args,
             is_closure,
             &fndef.0,
-        )
+        );
+
+        // Only cache on success - an `Err` (e.g. a caught-and-skipped
+        // candidate panic bubbling up, or `SummaryImprecise`) shouldn't be
+        // treated as a stable, reusable outcome for this call site.
+        if let Ok(ref cs) = result {
+            let caller_epoch_after = *self.scope_epoch.borrow().get(caller_scope).unwrap_or(&0);
+            self.virtual_call_memo
+                .borrow_mut()
+                .insert(virtual_key, (cs.clone(), caller_epoch_after));
+        }
+
+        result
     }
 
     fn compute_tag_plan(
@@ -2933,7 +2978,7 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         constraint: &Constraint,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        debug!("RESOLVE DEFID");
+        //debug!("RESOLVE DEFID");
 
         match constraint {
             Constraint {
@@ -3007,7 +3052,7 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         fields: &ADTFields,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        debug!("\nRESOLVE ADT HELPER");
+        //debug!("\nRESOLVE ADT HELPER");
 
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {

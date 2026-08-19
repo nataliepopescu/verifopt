@@ -93,7 +93,7 @@ pub struct InterpPass<'a> {
 
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
 
-    pub virtual_call_memo: RefCell<HashMap<VirtualCallKey, (Option<Constraints>, u64)>>,
+    pub virtual_call_memo: RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>)>>,
 
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
@@ -2487,12 +2487,15 @@ impl<'a> InterpPass<'a> {
             .map(|op| self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false))
             .collect();
         let virtual_key: VirtualCallKey = (key, ArgSet::new(&resolved_args));
-        let caller_epoch_before = *self.scope_epoch.borrow().get(caller_scope).unwrap_or(&0);
-        if let Some((cached, cached_epoch)) = self.virtual_call_memo.borrow().get(&virtual_key) {
-            if *cached_epoch == caller_epoch_before {
+        if let Some((cached, recorded_scopes)) = self.virtual_call_memo.borrow().get(&virtual_key) {
+            let still_fresh = recorded_scopes.iter().all(|(scope, recorded_epoch)| {
+                *self.scope_epoch.borrow().get(scope).unwrap_or(&0) == *recorded_epoch
+            });
+            if still_fresh {
                 debug!(
-                    "virtual_call_memo hit for call site {:?} at epoch {}",
-                    key, caller_epoch_before
+                    "virtual_call_memo hit for call site {:?} ({} dependent scopes, all fresh)",
+                    key,
+                    recorded_scopes.len()
                 );
                 // `_timing_guard` (TermVirtualMemo) drops here automatically,
                 // correctly closing this span even on this early-return
@@ -2628,6 +2631,7 @@ impl<'a> InterpPass<'a> {
         }
         drop(_timing_guard);
 
+        let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
         let result = self.simulate_static_calls(
             term_span,
             ctxt,
@@ -2639,16 +2643,16 @@ impl<'a> InterpPass<'a> {
             args,
             is_closure,
             &fndef.0,
+            &mut touched_scopes,
         );
 
         // Only cache on success - an `Err` (e.g. a caught-and-skipped
         // candidate panic bubbling up, or `SummaryImprecise`) shouldn't be
         // treated as a stable, reusable outcome for this call site.
         if let Ok(ref cs) = result {
-            let caller_epoch_after = *self.scope_epoch.borrow().get(caller_scope).unwrap_or(&0);
             self.virtual_call_memo
                 .borrow_mut()
-                .insert(virtual_key, (cs.clone(), caller_epoch_after));
+                .insert(virtual_key, (cs.clone(), touched_scopes));
         }
 
         result
@@ -3107,6 +3111,7 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         is_closure: bool,
         assoc_fn_defid: &DefId,
+        touched_scopes: &mut Vec<(VOID, u64)>,
     ) -> Result<Option<Constraints>, Error> {
         let mut results = Vec::<Option<Constraints>>::new();
 
@@ -3276,6 +3281,10 @@ impl<'a> InterpPass<'a> {
                                 &cs,
                                 is_closure,
                             )?);
+                            touched_scopes.push((
+                                callee_scope.clone(),
+                                *self.scope_epoch.borrow().get(&callee_scope).unwrap_or(&0),
+                            ));
                             drop(_timing_guard);
 
                             let _timing_guard = self

@@ -2487,20 +2487,39 @@ impl<'a> InterpPass<'a> {
             .map(|op| self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false))
             .collect();
         let virtual_key: VirtualCallKey = (key, ArgSet::new(&resolved_args));
-        if let Some((cached, recorded_scopes)) = self.virtual_call_memo.borrow().get(&virtual_key) {
-            let still_fresh = recorded_scopes.iter().all(|(scope, recorded_epoch)| {
-                *self.scope_epoch.borrow().get(scope).unwrap_or(&0) == *recorded_epoch
-            });
-            if still_fresh {
-                debug!(
-                    "virtual_call_memo hit for call site {:?} ({} dependent scopes, all fresh)",
-                    key,
-                    recorded_scopes.len()
-                );
-                // `_timing_guard` (TermVirtualMemo) drops here automatically,
-                // correctly closing this span even on this early-return
-                // exit - same reasoning as `TermMemo`'s cache-hit path.
-                return Ok(cached.clone());
+        match self.virtual_call_memo.borrow().get(&virtual_key) {
+            Some((cached, recorded_scopes)) => {
+                let stale: Vec<(DefId, u64, u64)> = recorded_scopes
+                    .iter()
+                    .filter_map(|(scope, recorded_epoch)| {
+                        let current_epoch = *self.scope_epoch.borrow().get(scope).unwrap_or(&0);
+                        (current_epoch != *recorded_epoch).then(|| {
+                            (scope.0.def.def_id(), *recorded_epoch, current_epoch)
+                        })
+                    })
+                    .collect();
+                if stale.is_empty() {
+                    debug!(
+                        "virtual_call_memo hit for call site {:?} ({} dependent scopes, all fresh)",
+                        key,
+                        recorded_scopes.len()
+                    );
+                    // `_timing_guard` (TermVirtualMemo) drops here automatically,
+                    // correctly closing this span even on this early-return
+                    // exit - same reasoning as `TermMemo`'s cache-hit path.
+                    return Ok(cached.clone());
+                } else {
+                    debug!(
+                        "virtual_call_memo MISS (stale) for call site {:?}: {} of {} dependent scopes changed: {:?}",
+                        key,
+                        stale.len(),
+                        recorded_scopes.len(),
+                        stale
+                    );
+                }
+            }
+            None => {
+                debug!("virtual_call_memo MISS (no entry) for call site {:?}", key);
             }
         }
         drop(_timing_guard);

@@ -124,46 +124,15 @@ impl TraitCollectPass {
             let trait_defid = trait_impl.value.def_id.0;
             //debug!("TRAIT: {:?}", trait_defid);
 
-            // Get Struct DefId
-            let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
-            if result.is_err() {
-                continue;
-            }
-            let struct_defid;
-            if let Some(struct_defid_inner) = result.unwrap() {
-                struct_defid = struct_defid_inner;
-            } else {
-                //debug!("got a None struct_defid option (FIXME)");
-                continue;
-            }
-            //debug!("STRUCT: {:?}", struct_defid);
-
-            // Add trait to list of traits that this struct impls
-            match tstore.struct_traits.get_mut(&struct_defid) {
-                Some(trait_vec) => {
-                    //debug!("adding trait to existing vec: {:?}", trait_vec);
-                    trait_vec.push(trait_defid);
-                }
-                None => {
-                    //debug!("init w trait");
-                    tstore.struct_traits.insert(struct_defid, vec![trait_defid]);
-                }
-            }
-
-            // Add struct to list of structs that impl this trait
-            match tstore.trait_structs.get_mut(&trait_defid) {
-                Some(struct_vec) => {
-                    struct_vec.push((struct_defid, trait_impl.value.args().clone()));
-                }
-                None => {
-                    tstore.trait_structs.insert(
-                        trait_defid,
-                        vec![(struct_defid, trait_impl.value.args().clone())],
-                    );
-                }
-            }
-
-            // Get AssocFn DefIds
+            // Get AssocFn DefIds - operates on `impl_def` directly, not on
+            // whatever `get_struct_defid` finds below, so this (and the
+            // trait-level back-pointer registration it feeds) runs
+            // unconditionally. A blanket impl (`impl<P> Trait for P where
+            // ...`) has no single concrete Self type, so `get_struct_defid`
+            // legitimately returns None for it below - but that impl still
+            // provides real, concrete method bodies (monomorphized per
+            // instantiation), and this trait-level bookkeeping doesn't need
+            // to know which struct to record that.
             let mut assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
             //debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
             //debug!("trait_fn_defids: {:?}", tstore.trait_fns.get(&trait_defid));
@@ -219,6 +188,48 @@ impl TraitCollectPass {
                             );
                         }
                     }
+                }
+            }
+
+            // Get Struct DefId - only needed for the struct-specific
+            // bookkeeping below; a blanket impl legitimately has none, in
+            // which case we skip just that part, not the trait-level
+            // registration above (already done, and independent of this).
+            let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
+            if result.is_err() {
+                continue;
+            }
+            let struct_defid;
+            if let Some(struct_defid_inner) = result.unwrap() {
+                struct_defid = struct_defid_inner;
+            } else {
+                //debug!("got a None struct_defid option (FIXME)");
+                continue;
+            }
+            //debug!("STRUCT: {:?}", struct_defid);
+
+            // Add trait to list of traits that this struct impls
+            match tstore.struct_traits.get_mut(&struct_defid) {
+                Some(trait_vec) => {
+                    //debug!("adding trait to existing vec: {:?}", trait_vec);
+                    trait_vec.push(trait_defid);
+                }
+                None => {
+                    //debug!("init w trait");
+                    tstore.struct_traits.insert(struct_defid, vec![trait_defid]);
+                }
+            }
+
+            // Add struct to list of structs that impl this trait
+            match tstore.trait_structs.get_mut(&trait_defid) {
+                Some(struct_vec) => {
+                    struct_vec.push((struct_defid, trait_impl.value.args().clone()));
+                }
+                None => {
+                    tstore.trait_structs.insert(
+                        trait_defid,
+                        vec![(struct_defid, trait_impl.value.args().clone())],
+                    );
                 }
             }
 

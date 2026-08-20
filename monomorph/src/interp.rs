@@ -85,6 +85,18 @@ pub struct InterpPass<'a> {
     timing_window_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
+    // Scopes whose `wtos` entry survived a `union()` collision where the
+    // two merged sides actually *disagreed* (different BBDeps - i.e.
+    // genuinely different traversal progress, not just two copies of the
+    // same state) - see the check in `visit_body` that reads this. Tracks
+    // whether `union()`'s "discard one side's progress" behavior for
+    // `wtos` could plausibly cause under-processing: if `visit_body` later
+    // re-enters one of these scopes and finds an already-empty `ordering`
+    // (i.e. "nothing left to do" per the surviving side), that's exactly
+    // the scenario where the discarded side's own progress/knowledge might
+    // never get properly re-derived, even though `cmap`'s value-level
+    // merge (unlike `wtos`) did preserve both sides' information.
+    pub wtos_merge_conflicts: RefCell<ImHashSet<VOID>>,
 
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
 
@@ -383,6 +395,7 @@ impl<'a> InterpPass<'a> {
             timing_window_exclusive: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
+            wtos_merge_conflicts: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
             virtual_call_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
@@ -659,6 +672,35 @@ impl<'a> InterpPass<'a> {
         let mut bb_deps;
         if let Some(mem_bb_deps) = ctxt.get_wto(cur_scope) {
             bb_deps = mem_bb_deps.clone();
+            if bb_deps.has_ret && bb_deps.ordering.is_empty() {
+                // Precisely the pattern discussed: this scope's `wtos`
+                // entry survived a `union()` collision where the two
+                // merged sides genuinely disagreed (see
+                // `wtos_merge_conflicts`), and we're now re-entering it
+                // with an *already-empty* ordering - i.e. "nothing left
+                // to do" per whichever side `union()` happened to keep.
+                // If the discarded side's own progress/knowledge for
+                // this scope never got folded back in some other way
+                // (e.g. via the epoch-triggered reinterpretation queue),
+                // this is exactly the point where that would silently
+                // never get corrected - `cmap`'s value-level merge
+                // preserved both sides' constraint information, but
+                // nothing here re-derives what this scope's *body*
+                // should conclude from it. Deliberately a debug! and not
+                // a panic!: the ordinary, harmless case (a scope visited
+                // once, never touched by a conflicting merge) is common
+                // and expected, so only scopes actually flagged in
+                // `wtos_merge_conflicts` are worth flagging here at all.
+                if self.wtos_merge_conflicts.borrow().contains(cur_scope) {
+                    debug!(
+                        "POTENTIAL SOUNDNESS GAP: re-entering scope {:?} with an already-empty \
+                         wtos ordering, but this scope's wtos entry survived a union() collision \
+                         (see wtos_merge_conflicts) - the discarded side's own body-level \
+                         derivation may never get re-run against the now-merged cmap",
+                        cur_scope.0.name()
+                    );
+                }
+            }
             if !bb_deps.has_ret {
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
@@ -3094,7 +3136,10 @@ impl<'a> InterpPass<'a> {
                     }
                     (false, defids)
                 }
-                RunningConstraint::Param(..) => (false, vec![]),
+                //RunningConstraint::Tuple, List TODO
+                RunningConstraint::Param(..)
+                | RunningConstraint::FnDef(..)
+                | RunningConstraint::FnPtr(_) => (false, vec![]),
                 _ => todo!("{:?}", cfc),
             },
             _ => (false, vec![]),
@@ -3442,6 +3487,29 @@ impl<'a> InterpPass<'a> {
         smaller.keys().filter(|k| larger.contains_key(k)).count()
     }
 
+    /// Keys present in both `a` and `b` whose values genuinely differ
+    /// (`PartialEq`, not just present). Used specifically to detect a
+    /// real `union()` collision - not just "this key exists on both
+    /// sides" (which `count_shared_keys` already covers and is the
+    /// overwhelmingly common, harmless case per the earlier overlap
+    /// investigation), but "the two sides disagreed about what this key
+    /// maps to, and `union()` is about to arbitrarily keep one and
+    /// discard the other." See `wtos_merge_conflicts`.
+    fn find_conflicting_keys<K, V>(a: &ImHashMap<K, V>, b: &ImHashMap<K, V>) -> Vec<K>
+    where
+        K: std::hash::Hash + Eq + Clone,
+        V: Clone + PartialEq,
+    {
+        let (smaller, larger) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+        smaller
+            .iter()
+            .filter_map(|(k, v)| match larger.get(k) {
+                Some(other_v) if other_v != v => Some(k.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn merge_contexts_timed(
         &self,
         scope: &VOID,
@@ -3506,6 +3574,21 @@ impl<'a> InterpPass<'a> {
                 rhs_base_wtos_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
                 new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
             );
+
+            // Diagnostic-only: same O(min(len)) cost caveat as
+            // `count_shared_keys` above. Records which scopes' `wtos`
+            // entries are *actually* about to have one side's progress
+            // discarded by the `union()` below (not just "present on both
+            // sides," which per the earlier overlap investigation is the
+            // overwhelmingly common, harmless case) - see `visit_body`
+            // for where this gets checked against the specific pattern
+            // that could plausibly cause silent under-processing.
+            for conflicting_scope in Self::find_conflicting_keys(&m_wtos, &wtos) {
+                self.wtos_merge_conflicts
+                    .borrow_mut()
+                    .insert(conflicting_scope);
+            }
+
             m_wtos = m_wtos.union(wtos);
         }
         drop(_timing_guard);

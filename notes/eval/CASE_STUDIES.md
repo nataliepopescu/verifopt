@@ -6,12 +6,14 @@
 
 - [ ] dynolog cli
     - perf telemetry tool (facebook)
-    - verifopt starts running but hits a panic at 2nd dynamic dispatch call
+    - ~verifopt starts running but hits a panic at 2nd dynamic dispatch call~
+    - another error
 
 - [ ] zellij
     - terminal workspace
     - release build time almost 6 min
-    - hits same panic as dynolog at its 14th dynamic dispatch site
+    - ~hits same panic as dynolog at its 14th dynamic dispatch site~
+    - now stack overflow
 
 - [ ] tock
 

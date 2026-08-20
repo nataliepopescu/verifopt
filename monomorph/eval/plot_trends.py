@@ -109,6 +109,11 @@ def main():
     args = ap.parse_args()
 
     df = pd.read_csv(args.csv)
+    # "FINAL GLOBAL EXCLUSIVE" is a cumulative re-statement of all the
+    # windowed rows, not an additional window - drop before any grouping,
+    # rolling, or thirds bucketing sees it.
+    df = df[df["bb_visit"].notna()].copy()
+    df["bb_visit"] = df["bb_visit"].astype(int)
     if args.exclude_bb_visit:
         df = df[~df["bb_visit"].isin(args.exclude_bb_visit)]
 

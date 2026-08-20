@@ -87,6 +87,10 @@ def main():
     args = ap.parse_args()
 
     df = pd.read_csv(args.csv)
+    # "FINAL GLOBAL EXCLUSIVE" is a cumulative re-statement of all the
+    # windowed rows, not an additional window - keep it out of any sum.
+    df = df[df["bb_visit"].notna()].copy()
+    df["bb_visit"] = df["bb_visit"].astype(int)
     x_max = df["bb_visit"].max()
     all_cats = [
         c for c in sorted(df["category"].unique()) if c not in NON_STMT_TERM_CATS

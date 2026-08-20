@@ -948,7 +948,9 @@ impl<'a> InterpPass<'a> {
         let alloc = match sdef.eval_initializer() {
             Ok(a) => a,
             Err(_) => {
-                let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+                let (_, c) = self
+                    .converter
+                    .convert_ty(&Location::unknown(), &ty, None, Some(self));
                 return Constraints::from(c);
             }
         };
@@ -958,10 +960,17 @@ impl<'a> InterpPass<'a> {
             matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
 
         let constraints = if frozen {
-            self.converter
-                .convert_static_const(&Location::unknown(), &ty, &alloc)
+            self.converter.convert_static_const(
+                &Location::unknown(),
+                &ty,
+                &alloc,
+                None,
+                Some(self),
+            )
         } else {
-            let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+            let (_, c) = self
+                .converter
+                .convert_ty(&Location::unknown(), &ty, None, Some(self));
             Constraints::from(c)
         };
 
@@ -1276,9 +1285,12 @@ impl<'a> InterpPass<'a> {
                     );
                     ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
                 } else {
-                    let (_, dst) = self
-                        .converter
-                        .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
+                    let (_, dst) = self.converter.convert_ty(
+                        &Location::unknown(),
+                        &place.ty(local_decls).unwrap(),
+                        Some(cur_scope),
+                        Some(self),
+                    );
                     let dst_constraints =
                         self.lift_traitobjtys(&maybe_trait_destty, Constraints::from(dst));
                     ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
@@ -1303,10 +1315,12 @@ impl<'a> InterpPass<'a> {
                     None => None,
                 }
             }
-            Operand::Constant(const_op) => Some(
-                self.converter
-                    .convert_const(&Location::unknown(), &const_op),
-            ),
+            Operand::Constant(const_op) => Some(self.converter.convert_const(
+                &Location::unknown(),
+                &const_op,
+                Some(cur_scope),
+                Some(self),
+            )),
             _ => panic!("got runtime checks"),
         }
     }
@@ -2441,16 +2455,22 @@ impl<'a> InterpPass<'a> {
                 match ctxt.get_constraints(caller_scope, local_decls, place, is_closure) {
                     Some(constraints) => self.lift_traitobjtys(maybe_trait_argty, constraints),
                     None => {
-                        let (_maybe_traitobjty, constraint) = self
-                            .converter
-                            .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
+                        let (_maybe_traitobjty, constraint) = self.converter.convert_ty(
+                            &Location::unknown(),
+                            &place.ty(local_decls).unwrap(),
+                            Some(caller_scope),
+                            Some(self),
+                        );
                         Constraints::from(constraint)
                     }
                 }
             }
-            Operand::Constant(const_op) => self
-                .converter
-                .convert_const(&Location::unknown(), &const_op),
+            Operand::Constant(const_op) => self.converter.convert_const(
+                &Location::unknown(),
+                &const_op,
+                Some(caller_scope),
+                Some(self),
+            ),
             _ => todo!("runtime check arg"),
         }
     }
@@ -2475,9 +2495,9 @@ impl<'a> InterpPass<'a> {
         //debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
-        let (_, constraint) = self
-            .converter
-            .convert_ty(&Location::unknown(), &sig.value.output());
+        let (_, constraint) =
+            self.converter
+                .convert_ty(&Location::unknown(), &sig.value.output(), None, Some(self));
         Ok(Some(Constraints::from(constraint)))
     }
 
@@ -2490,9 +2510,9 @@ impl<'a> InterpPass<'a> {
             );
         }
 
-        let (_, constraint) = self
-            .converter
-            .convert_ty(&Location::unknown(), &sigval.output);
+        let (_, constraint) =
+            self.converter
+                .convert_ty(&Location::unknown(), &sigval.output, None, Some(self));
         Ok(Some(Constraints::from(constraint)))
     }
 
@@ -3154,7 +3174,10 @@ impl<'a> InterpPass<'a> {
 
         // Also search in genargs for an implementing type
         for genarg in &genargs.0 {
-            match self.converter.convert_genarg(&Location::unknown(), &genarg) {
+            match self
+                .converter
+                .convert_genarg(&Location::unknown(), &genarg, None, Some(self))
+            {
                 Some(genarg_constraint) => {
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);

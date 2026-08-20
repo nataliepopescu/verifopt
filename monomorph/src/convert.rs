@@ -201,23 +201,40 @@ impl<'a> RvalConverter<'a> {
             Operand::Copy(place) | Operand::Move(place) => {
                 self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
-            Operand::Constant(const_op) => self.convert_const(span, &const_op),
+            Operand::Constant(const_op) => {
+                self.convert_const(span, &const_op, Some(cur_scope), timing)
+            }
             _ => todo!("runtime checks"),
         }
     }
 
-    pub fn convert_const(&self, span: &Location, const_op: &ConstOperand) -> Constraints {
+    pub fn convert_const(
+        &self,
+        span: &Location,
+        const_op: &ConstOperand,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         //debug!("CONVERTING CONST");
         let ty = const_op.const_.ty();
 
         match const_op.const_.kind() {
-            ConstantKind::Allocated(alloc) => self.convert_allocated_const(span, &ty, alloc),
-            ConstantKind::ZeroSized => self.convert_zero_sized_const(span, &ty),
-            _ => self.convert_const_fallback(span, &ty),
+            ConstantKind::Allocated(alloc) => {
+                self.convert_allocated_const(span, &ty, alloc, cur_scope, timing)
+            }
+            ConstantKind::ZeroSized => self.convert_zero_sized_const(span, &ty, cur_scope, timing),
+            _ => self.convert_const_fallback(span, &ty, cur_scope, timing),
         }
     }
 
-    fn convert_allocated_const(&self, span: &Location, ty: &Ty, alloc: &Allocation) -> Constraints {
+    fn convert_allocated_const(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         match ty.kind() {
             TyKind::RigidTy(RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_)) => {
                 match alloc.read_int() {
@@ -237,14 +254,22 @@ impl<'a> RvalConverter<'a> {
                     adtdef.clone(),
                     genargs.clone(),
                     None,
-                    self.convert_allocated_adt(span, &adtdef, &genargs, ty, alloc),
+                    self.convert_allocated_adt(
+                        span, &adtdef, &genargs, ty, alloc, cur_scope, timing,
+                    ),
                 )),
             )),
-            _ => self.convert_const_fallback(span, ty),
+            _ => self.convert_const_fallback(span, ty, cur_scope, timing),
         }
     }
 
-    fn convert_zero_sized_const(&self, span: &Location, ty: &Ty) -> Constraints {
+    fn convert_zero_sized_const(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         match ty.kind() {
             // A zero-sized ADT (unit struct, empty enum variant, etc.) - build
             // the Adt shape directly rather than falling through to convert_ty,
@@ -261,7 +286,7 @@ impl<'a> RvalConverter<'a> {
             // Zero-sized non-ADT (e.g. `()`, a zero-length array/tuple, a ZST
             // closure) - no field structure to build, so the generic fallback
             // is the right answer here, not a gap to fill in later.
-            _ => self.convert_const_fallback(span, ty),
+            _ => self.convert_const_fallback(span, ty, cur_scope, timing),
         }
     }
 
@@ -272,6 +297,8 @@ impl<'a> RvalConverter<'a> {
         genargs: &GenericArgs,
         ty: &Ty,
         alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
     ) -> ADTFields {
         let layout = ty.layout().expect("no layout for a concrete, sized ADT");
         let shape = layout.shape();
@@ -302,7 +329,8 @@ impl<'a> RvalConverter<'a> {
 
             // Recurse: a scalar field bottoms out via read_int as today;
             // a nested struct field recurses back into this same function.
-            let field_constraint = self.convert_sub_alloc(span, &field_ty, &sub_alloc);
+            let field_constraint =
+                self.convert_sub_alloc(span, &field_ty, &sub_alloc, cur_scope, timing);
             fields.insert(i, Constraints::from(field_constraint));
         }
         fields
@@ -312,7 +340,14 @@ impl<'a> RvalConverter<'a> {
     /// parent struct's Allocation) into a Constraint, dispatching on the
     /// field's own type the same way convert_const dispatches on the whole
     /// operand's type.
-    fn convert_sub_alloc(&self, span: &Location, ty: &Ty, alloc: &Allocation) -> Constraint {
+    fn convert_sub_alloc(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraint {
         match ty.kind() {
             TyKind::RigidTy(RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_)) => {
                 match alloc.read_int() {
@@ -327,7 +362,7 @@ impl<'a> RvalConverter<'a> {
                     adtdef.clone(),
                     genargs.clone(),
                     None,
-                    self.convert_allocated_adt(span, &adtdef, &genargs, ty, alloc),
+                    self.convert_allocated_adt(span, &adtdef, &genargs, ty, alloc, cur_scope, timing),
                 )),
             ),
 
@@ -335,7 +370,7 @@ impl<'a> RvalConverter<'a> {
             // real but much rarer (a `&'static` reference to a static, mostly) —
             // not worth a bytes-level decoder yet
             _ => {
-                let (_, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty, cur_scope, timing);
                 constraint
             }
         }
@@ -351,8 +386,14 @@ impl<'a> RvalConverter<'a> {
         ProvenanceMap { ptrs }
     }
 
-    fn convert_const_fallback(&self, span: &Location, ty: &Ty) -> Constraints {
-        let (_, constraint) = self.convert_ty(span, ty);
+    fn convert_const_fallback(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
+        let (_, constraint) = self.convert_ty(span, ty, cur_scope, timing);
         Constraints::from(constraint)
     }
 
@@ -376,7 +417,7 @@ impl<'a> RvalConverter<'a> {
             Some(constraints) => constraints,
             None => {
                 let place_ty = place.ty(local_decls).unwrap_or(*destty);
-                let (_, constraint) = self.convert_ty(span, &place_ty);
+                let (_, constraint) = self.convert_ty(span, &place_ty, Some(cur_scope), timing);
                 Constraints::from(constraint)
             }
         }
@@ -548,8 +589,10 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         match op {
             Operand::Constant(const_op) => {
-                let prev_constraints = self.convert_const(span, &const_op);
-                let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
+                let prev_constraints =
+                    self.convert_const(span, &const_op, Some(cur_scope), timing);
+                let (maybe_traitobj, post_constraint) =
+                    self.convert_ty(span, ty, Some(cur_scope), timing);
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
                 } else {
@@ -561,7 +604,8 @@ impl<'a> RvalConverter<'a> {
                     self.convert_place(ctxt, span, local_decls, cur_scope, place, ty, timing)
                 };
 
-                let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
+                let (maybe_traitobj, post_constraint) =
+                    self.convert_ty(span, ty, Some(cur_scope), timing);
 
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
@@ -752,14 +796,14 @@ impl<'a> RvalConverter<'a> {
                     _ => todo!("more than 2 operands"),
                 }
 
-                let (_, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty, Some(cur_scope), timing);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::Ptr(Box::new(constraint))),
                 ))
             }
             AggregateKind::Array(ty) => {
-                let (_, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty, Some(cur_scope), timing);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::List(Box::new(constraint))),
@@ -796,17 +840,32 @@ impl<'a> RvalConverter<'a> {
     }
     */
 
-    pub fn convert_genarg(&self, span: &Location, genarg: &GenericArgKind) -> Option<Constraint> {
+    pub fn convert_genarg(
+        &self,
+        span: &Location,
+        genarg: &GenericArgKind,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Option<Constraint> {
         match genarg {
             GenericArgKind::Type(ty) => {
-                let (_, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty, cur_scope, timing);
                 Some(constraint)
             }
             _ => None,
         }
     }
 
-    pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
+    pub fn convert_ty(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> (Option<Vec<TraitObjTy>>, Constraint) {
+        let _g = cur_scope
+            .zip(timing)
+            .map(|(s, p)| p.timing_span(TimingCat::ConvertType, s));
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => (
@@ -819,7 +878,7 @@ impl<'a> RvalConverter<'a> {
                     for genarg in &genargs.0 {
                         match genarg {
                             GenericArgKind::Type(ty) => {
-                                let (tot, _) = self.convert_ty(span, &ty);
+                                let (tot, _) = self.convert_ty(span, &ty, cur_scope, timing);
                                 match tot {
                                     Some(tot) => unique_append(&mut traitobjtys, tot),
                                     None => {}
@@ -853,7 +912,8 @@ impl<'a> RvalConverter<'a> {
                     let mut traitobj_vec = Vec::new();
                     for ty in ty_vec {
                         // FIXME
-                        let (maybe_traitobj, constraint) = self.convert_ty(span, &ty);
+                        let (maybe_traitobj, constraint) =
+                            self.convert_ty(span, &ty, cur_scope, timing);
                         unique_push(&mut inner, constraint);
                         match maybe_traitobj {
                             Some(to) => unique_append(&mut traitobj_vec, to),
@@ -878,7 +938,8 @@ impl<'a> RvalConverter<'a> {
                     )
                 }
                 RigidTy::Array(ty, _) | RigidTy::Slice(ty) => {
-                    let (maybe_traitobj, constraint) = self.convert_ty(span, &ty);
+                    let (maybe_traitobj, constraint) =
+                        self.convert_ty(span, &ty, cur_scope, timing);
                     (
                         maybe_traitobj,
                         Constraint::new(
@@ -905,8 +966,8 @@ impl<'a> RvalConverter<'a> {
                         Constraint::new(None, Some(RunningConstraint::FnPtr(sigval))),
                     )
                 }
-                RigidTy::Ref(_, ty, _) => self.convert_ty(span, &ty),
-                RigidTy::RawPtr(ty, _mut) => self.convert_ty(span, &ty),
+                RigidTy::Ref(_, ty, _) => self.convert_ty(span, &ty, cur_scope, timing),
+                RigidTy::RawPtr(ty, _mut) => self.convert_ty(span, &ty, cur_scope, timing),
                 RigidTy::Char | RigidTy::Str | RigidTy::Never => {
                     (None, Constraint::new(None, None))
                 }
@@ -1188,7 +1249,7 @@ impl<'a> RvalConverter<'a> {
                 timing,
             ),
             BinOp::Offset => {
-                let (_, ty) = self.convert_ty(span, destty);
+                let (_, ty) = self.convert_ty(span, destty, Some(cur_scope), timing);
                 ty
             }
         };
@@ -1291,7 +1352,7 @@ impl<'a> RvalConverter<'a> {
                 ctxt, span, local_decls, cur_scope, destty, op, |x| !x, timing,
             ),
             UnOp::PtrMetadata => {
-                let (_, ty) = self.convert_ty(span, destty);
+                let (_, ty) = self.convert_ty(span, destty, Some(cur_scope), timing);
                 ty
             }
         };
@@ -1383,7 +1444,9 @@ impl<'a> RvalConverter<'a> {
         span: &Location,
         ty: &Ty,
         alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
-        self.convert_allocated_const(span, ty, alloc)
+        self.convert_allocated_const(span, ty, alloc, cur_scope, timing)
     }
 }

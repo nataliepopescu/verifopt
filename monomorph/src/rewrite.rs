@@ -67,12 +67,21 @@ impl Callbacks for FsaCallbacks {
 
             let mut store = store().lock().unwrap();
 
-            let to_hash = |did| tcx.def_path_hash(rustc_internal::internal(tcx, did));
+            let to_hash = |did| -> Option<DefPathHash> {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    tcx.def_path_hash(rustc_internal::internal(tcx, did))
+                }))
+                .inspect_err(|_| eprintln!("to_hash panicked on {:?}, skipping", did))
+                .ok()
+            };
 
             for ((defid, bb), (_, ts)) in targets {
-                let hash = to_hash(defid);
+                let Some(hash) = to_hash(defid) else {
+                    continue;
+                };
 
-                let t_hashes: Vec<DefPathHash> = ts.iter().map(|(did, _)| to_hash(*did)).collect();
+                let t_hashes: Vec<DefPathHash> =
+                    ts.iter().filter_map(|(did, _)| to_hash(*did)).collect();
 
                 store.targets.insert((hash, bb), t_hashes);
             }
@@ -85,19 +94,21 @@ impl Callbacks for FsaCallbacks {
                     continue;
                 }
 
-                let hash = to_hash(defid);
+                let Some(hash) = to_hash(defid) else {
+                    continue;
+                };
 
                 let mut next: u64 = 0;
                 let mut assigned: HashMap<DefId, u64> = HashMap::default();
 
                 let entry: Vec<(usize, usize, u64, DefPathHash)> = sites
                     .iter()
-                    .map(|(bb, stmt, did)| {
+                    .filter_map(|(bb, stmt, did)| {
                         let tag = *assigned.entry(*did).or_insert_with(|| {
                             next += 1;
                             next - 1
                         });
-                        (*bb, *stmt, tag, to_hash(*did))
+                        to_hash(*did).map(|h| (*bb, *stmt, tag, h))
                     })
                     .collect();
 

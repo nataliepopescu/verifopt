@@ -72,6 +72,12 @@ fn main() {
     let mut rustc_command_line_arguments = options.parse_from_args(&args[1..], false);
     info!("VerifOpt Options: {:?}", options);
 
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        eprintln!("PANIC HOOK: {}", info);
+        default_hook(info);
+    }));
+
     let result = rustc_driver::catch_fatal_errors(move || {
         // Add back the binary name
         rustc_command_line_arguments.insert(0, args[0].clone());

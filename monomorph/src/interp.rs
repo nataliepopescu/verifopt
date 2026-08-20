@@ -85,18 +85,8 @@ pub struct InterpPass<'a> {
     timing_window_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
-    // Scopes whose `wtos` entry survived a `union()` collision where the
-    // two merged sides actually *disagreed* (different BBDeps - i.e.
-    // genuinely different traversal progress, not just two copies of the
-    // same state) - see the check in `visit_body` that reads this. Tracks
-    // whether `union()`'s "discard one side's progress" behavior for
-    // `wtos` could plausibly cause under-processing: if `visit_body` later
-    // re-enters one of these scopes and finds an already-empty `ordering`
-    // (i.e. "nothing left to do" per the surviving side), that's exactly
-    // the scenario where the discarded side's own progress/knowledge might
-    // never get properly re-derived, even though `cmap`'s value-level
-    // merge (unlike `wtos`) did preserve both sides' information.
     pub wtos_merge_conflicts: RefCell<ImHashSet<VOID>>,
+    pub refs_merge_conflicts: RefCell<ImHashSet<(Place, VOID)>>,
 
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
 
@@ -177,19 +167,6 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
             .unwrap_or(std::time::Duration::ZERO);
         let self_elapsed = total_elapsed.saturating_sub(child_time);
 
-        // `.name()` can itself panic - rustc's own generic-argument-
-        // folding machinery, triggered while pretty-printing this scope's
-        // Instance for the debug log below, can panic on a malformed
-        // Instance/GenericArgs pairing (the same class of bug
-        // `simulate_static_calls`'s `catch_unwind` wrapper defends
-        // against). This Drop runs unconditionally on *every* scope
-        // visited, though, not just inside that one wrapped call - so if
-        // this panics while already unwinding from some other panic
-        // (anywhere in the call stack, not just within that one
-        // `catch_unwind` boundary), it's fatal ("panic in a destructor
-        // during cleanup"), regardless of any `catch_unwind` elsewhere.
-        // Needs its own, local defense, not just reliance on the outer
-        // one.
         let scope_name =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.scope.0.name()))
                 .unwrap_or_else(|_| "<unprintable scope: name() panicked>".to_string());
@@ -297,16 +274,6 @@ impl TimingStats {
     }
 }
 
-/// Mirrors `SelfTimeGuard` exactly, but tracks exclusive time per
-/// `(scope, TimingCat)` pair instead of per-scope only. Pushing on
-/// construction and popping via `Drop` (rather than an explicit
-/// end-of-span call) is the point: it's correct on *every* exit path -
-/// early return, `?`, panic-unwind - not just the one path that happens to
-/// reach an explicit "end of span" call site. (An earlier version of this
-/// used an explicit push/pop pair instead of `Drop`, and silently
-/// corrupted the exclusive-time accounting on every early-return exit,
-/// e.g. an `exact_memo` cache hit - hence this being a `Drop`-based guard
-/// now, not a repeat of that mistake.)
 pub(crate) struct TimingSpanGuard<'a, 'b> {
     pass: &'a InterpPass<'b>,
     cat: TimingCat,
@@ -352,20 +319,6 @@ impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
     }
 }
 
-//fn cheaper_union<K: Hash + Eq + Clone, V: PartialEq + Clone>(
-//    base: ImHashMap<K, V>,
-//    other: ImHashMap<K, V>,
-//) -> ImHashMap<K, V> {
-//    let (mut to_mutate, to_check) = if base.len() >= other.len() { (base, other) } else { (other, base) };
-//    for (k, v) in to_check {
-//        match to_mutate.get(&k) {
-//            Some(existing) if *existing == v => continue, // read-only, no COW forced
-//            _ => { to_mutate.insert(k, v); }              // only pay the write cost when it's real
-//        }
-//    }
-//    to_mutate
-//}
-
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
@@ -396,6 +349,7 @@ impl<'a> InterpPass<'a> {
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
             wtos_merge_conflicts: ImHashSet::new().into(),
+            refs_merge_conflicts: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
             virtual_call_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
@@ -539,13 +493,6 @@ impl<'a> InterpPass<'a> {
             .record(d);
     }
 
-    /// Starts a timed span, tracked both inclusively (via `record_timing`,
-    /// called from `TimingSpanGuard::drop`) and exclusively (via the
-    /// child-time-stack mechanism also in `TimingSpanGuard::drop`). Keep
-    /// the returned guard alive for exactly as long as the span should
-    /// count; dropping it (on *any* exit path) ends the span. Nesting is
-    /// handled automatically: a span started while another is still alive
-    /// becomes that span's child.
     pub(crate) fn timing_span<'b>(
         &'b self,
         cat: TimingCat,
@@ -673,24 +620,6 @@ impl<'a> InterpPass<'a> {
         if let Some(mem_bb_deps) = ctxt.get_wto(cur_scope) {
             bb_deps = mem_bb_deps.clone();
             if bb_deps.has_ret && bb_deps.ordering.is_empty() {
-                // Precisely the pattern discussed: this scope's `wtos`
-                // entry survived a `union()` collision where the two
-                // merged sides genuinely disagreed (see
-                // `wtos_merge_conflicts`), and we're now re-entering it
-                // with an *already-empty* ordering - i.e. "nothing left
-                // to do" per whichever side `union()` happened to keep.
-                // If the discarded side's own progress/knowledge for
-                // this scope never got folded back in some other way
-                // (e.g. via the epoch-triggered reinterpretation queue),
-                // this is exactly the point where that would silently
-                // never get corrected - `cmap`'s value-level merge
-                // preserved both sides' constraint information, but
-                // nothing here re-derives what this scope's *body*
-                // should conclude from it. Deliberately a debug! and not
-                // a panic!: the ordinary, harmless case (a scope visited
-                // once, never touched by a conflicting merge) is common
-                // and expected, so only scopes actually flagged in
-                // `wtos_merge_conflicts` are worth flagging here at all.
                 if self.wtos_merge_conflicts.borrow().contains(cur_scope) {
                     debug!(
                         "POTENTIAL SOUNDNESS GAP: re-entering scope {:?} with an already-empty \
@@ -1536,17 +1465,6 @@ impl<'a> InterpPass<'a> {
                 }
                 Ok(None)
             }
-            // Same treatment as the `Param(..)` arm just above: this
-            // constraint isn't fn-like at all (e.g. seen in practice: an
-            // `Adt(Option<Backtrace>, ...)` value reached through an
-            // indirect call inside `anyhow::error::ErrorImpl::error` -
-            // plausibly a hand-rolled, non-`dyn`-based vtable field being
-            // conflated somewhere upstream with the value it would
-            // produce, rather than the callable itself). Rather than
-            // treat "we don't know how to call this" as fatal, degrade
-            // to imprecise-but-sound: mark the enclosing summary build (if
-            // any) tainted and contribute nothing, same as an unresolved
-            // `Param`.
             _ => {
                 debug!(
                     "interp_constraint_as_fn: constraint isn't fn-like, falling back to imprecise (Ok(None)): {:?}",
@@ -2245,10 +2163,6 @@ impl<'a> InterpPass<'a> {
                         cur_scope.0.name(),
                         epoch_before
                     );
-                    // `_timing_guard` (TermMemo) drops here automatically,
-                    // correctly closing this span even on this early-return
-                    // exit - the whole reason this uses a `Drop`-based guard
-                    // instead of an explicit end-of-span call.
                     return Ok(cached.clone());
                 }
             }
@@ -3136,11 +3050,11 @@ impl<'a> InterpPass<'a> {
                     }
                     (false, defids)
                 }
-                //RunningConstraint::Tuple, List TODO
-                RunningConstraint::Param(..)
+                RunningConstraint::Tuple(_)
+                | RunningConstraint::List(_)
+                | RunningConstraint::Param(..)
                 | RunningConstraint::FnDef(..)
                 | RunningConstraint::FnPtr(_) => (false, vec![]),
-                _ => todo!("{:?}", cfc),
             },
             _ => (false, vec![]),
         }
@@ -3343,20 +3257,6 @@ impl<'a> InterpPass<'a> {
 
                             let _timing_guard =
                                 self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
-                            // Recorded *before* the clone, so this is the
-                            // size `ctxt_clone.wtos` and `ctxt.wtos` (and
-                            // therefore whatever `acc.wtos` traces back to
-                            // from earlier candidates merged against this
-                            // same `ctxt`) have in common as of right now -
-                            // the "shared ancestor" point. Compared against
-                            // `ctxt_clone.wtos.len()` after this candidate's
-                            // own interpretation runs, the difference tells
-                            // us how many entries THIS candidate genuinely
-                            // added versus how many it's carrying forward
-                            // unchanged from that shared base - i.e.
-                            // whether a delta-based union would have
-                            // anything worth exploiting here, or whether
-                            // each side diverges too much for that to help.
                             let base_wtos_len = ctxt.wtos.len();
                             let base_refs_len = ctxt.cstore.refs.len();
                             let mut ctxt_clone = ctxt.clone();
@@ -3379,9 +3279,6 @@ impl<'a> InterpPass<'a> {
                                 is_closure,
                             );
 
-                            // `_timing_guard` (TermSimulateRealCall) drops here
-                            // automatically on the `?`'s early-return exit, same as
-                            // every other guard in this file.
                             results.push(self.interp_static_call(
                                 term_span,
                                 &mut ctxt_clone,
@@ -3413,9 +3310,6 @@ impl<'a> InterpPass<'a> {
                                 Some(a) => {
                                     let _tg =
                                         self.timing_span(TimingCat::VecConstruction, cur_scope);
-                                    // `Vec::from` moves the array's elements,
-                                    // same as the array itself already did -
-                                    // no clone introduced here.
                                     let vec = Vec::from([a, ctxt_clone]);
                                     drop(_tg);
 
@@ -3660,6 +3554,29 @@ impl<'a> InterpPass<'a> {
                 rhs_base_refs_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
                 new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
             );
+
+            // Same idea as the `wtos` conflict tracking above, but also
+            // logged immediately here (not just recorded for a later
+            // read-side check) since `resolve_ref`/`resolve_mut_ref` can't
+            // conveniently check `refs_merge_conflicts` themselves - see
+            // the field doc. This alone answers "how often does a
+            // genuine refs collision happen at all," which is the thing
+            // to look at first before deciding whether the harder,
+            // read-side-consequence check is worth building.
+            let refs_conflicts = Self::find_conflicting_keys(&merged.refs, &store.refs);
+            if !refs_conflicts.is_empty() {
+                debug!(
+                    "REFS MERGE CONFLICT: bb_visit={} {} key(s) had disagreeing alias targets, \
+                     one side's will be silently discarded by union(): {:?}",
+                    *self.bb_visit_count.borrow(),
+                    refs_conflicts.len(),
+                    refs_conflicts
+                );
+            }
+            for conflicting_key in refs_conflicts {
+                self.refs_merge_conflicts.borrow_mut().insert(conflicting_key);
+            }
+
             merged.refs = merged.refs.union(store.refs);
             drop(_timing_guard);
         }

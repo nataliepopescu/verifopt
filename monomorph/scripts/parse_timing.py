@@ -41,6 +41,15 @@ OVERLAP_STATS = re.compile(
 # another view of the same instrumented data.
 WALL_CLOCK = re.compile(r"TOTAL WALL CLOCK bb_visit=(\d+) elapsed_ms=([\d.]+)")
 
+# Same idea - standalone lines, checked on every line regardless of mode.
+# Deliberately capturing the whole message rather than trying to parse
+# out individual fields (the refs-conflict line in particular embeds a
+# Vec<(Place, VOID)> Debug dump that isn't worth structuring further) -
+# these are meant to be surfaced directly for a human to read, not turned
+# into per-field CSV columns.
+SOUNDNESS_GAP = re.compile(r"POTENTIAL SOUNDNESS GAP: (.*)")
+REFS_CONFLICT = re.compile(r"REFS MERGE CONFLICT: (.*)")
+
 BB_N = re.compile(r"bb visit (\d+)|window ending bb visit (\d+)")
 
 
@@ -63,12 +72,24 @@ def parse(path):
     selftime_rows = []           # (bb_n, label, scope, self_ms, calls, avg_ms)
     overlap_rows = []            # (bb_visit, kind, lhs_len, rhs_len, shared)
     wall_clock_rows = []         # (bb_visit, elapsed_ms)
+    soundness_gap_lines = []     # raw message text
+    refs_conflict_lines = []     # raw message text
 
     mode = None
     label = None
 
     with open(path, errors="replace") as f:
         for line in f:
+            m = SOUNDNESS_GAP.search(line)
+            if m:
+                soundness_gap_lines.append(m.group(1))
+                continue
+
+            m = REFS_CONFLICT.search(line)
+            if m:
+                refs_conflict_lines.append(m.group(1))
+                continue
+
             m = WALL_CLOCK.search(line)
             if m:
                 bb_visit, elapsed_ms = m.groups()
@@ -161,7 +182,8 @@ def parse(path):
                 continue
 
     return (timing_rows, timing_rows_exclusive, scope_rows, scope_rows_exclusive,
-            selftime_rows, overlap_rows, wall_clock_rows)
+            selftime_rows, overlap_rows, wall_clock_rows,
+            soundness_gap_lines, refs_conflict_lines)
 
 
 def write_csv(rows, header, path):
@@ -180,7 +202,8 @@ def main():
 
     (timing_rows, timing_rows_exclusive,
      scope_rows, scope_rows_exclusive,
-     selftime_rows, overlap_rows, wall_clock_rows) = parse(args.logfile)
+     selftime_rows, overlap_rows, wall_clock_rows,
+     soundness_gap_lines, refs_conflict_lines) = parse(args.logfile)
 
     timing_header = ["bb_visit", "label", "category", "total_ms", "count", "avg_ms", "min_ms", "max_ms"]
     scope_header = ["bb_visit", "label", "scope", "category", "total_ms", "count", "avg_ms"]
@@ -209,6 +232,25 @@ def main():
           f"{len(scope_rows)} scope rows, {len(scope_rows_exclusive)} exclusive scope rows, "
           f"{len(selftime_rows)} self-time rows, {len(overlap_rows)} merge-overlap rows, "
           f"{len(wall_clock_rows)} wall-clock checkpoints")
+
+    # Surfaced directly, not written to a CSV - these are meant to be read,
+    # not aggregated. Either list being empty is itself a useful result
+    # (the theorized soundness gap / refs collision never actually fired
+    # in this run), so both cases get printed explicitly rather than only
+    # printing something when there's a hit.
+    if soundness_gap_lines:
+        print(f"\n=== POTENTIAL SOUNDNESS GAP fired {len(soundness_gap_lines)} time(s) ===")
+        for msg in soundness_gap_lines:
+            print(f"  {msg}")
+    else:
+        print("\n=== POTENTIAL SOUNDNESS GAP: never fired in this run ===")
+
+    if refs_conflict_lines:
+        print(f"\n=== REFS MERGE CONFLICT fired {len(refs_conflict_lines)} time(s) ===")
+        for msg in refs_conflict_lines:
+            print(f"  {msg}")
+    else:
+        print("\n=== REFS MERGE CONFLICT: never fired in this run ===")
 
     # Independent sanity check: does the sum of every category's EXCLUSIVE
     # total_ms up to the *last* wall-clock checkpoint roughly match that 

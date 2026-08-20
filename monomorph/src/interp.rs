@@ -26,9 +26,9 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, EnclosingScopes, Location,
-    MapKey, MapValue, RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy,
-    VOID, hash_val, memoize_by_rc, summary_key,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, EnclosingScopes, Location, MapKey,
+    MapValue, RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy, VOID,
+    hash_val, memoize_by_rc, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -89,7 +89,8 @@ pub struct InterpPass<'a> {
 
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
 
-    pub virtual_call_memo: RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>)>>,
+    pub virtual_call_memo:
+        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>)>>,
 
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
@@ -2475,7 +2476,9 @@ impl<'a> InterpPass<'a> {
         let _timing_guard = self.timing_span(TimingCat::TermVirtualMemo, caller_scope);
         let resolved_args: Vec<Constraints> = args
             .iter()
-            .map(|op| self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false))
+            .map(|op| {
+                self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false)
+            })
             .collect();
         let virtual_key: VirtualCallKey = (key, ArgSet::new(&resolved_args));
         match self.virtual_call_memo.borrow().get(&virtual_key) {
@@ -2484,9 +2487,8 @@ impl<'a> InterpPass<'a> {
                     .iter()
                     .filter_map(|(scope, recorded_epoch)| {
                         let current_epoch = *self.scope_epoch.borrow().get(scope).unwrap_or(&0);
-                        (current_epoch != *recorded_epoch).then(|| {
-                            (scope.0.def.def_id(), *recorded_epoch, current_epoch)
-                        })
+                        (current_epoch != *recorded_epoch)
+                            .then(|| (scope.0.def.def_id(), *recorded_epoch, current_epoch))
                     })
                     .collect();
                 if stale.is_empty() {
@@ -3331,7 +3333,8 @@ impl<'a> InterpPass<'a> {
                                         Some(base_refs_len),
                                         Some(wtos_unchanged),
                                         Some(refs_unchanged),
-                                    )?.unwrap()
+                                    )?
+                                    .unwrap()
                                 }
                             });
                             drop(_timing_guard);
@@ -3505,8 +3508,12 @@ impl<'a> InterpPass<'a> {
                 rhs_len,
                 shared,
                 ptr_identical,
-                rhs_base_wtos_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
-                new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
+                rhs_base_wtos_len
+                    .map(|b| b.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
+                new_entries
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
             );
 
             // Diagnostic-only: same O(min(len)) cost caveat as
@@ -3676,7 +3683,9 @@ impl<'a> InterpPass<'a> {
                 );
             }
             for conflicting_key in refs_conflicts {
-                self.refs_merge_conflicts.borrow_mut().insert(conflicting_key);
+                self.refs_merge_conflicts
+                    .borrow_mut()
+                    .insert(conflicting_key);
             }
 
             merged.refs = merged.refs.union(store.refs);

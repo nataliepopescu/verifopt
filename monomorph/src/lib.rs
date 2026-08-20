@@ -94,8 +94,7 @@ pub fn start_verifopt(
             if *confirmed.get(&span).unwrap_or(&false) {
                 Some((key, (span.clone(), impls.clone())))
             } else {
-                cha.get(&key)
-                    .map(|c| (key, (span.clone(), c.clone().1)))
+                cha.get(&key).map(|c| (key, (span.clone(), c.clone().1)))
             }
         })
         .collect();

@@ -255,6 +255,13 @@ pub(crate) enum TimingCat {
     TermMergeWtosUnion,
     TermMergeContextsSetup,
     TermMergeNewContext,
+    ConvertOp,
+    ConvertPlace,
+    ConvertCast,
+    ConvertAgg,
+    ConvertUnop,
+    ConvertBinop,
+    ConvertCheckedBinop,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1076,6 +1083,7 @@ impl<'a> InterpPass<'a> {
                         cur_scope,
                         &dest_ty,
                         rvalue,
+                        Some(self),
                     );
                     debug!(
                         "stmt: FROM CONVERTER, scope={:?} local={} converted_disjuncts={}",

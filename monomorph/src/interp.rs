@@ -26,15 +26,14 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue,
-    RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy, VOID, hash_val,
-    memoize_by_rc, summary_key,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, EnclosingScopes, Location,
+    MapKey, MapValue, RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy,
+    VOID, hash_val, memoize_by_rc, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::merge::Merge;
-use crate::merge::merge_stores;
 use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
@@ -2241,7 +2240,8 @@ impl<'a> InterpPass<'a> {
         let mut widened = false;
         match ctxt.get_cstore_scope(callee_scope) {
             Some(box MapValue::Store(old_substore, old_es)) => {
-                store = merge_stores(
+                store = self.merge_stores_timed(
+                    callee_scope,
                     &old_substore,
                     &old_es,
                     &new_ctxt.cstore,
@@ -3494,11 +3494,48 @@ impl<'a> InterpPass<'a> {
         Ok(Some(c))
     }
 
+    /// Replaces the free function `merge_stores` (in merge.rs, now removed)
+    /// + its private `merge_stores_helper`, which built a 2-element `Vec`
+    /// and dispatched to the generic `impl Merge<ConstraintStore> for
+    /// Vec<ConstraintStore>` trait impl - a *second*, completely separate
+    /// place `refs` got unioned, with none of the instrumentation
+    /// `merge_cstores_timed` has (including the `REFS MERGE CONFLICT`
+    /// detection). Pulling this in as a method means both callers -
+    /// `simulate_static_calls`'s candidate merging, and this function's
+    /// caller `resolve_args`, invoked on every function call - now go
+    /// through the exact same instrumented path, rather than maintaining
+    /// two implementations of the same merge logic with only one of them
+    /// visible to diagnostics.
+    pub(crate) fn merge_stores_timed(
+        &self,
+        scope: &VOID,
+        cur_store: &ConstraintStore,
+        cur_es: &EnclosingScopes,
+        new_store: &ConstraintStore,
+        new_es: &EnclosingScopes,
+    ) -> (ConstraintStore, EnclosingScopes) {
+        let merged_es = match (cur_es, new_es) {
+            (Some(cur_es_vec), Some(new_es_vec)) => {
+                let mut merged_es_vec = cur_es_vec.clone();
+                unique_append(&mut merged_es_vec, new_es_vec.to_vec());
+                Some(merged_es_vec)
+            }
+            (Some(cur_es_vec), None) => Some(cur_es_vec.to_vec()),
+            (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
+            (None, None) => None,
+        };
+
+        let merged_store =
+            self.merge_cstores_timed(scope, vec![cur_store.clone(), new_store.clone()], None);
+
+        (merged_store, merged_es)
+    }
+
     /// Instrumented equivalent of `Vec<ConstraintStore>::merge()` (see
-    /// `merge.rs`), called only from `merge_contexts_timed` above. Takes
-    /// `stores` by value (not `&[ConstraintStore]`) for the same reason
-    /// `merge_contexts_timed` now takes `contexts` by value - see the
-    /// comments there.
+    /// `merge.rs`), called from `merge_contexts_timed` above and from
+    /// `merge_stores_timed` below. Takes `stores` by value (not
+    /// `&[ConstraintStore]`) for the same reason `merge_contexts_timed`
+    /// now takes `contexts` by value - see the comments there.
     fn merge_cstores_timed(
         &self,
         scope: &VOID,

@@ -3259,6 +3259,9 @@ impl<'a> InterpPass<'a> {
                                 self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
                             let base_wtos_len = ctxt.wtos.len();
                             let base_refs_len = ctxt.cstore.refs.len();
+                            // O(1) clone; snapshot for the ptr_eq check below.
+                            let wtos_snapshot = ctxt.wtos.clone();
+                            let refs_snapshot = ctxt.cstore.refs.clone();
                             let mut ctxt_clone = ctxt.clone();
                             let mut call_stack_clone = call_stack.clone();
 
@@ -3292,6 +3295,13 @@ impl<'a> InterpPass<'a> {
                                 &cs,
                                 is_closure,
                             )?);
+                            // ptr_eq, not ==: set_wto/add_ref are the only
+                            // mutation sites for wtos/refs, and both only
+                            // fire on genuinely new info, so an untouched
+                            // map stays the same allocation - O(1), sound,
+                            // false negatives just fall back to union().
+                            let wtos_unchanged = ctxt_clone.wtos.ptr_eq(&wtos_snapshot);
+                            let refs_unchanged = ctxt_clone.cstore.refs.ptr_eq(&refs_snapshot);
                             touched_scopes.push((
                                 callee_scope.clone(),
                                 *self.scope_epoch.borrow().get(&callee_scope).unwrap_or(&0),
@@ -3313,7 +3323,14 @@ impl<'a> InterpPass<'a> {
                                     let vec = Vec::from([a, ctxt_clone]);
                                     drop(_tg);
 
-                                    self.merge_contexts_timed(cur_scope, vec, Some(base_wtos_len), Some(base_refs_len))?.unwrap()
+                                    self.merge_contexts_timed(
+                                        cur_scope,
+                                        vec,
+                                        Some(base_wtos_len),
+                                        Some(base_refs_len),
+                                        Some(wtos_unchanged),
+                                        Some(refs_unchanged),
+                                    )?.unwrap()
                                 }
                             });
                             drop(_timing_guard);
@@ -3418,6 +3435,16 @@ impl<'a> InterpPass<'a> {
         rhs_base_wtos_len: Option<usize>,
         // Same idea, for `refs` (threaded through to `merge_cstores_timed`).
         rhs_base_refs_len: Option<usize>,
+        // `Some(true)` when a full equality check (not just a size
+        // comparison) confirmed this candidate's `wtos` is identical to
+        // what it started from before its own simulation ran - see
+        // `simulate_static_calls`. When true, the union() below is
+        // skipped entirely: the accumulator is already a strict superset
+        // (union() only ever adds keys), so there's nothing this
+        // candidate could contribute that isn't already reflected.
+        rhs_wtos_unchanged: Option<bool>,
+        // Same idea, for `refs` (threaded through to `merge_cstores_timed`).
+        rhs_refs_unchanged: Option<bool>,
     ) -> Result<Option<Context>, Error> {
         let _timing_guard = self.timing_span(TimingCat::TermMergeContextsSetup, scope);
         if contexts.is_empty() {
@@ -3445,7 +3472,8 @@ impl<'a> InterpPass<'a> {
         }
 
         let _timing_guard = self.timing_span(TimingCat::TermMergeCstoresMerge, scope);
-        let m_cstores = self.merge_cstores_timed(scope, cstores, rhs_base_refs_len);
+        let m_cstores =
+            self.merge_cstores_timed(scope, cstores, rhs_base_refs_len, rhs_refs_unchanged);
         drop(_timing_guard);
 
         let mut wtos_iter = wtos_list.into_iter();
@@ -3454,6 +3482,17 @@ impl<'a> InterpPass<'a> {
 
         let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
         for wtos in wtos_iter {
+            if rhs_wtos_unchanged == Some(true) {
+                // Verified unchanged (full equality, not just size) at
+                // the point this candidate's simulation finished - skip
+                // the union entirely, `m_wtos` already reflects
+                // everything `wtos` has to contribute. Nothing to log:
+                // there's no overlap/conflict question to ask about a
+                // side that's provably identical to a subset of the
+                // accumulator.
+                continue;
+            }
+
             let shared = Self::count_shared_keys(&m_wtos, &wtos);
             let ptr_identical = m_wtos.ptr_eq(&wtos);
             let rhs_len = wtos.len();
@@ -3525,8 +3564,12 @@ impl<'a> InterpPass<'a> {
             (None, None) => None,
         };
 
-        let merged_store =
-            self.merge_cstores_timed(scope, vec![cur_store.clone(), new_store.clone()], None);
+        let merged_store = self.merge_cstores_timed(
+            scope,
+            vec![cur_store.clone(), new_store.clone()],
+            None,
+            None,
+        );
 
         (merged_store, merged_es)
     }
@@ -3541,6 +3584,14 @@ impl<'a> InterpPass<'a> {
         scope: &VOID,
         stores: Vec<ConstraintStore>,
         rhs_base_refs_len: Option<usize>,
+        // `Some(true)` when a full equality check confirmed this
+        // candidate's `refs` is identical to what it started from before
+        // its own simulation ran - see `simulate_static_calls` and the
+        // matching `rhs_wtos_unchanged` parameter on
+        // `merge_contexts_timed`. When true, the `refs` union below is
+        // skipped (the per-key `cmap` merge still happens - that's a
+        // separate concern from `refs`).
+        rhs_refs_unchanged: Option<bool>,
     ) -> ConstraintStore {
         let mut stores_iter = stores.into_iter();
         // Moved, not cloned - this used to be `stores[0].clone()`.
@@ -3577,6 +3628,17 @@ impl<'a> InterpPass<'a> {
             // first (used to be `store.refs.clone()` under
             // `TermMergeRefsClone`, now gone - nothing left to clone).
             let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
+            if rhs_refs_unchanged == Some(true) {
+                // Verified unchanged (full equality, not just size) at
+                // the point this candidate's simulation finished - skip
+                // the union entirely, `merged.refs` already reflects
+                // everything `store.refs` has to contribute. Nothing to
+                // log or check for conflicts: a side that's provably
+                // identical to a subset of the accumulator can't
+                // introduce a genuine collision.
+                drop(_timing_guard);
+                continue;
+            }
             let shared = Self::count_shared_keys(&merged.refs, &store.refs);
             let ptr_identical = merged.refs.ptr_eq(&store.refs);
             let rhs_len = store.refs.len();

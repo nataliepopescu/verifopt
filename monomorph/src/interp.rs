@@ -75,12 +75,15 @@ pub struct InterpPass<'a> {
     pub main_ctxt_ptr: RefCell<Option<usize>>,
     pub self_time_child_accum: RefCell<Vec<std::time::Duration>>,
     pub scope_self_time: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
+    scope_self_time_global: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
     timing_global: RefCell<HashMap<TimingCat, TimingStats>>,
     timing_scope: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_scope_global: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
     timing_window: RefCell<HashMap<TimingCat, TimingStats>>,
     timing_child_stack: RefCell<Vec<std::time::Duration>>,
     timing_global_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     timing_scope_exclusive: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_scope_exclusive_global: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
     timing_window_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
@@ -180,6 +183,14 @@ impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
 
         {
             let mut map = self.pass.scope_self_time.borrow_mut();
+            let entry = map
+                .entry(self.scope.clone())
+                .or_insert((std::time::Duration::ZERO, 0));
+            entry.0 += self_elapsed;
+            entry.1 += 1;
+        }
+        {
+            let mut map = self.pass.scope_self_time_global.borrow_mut();
             let entry = map
                 .entry(self.scope.clone())
                 .or_insert((std::time::Duration::ZERO, 0));
@@ -308,6 +319,12 @@ impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
             .or_default()
             .record(exclusive);
         self.pass
+            .timing_scope_exclusive_global
+            .borrow_mut()
+            .entry((self.scope.clone(), self.cat))
+            .or_default()
+            .record(exclusive);
+        self.pass
             .timing_window_exclusive
             .borrow_mut()
             .entry(self.cat)
@@ -340,12 +357,15 @@ impl<'a> InterpPass<'a> {
             main_ctxt_ptr: None.into(),
             self_time_child_accum: Vec::new().into(),
             scope_self_time: HashMap::new().into(),
+            scope_self_time_global: HashMap::new().into(),
             timing_global: HashMap::new().into(),
             timing_scope: HashMap::new().into(),
+            timing_scope_global: HashMap::new().into(),
             timing_window: HashMap::new().into(),
             timing_child_stack: Vec::new().into(),
             timing_global_exclusive: HashMap::new().into(),
             timing_scope_exclusive: HashMap::new().into(),
+            timing_scope_exclusive_global: HashMap::new().into(),
             timing_window_exclusive: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
@@ -429,20 +449,22 @@ impl<'a> InterpPass<'a> {
             *self.bb_visit_count.borrow(),
             self.run_start.elapsed().as_secs_f64() * 1000.0
         );
-        self.dump_self_time_report("FINAL");
+        self.dump_self_time_report("FINAL", &self.scope_self_time_global.borrow());
         self.dump_timing_report("FINAL GLOBAL", &self.timing_global.borrow());
-        self.dump_timing_by_scope_report("FINAL");
+        self.dump_timing_by_scope_report("FINAL", &self.timing_scope_global.borrow());
         self.dump_timing_report(
             "FINAL GLOBAL EXCLUSIVE",
             &self.timing_global_exclusive.borrow(),
         );
-        self.dump_timing_by_scope_exclusive_report("FINAL");
+        self.dump_timing_by_scope_exclusive_report(
+            "FINAL",
+            &self.timing_scope_exclusive_global.borrow(),
+        );
 
         result
     }
 
-    fn dump_self_time_report(&self, label: &str) {
-        let map = self.scope_self_time.borrow();
+    fn dump_self_time_report(&self, label: &str, map: &HashMap<VOID, (std::time::Duration, u64)>) {
         let mut entries: Vec<(&VOID, &(std::time::Duration, u64))> = map.iter().collect();
         entries.sort_by(|a, b| b.1.0.cmp(&a.1.0));
 
@@ -483,6 +505,11 @@ impl<'a> InterpPass<'a> {
             .or_default()
             .record(d);
         self.timing_scope
+            .borrow_mut()
+            .entry((scope.clone(), cat))
+            .or_default()
+            .record(d);
+        self.timing_scope_global
             .borrow_mut()
             .entry((scope.clone(), cat))
             .or_default()
@@ -535,8 +562,11 @@ impl<'a> InterpPass<'a> {
         debug!("{}", lines);
     }
 
-    fn dump_timing_by_scope_report(&self, label: &str) {
-        let map = self.timing_scope.borrow();
+    fn dump_timing_by_scope_report(
+        &self,
+        label: &str,
+        map: &HashMap<(VOID, TimingCat), TimingStats>,
+    ) {
         let mut entries: Vec<(&(VOID, TimingCat), &TimingStats)> = map.iter().collect();
         entries.sort_by(|a, b| b.1.total.cmp(&a.1.total));
 
@@ -562,8 +592,11 @@ impl<'a> InterpPass<'a> {
     /// Exclusive-time counterpart to `dump_timing_by_scope_report` - same
     /// format, reading from `timing_scope_exclusive` instead of
     /// `timing_scope`, so nested work isn't double-counted.
-    fn dump_timing_by_scope_exclusive_report(&self, label: &str) {
-        let map = self.timing_scope_exclusive.borrow();
+    fn dump_timing_by_scope_exclusive_report(
+        &self,
+        label: &str,
+        map: &HashMap<(VOID, TimingCat), TimingStats>,
+    ) {
         let mut entries: Vec<(&(VOID, TimingCat), &TimingStats)> = map.iter().collect();
         entries.sort_by(|a, b| b.1.total.cmp(&a.1.total));
 
@@ -708,14 +741,26 @@ impl<'a> InterpPass<'a> {
                         self.run_start.elapsed().as_secs_f64() * 1000.0
                     );
                     //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
-                    self.dump_self_time_report(&format!("bb visit {}", *n));
-                    self.dump_timing_by_scope_report(&format!("bb visit {}", *n));
+                    self.dump_self_time_report(
+                        &format!("bb visit {}", *n),
+                        &self.scope_self_time.borrow(),
+                    );
+                    self.scope_self_time.borrow_mut().clear();
+                    self.dump_timing_by_scope_report(
+                        &format!("bb visit {}", *n),
+                        &self.timing_scope.borrow(),
+                    );
+                    self.timing_scope.borrow_mut().clear();
                     self.dump_timing_report(
                         &format!("window ending bb visit {}", *n),
                         &self.timing_window.borrow(),
                     );
                     self.timing_window.borrow_mut().clear();
-                    self.dump_timing_by_scope_exclusive_report(&format!("bb visit {}", *n));
+                    self.dump_timing_by_scope_exclusive_report(
+                        &format!("bb visit {}", *n),
+                        &self.timing_scope_exclusive.borrow(),
+                    );
+                    self.timing_scope_exclusive.borrow_mut().clear();
                     self.dump_timing_report(
                         &format!("window ending bb visit {} EXCLUSIVE", *n),
                         &self.timing_window_exclusive.borrow(),

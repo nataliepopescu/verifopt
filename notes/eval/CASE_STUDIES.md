@@ -2,8 +2,7 @@
 
 - [ ] ripgrep
     - file regex searcher
-    - verifopt runs quite far but keeps hitting various panics + trying to
-      diagnose performance slowness
+    - one last panic! (hopefully)
 
 - [ ] dynolog cli
     - perf telemetry tool (facebook)

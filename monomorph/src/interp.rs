@@ -219,6 +219,7 @@ pub(crate) enum TimingCat {
     TermInterpVirtualCall,
     //TermParamSummary,
     TermMemo,
+    TermMergeStoresEs,
     TermVirtualMemo,
     TermGetImplsCha,
     TermGetImplsFsa,
@@ -3553,6 +3554,7 @@ impl<'a> InterpPass<'a> {
         new_store: &ConstraintStore,
         new_es: &EnclosingScopes,
     ) -> (ConstraintStore, EnclosingScopes) {
+        let _tg = self.timing_span(TimingCat::TermMergeStoresEs, scope);
         let merged_es = match (cur_es, new_es) {
             (Some(cur_es_vec), Some(new_es_vec)) => {
                 let mut merged_es_vec = cur_es_vec.clone();
@@ -3563,6 +3565,7 @@ impl<'a> InterpPass<'a> {
             (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
             (None, None) => None,
         };
+        drop(_tg);
 
         let merged_store = self.merge_cstores_timed(
             scope,
@@ -3583,7 +3586,7 @@ impl<'a> InterpPass<'a> {
         &self,
         scope: &VOID,
         stores: Vec<ConstraintStore>,
-        rhs_base_refs_len: Option<usize>,
+        _rhs_base_refs_len: Option<usize>,
         // `Some(true)` when a full equality check confirmed this
         // candidate's `refs` is identical to what it started from before
         // its own simulation ran - see `simulate_static_calls` and the
@@ -3639,20 +3642,20 @@ impl<'a> InterpPass<'a> {
                 drop(_timing_guard);
                 continue;
             }
-            let shared = Self::count_shared_keys(&merged.refs, &store.refs);
-            let ptr_identical = merged.refs.ptr_eq(&store.refs);
-            let rhs_len = store.refs.len();
-            let new_entries = rhs_base_refs_len.map(|base| rhs_len.saturating_sub(base));
-            debug!(
-                "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={} rhs_base_len={} rhs_new_entries={}",
-                *self.bb_visit_count.borrow(),
-                merged.refs.len(),
-                rhs_len,
-                shared,
-                ptr_identical,
-                rhs_base_refs_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
-                new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
-            );
+            //let shared = Self::count_shared_keys(&merged.refs, &store.refs);
+            //let ptr_identical = merged.refs.ptr_eq(&store.refs);
+            //let rhs_len = store.refs.len();
+            //let new_entries = rhs_base_refs_len.map(|base| rhs_len.saturating_sub(base));
+            //debug!(
+            //    "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={} rhs_base_len={} rhs_new_entries={}",
+            //    *self.bb_visit_count.borrow(),
+            //    merged.refs.len(),
+            //    rhs_len,
+            //    shared,
+            //    ptr_identical,
+            //    rhs_base_refs_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
+            //    new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
+            //);
 
             // Same idea as the `wtos` conflict tracking above, but also
             // logged immediately here (not just recorded for a later

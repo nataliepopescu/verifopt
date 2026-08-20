@@ -103,16 +103,16 @@ def main():
     out_path = args.out or args.csv.rsplit(".", 1)[0] + "_plot.png"
 
     fig, ax = plt.subplots(figsize=(18, 9))
-    ax.plot(
-        all_cat_total.index,
-        all_cat_total.values,
-        marker=".",
-        markersize=2,
-        linewidth=1.2,
-        label="AllCatTotal",
-        color=color_for("BbTotal"),
-        zorder=5,
-    )
+    #ax.plot(
+    #    all_cat_total.index,
+    #    all_cat_total.values,
+    #    marker=".",
+    #    markersize=2,
+    #    linewidth=1.2,
+    #    label="AllCatTotal",
+    #    #color=color_for("BbTotal"),
+    #    zorder=5,
+    #)
     for cat in cats:
         g = df[df["category"] == cat].sort_values("bb_visit")
         linestyle = "--" if cat.startswith("Stmt") else "-"
@@ -124,7 +124,7 @@ def main():
             linewidth=0.8,
             linestyle=linestyle,
             label=cat,
-            color=color_for(cat),
+            #color=color_for(cat),
             zorder=3,
         )
     ax.set_yscale("log")

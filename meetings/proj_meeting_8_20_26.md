@@ -55,3 +55,12 @@ maybe also summary specialization
 
 maybe double check loops?
 - but also just be guided by where the tool freaks out/is wrong
+
+
+conclusion:
+- improve perf where we're doing dumb things
+- wait to make precision tradeoffs until we know how itll impact the final
+  binary performance (of the code we're optimizing)
+- functionality: address when we hit a panic/incorrect result (once we
+  eventually test the rewritten binaries)
+- kinda need to start codegening

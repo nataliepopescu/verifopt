@@ -15,6 +15,10 @@
     - ~hits same panic as dynolog at its 14th dynamic dispatch site~
     - now stack overflow
 
+- [ ] eza
+    - ls written in Rust
+    - smaller binary
+
 - [ ] tock
 
 - [ ] quixote

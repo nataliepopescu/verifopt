@@ -2899,7 +2899,7 @@ impl<'a> InterpPass<'a> {
                 })
                 .map(|(defid, _)| (defid.clone(), None))
                 .collect(),
-            None => panic!("trait {:?} does not point to any structs", trait_defid),
+            None => Vec::new(), //panic!("trait {:?} does not point to any structs", trait_defid),
         }
     }
 

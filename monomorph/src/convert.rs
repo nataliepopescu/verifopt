@@ -138,16 +138,13 @@ impl<'a> RvalConverter<'a> {
                 self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
             }
             Rvalue::Ref(_region, _borrow_kind, place) => {
-                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::Discriminant(place) => {
-                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::CopyForDeref(place) => {
-                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::Cast(kind, op, ty) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertCast, cur_scope));
@@ -158,8 +155,7 @@ impl<'a> RvalConverter<'a> {
                 self.convert_agg(ctxt, span, local_decls, cur_scope, destty, kind, ops, timing)
             }
             Rvalue::AddressOf(_rawptrkind, place) => {
-                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::UnaryOp(unop, op) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertUnop, cur_scope));
@@ -203,8 +199,7 @@ impl<'a> RvalConverter<'a> {
     ) -> Constraints {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Operand::Constant(const_op) => self.convert_const(span, &const_op),
             _ => todo!("runtime checks"),
@@ -369,8 +364,15 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         place: &Place,
         destty: &Ty,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
-        match ctxt.get_constraints(cur_scope, local_decls, place, false) {
+        let _g0 = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
+
+        let _g1 = timing.map(|p| p.timing_span(TimingCat::ConvertPlaceGetConstraints, cur_scope));
+        let constraints_op = ctxt.get_constraints(cur_scope, local_decls, place, false);
+        drop(_g1);
+
+        match constraints_op {
             Some(constraints) => constraints,
             None => {
                 let place_ty = place.ty(local_decls).unwrap_or(*destty);
@@ -556,8 +558,7 @@ impl<'a> RvalConverter<'a> {
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 let prev_constraints = {
-                    let _g = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
-                    self.convert_place(ctxt, span, local_decls, cur_scope, place, ty)
+                    self.convert_place(ctxt, span, local_decls, cur_scope, place, ty, timing)
                 };
 
                 let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);

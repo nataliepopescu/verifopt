@@ -257,11 +257,13 @@ pub(crate) enum TimingCat {
     TermMergeNewContext,
     ConvertOp,
     ConvertPlace,
+    ConvertPlaceGetConstraints,
     ConvertCast,
     ConvertAgg,
     ConvertUnop,
     ConvertBinop,
     ConvertCheckedBinop,
+    ConvertType,
 }
 
 #[derive(Clone, Copy, Default)]

@@ -228,6 +228,7 @@ pub(crate) enum TimingCat {
     TermCollectResolvedArgs,
     TermResolveArgs,
     TermInterpStaticCall,
+    TermInterpStaticCallPost,
     TermInterpVirtualCall,
     //TermParamSummary,
     TermMemo,
@@ -282,10 +283,17 @@ pub(crate) enum TimingCat {
     // lift_traitobjtys parts
     LiftTraitobjtysHashVal,
     LiftTraitobjtysUncached,
+    LiftTraitobjtysUncachedGetTraitobj,
     // set_scoped_constraints parts
     SetScopedConstraints,
     SetScopedConstraintsReplace,
     SetScopedConstraintsUpdate,
+    ScopedUpdateResolve,
+    ScopedUpdateGetScope,
+    ScopedUpdateStorePre,
+    ScopedUpdateStoreMerge,
+    ScopedUpdateStorePost,
+    ScopedUpdateInitScope,
     // interp_fn_def blocks
     InterpFnDefVirtualFallback,
     InterpFnDefStdlibStub,
@@ -293,6 +301,9 @@ pub(crate) enum TimingCat {
     InterpFnDefCallStackChecks,
     InterpFnDefFinalDispatch,
     FlattenAll,
+    FlattenOne,
+    FlattenAllAppend,
+    FlattenOneAppend,
     StepFieldOneAdt,
     StepFieldOneTuple,
     StepFieldOnePtr,
@@ -1028,7 +1039,7 @@ impl<'a> InterpPass<'a> {
         LIFT_TRAITOBJTYS_CACHE.with(|cache| {
             memoize_by_rc(cache, &old_constraints, extra_key, || {
                 let _g = self.timing_span(TimingCat::LiftTraitobjtysUncached, cur_scope);
-                self.lift_traitobjtys_uncached(maybe_trait_destty, &old_constraints)
+                self.lift_traitobjtys_uncached(maybe_trait_destty, &old_constraints, cur_scope)
             })
         })
     }
@@ -1037,11 +1048,16 @@ impl<'a> InterpPass<'a> {
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: &Constraints,
+        cur_scope: &VOID,
     ) -> Constraints {
         let mut constraints = Constraints::new();
         for constraint in old_constraints.inner.iter() {
             let constraint = constraint.clone();
-            match self.converter.get_traitobj(maybe_trait_destty, &constraint) {
+            let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedGetTraitobj, cur_scope);
+            let to = self.converter.get_traitobj(maybe_trait_destty, &constraint);
+            drop(_g);
+
+            match to {
                 toc @ Some(_) => match constraint {
                     Constraint {
                         toc: None,
@@ -2305,6 +2321,7 @@ impl<'a> InterpPass<'a> {
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
 
+            let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
                 let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
                 let is_new = !self.exact_memo.borrow().contains_key(&memo_key);
@@ -2319,6 +2336,7 @@ impl<'a> InterpPass<'a> {
                         .or_insert(0) += 1;
                 }
             }
+            drop(_timing_guard);
 
             match result {
                 Ok(r) => Ok(r),

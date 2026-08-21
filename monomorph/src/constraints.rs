@@ -894,6 +894,7 @@ impl Context {
                 scope,
                 MapKey::Var(place.clone()),
                 Box::new(MapValue::Constraints(constraints)),
+                timing,
             );
         }
     }
@@ -927,7 +928,13 @@ impl Context {
         let _g = timing.map(|p| p.timing_span(TimingCat::FlattenAll, scope));
         let mut out = Constraints::new();
         for constraint in constraints.inner.iter() {
-            out.append(self.flatten_one(constraint, scope, timing));
+            let _g1 = timing.map(|p| p.timing_span(TimingCat::FlattenOne, scope));
+            let flat = self.flatten_one(constraint, scope, timing);
+            drop(_g1);
+
+            let _g2 = timing.map(|p| p.timing_span(TimingCat::FlattenAllAppend, scope));
+            out.append(flat);
+            drop(_g2);
         }
         out
     }
@@ -946,22 +953,32 @@ impl Context {
         match &constraint.cfc {
             Some(RunningConstraint::Adt(_, _, _, fields)) => {
                 for (_key, field_constraints) in fields {
-                    out.append(self.flatten_all(field_constraints, scope, timing));
+                    let res = self.flatten_all(field_constraints, scope, timing);
+                    let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                    out.append(res);
                 }
             }
             Some(RunningConstraint::Tuple(inner)) => {
                 for elem_constraints in inner {
-                    out.append(self.flatten_all(elem_constraints, scope, timing));
+                    let res = self.flatten_all(elem_constraints, scope, timing);
+                    let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                    out.append(res);
                 }
             }
             Some(RunningConstraint::Ptr(box inner)) => {
-                out.append(self.flatten_one(inner, scope, timing));
+                let res = self.flatten_one(inner, scope, timing);
+                let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                out.append(res);
             }
             Some(RunningConstraint::List(box inner)) => {
-                out.append(self.flatten_one(inner, scope, timing));
+                let res = self.flatten_one(inner, scope, timing);
+                let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                out.append(res);
             }
             Some(RunningConstraint::Idk(box inner_cs)) => {
-                out.append(self.flatten_all(inner_cs, scope, timing));
+                let res = self.flatten_all(inner_cs, scope, timing);
+                let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                out.append(res);
             }
             // Scalar/Float/Dynamic/Closure/FnDef/FnPtr: no further
             // structure to descend into
@@ -1271,7 +1288,8 @@ impl ConstraintStore {
         all_constraints
     }
 
-    pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
+    pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>, timing: Option<&InterpPass>) {
+        let _resolve_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateResolve, scope));
         let (scope, key) = match key {
             MapKey::Var(place) => {
                 let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
@@ -1280,15 +1298,26 @@ impl ConstraintStore {
             }
             MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
         };
+        drop(_resolve_guard);
 
-        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
+        let _get_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateGetScope, &scope));
+        let mapres = self.cmap.get(&MapKey::ScopeId(scope.clone()));
+        drop(_get_guard);
+
+        match mapres {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {
+                    let _g0 = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePre, &scope));
                     let mut new_val = value.clone();
                     let old_val = store.cmap.get(&key);
+                    drop(_g0);
+
                     match old_val {
                         Some(old_val_) => {
+                            let _g1 = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStoreMerge, &scope));
                             let merged = merge_mapvals(old_val_, &value, None);
+                            drop(_g1);
+
                             match &merged {
                                 MapValue::Constraints(constraints) => {
                                     debug!(
@@ -1305,6 +1334,7 @@ impl ConstraintStore {
                     }
 
                     // modify scope w new key/val
+                    let _g2 = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, &scope));
                     store.cmap.insert(key, new_val);
                     self.cmap.insert(
                         MapKey::ScopeId(scope.clone()),
@@ -1317,6 +1347,7 @@ impl ConstraintStore {
             },
             None => {
                 // initialize new scope w key/val
+                let _g = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateInitScope, &scope));
                 let mut new_store = ConstraintStore::new();
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(

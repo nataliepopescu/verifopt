@@ -267,6 +267,8 @@ pub(crate) enum TimingCat {
     ConvertType,
     // convert_agg branches
     ConvertAggAdtOpaque,
+    ConvertAggAdtOpaqueFlattenAll,
+    ConvertAggAdtOpaqueAppend,
     ConvertAggAdtFields,
     ConvertAggTuple,
     ConvertAggRawPtr,

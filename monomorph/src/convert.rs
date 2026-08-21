@@ -739,11 +739,16 @@ impl<'a> RvalConverter<'a> {
                     let mut flattened = Constraints::new();
                     for op in ops {
                         let op_constraints = {
-                            let _g =
+                            let _g0 =
                                 timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                             self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
                         };
-                        flattened.append(ctxt.flatten_all(&op_constraints, cur_scope, timing));
+                        let _g1 = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtOpaqueFlattenAll, cur_scope));
+                        let res = ctxt.flatten_all(&op_constraints, cur_scope, timing);
+                        drop(_g1);
+
+                        let _g1 = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtOpaqueAppend, cur_scope));
+                        flattened.append(res);
                     }
                     return Constraints::from(Constraint::new(
                         None,

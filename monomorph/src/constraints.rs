@@ -925,6 +925,7 @@ impl Context {
         scope: &VOID,
         timing: Option<&InterpPass>,
     ) -> Constraints {
+        debug!("flatten_all: constraints_size={}", constraints.inner.len());
         let _g = timing.map(|p| p.timing_span(TimingCat::FlattenAll, scope));
         let mut out = Constraints::new();
         for constraint in constraints.inner.iter() {

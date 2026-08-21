@@ -313,6 +313,14 @@ pub(crate) enum TimingCat {
     StepFieldOnePtr,
     StepFieldOneIdk,
     StepFieldOneParam,
+    // merge_stores_fallback parts - this path used to be permanently
+    // un-instrumented (no InterpPass available at its callers); now that
+    // scoped_update and the Merge trait carry timing through, it gets its
+    // own categories, separate from merge_stores_timed's, so the two paths'
+    // costs stay distinguishable.
+    MergeStoresFallbackEs,
+    MergeStoresFallbackCmapLoop,
+    MergeStoresFallbackRefsUnion,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -3599,7 +3607,7 @@ impl<'a> InterpPass<'a> {
             Some(acc) => *ctxt = acc,
             None => {}
         }
-        let result = self.merge_results_and_ret(&mut results);
+        let result = self.merge_results_and_ret(&mut results, cur_scope);
         drop(_timing_guard);
         result
     }
@@ -3916,6 +3924,7 @@ impl<'a> InterpPass<'a> {
     fn merge_results_and_ret(
         &self,
         results: &mut Vec<Option<Constraints>>,
+        cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
         let filtered_results: Vec<Constraints> = results
             .into_iter()
@@ -3923,7 +3932,7 @@ impl<'a> InterpPass<'a> {
             .map(|x| x.clone().unwrap())
             .collect();
 
-        match filtered_results.merge() {
+        match filtered_results.merge(Some((self, cur_scope))) {
             Ok(Some(merged_constraints)) => {
                 return Ok(Some(merged_constraints));
             }

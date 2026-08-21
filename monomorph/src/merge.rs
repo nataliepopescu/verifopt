@@ -54,20 +54,18 @@ pub fn merge_mapvals(
             ))
         }
         (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
-            // `scoped_update` (in constraints.rs) is a method on
-            // ConstraintStore itself, not InterpPass - it has no `self`
-            // to call `merge_stores_timed` through, and threading
-            // `&InterpPass` down to it would mean touching every caller
-            // of `scoped_update` throughout the codebase, well beyond
-            // this fix's scope. So this is the one remaining place that
-            // still needs an un-instrumented fallback - every other
-            // caller of `merge_mapvals` passes `Some`, and goes through
-            // the fully-instrumented `merge_stores_timed` instead.
+            // `merge_stores_fallback` used to be permanently un-instrumented
+            // here (this was the one call site with no real InterpPass to
+            // route through `merge_stores_timed`). `scoped_update` now
+            // threads `timing` through, so in practice this `None` arm
+            // should rarely if ever fire - kept as a defensive fallback,
+            // and now properly instrumented in its own right rather than
+            // silently invisible if it ever does.
             let (store, es) = match timing {
                 Some((pass, scope)) => {
                     pass.merge_stores_timed(scope, &cur_store, &cur_es, &new_store, &new_es)
                 }
-                None => merge_stores_fallback(&cur_store, &cur_es, &new_store, &new_es),
+                None => merge_stores_fallback(&cur_store, &cur_es, &new_store, &new_es, timing),
             };
             MapValue::Store(store, es)
         }
@@ -76,22 +74,24 @@ pub fn merge_mapvals(
 }
 
 pub trait Merge<T> {
-    fn merge(&self) -> Result<Option<T>, Error>;
+    fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<T>, Error>;
 }
 
-/// Used only when `merge_mapvals` is called with `timing: None` (i.e. from
-/// `scoped_update`, a `ConstraintStore` method with no `&InterpPass` to
-/// call `merge_stores_timed` through) - an intentionally un-instrumented
-/// fallback, not a competing implementation of the same logic. Every
-/// other caller goes through `InterpPass::merge_stores_timed` instead,
-/// which is the one that gets `REFS MERGE CONFLICT` detection and the
-/// rest of the timing/diagnostic machinery.
+/// Reached when `merge_mapvals` is called with `timing: None` - in practice
+/// this should be rare now that `scoped_update` threads real timing through,
+/// but kept as a defensive fallback for any caller that genuinely has no
+/// `&InterpPass` available. Gets its own `MergeStoresFallback*` categories,
+/// separate from `merge_stores_timed`'s, so the two paths' costs (and how
+/// often this one actually fires) stay distinguishable in the timing data.
 fn merge_stores_fallback(
     cur_store: &ConstraintStore,
     cur_es: &EnclosingScopes,
     new_store: &ConstraintStore,
     new_es: &EnclosingScopes,
+    timing: Option<(&InterpPass, &VOID)>,
 ) -> (ConstraintStore, EnclosingScopes) {
+    let es_guard =
+        timing.map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackEs, scope));
     let merged_es = match (cur_es, new_es) {
         (Some(cur_es_vec), Some(new_es_vec)) => {
             let mut merged_es_vec = cur_es_vec.clone();
@@ -102,9 +102,10 @@ fn merge_stores_fallback(
         (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
         (None, None) => None,
     };
+    drop(es_guard);
 
     let vec = vec![cur_store.clone(), new_store.clone()];
-    let merged_store = match vec.merge() {
+    let merged_store = match vec.merge(timing) {
         Ok(Some(merged)) => merged,
         Ok(None) => panic!("no stores to merge?"),
         e @ _ => panic!("error merging stores: {:?}", e),
@@ -114,7 +115,7 @@ fn merge_stores_fallback(
 }
 
 impl Merge<ConstraintStore> for Vec<ConstraintStore> {
-    fn merge(&self) -> Result<Option<ConstraintStore>, Error> {
+    fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<ConstraintStore>, Error> {
         //debug!("interp stores to merge: {:?}", self);
 
         if self.is_empty() {
@@ -137,10 +138,12 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
                 continue;
             }
 
+            let cmap_guard = timing
+                .map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackCmapLoop, scope));
             for (key, val) in store.cmap.iter() {
                 match merged.cmap.get_mut(key) {
                     Some(merged_val) => {
-                        let new_merged_val = merge_mapvals(merged_val, val, None);
+                        let new_merged_val = merge_mapvals(merged_val, val, timing);
                         merged.cmap.insert(key.clone(), Box::new(new_merged_val));
                     }
                     None => {
@@ -148,7 +151,12 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
                     }
                 }
             }
+            drop(cmap_guard);
+
+            let refs_guard = timing
+                .map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackRefsUnion, scope));
             merged.refs = merged.refs.union(store.refs.clone());
+            drop(refs_guard);
         }
 
         Ok(Some(merged))
@@ -156,7 +164,7 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
 }
 
 impl Merge<Constraints> for Vec<Constraints> {
-    fn merge(&self) -> Result<Option<Constraints>, Error> {
+    fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<Constraints>, Error> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -167,7 +175,7 @@ impl Merge<Constraints> for Vec<Constraints> {
 
         let mut merged_constraints = self[0].clone();
         for constraints in self.iter() {
-            merged_constraints = merge_constraints(&merged_constraints, &constraints, None);
+            merged_constraints = merge_constraints(&merged_constraints, &constraints, timing);
         }
 
         Ok(Some(merged_constraints))
@@ -175,7 +183,7 @@ impl Merge<Constraints> for Vec<Constraints> {
 }
 
 impl Merge<Vec<Place>> for Vec<Vec<Place>> {
-    fn merge(&self) -> Result<Option<Vec<Place>>, Error> {
+    fn merge(&self, _timing: Option<(&InterpPass, &VOID)>) -> Result<Option<Vec<Place>>, Error> {
         if self.is_empty() {
             return Ok(None);
         }

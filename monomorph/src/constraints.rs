@@ -1389,7 +1389,8 @@ impl ConstraintStore {
                         Some(old_val_) => {
                             let _g1 = timing
                                 .map(|p| p.timing_span(TimingCat::ScopedUpdateStoreMerge, &scope));
-                            let merged = merge_mapvals(old_val_, &value, None);
+                            let merged =
+                                merge_mapvals(old_val_, &value, timing.map(|p| (p, &scope)));
                             drop(_g1);
 
                             match &merged {

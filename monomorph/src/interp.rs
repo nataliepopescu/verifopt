@@ -21,7 +21,7 @@ use rustc_public::ty::{
 };
 use rustc_public::{CrateDef, CrateDefType};
 
-use log::{debug, error};
+use log::{debug, error, warn};
 
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
@@ -105,7 +105,21 @@ pub struct InterpPass<'a> {
 
 thread_local! {
     static LIFT_TRAITOBJTYS_CACHE: RefCell<HashMap<(usize, u64), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+    // Diagnostic only: tracks the chain of AdtDefs currently being walked by
+    // `resolve_adt_helper`'s genargs recursion (interp.rs, "search in
+    // genargs for an implementing type" - the branch whose own comment
+    // already flags it as a possible termination problem). Unlike
+    // `debug_check_runaway_adt_nesting` in constraints.rs (which walks
+    // `ADTFields`/`Constraints` and found nothing), this walks the *raw*
+    // rustc `GenericArgs` reconstructed fresh via `convert_genarg` on each
+    // call - a completely different path that bypasses `Constraints`
+    // merging/widening entirely, so it needed its own tracker.
+    static RESOLVE_ADT_GENARG_PATH: RefCell<Vec<DefId>> = RefCell::new(Vec::new());
 }
+
+/// See `RESOLVE_ADT_GENARG_PATH`. Diagnostic-only; safe to remove once the
+/// genargs-recursion-as-termination-problem hypothesis is confirmed/refuted.
+const RESOLVE_ADT_GENARG_DEPTH_WARN: usize = 15;
 
 #[derive(Clone, PartialEq)]
 pub enum TagPlan {
@@ -3251,6 +3265,35 @@ impl<'a> InterpPass<'a> {
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         //debug!("\nRESOLVE ADT HELPER");
 
+        // Diagnostic: are we about to recurse into this same AdtDef's own
+        // genargs again, having already seen it earlier on this same
+        // resolve_adt_helper call chain? That's exactly the
+        // Range<Range<Range<...>>>-style self-nesting we're trying to
+        // confirm. Checked (and the path entry pushed) up front, before
+        // the genargs loop below, so it covers every recursive re-entry
+        // into this function regardless of which branch got us here.
+        let this_defid = adtdef.0;
+        RESOLVE_ADT_GENARG_PATH.with(|path| {
+            let path = path.borrow();
+            let depth = path.len() + 1;
+            if path.contains(&this_defid) {
+                warn!(
+                    "RESOLVE_ADT_HELPER: {:?} reappears on its own genargs-recursion path at depth {} (path: {:?})",
+                    this_defid.name(),
+                    depth,
+                    path.iter().map(|d| d.name()).collect::<Vec<_>>(),
+                );
+            } else if depth >= RESOLVE_ADT_GENARG_DEPTH_WARN {
+                warn!(
+                    "RESOLVE_ADT_HELPER: genargs-recursion depth {} reached at {:?} (path: {:?})",
+                    depth,
+                    this_defid.name(),
+                    path.iter().map(|d| d.name()).collect::<Vec<_>>(),
+                );
+            }
+        });
+        RESOLVE_ADT_GENARG_PATH.with(|path| path.borrow_mut().push(this_defid));
+
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {
             // Does this ADT implement the desired trait? If so, add to vec
@@ -3289,6 +3332,10 @@ impl<'a> InterpPass<'a> {
                 _ => {}
             }
         }
+
+        RESOLVE_ADT_GENARG_PATH.with(|path| {
+            path.borrow_mut().pop();
+        });
 
         (false, resvec)
     }

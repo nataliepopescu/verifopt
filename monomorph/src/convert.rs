@@ -23,7 +23,7 @@ use crate::sig_collect::SigVal;
 use log::debug;
 use indexmap::IndexSet;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::rc::Weak;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,23 +95,6 @@ pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
     }
 
     is_btree_iter_suffix(suffix)
-}
-
-thread_local! {
-    // Diagnostic only: which ADTs actually hit convert_agg's opaque-internal
-    // branch. Since that branch is rare (a handful of calls per run) but has
-    // shown up dominating total exclusive time via a huge flatten_all fan-out,
-    // logging each distinct type the first time it's seen (not every call)
-    // tells us exactly which struct/enum is behind it, at negligible cost.
-    static OPAQUE_ADT_SEEN: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-}
-
-fn log_opaque_adt_once(adtdef: &AdtDef) {
-    let name = adtdef.0.name();
-    let is_new = OPAQUE_ADT_SEEN.with(|seen| seen.borrow_mut().insert(name.clone()));
-    if is_new {
-        debug!("convert_agg opaque ADT branch: new type seen: {}", name);
-    }
 }
 
 pub fn is_opaque_internal(ty: &Ty) -> bool {
@@ -752,7 +735,7 @@ impl<'a> RvalConverter<'a> {
         match kind {
             AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
                 if is_opaque_internal_defid(def) {
-                    log_opaque_adt_once(def);
+                    let adt_name = def.0.name();
                     let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtOpaque, cur_scope));
                     let mut flattened = Constraints::new();
                     for op in ops {
@@ -764,6 +747,17 @@ impl<'a> RvalConverter<'a> {
                         let _g1 = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtOpaqueFlattenAll, cur_scope));
                         let res = ctxt.flatten_all(&op_constraints, cur_scope, timing);
                         drop(_g1);
+
+                        // Logged on *every* call, not just the first time this
+                        // ADT is seen - a later invocation on the same type
+                        // can easily be the expensive one, and a first-seen-only
+                        // log would silently miss it.
+                        debug!(
+                            "convert_agg opaque ADT branch: type={} input_len={} output_len={}",
+                            adt_name,
+                            op_constraints.inner.len(),
+                            res.inner.len()
+                        );
 
                         let _g1 = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtOpaqueAppend, cur_scope));
                         flattened.append(res);

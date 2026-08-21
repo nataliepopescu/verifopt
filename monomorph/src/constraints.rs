@@ -13,11 +13,11 @@ use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-use log::debug;
+use log::{debug, warn};
 
 use im::HashMap as ImHashMap;
 use indexmap::IndexSet;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::rc::{Rc, Weak};
@@ -509,6 +509,60 @@ thread_local! {
     static CONSTRAINTS_SIZE_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, usize)>> = RefCell::new(HashMap::new());
     static CONTAINS_PARAM_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, bool)>> = RefCell::new(HashMap::new());
     static WIDEN_CONSTRAINTS_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+    // Diagnostic only (no caching/behavior change): tracks whether flatten_all
+    // is repeatedly called on the *same* underlying Rc<IndexSet<Constraint>>
+    // (same allocation, confirmed still alive via Weak::upgrade - not just a
+    // reused address) - a high hit rate would mean flatten_all is a strong
+    // candidate for the same memoize_by_rc treatment already used above.
+    static FLATTEN_ALL_SEEN: RefCell<HashMap<usize, Weak<IndexSet<Constraint>>>> =
+        RefCell::new(HashMap::new());
+    static FLATTEN_ALL_HITS: Cell<u64> = Cell::new(0);
+    static FLATTEN_ALL_MISSES: Cell<u64> = Cell::new(0);
+}
+
+/// Diagnostic only - records whether this exact `Constraints` allocation
+/// (not just an equal one) has been seen by `flatten_all` before. Returns
+/// nothing; updates thread-local hit/miss counters that `dump_flatten_all_cache_stats`
+/// reports. Cheap: one hashmap probe + insert per call, no recursion, no
+/// change to flatten_all's actual output.
+fn record_flatten_all_rc_identity(constraints: &Constraints) {
+    let ptr = Rc::as_ptr(&constraints.inner) as usize;
+    let is_hit = FLATTEN_ALL_SEEN.with(|seen| {
+        let mut seen = seen.borrow_mut();
+        // A hit only counts if the *same allocation* is still alive -
+        // if the old Rc at this address was dropped and a new, unrelated
+        // one happened to be allocated at the same freed address, upgrade()
+        // fails and we correctly treat this as a miss, not a false hit.
+        let hit = seen
+            .get(&ptr)
+            .map(|w| w.upgrade().is_some())
+            .unwrap_or(false);
+        seen.insert(ptr, Rc::downgrade(&constraints.inner));
+        hit
+    });
+    if is_hit {
+        FLATTEN_ALL_HITS.with(|c| c.set(c.get() + 1));
+    } else {
+        FLATTEN_ALL_MISSES.with(|c| c.set(c.get() + 1));
+    }
+}
+
+/// Diagnostic only - prints the running flatten_all Rc-identity hit rate.
+/// Call this from the same periodic/final checkpoints that print
+/// TOTAL WALL CLOCK, so partial data survives even if the run panics
+/// before finishing.
+pub fn dump_flatten_all_cache_stats(label: &str) {
+    let hits = FLATTEN_ALL_HITS.with(|c| c.get());
+    let misses = FLATTEN_ALL_MISSES.with(|c| c.get());
+    let total = hits + misses;
+    warn!(
+        "FLATTEN_ALL RC IDENTITY STATS [{}]: hits={} misses={} total={} hit_rate={:.2}%",
+        label,
+        hits,
+        misses,
+        total,
+        100.0 * hits as f64 / total.max(1) as f64
+    );
 }
 
 pub fn constraints_size(cs: &Constraints) -> usize {
@@ -926,6 +980,7 @@ impl Context {
         timing: Option<&InterpPass>,
     ) -> Constraints {
         debug!("flatten_all: constraints_size={}", constraints.inner.len());
+        record_flatten_all_rc_identity(constraints);
         let _g = timing.map(|p| p.timing_span(TimingCat::FlattenAll, scope));
         let mut out = Constraints::new();
         for constraint in constraints.inner.iter() {

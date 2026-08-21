@@ -505,6 +505,7 @@ impl<'a> InterpPass<'a> {
             *self.bb_visit_count.borrow(),
             self.run_start.elapsed().as_secs_f64() * 1000.0
         );
+        crate::constraints::dump_flatten_all_cache_stats("FINAL");
         self.dump_self_time_report("FINAL", &self.scope_self_time_global.borrow());
         self.dump_timing_report("FINAL GLOBAL", &self.timing_global.borrow());
         self.dump_timing_by_scope_report("FINAL", &self.timing_scope_global.borrow());
@@ -796,6 +797,7 @@ impl<'a> InterpPass<'a> {
                         *n,
                         self.run_start.elapsed().as_secs_f64() * 1000.0
                     );
+                    crate::constraints::dump_flatten_all_cache_stats(&format!("bb visit {}", *n));
                     //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
                     self.dump_self_time_report(
                         &format!("bb visit {}", *n),

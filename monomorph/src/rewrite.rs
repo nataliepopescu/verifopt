@@ -233,7 +233,10 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 
         match edit {
             Edit::Single(hash) => {
-                let (fnc, self_ty) = fn_op(tcx, hash, gen_args, span).unwrap();
+                let (fnc, self_ty) = match fn_op(tcx, hash, gen_args, span) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
 
                 let (recv, new_stmts) = narrow_dyn(
                     tcx,
@@ -283,7 +286,12 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let proj =
                     Ty::new_projection(tcx, metadata_assoc, tcx.mk_args(&[pointee_ty.into()]));
 
-                let meta_ty = tcx.normalize_erasing_regions(TypingEnv::fully_monomorphized(), proj); // DynMetadata<dyn X>
+                let meta_ty = match tcx
+                    .try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), proj)
+                {
+                    Ok(ty) => ty, // DynMetadata<dyn X>
+                    Err(_) => continue,
+                };
                 let raw_ptr_ty = Ty::new_ptr(tcx, tcx.types.unit, Mutability::Not); // *const ()
 
                 // DynMetadata<dyn X>
@@ -589,7 +597,14 @@ fn fn_op<'tcx>(
 
     let impl_did = tcx.parent(target_did);
     let self_ty = tcx.type_of(impl_did).instantiate(tcx, instance.args);
-    let self_ty = tcx.normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty);
+    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty) {
+        Ok(ty) => ty,
+        // Can genuinely fail to normalize here (e.g. an unresolved
+        // Iterator::Item projection through a closure chain) rather than
+        // it being a bug on our end - rustc's own ICE message for the
+        // panicking variant says to use this fallible one instead.
+        Err(_) => return Err(()),
+    };
 
     Ok((op, self_ty))
 }

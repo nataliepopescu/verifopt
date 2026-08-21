@@ -597,7 +597,8 @@ fn fn_op<'tcx>(
 
     let impl_did = tcx.parent(target_did);
     let self_ty = tcx.type_of(impl_did).instantiate(tcx, instance.args);
-    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty) {
+    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty)
+    {
         Ok(ty) => ty,
         // Can genuinely fail to normalize here (e.g. an unresolved
         // Iterator::Item projection through a closure chain) rather than

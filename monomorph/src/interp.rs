@@ -1009,13 +1009,8 @@ impl<'a> InterpPass<'a> {
             matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
 
         let constraints = if frozen {
-            self.converter.convert_static_const(
-                &Location::unknown(),
-                &ty,
-                &alloc,
-                None,
-                Some(self),
-            )
+            self.converter
+                .convert_static_const(&Location::unknown(), &ty, &alloc, None, Some(self))
         } else {
             let (_, c) = self
                 .converter
@@ -1198,7 +1193,8 @@ impl<'a> InterpPass<'a> {
                         projection: vec![],
                     };
                     let _timing_guard = self.timing_span(TimingCat::StmtCurConstraints, cur_scope);
-                    let base_lookup = ctxt.get_constraints(cur_scope, local_decls, &base, false, Some(self));
+                    let base_lookup =
+                        ctxt.get_constraints(cur_scope, local_decls, &base, false, Some(self));
                     drop(_timing_guard);
                     match base_lookup {
                         Some(mut base_constraints) => {
@@ -1221,7 +1217,12 @@ impl<'a> InterpPass<'a> {
                             );
                             let _timing_guard =
                                 self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints, Some(self));
+                            ctxt.set_scoped_constraints(
+                                cur_scope,
+                                &base,
+                                base_constraints,
+                                Some(self),
+                            );
                             drop(_timing_guard);
                         }
                         None => {
@@ -1244,7 +1245,12 @@ impl<'a> InterpPass<'a> {
                             );
                             let _timing_guard =
                                 self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints, Some(self));
+                            ctxt.set_scoped_constraints(
+                                cur_scope,
+                                &base,
+                                base_constraints,
+                                Some(self),
+                            );
                             drop(_timing_guard);
                         }
                     }
@@ -1352,8 +1358,11 @@ impl<'a> InterpPass<'a> {
                         Some(cur_scope),
                         Some(self),
                     );
-                    let dst_constraints =
-                        self.lift_traitobjtys(&maybe_trait_destty, Constraints::from(dst), cur_scope);
+                    let dst_constraints = self.lift_traitobjtys(
+                        &maybe_trait_destty,
+                        Constraints::from(dst),
+                        cur_scope,
+                    );
                     ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints, Some(self));
                 }
             }
@@ -1752,7 +1761,12 @@ impl<'a> InterpPass<'a> {
                     crate::constraints::constraints_size(&constraints)
                 );
 
-                ctxt.set_scoped_constraints(cur_scope, destination, constraints.clone(), Some(self));
+                ctxt.set_scoped_constraints(
+                    cur_scope,
+                    destination,
+                    constraints.clone(),
+                    Some(self),
+                );
 
                 //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
 
@@ -2525,7 +2539,8 @@ impl<'a> InterpPass<'a> {
         // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(caller_scope, local_decls, place, is_closure, Some(self)) {
+                match ctxt.get_constraints(caller_scope, local_decls, place, is_closure, Some(self))
+                {
                     Some(constraints) => {
                         self.lift_traitobjtys(maybe_trait_argty, constraints, caller_scope)
                     }
@@ -3378,13 +3393,12 @@ impl<'a> InterpPass<'a> {
                     // invariant rustc's own type instantiation panics on, so
                     // treat it the same as a length mismatch: skip, don't
                     // hand rustc a malformed args list.
-                    let kind_mismatch = identity_args.as_ref().is_some_and(|template| {
-                        genargs
-                            .0
-                            .iter()
-                            .zip(template.0.iter())
-                            .any(|(a, b)| std::mem::discriminant(a) != std::mem::discriminant(b))
-                    });
+                    let kind_mismatch =
+                        identity_args.as_ref().is_some_and(|template| {
+                            genargs.0.iter().zip(template.0.iter()).any(|(a, b)| {
+                                std::mem::discriminant(a) != std::mem::discriminant(b)
+                            })
+                        });
                     if kind_mismatch {
                         debug!(
                             "skipping {:?}: genargs kind shape doesn't match callee signature, falling back to poly sig",

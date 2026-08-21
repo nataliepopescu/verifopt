@@ -1150,8 +1150,9 @@ impl Context {
                             };
                             if is_opaque {
                                 opaque_from_here = true;
-                                let _g = timing
-                                    .map(|p| p.timing_span(TimingCat::GetConstraintsFlattenAll, scope));
+                                let _g = timing.map(|p| {
+                                    p.timing_span(TimingCat::GetConstraintsFlattenAll, scope)
+                                });
                                 cur = self.flatten_all(&cur, scope, timing);
                             }
                         }
@@ -1344,7 +1345,13 @@ impl ConstraintStore {
         all_constraints
     }
 
-    pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>, timing: Option<&InterpPass>) {
+    pub fn scoped_update(
+        &mut self,
+        scope: &VOID,
+        key: MapKey,
+        value: Box<MapValue>,
+        timing: Option<&InterpPass>,
+    ) {
         let _resolve_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateResolve, scope));
         let (scope, key) = match key {
             MapKey::Var(place) => {
@@ -1363,14 +1370,16 @@ impl ConstraintStore {
         match mapres {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {
-                    let _g0 = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePre, &scope));
+                    let _g0 =
+                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePre, &scope));
                     let mut new_val = value.clone();
                     let old_val = store.cmap.get(&key);
                     drop(_g0);
 
                     match old_val {
                         Some(old_val_) => {
-                            let _g1 = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStoreMerge, &scope));
+                            let _g1 = timing
+                                .map(|p| p.timing_span(TimingCat::ScopedUpdateStoreMerge, &scope));
                             let merged = merge_mapvals(old_val_, &value, None);
                             drop(_g1);
 
@@ -1390,7 +1399,8 @@ impl ConstraintStore {
                     }
 
                     // modify scope w new key/val
-                    let _g2 = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, &scope));
+                    let _g2 =
+                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, &scope));
                     store.cmap.insert(key, new_val);
                     self.cmap.insert(
                         MapKey::ScopeId(scope.clone()),

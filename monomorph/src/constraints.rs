@@ -509,6 +509,11 @@ thread_local! {
     static CONSTRAINTS_SIZE_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, usize)>> = RefCell::new(HashMap::new());
     static CONTAINS_PARAM_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, bool)>> = RefCell::new(HashMap::new());
     static WIDEN_CONSTRAINTS_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+    // Real cache (not diagnostic) - flatten_all's own output, keyed on the
+    // same Rc identity the diagnostic above confirmed is redundant ~99.96%
+    // of the time. Separate from FLATTEN_ALL_SEEN, which stays purely as a
+    // hit-rate counter so we can confirm this cache is actually paying off.
+    static FLATTEN_ALL_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
     // Diagnostic only (no caching/behavior change): tracks whether flatten_all
     // is repeatedly called on the *same* underlying Rc<IndexSet<Constraint>>
     // (same allocation, confirmed still alive via Weak::upgrade - not just a
@@ -982,17 +987,21 @@ impl Context {
         debug!("flatten_all: constraints_size={}", constraints.inner.len());
         record_flatten_all_rc_identity(constraints);
         let _g = timing.map(|p| p.timing_span(TimingCat::FlattenAll, scope));
-        let mut out = Constraints::new();
-        for constraint in constraints.inner.iter() {
-            let _g1 = timing.map(|p| p.timing_span(TimingCat::FlattenOne, scope));
-            let flat = self.flatten_one(constraint, scope, timing);
-            drop(_g1);
+        FLATTEN_ALL_CACHE.with(|cache| {
+            memoize_by_rc(cache, constraints, (), || {
+                let mut out = Constraints::new();
+                for constraint in constraints.inner.iter() {
+                    let _g1 = timing.map(|p| p.timing_span(TimingCat::FlattenOne, scope));
+                    let flat = self.flatten_one(constraint, scope, timing);
+                    drop(_g1);
 
-            let _g2 = timing.map(|p| p.timing_span(TimingCat::FlattenAllAppend, scope));
-            out.append(flat);
-            drop(_g2);
-        }
-        out
+                    let _g2 = timing.map(|p| p.timing_span(TimingCat::FlattenAllAppend, scope));
+                    out.append(flat);
+                    drop(_g2);
+                }
+                out
+            })
+        })
     }
 
     fn flatten_one(

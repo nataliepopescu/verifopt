@@ -410,7 +410,7 @@ impl<'a> RvalConverter<'a> {
         let _g0 = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
 
         let _g1 = timing.map(|p| p.timing_span(TimingCat::ConvertPlaceGetConstraints, cur_scope));
-        let constraints_op = ctxt.get_constraints(cur_scope, local_decls, place, false);
+        let constraints_op = ctxt.get_constraints(cur_scope, local_decls, place, false, timing);
         drop(_g1);
 
         match constraints_op {
@@ -622,6 +622,7 @@ impl<'a> RvalConverter<'a> {
                                 cur_scope,
                                 &prev_constraints,
                                 &ProjectionElem::Field(0, ty.clone()),
+                                timing,
                             );
                             if unwrapped.inner.is_empty() {
                                 Constraints::from(post_constraint)
@@ -734,6 +735,7 @@ impl<'a> RvalConverter<'a> {
         match kind {
             AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
                 if is_opaque_internal_defid(def) {
+                    let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtOpaque, cur_scope));
                     let mut flattened = Constraints::new();
                     for op in ops {
                         let op_constraints = {
@@ -741,7 +743,7 @@ impl<'a> RvalConverter<'a> {
                                 timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                             self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
                         };
-                        flattened.append(ctxt.flatten_all(&op_constraints));
+                        flattened.append(ctxt.flatten_all(&op_constraints, cur_scope, timing));
                     }
                     return Constraints::from(Constraint::new(
                         None,
@@ -755,6 +757,7 @@ impl<'a> RvalConverter<'a> {
                 }
 
                 // Create projections here to simulate field initializers
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtFields, cur_scope));
                 let mut fields = ADTFields::new();
                 for (i, op) in ops.into_iter().enumerate() {
                     let op_constraints = {
@@ -775,6 +778,7 @@ impl<'a> RvalConverter<'a> {
                 ))
             }
             AggregateKind::Tuple => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggTuple, cur_scope));
                 let mut inner_constraints = Vec::new();
                 for op in ops {
                     let op_constraints = {
@@ -789,6 +793,7 @@ impl<'a> RvalConverter<'a> {
                 ))
             }
             AggregateKind::RawPtr(ty, _mut) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggRawPtr, cur_scope));
                 match ops.len() {
                     0 => todo!("no operands"),
                     1 => todo!("thin ptr (1 operand)"),
@@ -803,16 +808,20 @@ impl<'a> RvalConverter<'a> {
                 ))
             }
             AggregateKind::Array(ty) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggArray, cur_scope));
                 let (_, constraint) = self.convert_ty(span, ty, Some(cur_scope), timing);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::List(Box::new(constraint))),
                 ))
             }
-            AggregateKind::Closure(def, genargs) => Constraints::from(Constraint::new(
-                None,
-                Some(RunningConstraint::Closure(*def, genargs.clone())),
-            )),
+            AggregateKind::Closure(def, genargs) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggClosure, cur_scope));
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Closure(*def, genargs.clone())),
+                ))
+            }
             _ => todo!("other agg kind: {:?}", kind),
         }
     }

@@ -1,4 +1,4 @@
-use crate::interp::InterpPass;
+use crate::interp::{InterpPass, TimingCat};
 use crate::rustc_public::CrateDef;
 use rustc_public::mir::mono::Instance;
 
@@ -867,7 +867,9 @@ impl Context {
         scope: &VOID,
         place: &Place,
         constraints: Constraints,
+        timing: Option<&InterpPass>,
     ) {
+        let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraints, scope));
         let already_written = self
             .bb_written_places
             .get(scope)
@@ -875,6 +877,7 @@ impl Context {
             .unwrap_or(false);
         if already_written {
             debug!("REPLACE value (already written)");
+            let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraintsReplace, scope));
             self.cstore.scoped_replace(
                 scope,
                 MapKey::Var(place.clone()),
@@ -886,6 +889,7 @@ impl Context {
                 .entry(scope.clone())
                 .or_default()
                 .insert(place.clone());
+            let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraintsUpdate, scope));
             self.cstore.scoped_update(
                 scope,
                 MapKey::Var(place.clone()),
@@ -899,10 +903,11 @@ impl Context {
         scope: &VOID,
         constraints: &Constraints,
         elem: &ProjectionElem,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         let mut out = Constraints::new();
         for constraint in constraints.inner.iter() {
-            out.append(self.step_field_one(scope, constraint, elem));
+            out.append(self.step_field_one(scope, constraint, elem, timing));
         }
         out
     }
@@ -913,15 +918,26 @@ impl Context {
     /// not to model with precise field indices (see `is_opaque_internal`)
     /// - safe even though it's imprecise, since it can only ever surface
     /// *more* candidates than a precise lookup would, never fewer
-    pub fn flatten_all(&self, constraints: &Constraints) -> Constraints {
+    pub fn flatten_all(
+        &self,
+        constraints: &Constraints,
+        scope: &VOID,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
+        let _g = timing.map(|p| p.timing_span(TimingCat::FlattenAll, scope));
         let mut out = Constraints::new();
         for constraint in constraints.inner.iter() {
-            out.append(self.flatten_one(constraint));
+            out.append(self.flatten_one(constraint, scope, timing));
         }
         out
     }
 
-    fn flatten_one(&self, constraint: &Constraint) -> Constraints {
+    fn flatten_one(
+        &self,
+        constraint: &Constraint,
+        scope: &VOID,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         let mut out = Constraints::new();
 
         // The constraint itself is always part of the union
@@ -930,22 +946,22 @@ impl Context {
         match &constraint.cfc {
             Some(RunningConstraint::Adt(_, _, _, fields)) => {
                 for (_key, field_constraints) in fields {
-                    out.append(self.flatten_all(field_constraints));
+                    out.append(self.flatten_all(field_constraints, scope, timing));
                 }
             }
             Some(RunningConstraint::Tuple(inner)) => {
                 for elem_constraints in inner {
-                    out.append(self.flatten_all(elem_constraints));
+                    out.append(self.flatten_all(elem_constraints, scope, timing));
                 }
             }
             Some(RunningConstraint::Ptr(box inner)) => {
-                out.append(self.flatten_one(inner));
+                out.append(self.flatten_one(inner, scope, timing));
             }
             Some(RunningConstraint::List(box inner)) => {
-                out.append(self.flatten_one(inner));
+                out.append(self.flatten_one(inner, scope, timing));
             }
             Some(RunningConstraint::Idk(box inner_cs)) => {
-                out.append(self.flatten_all(inner_cs));
+                out.append(self.flatten_all(inner_cs, scope, timing));
             }
             // Scalar/Float/Dynamic/Closure/FnDef/FnPtr: no further
             // structure to descend into
@@ -960,23 +976,34 @@ impl Context {
         scope: &VOID,
         constraint: &Constraint,
         elem: &ProjectionElem,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         match &constraint.cfc {
-            Some(RunningConstraint::Adt(_, _, _, fields)) => fields
-                .get(&adt_field_idx(elem))
-                .cloned()
-                .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
-            Some(RunningConstraint::Tuple(inner)) => match elem {
-                ProjectionElem::Field(idx, _) => {
-                    inner.get(*idx).cloned().unwrap_or_else(Constraints::new)
+            Some(RunningConstraint::Adt(_, _, _, fields)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneAdt, scope));
+                fields
+                    .get(&adt_field_idx(elem))
+                    .cloned()
+                    .unwrap_or_else(Constraints::new) // unknown/never-written field -> fallback, see below
+            }
+            Some(RunningConstraint::Tuple(inner)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneTuple, scope));
+                match elem {
+                    ProjectionElem::Field(idx, _) => {
+                        inner.get(*idx).cloned().unwrap_or_else(Constraints::new)
+                    }
+                    _ => Constraints::new(),
                 }
-                _ => Constraints::new(),
-            },
-            Some(RunningConstraint::Ptr(box inner)) => self.step_field_one(scope, inner, elem),
+            }
+            Some(RunningConstraint::Ptr(box inner)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOnePtr, scope));
+                self.step_field_one(scope, inner, elem, timing)
+            }
             Some(RunningConstraint::Idk(box inner_cs)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneIdk, scope));
                 let mut out = Constraints::new();
                 for ic in inner_cs.inner.iter() {
-                    out.append(self.step_field_one(scope, ic, elem));
+                    out.append(self.step_field_one(scope, ic, elem, timing));
                 }
                 out
             }
@@ -985,6 +1012,7 @@ impl Context {
             // parameter - extend the path instead, so substitute_params can
             // replay this exact field access against the real argument.
             Some(RunningConstraint::Param(i, path)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneParam, scope));
                 let mut new_path = path.clone();
                 new_path.push(ProjStep::Field(adt_field_idx(elem)));
                 Constraints::from(Constraint::new(
@@ -1004,8 +1032,10 @@ impl Context {
         local_decls: &[LocalDecl],
         place: &Place,
         is_closure: bool,
+        timing: Option<&InterpPass>,
     ) -> Option<Constraints> {
         if place.projection.is_empty() {
+            let _g = timing.map(|p| p.timing_span(TimingCat::GetConstraintsIfBlock, scope));
             match self
                 .cstore
                 .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
@@ -1015,11 +1045,12 @@ impl Context {
                 _ => panic!("got store instead of constraints"),
             }
         } else {
+            let _g = timing.map(|p| p.timing_span(TimingCat::GetConstraintsElseBlock, scope));
             let base = Place {
                 local: place.local,
                 projection: vec![],
             };
-            match self.get_constraints(scope, local_decls, &base, is_closure) {
+            match self.get_constraints(scope, local_decls, &base, is_closure, timing) {
                 Some(base_constraints) => {
                     // Collect every matching projection in the set of constraints
                     let mut cur = base_constraints;
@@ -1030,23 +1061,41 @@ impl Context {
                     // to be opaque, every remaining step is skipped
                     let mut opaque_from_here = false;
 
+                    let _g_loop =
+                        timing.map(|p| p.timing_span(TimingCat::GetConstraintsProjLoop, scope));
                     for elem in &place.projection {
                         if !opaque_from_here {
-                            if let Ok(prefix_ty) = prefix.ty(local_decls) {
-                                if crate::convert::is_opaque_internal(&prefix_ty) {
-                                    opaque_from_here = true;
-                                    cur = self.flatten_all(&cur);
+                            let is_opaque = {
+                                let _g = timing.map(|p| {
+                                    p.timing_span(TimingCat::GetConstraintsIsOpaqueInternal, scope)
+                                });
+                                if let Ok(prefix_ty) = prefix.ty(local_decls) {
+                                    crate::convert::is_opaque_internal(&prefix_ty)
+                                } else {
+                                    false
                                 }
+                            };
+                            if is_opaque {
+                                opaque_from_here = true;
+                                let _g = timing
+                                    .map(|p| p.timing_span(TimingCat::GetConstraintsFlattenAll, scope));
+                                cur = self.flatten_all(&cur, scope, timing);
                             }
                         }
 
                         if !opaque_from_here {
                             match elem {
                                 ProjectionElem::Downcast(vidx) => {
+                                    let _g = timing.map(|p| {
+                                        p.timing_span(TimingCat::GetConstraintsFilterVariant, scope)
+                                    });
                                     cur = cur.filter_variant(*vidx);
                                 }
                                 ProjectionElem::Field(..) => {
-                                    cur = self.step_field(scope, &cur, elem);
+                                    let _g = timing.map(|p| {
+                                        p.timing_span(TimingCat::GetConstraintsStepField, scope)
+                                    });
+                                    cur = self.step_field(scope, &cur, elem, timing);
                                 }
                                 _ => {}
                             }
@@ -1054,6 +1103,7 @@ impl Context {
 
                         prefix.projection.push(elem.clone());
                     }
+                    drop(_g_loop);
 
                     Some(cur)
                 }

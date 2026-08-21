@@ -131,7 +131,7 @@ impl<'a> InterpPass<'a> {
                 // `.into_iter()`/etc desugars to exactly this call in MIR.
                 // Nothing to compute: hand back the receiver's own current
                 // constraints unchanged.
-                "into_iter" => ctxt.get_constraints(caller_scope, local_decls, &recv.place, false),
+                "into_iter" => ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self)),
                 _ => panic!(
                     "stdlib_stub: no summary for iterator method {} - add one",
                     method
@@ -378,7 +378,7 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
     ) -> Option<Constraints> {
         let mut cur = ctxt
-            .get_constraints(caller_scope, local_decls, &recv.place, false)
+            .get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))
             .unwrap_or_else(|| Constraints::from(self.fresh_collection_constraint(recv)));
 
         let resolve = |idx: usize| -> Constraints {
@@ -416,7 +416,7 @@ impl<'a> InterpPass<'a> {
             _ => unreachable!(),
         }
 
-        ctxt.set_scoped_constraints(caller_scope, &recv.place, cur);
+        ctxt.set_scoped_constraints(caller_scope, &recv.place, cur, Some(self));
         Some(Constraints::new())
     }
 
@@ -457,7 +457,7 @@ impl<'a> InterpPass<'a> {
             }
             None => Constraints::new(),
         };
-        let flattened = ctxt.flatten_all(&iterable);
+        let flattened = ctxt.flatten_all(&iterable, caller_scope, Some(self));
 
         let mut cur = Constraints::from(self.fresh_collection_constraint(recv));
         cur.write_field(vec![recv.key_field.clone()], flattened.clone());
@@ -479,13 +479,13 @@ impl<'a> InterpPass<'a> {
         fndef: &FnDef,
         recv: &CollectionRecv,
     ) -> Option<Constraints> {
-        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false)?;
+        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))?;
         let field = match recv.kind {
             WrapperKind::BTreeSet => &recv.key_field,
             WrapperKind::BTreeMap => recv.val_field.as_ref()?,
             _ => unreachable!(),
         };
-        let elem = ctxt.step_field(caller_scope, &cur, field);
+        let elem = ctxt.step_field(caller_scope, &cur, field, Some(self));
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }
 
@@ -500,17 +500,17 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         recv: &CollectionRecv,
     ) -> Option<Constraints> {
-        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false)?;
+        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))?;
 
         let elem = match recv.kind {
-            WrapperKind::BTreeSet => ctxt.step_field(caller_scope, &cur, &recv.key_field),
+            WrapperKind::BTreeSet => ctxt.step_field(caller_scope, &cur, &recv.key_field, Some(self)),
             WrapperKind::BTreeMap => {
-                let key = ctxt.step_field(caller_scope, &cur, &recv.key_field);
+                let key = ctxt.step_field(caller_scope, &cur, &recv.key_field, Some(self));
                 let val_field = recv
                     .val_field
                     .as_ref()
                     .expect("BTreeMap always has a value field");
-                let val = ctxt.step_field(caller_scope, &cur, val_field);
+                let val = ctxt.step_field(caller_scope, &cur, val_field, Some(self));
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::Tuple(vec![key, val])),
@@ -542,8 +542,8 @@ impl<'a> InterpPass<'a> {
         fndef: &FnDef,
         recv: &IterRecv,
     ) -> Option<Constraints> {
-        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false)?;
-        let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field);
+        let cur = ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))?;
+        let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field, Some(self));
         //debug!("stub_next: elem = {:?}", elem);
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }

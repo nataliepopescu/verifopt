@@ -264,6 +264,40 @@ pub(crate) enum TimingCat {
     ConvertBinop,
     ConvertCheckedBinop,
     ConvertType,
+    // convert_agg branches
+    ConvertAggAdtOpaque,
+    ConvertAggAdtFields,
+    ConvertAggTuple,
+    ConvertAggRawPtr,
+    ConvertAggArray,
+    ConvertAggClosure,
+    // constraints::get_constraints blocks
+    GetConstraintsIfBlock,
+    GetConstraintsElseBlock,
+    GetConstraintsProjLoop,
+    GetConstraintsIsOpaqueInternal,
+    GetConstraintsFlattenAll,
+    GetConstraintsFilterVariant,
+    GetConstraintsStepField,
+    // lift_traitobjtys parts
+    LiftTraitobjtysHashVal,
+    LiftTraitobjtysUncached,
+    // set_scoped_constraints parts
+    SetScopedConstraints,
+    SetScopedConstraintsReplace,
+    SetScopedConstraintsUpdate,
+    // interp_fn_def blocks
+    InterpFnDefVirtualFallback,
+    InterpFnDefStdlibStub,
+    InterpFnDefFetchableBody,
+    InterpFnDefCallStackChecks,
+    InterpFnDefFinalDispatch,
+    FlattenAll,
+    StepFieldOneAdt,
+    StepFieldOneTuple,
+    StepFieldOnePtr,
+    StepFieldOneIdk,
+    StepFieldOneParam,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -985,10 +1019,15 @@ impl<'a> InterpPass<'a> {
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
+        cur_scope: &VOID,
     ) -> Constraints {
-        let extra_key = hash_val(maybe_trait_destty);
+        let extra_key = {
+            let _g = self.timing_span(TimingCat::LiftTraitobjtysHashVal, cur_scope);
+            hash_val(maybe_trait_destty)
+        };
         LIFT_TRAITOBJTYS_CACHE.with(|cache| {
             memoize_by_rc(cache, &old_constraints, extra_key, || {
+                let _g = self.timing_span(TimingCat::LiftTraitobjtysUncached, cur_scope);
                 self.lift_traitobjtys_uncached(maybe_trait_destty, &old_constraints)
             })
         })
@@ -1114,7 +1153,7 @@ impl<'a> InterpPass<'a> {
 
                 let _timing_guard = self.timing_span(TimingCat::StmtLiftTraitobj, cur_scope);
                 let final_constraints =
-                    self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
+                    self.lift_traitobjtys(&maybe_trait_destty, constraints.clone(), cur_scope);
                 drop(_timing_guard);
                 debug!(
                     "stmt: GENERAL post-lift scope={:?} local={} disjuncts={}",
@@ -1131,7 +1170,7 @@ impl<'a> InterpPass<'a> {
 
                 if write_proj.is_empty() {
                     let _timing_guard = self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                    ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
+                    ctxt.set_scoped_constraints(cur_scope, place, final_constraints, Some(self));
                     drop(_timing_guard);
                 } else {
                     let base = Place {
@@ -1139,7 +1178,7 @@ impl<'a> InterpPass<'a> {
                         projection: vec![],
                     };
                     let _timing_guard = self.timing_span(TimingCat::StmtCurConstraints, cur_scope);
-                    let base_lookup = ctxt.get_constraints(cur_scope, local_decls, &base, false);
+                    let base_lookup = ctxt.get_constraints(cur_scope, local_decls, &base, false, Some(self));
                     drop(_timing_guard);
                     match base_lookup {
                         Some(mut base_constraints) => {
@@ -1162,7 +1201,7 @@ impl<'a> InterpPass<'a> {
                             );
                             let _timing_guard =
                                 self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints, Some(self));
                             drop(_timing_guard);
                         }
                         None => {
@@ -1185,7 +1224,7 @@ impl<'a> InterpPass<'a> {
                             );
                             let _timing_guard =
                                 self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints, Some(self));
                             drop(_timing_guard);
                         }
                     }
@@ -1255,8 +1294,9 @@ impl<'a> InterpPass<'a> {
                     let dst_constraints = self.lift_traitobjtys(
                         &maybe_trait_destty,
                         Constraints::from_vec(dst_disjuncts),
+                        cur_scope,
                     );
-                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints, Some(self));
                 } else if let Some(src) = src
                     && !src.inner.is_empty()
                 {
@@ -1282,8 +1322,9 @@ impl<'a> InterpPass<'a> {
                     let dst_constraints = self.lift_traitobjtys(
                         &maybe_trait_destty,
                         Constraints::from_vec(dst_disjuncts),
+                        cur_scope,
                     );
-                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints, Some(self));
                 } else {
                     let (_, dst) = self.converter.convert_ty(
                         &Location::unknown(),
@@ -1292,8 +1333,8 @@ impl<'a> InterpPass<'a> {
                         Some(self),
                     );
                     let dst_constraints =
-                        self.lift_traitobjtys(&maybe_trait_destty, Constraints::from(dst));
-                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
+                        self.lift_traitobjtys(&maybe_trait_destty, Constraints::from(dst), cur_scope);
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints, Some(self));
                 }
             }
             _ => panic!("dst is not a place"),
@@ -1310,7 +1351,7 @@ impl<'a> InterpPass<'a> {
     ) -> Option<Constraints> {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(cur_scope, local_decls, &place, is_closure) {
+                match ctxt.get_constraints(cur_scope, local_decls, &place, is_closure, Some(self)) {
                     Some(constraints) => Some(constraints),
                     None => None,
                 }
@@ -1438,7 +1479,7 @@ impl<'a> InterpPass<'a> {
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
 
         let mut ret_constraints = Constraints::new();
-        match ctxt.get_constraints(cur_scope, local_decls, place, false) {
+        match ctxt.get_constraints(cur_scope, local_decls, place, false, Some(self)) {
             Some(constraints) => {
                 for constraint in constraints.inner.iter() {
                     let constraint = constraint.clone();
@@ -1473,7 +1514,7 @@ impl<'a> InterpPass<'a> {
         }
 
         log_scope(cur_scope);
-        let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints);
+        let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints, cur_scope);
         debug!("destination: {:?}", destination);
         debug!(
             "indirect call: DESTINATION scope={:?} local={} disjuncts={}",
@@ -1482,7 +1523,7 @@ impl<'a> InterpPass<'a> {
             crate::constraints::constraints_size(&constraints)
         );
         //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
-        ctxt.set_scoped_constraints(cur_scope, destination, constraints);
+        ctxt.set_scoped_constraints(cur_scope, destination, constraints, Some(self));
 
         Ok(None)
     }
@@ -1682,7 +1723,8 @@ impl<'a> InterpPass<'a> {
 
         match ret_constraints {
             Ok(Some(constraints_)) => {
-                let constraints = self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone());
+                let constraints =
+                    self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone(), cur_scope);
                 debug!(
                     "direct call: DESTINATION scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
@@ -1690,7 +1732,7 @@ impl<'a> InterpPass<'a> {
                     crate::constraints::constraints_size(&constraints)
                 );
 
-                ctxt.set_scoped_constraints(cur_scope, destination, constraints.clone());
+                ctxt.set_scoped_constraints(cur_scope, destination, constraints.clone(), Some(self));
 
                 //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
 
@@ -1725,6 +1767,8 @@ impl<'a> InterpPass<'a> {
                 // - is this a trait method without an implementation?
                 // - if so, who implements it? execute those implementations
                 // This tends to be stuff that dynamic dispatch does for us anyway
+                let _g_fallback =
+                    self.timing_span(TimingCat::InterpFnDefVirtualFallback, cur_scope);
                 let _timing_guard = self.timing_span(TimingCat::TermInterpVirtualCall, cur_scope);
                 let r = self.interp_virtual_call(
                     term_span,
@@ -1756,15 +1800,19 @@ impl<'a> InterpPass<'a> {
             return Err(Error::RecurseLimit(MAX_DEPTH));
         }
 
-        if let Some(result) = self.stdlib_stub(
-            ctxt,
-            cur_scope,
-            term_span,
-            local_decls,
-            &fndef,
-            genargs,
-            args,
-        ) {
+        let stdlib_result = {
+            let _g = self.timing_span(TimingCat::InterpFnDefStdlibStub, cur_scope);
+            self.stdlib_stub(
+                ctxt,
+                cur_scope,
+                term_span,
+                local_decls,
+                &fndef,
+                genargs,
+                args,
+            )
+        };
+        if let Some(result) = stdlib_result {
             return result;
         }
 
@@ -1772,6 +1820,7 @@ impl<'a> InterpPass<'a> {
             && new_scope.0.has_body();
 
         if !fetchable_body {
+            let _g = self.timing_span(TimingCat::InterpFnDefFetchableBody, cur_scope);
             return self.dispatch_call(
                 term_span,
                 ctxt,
@@ -1801,6 +1850,7 @@ impl<'a> InterpPass<'a> {
         drop(_timing_guard);
 
         if call_stack.contains(&new_scope) {
+            let _g = self.timing_span(TimingCat::InterpFnDefCallStackChecks, cur_scope);
             let precise_count = *self
                 .scope_summaries_count
                 .borrow()
@@ -1845,6 +1895,7 @@ impl<'a> InterpPass<'a> {
             return Ok(Some(retty));
         }
 
+        let _g = self.timing_span(TimingCat::InterpFnDefFinalDispatch, cur_scope);
         self.dispatch_call(
             term_span,
             ctxt,
@@ -2452,8 +2503,10 @@ impl<'a> InterpPass<'a> {
         // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(caller_scope, local_decls, place, is_closure) {
-                    Some(constraints) => self.lift_traitobjtys(maybe_trait_argty, constraints),
+                match ctxt.get_constraints(caller_scope, local_decls, place, is_closure, Some(self)) {
+                    Some(constraints) => {
+                        self.lift_traitobjtys(maybe_trait_argty, constraints, caller_scope)
+                    }
                     None => {
                         let (_maybe_traitobjty, constraint) = self.converter.convert_ty(
                             &Location::unknown(),
@@ -2761,7 +2814,7 @@ impl<'a> InterpPass<'a> {
         }
 
         let place = self.get_traitobj_place(args);
-        let cs = match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
+        let cs = match ctxt.get_constraints(caller_scope, local_decls, &place, false, Some(self)) {
             Some(cs) => cs,
             None => return TagPlan::Poisoned,
         };
@@ -3019,7 +3072,7 @@ impl<'a> InterpPass<'a> {
         place: Place,
     ) -> (bool, Constraints) {
         // Get concrete type constraints for trait object
-        match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
+        match ctxt.get_constraints(caller_scope, local_decls, &place, false, Some(self)) {
             Some(constraints) => {
                 let is_param = crate::constraints::contains_param(&constraints);
                 if is_param {
@@ -3850,7 +3903,7 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(cur_scope, local_decls, place, false) {
+                match ctxt.get_constraints(cur_scope, local_decls, place, false, Some(self)) {
                     Some(constraints) => {
                         if crate::constraints::contains_param(&constraints) {
                             if let Some(tainted) =

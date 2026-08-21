@@ -28,6 +28,11 @@ fn merge_constraints(
         merged.inner.len()
     );
     //debug!("MERGED CONSTRAINTS: {:?}", merged);
+    let label = match timing {
+        Some((_, scope)) => scope.0.name(),
+        None => "<no scope>".to_string(),
+    };
+    crate::constraints::debug_check_runaway_adt_nesting(&merged, &label);
     if merged.inner.len() > MERGE_WIDEN_THRESHOLD {
         debug!("merge_constraints: WIDENING");
         let widen_guard = timing

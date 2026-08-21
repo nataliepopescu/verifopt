@@ -172,13 +172,19 @@ impl TraitCollectPass {
                 None => {}
             }
 
-            // Add back pointers from associated fns to this trait
-            for (_, assoc_fn_decl_defid) in &assoc_fn_defids {
+            // Add back pointers from associated fns to this trait. This must
+            // cover *every* assoc fn decl in the trait, not just the
+            // dynamically-dispatchable (has_self) subset in
+            // `assoc_fn_defids` - `get_trait_defid` is also consulted for
+            // no-`self` fns (constructors, conversions, `Step`'s internal
+            // methods, etc.) reached via ordinary static/simulated calls, and
+            // will panic if it's missing an entry.
+            for assoc_fn_decl_defid in self.get_all_assoc_fn_decl_defids(&impl_def) {
                 match tstore.assoc_fn_traits.get(&assoc_fn_decl_defid) {
                     None => {
                         tstore
                             .assoc_fn_traits
-                            .insert(*assoc_fn_decl_defid, trait_defid);
+                            .insert(assoc_fn_decl_defid, trait_defid);
                     }
                     Some(existing_trait_defid) => {
                         if *existing_trait_defid != trait_defid {
@@ -267,6 +273,15 @@ impl TraitCollectPass {
     }
 
     /// Returns a vector of (concrete_impl_defid, decl_defid), one for each associated fn
+    /// that can be dynamically dispatched (i.e. takes `self`). Used to build
+    /// `struct_assoc_fns`, the vtable-candidate map - non-`self` fns
+    /// (constructors, conversions, etc.) can never be called through a `dyn
+    /// Trait`, so they're correctly excluded here.
+    ///
+    /// NOTE: this is *not* a complete list of associated fns in the impl -
+    /// see `get_all_assoc_fn_decl_defids` for that, used for `assoc_fn_traits`
+    /// back-pointer registration, which needs every assoc fn regardless of
+    /// dispatchability.
     fn get_assoc_fn_defids(&self, impl_def: &ImplDef) -> Vec<(DefId, DefId)> {
         let mut assoc_fns = Vec::new();
 
@@ -299,5 +314,35 @@ impl TraitCollectPass {
         }
 
         assoc_fns
+    }
+
+    /// Returns the trait-decl DefId for every associated fn in this impl,
+    /// regardless of whether it takes `self`. Used only to populate
+    /// `assoc_fn_traits` back-pointers, which `get_trait_defid` needs to be
+    /// able to resolve *any* assoc fn - including no-`self` constructors and
+    /// conversions like `Default::default`, `FromStr::from_str`,
+    /// `From::from`/`TryFrom::try_from`, `FromIterator::from_iter`, and
+    /// `Step::{steps_between, forward_checked, backward_checked, forward,
+    /// backward}` - none of which can be dynamically dispatched, but all of
+    /// which can still show up as the target of a static/simulated call
+    /// during interpretation.
+    fn get_all_assoc_fn_decl_defids(&self, impl_def: &ImplDef) -> Vec<DefId> {
+        let mut decls = Vec::new();
+
+        for assoc_item in impl_def.associated_items() {
+            // Only Fn assoc items have a meaningful trait-decl DefId to
+            // register here; assoc consts/types aren't looked up via
+            // `assoc_fn_traits` (see `get_trait_defid`'s callers).
+            match assoc_item.kind {
+                AssocKind::Fn { .. } => {}
+                _ => continue,
+            }
+
+            if let AssocContainer::TraitImpl(assoc_def) = assoc_item.container {
+                decls.push(assoc_def.0);
+            }
+        }
+
+        decls
     }
 }

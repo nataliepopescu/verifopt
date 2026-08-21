@@ -267,7 +267,6 @@ pub(crate) enum TimingCat {
     ConvertType,
     // convert_agg branches
     ConvertAggAdtOpaque,
-    ConvertAggAdtOpaqueFlattenAll,
     ConvertAggAdtOpaqueAppend,
     ConvertAggAdtFields,
     ConvertAggTuple,
@@ -286,6 +285,9 @@ pub(crate) enum TimingCat {
     LiftTraitobjtysHashVal,
     LiftTraitobjtysUncached,
     LiftTraitobjtysUncachedGetTraitobj,
+    LiftTraitobjtysUncachedPush1,
+    LiftTraitobjtysUncachedPush2,
+    LiftTraitobjtysUncachedPush3,
     // set_scoped_constraints parts
     SetScopedConstraints,
     SetScopedConstraintsReplace,
@@ -1063,6 +1065,7 @@ impl<'a> InterpPass<'a> {
                         cfc,
                         prov,
                     } => {
+                        let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush1, cur_scope);
                         constraints.push(Constraint::new(toc, cfc).with_prov(prov));
                     }
                     Constraint {
@@ -1073,11 +1076,13 @@ impl<'a> InterpPass<'a> {
                         if *existing_toc != toc.unwrap() {
                             todo!("update existing TOC");
                         } else {
+                            let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush2, cur_scope);
                             constraints.push(constraint);
                         }
                     }
                 },
                 None => {
+                    let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush3, cur_scope);
                     constraints.push(constraint);
                 }
             }

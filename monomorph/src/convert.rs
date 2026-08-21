@@ -764,11 +764,7 @@ impl<'a> RvalConverter<'a> {
                                 timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                             self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
                         };
-                        let _g1 = timing.map(|p| {
-                            p.timing_span(TimingCat::ConvertAggAdtOpaqueFlattenAll, cur_scope)
-                        });
                         let res = ctxt.flatten_all(&op_constraints, cur_scope, timing);
-                        drop(_g1);
 
                         // Logged on *every* call, not just the first time this
                         // ADT is seen - a later invocation on the same type

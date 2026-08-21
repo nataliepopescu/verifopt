@@ -3234,11 +3234,32 @@ impl<'a> InterpPass<'a> {
                             .and_then(|k| k.ty())
                             .copied()
                             .expect("get_impls_from_defids should set Self for a default method");
-                        GenericArgs(
-                            std::iter::once(GenericArgKind::Type(self_ty))
-                                .chain(method_genargs.0.iter().skip(1).cloned())
-                                .collect(),
-                        )
+                        // Self isn't necessarily at index 0 - the trait/method
+                        // may have leading lifetime params ahead of it, which
+                        // must be preserved unchanged (rustc's own type
+                        // instantiation panics if a Type arg lands where it
+                        // expects a Region). Replace the first Type arg found,
+                        // wherever it is, instead of assuming position 0.
+                        let mut replaced = false;
+                        let mut new_args: Vec<GenericArgKind> = method_genargs
+                            .0
+                            .iter()
+                            .cloned()
+                            .map(|arg| {
+                                if !replaced && matches!(arg, GenericArgKind::Type(_)) {
+                                    replaced = true;
+                                    GenericArgKind::Type(self_ty)
+                                } else {
+                                    arg
+                                }
+                            })
+                            .collect();
+                        if !replaced {
+                            // No existing Type arg to replace (e.g.
+                            // method_genargs was empty) - append instead.
+                            new_args.push(GenericArgKind::Type(self_ty));
+                        }
+                        GenericArgs(new_args)
                     } else if is_closure && adt_genargs.is_some() {
                         GenericArgs(
                             adt_genargs
@@ -3258,10 +3279,11 @@ impl<'a> InterpPass<'a> {
 
                     // TODO different resolves for fn_ptr / closure
                     let fndef = FnDef(*assoc_fn_impl);
-                    let expected_count = match fndef.ty().kind() {
-                        TyKind::RigidTy(RigidTy::FnDef(_, identity_args)) => identity_args.0.len(),
-                        _ => 0,
+                    let identity_args = match fndef.ty().kind() {
+                        TyKind::RigidTy(RigidTy::FnDef(_, identity_args)) => Some(identity_args),
+                        _ => None,
                     };
+                    let expected_count = identity_args.as_ref().map(|a| a.0.len()).unwrap_or(0);
 
                     if genargs.0.len() < expected_count {
                         debug!(
@@ -3273,6 +3295,30 @@ impl<'a> InterpPass<'a> {
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         return Ok(());
                     }
+
+                    // Beyond length, each position's *kind* (Type vs Lifetime
+                    // vs Const) must match what the callee's real signature
+                    // expects. A mismatch here - e.g. a Type landing in a
+                    // slot the signature says is a Lifetime - is exactly the
+                    // invariant rustc's own type instantiation panics on, so
+                    // treat it the same as a length mismatch: skip, don't
+                    // hand rustc a malformed args list.
+                    let kind_mismatch = identity_args.as_ref().is_some_and(|template| {
+                        genargs
+                            .0
+                            .iter()
+                            .zip(template.0.iter())
+                            .any(|(a, b)| std::mem::discriminant(a) != std::mem::discriminant(b))
+                    });
+                    if kind_mismatch {
+                        debug!(
+                            "skipping {:?}: genargs kind shape doesn't match callee signature, falling back to poly sig",
+                            assoc_fn_impl,
+                        );
+                        results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        return Ok(());
+                    }
+
                     let instance_ = match Instance::resolve(fndef, &genargs) {
                         Ok(i) => i,
                         Err(_) => {

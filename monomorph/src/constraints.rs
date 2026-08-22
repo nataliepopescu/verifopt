@@ -1,4 +1,4 @@
-use crate::interp::InterpPass;
+use crate::interp::{InterpPass, TimingCat};
 use crate::rustc_public::CrateDef;
 use rustc_public::mir::mono::Instance;
 
@@ -13,11 +13,11 @@ use crate::merge::merge_mapvals;
 use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
-//use log::debug;
+use log::{debug, warn};
 
 use im::HashMap as ImHashMap;
 use indexmap::IndexSet;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::rc::{Rc, Weak};
@@ -252,13 +252,22 @@ impl Constraints {
         }
     }
 
-    pub fn filter_variant(&self, vidx: VariantIdx) -> Constraints {
+    pub fn filter_variant(
+        &self,
+        vidx: VariantIdx,
+        scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         let mut out = Constraints::new();
         for c in self.inner.iter() {
             match &c.cfc {
                 Some(RunningConstraint::Adt(_, _, variant, _)) => {
                     if variant.is_none() || *variant == Some(vidx) {
-                        out.push(c.clone());
+                        let cc = c.clone();
+                        let _g = scope.zip(timing).map(|(s, p)| {
+                            p.timing_span(TimingCat::GetConstraintsFilterVariantPush1, s)
+                        });
+                        out.push(cc);
                     }
                 }
                 // Unknown-yet placeholder from a parametric summary: we
@@ -269,10 +278,14 @@ impl Constraints {
                 Some(RunningConstraint::Param(i, path)) => {
                     let mut new_path = path.clone();
                     new_path.push(ProjStep::Downcast(vidx));
-                    out.push(Constraint::new(
+                    let c = Constraint::new(
                         None,
                         Some(RunningConstraint::Param(*i, new_path)),
-                    ));
+                    );
+                    let _g = scope.zip(timing).map(|(s, p)| {
+                        p.timing_span(TimingCat::GetConstraintsFilterVariantPush2, s)
+                    });
+                    out.push(c);
                 }
                 _ => {}
             }
@@ -449,7 +462,7 @@ fn apply_proj_path(base: &Constraints, path: &[ProjStep]) -> Constraints {
     for step in path {
         cur = match step {
             ProjStep::Field(idx) => apply_field_idx(&cur, *idx),
-            ProjStep::Downcast(vidx) => cur.filter_variant(*vidx),
+            ProjStep::Downcast(vidx) => cur.filter_variant(*vidx, None, None),
         };
     }
     cur
@@ -476,32 +489,6 @@ fn substitute_toc(
     })
 }
 
-/// Applies a parametric function summary to a real call's resolved
-/// argument constraints, producing the same `Constraints` a full
-/// re-interpretation of the callee would have produced - without visiting
-/// the callee's body at all. Walks the summary tree looking for `Param`
-/// leaves (however deeply nested inside Adt fields / Tuple elements /
-/// Ptr / List / Idk / trait-obj-constraint fields the summary wrapped
-/// them in) and replaces each with `actual_args[i]` after replaying its
-/// recorded projection path.
-// Strips value-level detail (concrete scalar values, Adt variant/fields,
-// provenance) while keeping structural identity (which AdtDef, which
-// closure/fn, which trait). Used past a per-scope exact_memo cap so
-// high-cardinality functions (quicksort-style value-dependent recursion,
-// Vec growth) collapse to one cache entry per type shape instead of one
-// per distinct value ever seen.
-// Cheap proxy for "how big is this Constraints tree" - total disjunct
-// count, recursively through Adt fields / Tuple elements / Ptr / List /
-// Idk / trait-obj-constraint fields. Diagnostic only: used to tell apart
-// "many small cached entries" from "a few enormous ones".
-// Memoizes a computation keyed by the pointer identity of cs.inner, plus
-// a caller-supplied extra key for any other inputs the computation
-// depends on. Sound against Rc pointer reuse: holds a Weak reference
-// alongside the cached value and only trusts a hit if that Weak still
-// upgrades - a live Weak prevents the allocator from reusing that address
-// for an unrelated Rc, so a successful upgrade proves this is genuinely
-// the same allocation, not a coincidentally-reused address at the same
-// spot a since-dropped one used to occupy.
 pub fn memoize_by_rc<K, T>(
     cache: &RefCell<HashMap<(usize, K), (Weak<IndexSet<Constraint>>, T)>>,
     cs: &Constraints,
@@ -535,6 +522,65 @@ thread_local! {
     static CONSTRAINTS_SIZE_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, usize)>> = RefCell::new(HashMap::new());
     static CONTAINS_PARAM_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, bool)>> = RefCell::new(HashMap::new());
     static WIDEN_CONSTRAINTS_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+    // Real cache (not diagnostic) - flatten_all's own output, keyed on the
+    // same Rc identity the diagnostic above confirmed is redundant ~99.96%
+    // of the time. Separate from FLATTEN_ALL_SEEN, which stays purely as a
+    // hit-rate counter so we can confirm this cache is actually paying off.
+    static FLATTEN_ALL_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+    // Diagnostic only (no caching/behavior change): tracks whether flatten_all
+    // is repeatedly called on the *same* underlying Rc<IndexSet<Constraint>>
+    // (same allocation, confirmed still alive via Weak::upgrade - not just a
+    // reused address) - a high hit rate would mean flatten_all is a strong
+    // candidate for the same memoize_by_rc treatment already used above.
+    static FLATTEN_ALL_SEEN: RefCell<HashMap<usize, Weak<IndexSet<Constraint>>>> =
+        RefCell::new(HashMap::new());
+    static FLATTEN_ALL_HITS: Cell<u64> = Cell::new(0);
+    static FLATTEN_ALL_MISSES: Cell<u64> = Cell::new(0);
+}
+
+/// Diagnostic only - records whether this exact `Constraints` allocation
+/// (not just an equal one) has been seen by `flatten_all` before. Returns
+/// nothing; updates thread-local hit/miss counters that `dump_flatten_all_cache_stats`
+/// reports. Cheap: one hashmap probe + insert per call, no recursion, no
+/// change to flatten_all's actual output.
+fn record_flatten_all_rc_identity(constraints: &Constraints) {
+    let ptr = Rc::as_ptr(&constraints.inner) as usize;
+    let is_hit = FLATTEN_ALL_SEEN.with(|seen| {
+        let mut seen = seen.borrow_mut();
+        // A hit only counts if the *same allocation* is still alive -
+        // if the old Rc at this address was dropped and a new, unrelated
+        // one happened to be allocated at the same freed address, upgrade()
+        // fails and we correctly treat this as a miss, not a false hit.
+        let hit = seen
+            .get(&ptr)
+            .map(|w| w.upgrade().is_some())
+            .unwrap_or(false);
+        seen.insert(ptr, Rc::downgrade(&constraints.inner));
+        hit
+    });
+    if is_hit {
+        FLATTEN_ALL_HITS.with(|c| c.set(c.get() + 1));
+    } else {
+        FLATTEN_ALL_MISSES.with(|c| c.set(c.get() + 1));
+    }
+}
+
+/// Diagnostic only - prints the running flatten_all Rc-identity hit rate.
+/// Call this from the same periodic/final checkpoints that print
+/// TOTAL WALL CLOCK, so partial data survives even if the run panics
+/// before finishing.
+pub fn dump_flatten_all_cache_stats(label: &str) {
+    let hits = FLATTEN_ALL_HITS.with(|c| c.get());
+    let misses = FLATTEN_ALL_MISSES.with(|c| c.get());
+    let total = hits + misses;
+    warn!(
+        "FLATTEN_ALL RC IDENTITY STATS [{}]: hits={} misses={} total={} hit_rate={:.2}%",
+        label,
+        hits,
+        misses,
+        total,
+        100.0 * hits as f64 / total.max(1) as f64
+    );
 }
 
 pub fn constraints_size(cs: &Constraints) -> usize {
@@ -623,8 +669,11 @@ fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
 }
 
 pub fn contains_param(cs: &Constraints) -> bool {
-    CONTAINS_PARAM_CACHE
-        .with(|cache| memoize_by_rc(cache, cs, (), || cs.inner.iter().any(constraint_contains_param)))
+    CONTAINS_PARAM_CACHE.with(|cache| {
+        memoize_by_rc(cache, cs, (), || {
+            cs.inner.iter().any(constraint_contains_param)
+        })
+    })
 }
 
 fn constraint_contains_param(c: &Constraint) -> bool {
@@ -696,8 +745,11 @@ fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> 
             let mut out = Constraints::new();
             for sc in substituted.inner.iter() {
                 out.push(
-                    Constraint::new(toc.clone(), Some(RunningConstraint::Ptr(Box::new(sc.clone()))))
-                        .with_prov(c.prov.clone()),
+                    Constraint::new(
+                        toc.clone(),
+                        Some(RunningConstraint::Ptr(Box::new(sc.clone()))),
+                    )
+                    .with_prov(c.prov.clone()),
                 );
             }
             out
@@ -707,8 +759,11 @@ fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> 
             let mut out = Constraints::new();
             for sc in substituted.inner.iter() {
                 out.push(
-                    Constraint::new(toc.clone(), Some(RunningConstraint::List(Box::new(sc.clone()))))
-                        .with_prov(c.prov.clone()),
+                    Constraint::new(
+                        toc.clone(),
+                        Some(RunningConstraint::List(Box::new(sc.clone()))),
+                    )
+                    .with_prov(c.prov.clone()),
                 );
             }
             out
@@ -851,17 +906,23 @@ pub fn summary_key(
 pub struct Context {
     pub cstore: ConstraintStore,
     pub wtos: ImHashMap<VOID, BBDeps>,
+    pub bb_written_places: HashMap<VOID, HashSet<Place>>,
 }
 
 impl Context {
     pub fn new(cstore: ConstraintStore, wtos: ImHashMap<VOID, BBDeps>) -> Context {
-        Self { cstore, wtos }
+        Self {
+            cstore,
+            wtos,
+            bb_written_places: HashMap::new(),
+        }
     }
 
     pub fn empty() -> Context {
         Self {
             cstore: ConstraintStore::new(),
             wtos: ImHashMap::default(),
+            bb_written_places: HashMap::new(),
         }
     }
 
@@ -878,12 +939,36 @@ impl Context {
         scope: &VOID,
         place: &Place,
         constraints: Constraints,
+        timing: Option<&InterpPass>,
     ) {
-        self.cstore.scoped_update(
-            scope,
-            MapKey::Var(place.clone()),
-            Box::new(MapValue::Constraints(constraints)),
-        );
+        let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraints, scope));
+        let already_written = self
+            .bb_written_places
+            .get(scope)
+            .map(|s| s.contains(place))
+            .unwrap_or(false);
+        if already_written {
+            debug!("REPLACE value (already written)");
+            let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraintsReplace, scope));
+            self.cstore.scoped_replace(
+                scope,
+                MapKey::Var(place.clone()),
+                Box::new(MapValue::Constraints(constraints)),
+            );
+        } else {
+            debug!("UPDATE value");
+            self.bb_written_places
+                .entry(scope.clone())
+                .or_default()
+                .insert(place.clone());
+            let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraintsUpdate, scope));
+            self.cstore.scoped_update(
+                scope,
+                MapKey::Var(place.clone()),
+                Box::new(MapValue::Constraints(constraints)),
+                timing,
+            );
+        }
     }
 
     pub fn step_field(
@@ -891,10 +976,13 @@ impl Context {
         scope: &VOID,
         constraints: &Constraints,
         elem: &ProjectionElem,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         let mut out = Constraints::new();
         for constraint in constraints.inner.iter() {
-            out.append(self.step_field_one(scope, constraint, elem));
+            let res = self.step_field_one(scope, constraint, elem, timing);
+            let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldAppend, scope));
+            out.append(res);
         }
         out
     }
@@ -905,15 +993,38 @@ impl Context {
     /// not to model with precise field indices (see `is_opaque_internal`)
     /// - safe even though it's imprecise, since it can only ever surface
     /// *more* candidates than a precise lookup would, never fewer
-    pub fn flatten_all(&self, constraints: &Constraints) -> Constraints {
-        let mut out = Constraints::new();
-        for constraint in constraints.inner.iter() {
-            out.append(self.flatten_one(constraint));
-        }
-        out
+    pub fn flatten_all(
+        &self,
+        constraints: &Constraints,
+        scope: &VOID,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
+        debug!("flatten_all: constraints_size={}", constraints.inner.len());
+        record_flatten_all_rc_identity(constraints);
+        let _g = timing.map(|p| p.timing_span(TimingCat::FlattenAll, scope));
+        FLATTEN_ALL_CACHE.with(|cache| {
+            memoize_by_rc(cache, constraints, (), || {
+                let mut out = Constraints::new();
+                for constraint in constraints.inner.iter() {
+                    let _g1 = timing.map(|p| p.timing_span(TimingCat::FlattenOne, scope));
+                    let flat = self.flatten_one(constraint, scope, timing);
+                    drop(_g1);
+
+                    let _g2 = timing.map(|p| p.timing_span(TimingCat::FlattenAllAppend, scope));
+                    out.append(flat);
+                    drop(_g2);
+                }
+                out
+            })
+        })
     }
 
-    fn flatten_one(&self, constraint: &Constraint) -> Constraints {
+    fn flatten_one(
+        &self,
+        constraint: &Constraint,
+        scope: &VOID,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         let mut out = Constraints::new();
 
         // The constraint itself is always part of the union
@@ -922,22 +1033,32 @@ impl Context {
         match &constraint.cfc {
             Some(RunningConstraint::Adt(_, _, _, fields)) => {
                 for (_key, field_constraints) in fields {
-                    out.append(self.flatten_all(field_constraints));
+                    let res = self.flatten_all(field_constraints, scope, timing);
+                    let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                    out.append(res);
                 }
             }
             Some(RunningConstraint::Tuple(inner)) => {
                 for elem_constraints in inner {
-                    out.append(self.flatten_all(elem_constraints));
+                    let res = self.flatten_all(elem_constraints, scope, timing);
+                    let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                    out.append(res);
                 }
             }
             Some(RunningConstraint::Ptr(box inner)) => {
-                out.append(self.flatten_one(inner));
+                let res = self.flatten_one(inner, scope, timing);
+                let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                out.append(res);
             }
             Some(RunningConstraint::List(box inner)) => {
-                out.append(self.flatten_one(inner));
+                let res = self.flatten_one(inner, scope, timing);
+                let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                out.append(res);
             }
             Some(RunningConstraint::Idk(box inner_cs)) => {
-                out.append(self.flatten_all(inner_cs));
+                let res = self.flatten_all(inner_cs, scope, timing);
+                let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
+                out.append(res);
             }
             // Scalar/Float/Dynamic/Closure/FnDef/FnPtr: no further
             // structure to descend into
@@ -952,23 +1073,34 @@ impl Context {
         scope: &VOID,
         constraint: &Constraint,
         elem: &ProjectionElem,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         match &constraint.cfc {
-            Some(RunningConstraint::Adt(_, _, _, fields)) => fields
-                .get(&adt_field_idx(elem))
-                .cloned()
-                .unwrap_or_else(Constraints::new), // unknown/never-written field -> fallback, see below
-            Some(RunningConstraint::Tuple(inner)) => match elem {
-                ProjectionElem::Field(idx, _) => {
-                    inner.get(*idx).cloned().unwrap_or_else(Constraints::new)
+            Some(RunningConstraint::Adt(_, _, _, fields)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneAdt, scope));
+                fields
+                    .get(&adt_field_idx(elem))
+                    .cloned()
+                    .unwrap_or_else(Constraints::new) // unknown/never-written field -> fallback, see below
+            }
+            Some(RunningConstraint::Tuple(inner)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneTuple, scope));
+                match elem {
+                    ProjectionElem::Field(idx, _) => {
+                        inner.get(*idx).cloned().unwrap_or_else(Constraints::new)
+                    }
+                    _ => Constraints::new(),
                 }
-                _ => Constraints::new(),
-            },
-            Some(RunningConstraint::Ptr(box inner)) => self.step_field_one(scope, inner, elem),
+            }
+            Some(RunningConstraint::Ptr(box inner)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOnePtr, scope));
+                self.step_field_one(scope, inner, elem, timing)
+            }
             Some(RunningConstraint::Idk(box inner_cs)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneIdk, scope));
                 let mut out = Constraints::new();
                 for ic in inner_cs.inner.iter() {
-                    out.append(self.step_field_one(scope, ic, elem));
+                    out.append(self.step_field_one(scope, ic, elem, timing));
                 }
                 out
             }
@@ -977,6 +1109,7 @@ impl Context {
             // parameter - extend the path instead, so substitute_params can
             // replay this exact field access against the real argument.
             Some(RunningConstraint::Param(i, path)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneParam, scope));
                 let mut new_path = path.clone();
                 new_path.push(ProjStep::Field(adt_field_idx(elem)));
                 Constraints::from(Constraint::new(
@@ -996,8 +1129,10 @@ impl Context {
         local_decls: &[LocalDecl],
         place: &Place,
         is_closure: bool,
+        timing: Option<&InterpPass>,
     ) -> Option<Constraints> {
         if place.projection.is_empty() {
+            let _g = timing.map(|p| p.timing_span(TimingCat::GetConstraintsIfBlock, scope));
             match self
                 .cstore
                 .scoped_get(scope, &MapKey::Var(place.clone()), is_closure)
@@ -1007,11 +1142,12 @@ impl Context {
                 _ => panic!("got store instead of constraints"),
             }
         } else {
+            let _g = timing.map(|p| p.timing_span(TimingCat::GetConstraintsElseBlock, scope));
             let base = Place {
                 local: place.local,
                 projection: vec![],
             };
-            match self.get_constraints(scope, local_decls, &base, is_closure) {
+            match self.get_constraints(scope, local_decls, &base, is_closure, timing) {
                 Some(base_constraints) => {
                     // Collect every matching projection in the set of constraints
                     let mut cur = base_constraints;
@@ -1022,23 +1158,42 @@ impl Context {
                     // to be opaque, every remaining step is skipped
                     let mut opaque_from_here = false;
 
+                    let _g_loop =
+                        timing.map(|p| p.timing_span(TimingCat::GetConstraintsProjLoop, scope));
                     for elem in &place.projection {
                         if !opaque_from_here {
-                            if let Ok(prefix_ty) = prefix.ty(local_decls) {
-                                if crate::convert::is_opaque_internal(&prefix_ty) {
-                                    opaque_from_here = true;
-                                    cur = self.flatten_all(&cur);
+                            let is_opaque = {
+                                let _g = timing.map(|p| {
+                                    p.timing_span(TimingCat::GetConstraintsIsOpaqueInternal, scope)
+                                });
+                                if let Ok(prefix_ty) = prefix.ty(local_decls) {
+                                    crate::convert::is_opaque_internal(&prefix_ty)
+                                } else {
+                                    false
                                 }
+                            };
+                            if is_opaque {
+                                opaque_from_here = true;
+                                let _g = timing.map(|p| {
+                                    p.timing_span(TimingCat::GetConstraintsFlattenAll, scope)
+                                });
+                                cur = self.flatten_all(&cur, scope, timing);
                             }
                         }
 
                         if !opaque_from_here {
                             match elem {
                                 ProjectionElem::Downcast(vidx) => {
-                                    cur = cur.filter_variant(*vidx);
+                                    let _g = timing.map(|p| {
+                                        p.timing_span(TimingCat::GetConstraintsFilterVariant, scope)
+                                    });
+                                    cur = cur.filter_variant(*vidx, Some(scope), timing);
                                 }
                                 ProjectionElem::Field(..) => {
-                                    cur = self.step_field(scope, &cur, elem);
+                                    let _g = timing.map(|p| {
+                                        p.timing_span(TimingCat::GetConstraintsStepField, scope)
+                                    });
+                                    cur = self.step_field(scope, &cur, elem, timing);
                                 }
                                 _ => {}
                             }
@@ -1046,6 +1201,7 @@ impl Context {
 
                         prefix.projection.push(elem.clone());
                     }
+                    drop(_g_loop);
 
                     Some(cur)
                 }
@@ -1213,7 +1369,93 @@ impl ConstraintStore {
         all_constraints
     }
 
-    pub fn scoped_update(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
+    pub fn scoped_update(
+        &mut self,
+        scope: &VOID,
+        key: MapKey,
+        value: Box<MapValue>,
+        timing: Option<&InterpPass>,
+    ) {
+        let _resolve_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateResolve, scope));
+        let (scope, key) = match key {
+            MapKey::Var(place) => {
+                let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
+                debug!("scoped_update: local={}", place.local);
+                (scope, MapKey::Var(place))
+            }
+            MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
+        };
+        drop(_resolve_guard);
+
+        let _get_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateGetScope, &scope));
+        let mapres = self.cmap.get(&MapKey::ScopeId(scope.clone()));
+        drop(_get_guard);
+
+        match mapres {
+            Some(vartype) => match *vartype.clone() {
+                MapValue::Store(mut store, enclosing_scope) => {
+                    let _g0 =
+                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePre, &scope));
+                    let mut new_val = value.clone();
+                    let old_val = store.cmap.get(&key);
+                    drop(_g0);
+
+                    match old_val {
+                        Some(old_val_) => {
+                            let _g1 = timing
+                                .map(|p| p.timing_span(TimingCat::ScopedUpdateStoreMerge, &scope));
+                            let merged =
+                                merge_mapvals(old_val_, &value, timing.map(|p| (p, &scope)));
+                            drop(_g1);
+
+                            match &merged {
+                                MapValue::Constraints(constraints) => {
+                                    debug!(
+                                        "scoped_update: MERGE scope={:?} disjuncts={}",
+                                        scope.0.name(),
+                                        constraints_size(constraints),
+                                    );
+                                }
+                                _ => {}
+                            }
+                            new_val = Box::new(merged);
+                        }
+                        None => {}
+                    }
+
+                    // modify scope w new key/val
+                    let _g2 =
+                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, &scope));
+                    store.cmap.insert(key, new_val);
+                    self.cmap.insert(
+                        MapKey::ScopeId(scope.clone()),
+                        Box::new(MapValue::Store(store, enclosing_scope)),
+                    );
+                }
+                MapValue::Constraints(..) => {
+                    panic!("defid is not a scope: {:?}", scope);
+                }
+            },
+            None => {
+                // initialize new scope w key/val
+                let _g = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateInitScope, &scope));
+                let mut new_store = ConstraintStore::new();
+                new_store.cmap.insert(key, value);
+                self.cmap.insert(
+                    MapKey::ScopeId(scope.clone()),
+                    Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
+                );
+            }
+        }
+    }
+
+    // Same as scoped_update, but never merges with whatever's already
+    // there - always overwrites outright. Correct specifically for a
+    // second (or later) write to a place already written during the
+    // current basic-block visit: within one basic block there's no
+    // branching by MIR's own definition, so there's no alternative
+    // incoming path the prior value could represent.
+    pub fn scoped_replace(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
         let (scope, key) = match key {
             MapKey::Var(place) => {
                 let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
@@ -1225,17 +1467,7 @@ impl ConstraintStore {
         match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {
-                    let mut new_val = value.clone();
-                    let old_val = store.cmap.get(&key);
-                    match old_val {
-                        Some(old_val_) => {
-                            new_val = Box::new(merge_mapvals(old_val_, &value));
-                        }
-                        None => {}
-                    }
-
-                    // modify scope w new key/val
-                    store.cmap.insert(key, new_val);
+                    store.cmap.insert(key, value);
                     self.cmap.insert(
                         MapKey::ScopeId(scope.clone()),
                         Box::new(MapValue::Store(store, enclosing_scope)),

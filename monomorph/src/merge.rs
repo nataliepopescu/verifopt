@@ -1,16 +1,97 @@
+use crate::constraints::VOID;
 use crate::constraints::unique_append;
-use crate::constraints::{ConstraintStore, Constraints, Context, EnclosingScopes, MapValue};
+use crate::constraints::{ConstraintStore, Constraints, EnclosingScopes, MapValue};
 use crate::error::Error;
+use crate::interp::{InterpPass, TimingCat};
 use rustc_public::mir::Place;
 
-//use log::debug;
+use log::debug;
 
-pub fn merge_stores(
+const MERGE_WIDEN_THRESHOLD: usize = 50;
+
+fn merge_constraints(
+    cur_constraints: &Constraints,
+    new_constraints: &Constraints,
+    timing: Option<(&InterpPass, &VOID)>,
+) -> Constraints {
+    let mut merged = cur_constraints.clone();
+    let append_guard =
+        timing.map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsAppend, scope));
+    merged.append(new_constraints.clone());
+    drop(append_guard);
+    debug!(
+        "merge_constraints: merged_disjuncts={}",
+        crate::constraints::constraints_size(&merged)
+    );
+    debug!(
+        "merge_constraints: merged.inner.len()={}",
+        merged.inner.len()
+    );
+    //debug!("MERGED CONSTRAINTS: {:?}", merged);
+    if merged.inner.len() > MERGE_WIDEN_THRESHOLD {
+        debug!("merge_constraints: WIDENING");
+        let widen_guard = timing
+            .map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsWiden, scope));
+        let widened = crate::constraints::widen_constraints(&merged);
+        drop(widen_guard);
+        widened
+    } else {
+        merged
+    }
+}
+
+pub fn merge_mapvals(
+    cur_val: &MapValue,
+    new_val: &MapValue,
+    timing: Option<(&InterpPass, &VOID)>,
+) -> MapValue {
+    match (cur_val.clone(), new_val.clone()) {
+        (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
+            MapValue::Constraints(merge_constraints(
+                &cur_constraints,
+                &new_constraints,
+                timing,
+            ))
+        }
+        (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
+            // `merge_stores_fallback` used to be permanently un-instrumented
+            // here (this was the one call site with no real InterpPass to
+            // route through `merge_stores_timed`). `scoped_update` now
+            // threads `timing` through, so in practice this `None` arm
+            // should rarely if ever fire - kept as a defensive fallback,
+            // and now properly instrumented in its own right rather than
+            // silently invisible if it ever does.
+            let (store, es) = match timing {
+                Some((pass, scope)) => {
+                    pass.merge_stores_timed(scope, &cur_store, &cur_es, &new_store, &new_es)
+                }
+                None => merge_stores_fallback(&cur_store, &cur_es, &new_store, &new_es, timing),
+            };
+            MapValue::Store(store, es)
+        }
+        _ => panic!("incomparable MapValue types"),
+    }
+}
+
+pub trait Merge<T> {
+    fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<T>, Error>;
+}
+
+/// Reached when `merge_mapvals` is called with `timing: None` - in practice
+/// this should be rare now that `scoped_update` threads real timing through,
+/// but kept as a defensive fallback for any caller that genuinely has no
+/// `&InterpPass` available. Gets its own `MergeStoresFallback*` categories,
+/// separate from `merge_stores_timed`'s, so the two paths' costs (and how
+/// often this one actually fires) stay distinguishable in the timing data.
+fn merge_stores_fallback(
     cur_store: &ConstraintStore,
     cur_es: &EnclosingScopes,
     new_store: &ConstraintStore,
     new_es: &EnclosingScopes,
+    timing: Option<(&InterpPass, &VOID)>,
 ) -> (ConstraintStore, EnclosingScopes) {
+    let es_guard =
+        timing.map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackEs, scope));
     let merged_es = match (cur_es, new_es) {
         (Some(cur_es_vec), Some(new_es_vec)) => {
             let mut merged_es_vec = cur_es_vec.clone();
@@ -21,134 +102,20 @@ pub fn merge_stores(
         (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
         (None, None) => None,
     };
+    drop(es_guard);
 
-    // merge_stores_helper (via Vec<ConstraintStore>::merge) now carries its
-    // own O(1) ptr_eq fast path internally, so pre-checking equality here
-    // would just be a second full walk of the same map before the one
-    // merge_stores_helper already does cheaply when nothing's changed.
-    let merged_store = merge_stores_helper(cur_store, new_store);
+    let vec = vec![cur_store.clone(), new_store.clone()];
+    let merged_store = match vec.merge(timing) {
+        Ok(Some(merged)) => merged,
+        Ok(None) => panic!("no stores to merge?"),
+        e @ _ => panic!("error merging stores: {:?}", e),
+    };
 
     (merged_store, merged_es)
 }
 
-/*
-fn merge_field_stores(cur_store: &FieldStore, new_store: &FieldStore) -> FieldStore {
-    let merged_store = if *cur_store != *new_store {
-        merge_stores_helper(cur_store, new_store)
-    } else {
-        cur_store.clone()
-    };
-
-    merged_store
-}
-*/
-
-fn merge_stores_helper<T>(cur_store: &T, new_store: &T) -> T
-where
-    T: Clone + std::fmt::Debug,
-    Vec<T>: Merge<T>,
-{
-    let vec = vec![cur_store.clone(), new_store.clone()];
-    match vec.merge() {
-        Ok(Some(merged)) => merged,
-        Ok(None) => panic!("no stores to merge?"),
-        e @ _ => panic!("error merging stores: {:?}", e),
-    }
-}
-
-// FIXME merge span of RunningConstraints into a single vec if the RunningConstraintsInner are equal
-fn merge_constraints(cur_constraints: &Constraints, new_constraints: &Constraints) -> Constraints {
-    let mut merged = cur_constraints.clone();
-    // No != pre-check: IndexSet::extend's per-element insert already no-ops
-    // in O(1) for anything already present, so comparing first would just
-    // be a second full walk of the set before the append that already
-    // handles "nothing new" cheaply on its own.
-    merged.append(new_constraints.clone());
-    merged
-}
-
-/*
-fn merge_fields(cur_fields: &Vec<Place>, new_fields: &Vec<Place>) -> Vec<Place> {
-    let mut merged = cur_fields.clone();
-    if merged != *new_fields {
-        unique_append(&mut merged, new_fields.to_vec());
-    }
-    merged
-}
-*/
-
-pub fn merge_mapvals(cur_val: &MapValue, new_val: &MapValue) -> MapValue {
-    match (cur_val.clone(), new_val.clone()) {
-        (MapValue::Constraints(cur_constraints), MapValue::Constraints(new_constraints)) => {
-            MapValue::Constraints(merge_constraints(&cur_constraints, &new_constraints))
-        }
-        (MapValue::Store(cur_store, cur_es), MapValue::Store(new_store, new_es)) => {
-            let (store, es) = merge_stores(&cur_store, &cur_es, &new_store, &new_es);
-            MapValue::Store(store, es)
-        }
-        _ => panic!("incomparable MapValue types"),
-    }
-}
-
-/*
-pub fn merge_mapfieldvals(cur_val: &MapFieldValue, new_val: &MapFieldValue) -> MapFieldValue {
-    match (cur_val.clone(), new_val.clone()) {
-        (MapFieldValue::Fields(cur_fields), MapFieldValue::Fields(new_fields)) => {
-            MapFieldValue::Fields(merge_fields(&cur_fields, &new_fields))
-        }
-        (MapFieldValue::Store(cur_store), MapFieldValue::Store(new_store)) => {
-            let store = merge_field_stores(&cur_store, &new_store);
-            MapFieldValue::Store(store)
-        }
-        _ => panic!("incomparable MapFieldValue types"),
-    }
-}
-*/
-
-pub trait Merge<T> {
-    fn merge(&self) -> Result<Option<T>, Error>;
-}
-
-/*
-impl Merge<FieldStore> for Vec<FieldStore> {
-    fn merge(&self) -> Result<Option<FieldStore>, Error> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        if self.len() == 1 {
-            return Ok(Some(self[0].clone()));
-        }
-
-        let mut merged = self[0].clone();
-        let mut first = true;
-        for store in self.iter() {
-            if first {
-                first = false;
-                continue;
-            }
-            for (key, val) in store.clone().field_map.iter() {
-                match merged.field_map.get_mut(key) {
-                    Some(merged_val) => {
-                        let new_merged_val = merge_mapfieldvals(merged_val, val);
-                        merged
-                            .field_map
-                            .insert(key.clone(), Box::new(new_merged_val));
-                    }
-                    None => {
-                        merged.field_map.insert(key.clone(), val.clone());
-                    }
-                }
-            }
-        }
-
-        Ok(Some(merged))
-    }
-}
-*/
-
 impl Merge<ConstraintStore> for Vec<ConstraintStore> {
-    fn merge(&self) -> Result<Option<ConstraintStore>, Error> {
+    fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<ConstraintStore>, Error> {
         //debug!("interp stores to merge: {:?}", self);
 
         if self.is_empty() {
@@ -167,22 +134,16 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
                 continue;
             }
 
-            // O(1) fast path: im::HashMap::ptr_eq is true whenever the two
-            // maps still share their underlying tree - guaranteed right
-            // after a plain .clone() with no mutation since, which is
-            // exactly the common case at a dynamic-dispatch site where
-            // several candidates end up producing identical state. Skips
-            // the O(n) per-key walk below entirely instead of paying a
-            // full structural comparison just to *decide* there's nothing
-            // to do (that comparison would cost as much as the merge).
             if merged.cmap.ptr_eq(&store.cmap) && merged.refs == store.refs {
                 continue;
             }
 
+            let cmap_guard = timing
+                .map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackCmapLoop, scope));
             for (key, val) in store.cmap.iter() {
                 match merged.cmap.get_mut(key) {
                     Some(merged_val) => {
-                        let new_merged_val = merge_mapvals(merged_val, val);
+                        let new_merged_val = merge_mapvals(merged_val, val, timing);
                         merged.cmap.insert(key.clone(), Box::new(new_merged_val));
                     }
                     None => {
@@ -190,7 +151,12 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
                     }
                 }
             }
+            drop(cmap_guard);
+
+            let refs_guard = timing
+                .map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackRefsUnion, scope));
             merged.refs = merged.refs.union(store.refs.clone());
+            drop(refs_guard);
         }
 
         Ok(Some(merged))
@@ -198,7 +164,7 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
 }
 
 impl Merge<Constraints> for Vec<Constraints> {
-    fn merge(&self) -> Result<Option<Constraints>, Error> {
+    fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<Constraints>, Error> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -209,7 +175,7 @@ impl Merge<Constraints> for Vec<Constraints> {
 
         let mut merged_constraints = self[0].clone();
         for constraints in self.iter() {
-            merged_constraints = merge_constraints(&merged_constraints, &constraints);
+            merged_constraints = merge_constraints(&merged_constraints, &constraints, timing);
         }
 
         Ok(Some(merged_constraints))
@@ -217,7 +183,7 @@ impl Merge<Constraints> for Vec<Constraints> {
 }
 
 impl Merge<Vec<Place>> for Vec<Vec<Place>> {
-    fn merge(&self) -> Result<Option<Vec<Place>>, Error> {
+    fn merge(&self, _timing: Option<(&InterpPass, &VOID)>) -> Result<Option<Vec<Place>>, Error> {
         if self.is_empty() {
             return Ok(None);
         }
@@ -227,77 +193,5 @@ impl Merge<Vec<Place>> for Vec<Vec<Place>> {
         }
 
         todo!();
-    }
-}
-
-/*
-impl Merge<CAFs> for Vec<CAFs> {
-    fn merge(&self) -> Result<Option<CAFs>, Error> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        if self.len() == 1 {
-            return Ok(Some(self[0].clone()));
-        }
-
-        let mut constraints = Vec::new();
-        let mut fields = Vec::new();
-        for caf in self.iter() {
-            unique_push(&mut constraints, caf.constraints.clone());
-            unique_push(&mut fields, caf.fields.clone());
-        }
-        let m_constraints = match constraints.merge() {
-            Ok(Some(merged)) => merged,
-            Ok(None) => todo!(),
-            _ => panic!(),
-        };
-        let m_fields = match fields.merge() {
-            Ok(Some(merged)) => merged,
-            Ok(None) => todo!(),
-            _ => panic!(),
-        };
-        Ok(Some(CAFs::new(
-            m_constraints,
-            m_fields,
-            self[0].scope.clone(),
-        )))
-    }
-}
-*/
-
-impl Merge<Context> for Vec<Context> {
-    fn merge(&self) -> Result<Option<Context>, Error> {
-        if self.is_empty() {
-            return Ok(None);
-        }
-
-        if self.len() == 1 {
-            return Ok(Some(self[0].clone()));
-        }
-
-        let mut cstores = Vec::new();
-        //let mut fstores = Vec::new();
-        for ctxt in self.iter() {
-            // No unique_push here: it deduped via a full ConstraintStore
-            // PartialEq comparison (walking the whole cmap) for every
-            // existing entry - exactly the cost we're trying to avoid.
-            // Vec<ConstraintStore>::merge() now has its own O(1) ptr_eq
-            // fast path per pair, so duplicates get absorbed there just as
-            // cheaply without an extra full-content scan up front.
-            cstores.push(ctxt.cstore.clone());
-            //unique_push(&mut fstores, ctxt.fstore.clone());
-        }
-        let m_cstores = match cstores.merge() {
-            Ok(Some(merged)) => merged,
-            Ok(None) => todo!(),
-            _ => panic!(),
-        };
-        let mut m_wtos = self[0].wtos.clone();
-        for ctxt in self.iter().skip(1) {
-            m_wtos = m_wtos.union(ctxt.wtos.clone());
-        }
-
-        Ok(Some(Context::new(m_cstores, m_wtos)))
     }
 }

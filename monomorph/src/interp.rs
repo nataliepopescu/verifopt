@@ -16,8 +16,8 @@ use rustc_public::mir::{
 
 use rustc_public::mir::alloc::GlobalAlloc;
 use rustc_public::ty::{
-    AdtDef, BoundVariableKind, ClosureDef, ClosureKind, FnDef, GenericArgKind, GenericArgs, IntTy,
-    PolyFnSig, RigidTy, Span, Ty, TyKind, ConstantKind, Prov,
+    AdtDef, BoundVariableKind, ClosureDef, ClosureKind, ConstantKind, FnDef, GenericArgKind,
+    GenericArgs, IntTy, PolyFnSig, Prov, RigidTy, Span, Ty, TyKind,
 };
 use rustc_public::{CrateDef, CrateDefType};
 
@@ -26,22 +26,27 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, Location, MapKey, MapValue, TagProv,
-    RunningConstraint, SummaryKey, TraitObjConstraint, TraitObjTy, VOID, hash_val, memoize_by_rc,
-    substitute_params, summary_key,
+    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, EnclosingScopes, Location, MapKey,
+    MapValue, RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy, VOID,
+    hash_val, memoize_by_rc, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
-use indexmap::IndexSet;
-use std::rc::Weak;
 use crate::error::Error;
 use crate::merge::Merge;
-use crate::merge::merge_stores;
 use crate::sig_collect::{SigStore, SigVal};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
+use indexmap::IndexSet;
+use std::rc::Weak;
 
 const MAX_DEPTH: u32 = 50;
+
+/// Cache key for `virtual_call_memo` - the call site (caller function's
+/// DefId + basic block, same pair already used for `dispatch_cha`) plus
+/// an `ArgSet` fingerprint of the call's operands as seen from the
+/// caller's side. See `virtual_call_memo`'s field doc for the rationale.
+type VirtualCallKey = ((DefId, usize), ArgSet);
 
 #[derive(Debug, Clone)]
 pub enum ParamSummary {
@@ -64,17 +69,36 @@ pub struct InterpPass<'a> {
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
     pub rec_depth: RefCell<u32>,
-    pub call_count: RefCell<u64>,
+    //pub call_count: RefCell<u64>,
     pub bb_visit_count: RefCell<u64>,
+    pub run_start: std::time::Instant,
+    pub main_ctxt_ptr: RefCell<Option<usize>>,
+    pub self_time_child_accum: RefCell<Vec<std::time::Duration>>,
+    pub scope_self_time: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
+    scope_self_time_global: RefCell<HashMap<VOID, (std::time::Duration, u64)>>,
+    timing_global: RefCell<HashMap<TimingCat, TimingStats>>,
+    timing_scope: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_scope_global: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_window: RefCell<HashMap<TimingCat, TimingStats>>,
+    timing_child_stack: RefCell<Vec<std::time::Duration>>,
+    timing_global_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
+    timing_scope_exclusive: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_scope_exclusive_global: RefCell<HashMap<(VOID, TimingCat), TimingStats>>,
+    timing_window_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
+    pub wtos_merge_conflicts: RefCell<ImHashSet<VOID>>,
+    pub refs_merge_conflicts: RefCell<ImHashSet<(Place, VOID)>>,
 
     pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
+
+    pub virtual_call_memo:
+        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>)>>,
 
     pub scope_epoch: RefCell<HashMap<VOID, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
     pub scope_summaries_count: RefCell<HashMap<VOID, u32>>,
-    pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
+    //pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
     pub building_summaries: RefCell<HashSet<VOID>>,
 }
@@ -98,9 +122,7 @@ pub enum TagPlan {
 impl TagPlan {
     fn join(&mut self, o: &TagPlan) {
         match (&*self, o) {
-            (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => {
-                *self = TagPlan::Poisoned
-            }
+            (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => *self = TagPlan::Poisoned,
 
             (TagPlan::Tagged(a), TagPlan::Tagged(b)) => {
                 let mut by_site = HashMap::new();
@@ -131,6 +153,263 @@ impl TagPlan {
     }
 }
 
+struct SelfTimeGuard<'a, 'b> {
+    pass: &'a InterpPass<'b>,
+    scope: VOID,
+    start: std::time::Instant,
+}
+
+impl<'a, 'b> Drop for SelfTimeGuard<'a, 'b> {
+    fn drop(&mut self) {
+        let total_elapsed = self.start.elapsed();
+        let child_time = self
+            .pass
+            .self_time_child_accum
+            .borrow_mut()
+            .pop()
+            .unwrap_or(std::time::Duration::ZERO);
+        let self_elapsed = total_elapsed.saturating_sub(child_time);
+
+        let scope_name =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.scope.0.name()))
+                .unwrap_or_else(|_| "<unprintable scope: name() panicked>".to_string());
+
+        debug!(
+            "CALL SELF TIME: bb_visit_count={} scope={:?} self_time_ms={:.3}",
+            *self.pass.bb_visit_count.borrow(),
+            scope_name,
+            self_elapsed.as_secs_f64() * 1000.0
+        );
+
+        {
+            let mut map = self.pass.scope_self_time.borrow_mut();
+            let entry = map
+                .entry(self.scope.clone())
+                .or_insert((std::time::Duration::ZERO, 0));
+            entry.0 += self_elapsed;
+            entry.1 += 1;
+        }
+        {
+            let mut map = self.pass.scope_self_time_global.borrow_mut();
+            let entry = map
+                .entry(self.scope.clone())
+                .or_insert((std::time::Duration::ZERO, 0));
+            entry.0 += self_elapsed;
+            entry.1 += 1;
+        }
+
+        if let Some(parent_accum) = self.pass.self_time_child_accum.borrow_mut().last_mut() {
+            *parent_accum += total_elapsed;
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum TimingCat {
+    BbStatements,
+    BbTerminator,
+    StmtContainsDyn,
+    StmtNewConstraints,
+    StmtLiftTraitobj,
+    StmtCurConstraints,
+    StmtWriteFields,
+    StmtSetScoped,
+    TermDirectCall,
+    TermIndirectCall,
+    TermReturn,
+    TermSwitch,
+    TermReturnScopedGet,
+    TermReturnFinishFrame,
+    TermFinishFrameReinterp,
+    TermFinishFrameRevisit,
+    StmtNewConstraintsRef,
+    StmtNewConstraintsStatic,
+    StmtNewConstraintsFromConvert,
+    TermCollectResolvedArgs,
+    TermResolveArgs,
+    TermInterpStaticCall,
+    TermInterpStaticCallPost,
+    TermInterpStaticCallPost1,
+    TermInterpStaticCallPost2,
+    TermInterpStaticCallPost3,
+    TermInterpStaticCallPost4,
+    TermInterpVirtualCall,
+    //TermParamSummary,
+    TermMemo,
+    TermMergeStoresEs,
+    TermVirtualMemo,
+    TermGetImplsCha,
+    TermGetImplsFsa,
+    TermVirtualCallPrep,
+    TermSimulateCallPrep,
+    TermSimulateRecursiveFallback,
+    TermSimulateStdlibStub,
+    TermSimulateRealCall,
+    TermSigFallback,
+    TermSimulateMergeResults,
+    TermSimulateLoopMergeResults,
+    Take,
+    VecConstruction,
+    TermMergeCstoresMerge,
+    TermMergeIdentityCheck,
+    TermMergePerKeyMapvals,
+    TermMergeMapsvalsMerge,
+    TermMergeConstraintsAppend,
+    TermMergeConstraintsWiden,
+    TermMergeRefsUnion,
+    TermMergeWtosUnion,
+    TermMergeContextsSetup,
+    TermMergeNewContext,
+    ConvertOp,
+    ConvertPlace,
+    ConvertPlaceGetConstraints,
+    ConvertCast,
+    ConvertAgg,
+    ConvertUnop,
+    ConvertBinop,
+    ConvertCheckedBinop,
+    ConvertType,
+    // convert_agg branches
+    ConvertAggAdtOpaque,
+    ConvertAggAdtOpaqueAppend,
+    ConvertAggAdtFields,
+    ConvertAggTuple,
+    ConvertAggRawPtr,
+    ConvertAggArray,
+    ConvertAggClosure,
+    // constraints::get_constraints blocks
+    GetConstraintsIfBlock,
+    GetConstraintsElseBlock,
+    GetConstraintsProjLoop,
+    GetConstraintsIsOpaqueInternal,
+    GetConstraintsFlattenAll,
+    GetConstraintsFilterVariant,
+    GetConstraintsFilterVariantPush1,
+    GetConstraintsFilterVariantPush2,
+    GetConstraintsStepField,
+    StepFieldAppend,
+    // lift_traitobjtys parts
+    LiftTraitobjtysHashVal,
+    LiftTraitobjtysUncached,
+    LiftTraitobjtysUncachedGetTraitobj,
+    LiftTraitobjtysUncachedPush1,
+    LiftTraitobjtysUncachedPush2,
+    LiftTraitobjtysUncachedPush3,
+    // set_scoped_constraints parts
+    SetScopedConstraints,
+    SetScopedConstraintsReplace,
+    SetScopedConstraintsUpdate,
+    ScopedUpdateResolve,
+    ScopedUpdateGetScope,
+    ScopedUpdateStorePre,
+    ScopedUpdateStoreMerge,
+    ScopedUpdateStorePost,
+    ScopedUpdateInitScope,
+    // interp_fn_def blocks
+    InterpFnDefVirtualFallback,
+    InterpFnDefStdlibStub,
+    InterpFnDefFetchableBody,
+    InterpFnDefCallStackChecks,
+    InterpFnDefFinalDispatch,
+    FlattenAll,
+    FlattenOne,
+    FlattenAllAppend,
+    FlattenOneAppend,
+    StepFieldOneAdt,
+    StepFieldOneTuple,
+    StepFieldOnePtr,
+    StepFieldOneIdk,
+    StepFieldOneParam,
+    // merge_stores_fallback parts - this path used to be permanently
+    // un-instrumented (no InterpPass available at its callers); now that
+    // scoped_update and the Merge trait carry timing through, it gets its
+    // own categories, separate from merge_stores_timed's, so the two paths'
+    // costs stay distinguishable.
+    MergeStoresFallbackEs,
+    MergeStoresFallbackCmapLoop,
+    MergeStoresFallbackRefsUnion,
+}
+
+#[derive(Clone, Copy, Default)]
+struct TimingStats {
+    total: std::time::Duration,
+    count: u64,
+    min: std::time::Duration,
+    max: std::time::Duration,
+}
+
+impl TimingStats {
+    fn record(&mut self, d: std::time::Duration) {
+        if self.count == 0 || d < self.min {
+            self.min = d;
+        }
+        if self.count == 0 || d > self.max {
+            self.max = d;
+        }
+        self.total += d;
+        self.count += 1;
+    }
+
+    fn avg(&self) -> std::time::Duration {
+        if self.count == 0 {
+            std::time::Duration::ZERO
+        } else {
+            self.total / self.count as u32
+        }
+    }
+}
+
+pub(crate) struct TimingSpanGuard<'a, 'b> {
+    pass: &'a InterpPass<'b>,
+    cat: TimingCat,
+    scope: VOID,
+    start: std::time::Instant,
+}
+
+impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
+    fn drop(&mut self) {
+        let elapsed = self.start.elapsed();
+        self.pass.record_timing(self.cat, &self.scope, elapsed);
+
+        let child_time = self
+            .pass
+            .timing_child_stack
+            .borrow_mut()
+            .pop()
+            .unwrap_or(std::time::Duration::ZERO);
+        let exclusive = elapsed.saturating_sub(child_time);
+
+        self.pass
+            .timing_global_exclusive
+            .borrow_mut()
+            .entry(self.cat)
+            .or_default()
+            .record(exclusive);
+        self.pass
+            .timing_scope_exclusive
+            .borrow_mut()
+            .entry((self.scope.clone(), self.cat))
+            .or_default()
+            .record(exclusive);
+        self.pass
+            .timing_scope_exclusive_global
+            .borrow_mut()
+            .entry((self.scope.clone(), self.cat))
+            .or_default()
+            .record(exclusive);
+        self.pass
+            .timing_window_exclusive
+            .borrow_mut()
+            .entry(self.cat)
+            .or_default()
+            .record(exclusive);
+
+        if let Some(parent_accum) = self.pass.timing_child_stack.borrow_mut().last_mut() {
+            *parent_accum += elapsed;
+        }
+    }
+}
+
 impl<'a> InterpPass<'a> {
     pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
         Self {
@@ -145,15 +424,32 @@ impl<'a> InterpPass<'a> {
             in_queue: HashSet::new().into(),
             key_stack: Vec::new().into(),
             rec_depth: 0.into(),
-            call_count: 0.into(),
+            //call_count: 0.into(),
             bb_visit_count: 0.into(),
+            run_start: std::time::Instant::now(),
+            main_ctxt_ptr: None.into(),
+            self_time_child_accum: Vec::new().into(),
+            scope_self_time: HashMap::new().into(),
+            scope_self_time_global: HashMap::new().into(),
+            timing_global: HashMap::new().into(),
+            timing_scope: HashMap::new().into(),
+            timing_scope_global: HashMap::new().into(),
+            timing_window: HashMap::new().into(),
+            timing_child_stack: Vec::new().into(),
+            timing_global_exclusive: HashMap::new().into(),
+            timing_scope_exclusive: HashMap::new().into(),
+            timing_scope_exclusive_global: HashMap::new().into(),
+            timing_window_exclusive: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
+            wtos_merge_conflicts: ImHashSet::new().into(),
+            refs_merge_conflicts: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
+            virtual_call_memo: HashMap::new().into(),
             scope_epoch: HashMap::new().into(),
             scope_exact_memo_count: HashMap::new().into(),
             scope_summaries_count: HashMap::new().into(),
-            param_summaries: HashMap::new().into(),
+            //param_summaries: HashMap::new().into(),
             summary_build_taint_stack: Vec::new().into(),
             building_summaries: HashSet::new().into(),
         }
@@ -170,7 +466,10 @@ impl<'a> InterpPass<'a> {
     fn assert_stacks_synced(&self, call_stack: &[VOID], where_: &str) {
         let key_len = self.key_stack.borrow().len();
         if call_stack.len() != key_len {
-            let names: Vec<String> = call_stack.iter().map(|v| format!("{:?}", v.0.name())).collect();
+            let names: Vec<String> = call_stack
+                .iter()
+                .map(|v| format!("{:?}", v.0.name()))
+                .collect();
             panic!(
                 "STACK DESYNC at {}: call_stack.len()={} key_stack.len()={}\ncall_stack contents:\n{:#?}",
                 where_,
@@ -199,6 +498,8 @@ impl<'a> InterpPass<'a> {
         ctxt: &mut Context,
         start_instance: Instance,
     ) -> Result<Option<Constraints>, Error> {
+        *self.main_ctxt_ptr.borrow_mut() = Some(ctxt as *const Context as usize);
+
         let start_scope = (start_instance, GenericArgs(vec![]));
         let mut call_stack = vec![start_scope.clone()];
 
@@ -209,12 +510,190 @@ impl<'a> InterpPass<'a> {
         let entry_fn_cstore = ConstraintStore::new();
         ctxt.set_cstore_scope(&start_scope, entry_fn_cstore, None);
 
-        self.visit_body(
+        let result = self.visit_body(
             ctxt,
             &mut call_stack,
             &start_scope,
             &self.get_body(&start_scope),
-        )
+        );
+
+        debug!(
+            "TOTAL WALL CLOCK bb_visit={} elapsed_ms={:.3}",
+            *self.bb_visit_count.borrow(),
+            self.run_start.elapsed().as_secs_f64() * 1000.0
+        );
+        crate::constraints::dump_flatten_all_cache_stats("FINAL");
+        self.dump_self_time_report("FINAL", &self.scope_self_time_global.borrow());
+        self.dump_timing_report("FINAL GLOBAL", &self.timing_global.borrow());
+        self.dump_timing_by_scope_report("FINAL", &self.timing_scope_global.borrow());
+        self.dump_timing_report(
+            "FINAL GLOBAL EXCLUSIVE",
+            &self.timing_global_exclusive.borrow(),
+        );
+        self.dump_timing_by_scope_exclusive_report(
+            "FINAL",
+            &self.timing_scope_exclusive_global.borrow(),
+        );
+
+        result
+    }
+
+    fn dump_self_time_report(&self, label: &str, map: &HashMap<VOID, (std::time::Duration, u64)>) {
+        let mut entries: Vec<(&VOID, &(std::time::Duration, u64))> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+
+        let mut lines = String::new();
+        lines.push_str(&format!(
+            "\n=== SELF-TIME REPORT [{}] (top 50 by accumulated self time) ===\n",
+            label
+        ));
+        lines.push_str(&format!(
+            "{:>12} {:>10} {:>14}  scope\n",
+            "self_time", "calls", "avg_per_call"
+        ));
+        for entry in entries.iter().take(50) {
+            let scope = entry.0;
+            let total = entry.1.0;
+            let count = entry.1.1;
+            let avg = if count > 0 {
+                total / (count as u32)
+            } else {
+                std::time::Duration::ZERO
+            };
+            lines.push_str(&format!(
+                "{:>10.3}ms {:>10} {:>12.3}ms  {:?}\n",
+                total.as_secs_f64() * 1000.0,
+                count,
+                avg.as_secs_f64() * 1000.0,
+                scope.0.name()
+            ));
+        }
+        lines.push_str(&format!("=== END SELF-TIME REPORT [{}] ===\n", label));
+        debug!("{}", lines);
+    }
+
+    fn record_timing(&self, cat: TimingCat, scope: &VOID, d: std::time::Duration) {
+        self.timing_global
+            .borrow_mut()
+            .entry(cat)
+            .or_default()
+            .record(d);
+        self.timing_scope
+            .borrow_mut()
+            .entry((scope.clone(), cat))
+            .or_default()
+            .record(d);
+        self.timing_scope_global
+            .borrow_mut()
+            .entry((scope.clone(), cat))
+            .or_default()
+            .record(d);
+        self.timing_window
+            .borrow_mut()
+            .entry(cat)
+            .or_default()
+            .record(d);
+    }
+
+    pub(crate) fn timing_span<'b>(
+        &'b self,
+        cat: TimingCat,
+        scope: &VOID,
+    ) -> TimingSpanGuard<'b, 'a> {
+        self.timing_child_stack
+            .borrow_mut()
+            .push(std::time::Duration::ZERO);
+        TimingSpanGuard {
+            pass: self,
+            cat,
+            scope: scope.clone(),
+            start: std::time::Instant::now(),
+        }
+    }
+
+    fn dump_timing_report(&self, label: &str, map: &HashMap<TimingCat, TimingStats>) {
+        let mut cats: Vec<(&TimingCat, &TimingStats)> = map.iter().collect();
+        cats.sort_by(|a, b| b.1.total.cmp(&a.1.total));
+
+        let mut lines = String::new();
+        lines.push_str(&format!("\n=== TIMING REPORT [{}] ===\n", label));
+        lines.push_str(&format!(
+            "{:>10} {:>10} {:>10} {:>10} {:>10}  category\n",
+            "total_ms", "count", "avg_ms", "min_ms", "max_ms"
+        ));
+        for (cat, stats) in cats {
+            lines.push_str(&format!(
+                "{:>10.3} {:>10} {:>10.3} {:>10.3} {:>10.3}  {:?}\n",
+                stats.total.as_secs_f64() * 1000.0,
+                stats.count,
+                stats.avg().as_secs_f64() * 1000.0,
+                stats.min.as_secs_f64() * 1000.0,
+                stats.max.as_secs_f64() * 1000.0,
+                cat,
+            ));
+        }
+        lines.push_str(&format!("=== END TIMING REPORT [{}] ===\n", label));
+        debug!("{}", lines);
+    }
+
+    fn dump_timing_by_scope_report(
+        &self,
+        label: &str,
+        map: &HashMap<(VOID, TimingCat), TimingStats>,
+    ) {
+        let mut entries: Vec<(&(VOID, TimingCat), &TimingStats)> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.total.cmp(&a.1.total));
+
+        let mut lines = String::new();
+        lines.push_str(&format!(
+            "\n=== TIMING BY SCOPE [{}] (top 50 by total) ===\n",
+            label
+        ));
+        for ((scope, cat), stats) in entries.iter().take(50) {
+            lines.push_str(&format!(
+                "{:>10.3}ms {:>10} {:>10.3}ms  {:?} {:?}\n",
+                stats.total.as_secs_f64() * 1000.0,
+                stats.count,
+                stats.avg().as_secs_f64() * 1000.0,
+                cat,
+                scope.0.name(),
+            ));
+        }
+        lines.push_str(&format!("=== END TIMING BY SCOPE [{}] ===\n", label));
+        debug!("{}", lines);
+    }
+
+    /// Exclusive-time counterpart to `dump_timing_by_scope_report` - same
+    /// format, reading from `timing_scope_exclusive` instead of
+    /// `timing_scope`, so nested work isn't double-counted.
+    fn dump_timing_by_scope_exclusive_report(
+        &self,
+        label: &str,
+        map: &HashMap<(VOID, TimingCat), TimingStats>,
+    ) {
+        let mut entries: Vec<(&(VOID, TimingCat), &TimingStats)> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.total.cmp(&a.1.total));
+
+        let mut lines = String::new();
+        lines.push_str(&format!(
+            "\n=== EXCLUSIVE TIMING BY SCOPE [{}] (top 50 by total) ===\n",
+            label
+        ));
+        for ((scope, cat), stats) in entries.iter().take(50) {
+            lines.push_str(&format!(
+                "{:>10.3}ms {:>10} {:>10.3}ms  {:?} {:?}\n",
+                stats.total.as_secs_f64() * 1000.0,
+                stats.count,
+                stats.avg().as_secs_f64() * 1000.0,
+                cat,
+                scope.0.name(),
+            ));
+        }
+        lines.push_str(&format!(
+            "=== END EXCLUSIVE TIMING BY SCOPE [{}] ===\n",
+            label
+        ));
+        debug!("{}", lines);
     }
 
     fn get_body(&self, cur_scope: &VOID) -> Body {
@@ -228,6 +707,15 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         body: &Body,
     ) -> Result<Option<Constraints>, Error> {
+        self.self_time_child_accum
+            .borrow_mut()
+            .push(std::time::Duration::ZERO);
+        let _self_time_guard = SelfTimeGuard {
+            pass: self,
+            scope: cur_scope.clone(),
+            start: std::time::Instant::now(),
+        };
+
         debug!(
             "###### INTERP-ING NEW BODY for func {:?}",
             cur_scope.0.name()
@@ -239,6 +727,17 @@ impl<'a> InterpPass<'a> {
         let mut bb_deps;
         if let Some(mem_bb_deps) = ctxt.get_wto(cur_scope) {
             bb_deps = mem_bb_deps.clone();
+            if bb_deps.has_ret && bb_deps.ordering.is_empty() {
+                if self.wtos_merge_conflicts.borrow().contains(cur_scope) {
+                    debug!(
+                        "POTENTIAL SOUNDNESS GAP: re-entering scope {:?} with an already-empty \
+                         wtos ordering, but this scope's wtos entry survived a union() collision \
+                         (see wtos_merge_conflicts) - the discarded side's own body-level \
+                         derivation may never get re-run against the now-merged cmap",
+                        cur_scope.0.name()
+                    );
+                }
+            }
             if !bb_deps.has_ret {
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
@@ -262,15 +761,86 @@ impl<'a> InterpPass<'a> {
             {
                 let mut n = self.bb_visit_count.borrow_mut();
                 *n += 1;
-                if *n % 200 == 0 {
+                //if *n % 200 == 0 {
+                //    debug!(
+                //        "\nRSS at bb visit {} rss_kb={}\n",
+                //        *n,
+                //        Self::current_rss_kb().unwrap_or(0)
+                //    );
+                //}
+                /*
+                if *n % 10 == 0 {
+                    let is_main =
+                        Some(ctxt as *const Context as usize) == *self.main_ctxt_ptr.borrow();
                     debug!(
-                        "\nRSS at bb visit {} rss_kb={}\n",
+                        "\nCMAP SIZE at bb visit {} is_main={} cmap_len={}\n",
                         *n,
-                        Self::current_rss_kb().unwrap_or(0)
+                        is_main,
+                        ctxt.cstore.cmap.len()
+                    );
+                    debug!(
+                        "\nMEMO SIZES at bb visit {} exact_memo={} summaries={} param_summaries={}\n",
+                        *n,
+                        self.exact_memo.borrow().len(),
+                        self.summaries.borrow().len(),
+                        self.param_summaries.borrow().len()
+                    );
+                    let mut max_vars = 0usize;
+                    let mut max_vars_scope = String::new();
+                    let mut sum_vars = 0usize;
+                    let mut num_scopes_with_vars = 0usize;
+                    for (key, val) in ctxt.cstore.cmap.iter() {
+                        if let (MapKey::ScopeId(scope), MapValue::Store(inner, _)) =
+                            (key, val.as_ref())
+                        {
+                            let vc = inner.cmap.len();
+                            sum_vars += vc;
+                            num_scopes_with_vars += 1;
+                            if vc > max_vars {
+                                max_vars = vc;
+                                max_vars_scope = format!("{:?}", scope.0.name());
+                            }
+                        }
+                    }
+                    debug!(
+                        "\nVAR COUNTS at bb visit {} is_main={} num_scopes={} sum_vars={} max_vars={} max_vars_scope={}\n",
+                        *n, is_main, num_scopes_with_vars, sum_vars, max_vars, max_vars_scope
                     );
                 }
-                if *n % 2_000 == 0 {
-                    self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
+                */
+                if *n % 200 == 0 {
+                    debug!(
+                        "TOTAL WALL CLOCK bb_visit={} elapsed_ms={:.3}",
+                        *n,
+                        self.run_start.elapsed().as_secs_f64() * 1000.0
+                    );
+                    crate::constraints::dump_flatten_all_cache_stats(&format!("bb visit {}", *n));
+                    //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
+                    self.dump_self_time_report(
+                        &format!("bb visit {}", *n),
+                        &self.scope_self_time.borrow(),
+                    );
+                    self.scope_self_time.borrow_mut().clear();
+                    self.dump_timing_by_scope_report(
+                        &format!("bb visit {}", *n),
+                        &self.timing_scope.borrow(),
+                    );
+                    self.timing_scope.borrow_mut().clear();
+                    self.dump_timing_report(
+                        &format!("window ending bb visit {}", *n),
+                        &self.timing_window.borrow(),
+                    );
+                    self.timing_window.borrow_mut().clear();
+                    self.dump_timing_by_scope_exclusive_report(
+                        &format!("bb visit {}", *n),
+                        &self.timing_scope_exclusive.borrow(),
+                    );
+                    self.timing_scope_exclusive.borrow_mut().clear();
+                    self.dump_timing_report(
+                        &format!("window ending bb visit {} EXCLUSIVE", *n),
+                        &self.timing_window_exclusive.borrow(),
+                    );
+                    self.timing_window_exclusive.borrow_mut().clear();
                 }
             }
 
@@ -319,9 +889,12 @@ impl<'a> InterpPass<'a> {
             cur_scope.0.name()
         );
 
+        ctxt.bb_written_places.remove(cur_scope);
+
         self.check_call_stack(call_stack, cur_scope);
 
         let num_stmts = data.statements.len();
+        let _timing_guard = self.timing_span(TimingCat::BbStatements, cur_scope);
         for (i, stmt) in data.statements.iter().enumerate() {
             debug!(
                 "\n\n# visiting STATEMENT {:?} ({:?}/{:?}) in BB{:?} for {:?}\n\nSPAN: {:?}",
@@ -334,6 +907,7 @@ impl<'a> InterpPass<'a> {
             );
             self.visit_statement(ctxt, cur_scope, local_decls, stmt, bb, i);
         }
+        drop(_timing_guard);
 
         debug!(
             "\n\n# visiting TERMINATOR in BB{:?} for {:?}\n\nSPAN: {:?}",
@@ -342,6 +916,7 @@ impl<'a> InterpPass<'a> {
             &data.terminator.span,
         );
 
+        let _timing_guard = self.timing_span(TimingCat::BbTerminator, cur_scope);
         let res = self.visit_terminator(
             ctxt,
             call_stack,
@@ -351,6 +926,7 @@ impl<'a> InterpPass<'a> {
             bb,
             &data.terminator,
         )?;
+        drop(_timing_guard);
 
         bb_deps.mark_visited(bb, cur_scope);
 
@@ -438,18 +1014,24 @@ impl<'a> InterpPass<'a> {
         let alloc = match sdef.eval_initializer() {
             Ok(a) => a,
             Err(_) => {
-                let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+                let (_, c) = self
+                    .converter
+                    .convert_ty(&Location::unknown(), &ty, None, Some(self));
                 return Constraints::from(c);
             }
         };
 
         let mut seen = Vec::new();
-        let frozen = matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
+        let frozen =
+            matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
 
         let constraints = if frozen {
-            self.converter.convert_static_const(&Location::unknown(), &ty, &alloc)
+            self.converter
+                .convert_static_const(&Location::unknown(), &ty, &alloc, None, Some(self))
         } else {
-            let (_, c) = self.converter.convert_ty(&Location::unknown(), &ty);
+            let (_, c) = self
+                .converter
+                .convert_ty(&Location::unknown(), &ty, None, Some(self));
             Constraints::from(c)
         };
 
@@ -464,17 +1046,16 @@ impl<'a> InterpPass<'a> {
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: Constraints,
+        cur_scope: &VOID,
     ) -> Constraints {
-        // maybe_trait_destty is small (a handful of trait defs at most) -
-        // cheap to hash even though old_constraints itself may be huge.
-        // This is called once per assignment statement, and the same
-        // Rc-backed value legitimately gets passed here again whenever
-        // it's referenced from multiple places (e.g. shared via a struct
-        // field written into many disjuncts).
-        let extra_key = hash_val(maybe_trait_destty);
+        let extra_key = {
+            let _g = self.timing_span(TimingCat::LiftTraitobjtysHashVal, cur_scope);
+            hash_val(maybe_trait_destty)
+        };
         LIFT_TRAITOBJTYS_CACHE.with(|cache| {
             memoize_by_rc(cache, &old_constraints, extra_key, || {
-                self.lift_traitobjtys_uncached(maybe_trait_destty, &old_constraints)
+                let _g = self.timing_span(TimingCat::LiftTraitobjtysUncached, cur_scope);
+                self.lift_traitobjtys_uncached(maybe_trait_destty, &old_constraints, cur_scope)
             })
         })
     }
@@ -483,17 +1064,23 @@ impl<'a> InterpPass<'a> {
         &self,
         maybe_trait_destty: &Option<Vec<TraitObjTy>>,
         old_constraints: &Constraints,
+        cur_scope: &VOID,
     ) -> Constraints {
         let mut constraints = Constraints::new();
         for constraint in old_constraints.inner.iter() {
             let constraint = constraint.clone();
-            match self.converter.get_traitobj(maybe_trait_destty, &constraint) {
+            let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedGetTraitobj, cur_scope);
+            let to = self.converter.get_traitobj(maybe_trait_destty, &constraint);
+            drop(_g);
+
+            match to {
                 toc @ Some(_) => match constraint {
                     Constraint {
                         toc: None,
                         cfc,
                         prov,
                     } => {
+                        let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush1, cur_scope);
                         constraints.push(Constraint::new(toc, cfc).with_prov(prov));
                     }
                     Constraint {
@@ -504,11 +1091,13 @@ impl<'a> InterpPass<'a> {
                         if *existing_toc != toc.unwrap() {
                             todo!("update existing TOC");
                         } else {
+                            let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush2, cur_scope);
                             constraints.push(constraint);
                         }
                     }
                 },
                 None => {
+                    let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush3, cur_scope);
                     constraints.push(constraint);
                 }
             }
@@ -532,10 +1121,14 @@ impl<'a> InterpPass<'a> {
                 log_scope(cur_scope);
 
                 let dest_ty = place.ty(local_decls).unwrap();
+                let _timing_guard = self.timing_span(TimingCat::StmtContainsDyn, cur_scope);
                 let maybe_trait_destty = self.contains_dyn(&dest_ty);
+                drop(_timing_guard);
 
-                debug!("HERE0");
+                let _timing_guard = self.timing_span(TimingCat::StmtNewConstraints, cur_scope);
                 let constraints = if let Rvalue::Ref(_region, bk, to) = rvalue.clone() {
+                    let _timing_guard =
+                        self.timing_span(TimingCat::StmtNewConstraintsRef, cur_scope);
                     let to = match to.projection.as_slice() {
                         [ProjectionElem::Deref] => Place {
                             local: to.local,
@@ -552,30 +1145,53 @@ impl<'a> InterpPass<'a> {
                             Mutability::Not
                         },
                     );
+                    debug!("stmt: FROM REF (empty)");
                     Constraints::new()
                 } else if let Some(defid) = self.static_rvalue(rvalue) {
-                    self.static_get_constraints(ctxt, defid)
+                    let _timing_guard =
+                        self.timing_span(TimingCat::StmtNewConstraintsStatic, cur_scope);
+                    let c = self.static_get_constraints(ctxt, defid);
+                    debug!(
+                        "stmt: FROM STATIC, scope={:?} local={} converted_disjuncts={}",
+                        cur_scope.0.name(),
+                        place.local,
+                        crate::constraints::constraints_size(&c)
+                    );
+                    c
                 } else {
-                    self.converter.convert(
+                    let _timing_guard =
+                        self.timing_span(TimingCat::StmtNewConstraintsFromConvert, cur_scope);
+                    let c = self.converter.convert(
                         ctxt,
                         &Location::new_at(cur_scope.0.def.def_id(), bb, stmt_idx),
                         local_decls,
                         cur_scope,
                         &dest_ty,
                         rvalue,
-                    )
+                        Some(self),
+                    );
+                    debug!(
+                        "stmt: FROM CONVERTER, scope={:?} local={} converted_disjuncts={}",
+                        cur_scope.0.name(),
+                        place.local,
+                        crate::constraints::constraints_size(&c)
+                    );
+                    c
                 };
+                drop(_timing_guard);
                 debug!(
-                    "HERE1 scope={:?} local={} disjuncts={}",
+                    "stmt: GENERAL scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
                     place.local,
                     crate::constraints::constraints_size(&constraints)
                 );
 
+                let _timing_guard = self.timing_span(TimingCat::StmtLiftTraitobj, cur_scope);
                 let final_constraints =
-                    self.lift_traitobjtys(&maybe_trait_destty, constraints.clone());
+                    self.lift_traitobjtys(&maybe_trait_destty, constraints.clone(), cur_scope);
+                drop(_timing_guard);
                 debug!(
-                    "HERE2 scope={:?} local={} disjuncts={}",
+                    "stmt: GENERAL post-lift scope={:?} local={} disjuncts={}",
                     cur_scope.0.name(),
                     place.local,
                     crate::constraints::constraints_size(&final_constraints)
@@ -586,55 +1202,79 @@ impl<'a> InterpPass<'a> {
                 while let [ProjectionElem::Deref, rest @ ..] = write_proj {
                     write_proj = rest;
                 }
-                debug!("HERE3");
 
                 if write_proj.is_empty() {
-                    debug!(
-                        "HERE3.1 scope={:?} local={} disjuncts={}",
-                        cur_scope.0.name(),
-                        place.local,
-                        crate::constraints::constraints_size(&final_constraints)
-                    );
-                    ctxt.set_scoped_constraints(cur_scope, place, final_constraints);
+                    let _timing_guard = self.timing_span(TimingCat::StmtSetScoped, cur_scope);
+                    ctxt.set_scoped_constraints(cur_scope, place, final_constraints, Some(self));
+                    drop(_timing_guard);
                 } else {
                     let base = Place {
                         local: place.local,
                         projection: vec![],
                     };
-                    debug!("HERE3.2");
-                    match ctxt.get_constraints(cur_scope, local_decls, &base, false) {
+                    let _timing_guard = self.timing_span(TimingCat::StmtCurConstraints, cur_scope);
+                    let base_lookup =
+                        ctxt.get_constraints(cur_scope, local_decls, &base, false, Some(self));
+                    drop(_timing_guard);
+                    match base_lookup {
                         Some(mut base_constraints) => {
                             debug!(
-                                "HERE3.2Ai scope={:?} local={} base_disjuncts={}",
+                                "stmt: OLD BASE scope={:?} local={} old_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtWriteFields, cur_scope);
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
+                            drop(_timing_guard);
                             debug!(
-                                "HERE3.2Aii scope={:?} local={} base_disjuncts={}",
+                                "stmt: OLD BASE post-field-write scope={:?} local={} old_disjuncts={}",
                                 cur_scope.0.name(),
                                 base.local,
                                 crate::constraints::constraints_size(&base_constraints)
                             );
-                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
-                            debug!("HERE3.2Aiii");
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtSetScoped, cur_scope);
+                            ctxt.set_scoped_constraints(
+                                cur_scope,
+                                &base,
+                                base_constraints,
+                                Some(self),
+                            );
+                            drop(_timing_guard);
                         }
                         None => {
                             debug!(
-                                "HERE3.2B scope={:?} local={} (fresh base)",
+                                "stmt: FRESH BASE scope={:?} local={}",
                                 cur_scope.0.name(),
                                 base.local
                             );
                             let mut base_constraints = Constraints::new();
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtWriteFields, cur_scope);
                             base_constraints
                                 .write_field(place.projection.clone(), final_constraints);
-                            ctxt.set_scoped_constraints(cur_scope, &base, base_constraints);
+                            drop(_timing_guard);
+                            debug!(
+                                "stmt: FRESH BASE post-field-write scope={:?} local={} fresh_disjuncts={}",
+                                cur_scope.0.name(),
+                                base.local,
+                                crate::constraints::constraints_size(&base_constraints)
+                            );
+                            let _timing_guard =
+                                self.timing_span(TimingCat::StmtSetScoped, cur_scope);
+                            ctxt.set_scoped_constraints(
+                                cur_scope,
+                                &base,
+                                base_constraints,
+                                Some(self),
+                            );
+                            drop(_timing_guard);
                         }
                     }
                 }
-                debug!("HERE4");
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -700,8 +1340,9 @@ impl<'a> InterpPass<'a> {
                     let dst_constraints = self.lift_traitobjtys(
                         &maybe_trait_destty,
                         Constraints::from_vec(dst_disjuncts),
+                        cur_scope,
                     );
-                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints, Some(self));
                 } else if let Some(src) = src
                     && !src.inner.is_empty()
                 {
@@ -727,15 +1368,22 @@ impl<'a> InterpPass<'a> {
                     let dst_constraints = self.lift_traitobjtys(
                         &maybe_trait_destty,
                         Constraints::from_vec(dst_disjuncts),
+                        cur_scope,
                     );
-                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints, Some(self));
                 } else {
-                    let (_, dst) = self
-                        .converter
-                        .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
-                    let dst_constraints =
-                        self.lift_traitobjtys(&maybe_trait_destty, Constraints::from(dst));
-                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints);
+                    let (_, dst) = self.converter.convert_ty(
+                        &Location::unknown(),
+                        &place.ty(local_decls).unwrap(),
+                        Some(cur_scope),
+                        Some(self),
+                    );
+                    let dst_constraints = self.lift_traitobjtys(
+                        &maybe_trait_destty,
+                        Constraints::from(dst),
+                        cur_scope,
+                    );
+                    ctxt.set_scoped_constraints(cur_scope, &place, dst_constraints, Some(self));
                 }
             }
             _ => panic!("dst is not a place"),
@@ -752,15 +1400,17 @@ impl<'a> InterpPass<'a> {
     ) -> Option<Constraints> {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(cur_scope, local_decls, &place, is_closure) {
+                match ctxt.get_constraints(cur_scope, local_decls, &place, is_closure, Some(self)) {
                     Some(constraints) => Some(constraints),
                     None => None,
                 }
             }
-            Operand::Constant(const_op) => Some(
-                self.converter
-                    .convert_const(&Location::unknown(), &const_op),
-            ),
+            Operand::Constant(const_op) => Some(self.converter.convert_const(
+                &Location::unknown(),
+                &const_op,
+                Some(cur_scope),
+                Some(self),
+            )),
             _ => panic!("got runtime checks"),
         }
     }
@@ -795,33 +1445,52 @@ impl<'a> InterpPass<'a> {
                 destination,
                 ..
             } => match func {
-                Operand::Constant(co) => self.interp_direct_call(
-                    &term.span,
-                    ctxt,
-                    call_stack,
-                    cur_scope,
-                    local_decls,
-                    bb,
-                    co,
-                    args,
-                    destination,
-                ),
-                Operand::Copy(place) | Operand::Move(place) => self.interp_indirect_call(
-                    &term.span,
-                    ctxt,
-                    call_stack,
-                    cur_scope,
-                    local_decls,
-                    bb,
-                    place,
-                    args,
-                    destination,
-                ),
+                Operand::Constant(co) => {
+                    let _timing_guard = self.timing_span(TimingCat::TermDirectCall, cur_scope);
+                    let r = self.interp_direct_call(
+                        &term.span,
+                        ctxt,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        bb,
+                        co,
+                        args,
+                        destination,
+                    );
+                    drop(_timing_guard);
+                    r
+                }
+                Operand::Copy(place) | Operand::Move(place) => {
+                    let _timing_guard = self.timing_span(TimingCat::TermIndirectCall, cur_scope);
+                    let r = self.interp_indirect_call(
+                        &term.span,
+                        ctxt,
+                        call_stack,
+                        cur_scope,
+                        local_decls,
+                        bb,
+                        place,
+                        args,
+                        destination,
+                    );
+                    drop(_timing_guard);
+                    r
+                }
                 _ => todo!("calling runtime check operand?"),
             },
-            TerminatorKind::Return => self.interp_return(ctxt, call_stack, cur_scope),
+            TerminatorKind::Return => {
+                let _timing_guard = self.timing_span(TimingCat::TermReturn, cur_scope);
+                let r = self.interp_return(ctxt, call_stack, cur_scope);
+                drop(_timing_guard);
+                r
+            }
             TerminatorKind::SwitchInt { discr, targets } => {
-                self.interp_switchint(ctxt, cur_scope, local_decls, bb, bb_deps, discr, targets)
+                let _timing_guard = self.timing_span(TimingCat::TermSwitch, cur_scope);
+                let r =
+                    self.interp_switchint(ctxt, cur_scope, local_decls, bb, bb_deps, discr, targets);
+                drop(_timing_guard);
+                r
             }
             TerminatorKind::Assert { .. }
             | TerminatorKind::Drop { .. }
@@ -859,7 +1528,7 @@ impl<'a> InterpPass<'a> {
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
 
         let mut ret_constraints = Constraints::new();
-        match ctxt.get_constraints(cur_scope, local_decls, place, false) {
+        match ctxt.get_constraints(cur_scope, local_decls, place, false, Some(self)) {
             Some(constraints) => {
                 for constraint in constraints.inner.iter() {
                     let constraint = constraint.clone();
@@ -894,10 +1563,16 @@ impl<'a> InterpPass<'a> {
         }
 
         log_scope(cur_scope);
+        let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints, cur_scope);
         debug!("destination: {:?}", destination);
-        let constraints = self.lift_traitobjtys(&maybe_trait_destty, ret_constraints);
+        debug!(
+            "indirect call: DESTINATION scope={:?} local={} disjuncts={}",
+            cur_scope.0.name(),
+            destination.local,
+            crate::constraints::constraints_size(&constraints)
+        );
         //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
-        ctxt.set_scoped_constraints(cur_scope, destination, constraints);
+        ctxt.set_scoped_constraints(cur_scope, destination, constraints, Some(self));
 
         Ok(None)
     }
@@ -950,7 +1625,16 @@ impl<'a> InterpPass<'a> {
                 }
                 Ok(None)
             }
-            _ => panic!("other vorval interp as fn?: {:?}", constraint),
+            _ => {
+                debug!(
+                    "interp_constraint_as_fn: constraint isn't fn-like, falling back to imprecise (Ok(None)): {:?}",
+                    constraint
+                );
+                if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
+                    *tainted = true;
+                }
+                Ok(None)
+            }
         }
     }
 
@@ -964,10 +1648,10 @@ impl<'a> InterpPass<'a> {
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        debug!(
-            "interp_fn_ptr: falling back for sigval with output {:?}",
-            sigval.output
-        );
+        //debug!(
+        //    "interp_fn_ptr: falling back for sigval with output {:?}",
+        //    sigval.output
+        //);
 
         self.retty_fallback_from_sigval(sigval)
     }
@@ -1088,9 +1772,21 @@ impl<'a> InterpPass<'a> {
 
         match ret_constraints {
             Ok(Some(constraints_)) => {
-                let constraints = self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone());
+                let constraints =
+                    self.lift_traitobjtys(&maybe_trait_destty, constraints_.clone(), cur_scope);
+                debug!(
+                    "direct call: DESTINATION scope={:?} local={} disjuncts={}",
+                    cur_scope.0.name(),
+                    destination.local,
+                    crate::constraints::constraints_size(&constraints)
+                );
 
-                ctxt.set_scoped_constraints(cur_scope, destination, constraints.clone());
+                ctxt.set_scoped_constraints(
+                    cur_scope,
+                    destination,
+                    constraints.clone(),
+                    Some(self),
+                );
 
                 //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
 
@@ -1125,7 +1821,10 @@ impl<'a> InterpPass<'a> {
                 // - is this a trait method without an implementation?
                 // - if so, who implements it? execute those implementations
                 // This tends to be stuff that dynamic dispatch does for us anyway
-                return self.interp_virtual_call(
+                let _g_fallback =
+                    self.timing_span(TimingCat::InterpFnDefVirtualFallback, cur_scope);
+                let _timing_guard = self.timing_span(TimingCat::TermInterpVirtualCall, cur_scope);
+                let r = self.interp_virtual_call(
                     term_span,
                     ctxt,
                     call_stack,
@@ -1136,6 +1835,8 @@ impl<'a> InterpPass<'a> {
                     &genargs,
                     args,
                 );
+                drop(_timing_guard);
+                return r;
             }
         };
 
@@ -1153,15 +1854,19 @@ impl<'a> InterpPass<'a> {
             return Err(Error::RecurseLimit(MAX_DEPTH));
         }
 
-        if let Some(result) = self.stdlib_stub(
-            ctxt,
-            cur_scope,
-            term_span,
-            local_decls,
-            &fndef,
-            genargs,
-            args,
-        ) {
+        let stdlib_result = {
+            let _g = self.timing_span(TimingCat::InterpFnDefStdlibStub, cur_scope);
+            self.stdlib_stub(
+                ctxt,
+                cur_scope,
+                term_span,
+                local_decls,
+                &fndef,
+                genargs,
+                args,
+            )
+        };
+        if let Some(result) = stdlib_result {
             return result;
         }
 
@@ -1169,6 +1874,7 @@ impl<'a> InterpPass<'a> {
             && new_scope.0.has_body();
 
         if !fetchable_body {
+            let _g = self.timing_span(TimingCat::InterpFnDefFetchableBody, cur_scope);
             return self.dispatch_call(
                 term_span,
                 ctxt,
@@ -1185,6 +1891,7 @@ impl<'a> InterpPass<'a> {
             );
         }
 
+        let _timing_guard = self.timing_span(TimingCat::TermCollectResolvedArgs, cur_scope);
         let new_cs: Vec<Constraints> = self.collect_resolved_args(
             ctxt,
             term_span,
@@ -1194,8 +1901,10 @@ impl<'a> InterpPass<'a> {
             args,
             false,
         );
+        drop(_timing_guard);
 
         if call_stack.contains(&new_scope) {
+            let _g = self.timing_span(TimingCat::InterpFnDefCallStackChecks, cur_scope);
             let precise_count = *self
                 .scope_summaries_count
                 .borrow()
@@ -1240,6 +1949,7 @@ impl<'a> InterpPass<'a> {
             return Ok(Some(retty));
         }
 
+        let _g = self.timing_span(TimingCat::InterpFnDefFinalDispatch, cur_scope);
         self.dispatch_call(
             term_span,
             ctxt,
@@ -1272,34 +1982,45 @@ impl<'a> InterpPass<'a> {
         new_cs: Vec<Constraints>,
     ) -> Result<Option<Constraints>, Error> {
         match instance.kind {
-            InstanceKind::Item | InstanceKind::Shim => self.interp_static_call(
-                term_span,
-                ctxt,
-                call_stack,
-                cur_scope,
-                &new_scope,
-                local_decls,
-                fndef,
-                args,
-                &genargs,
-                &new_cs,
-                false,
-            ),
-            InstanceKind::Virtual { .. } => self.interp_virtual_call(
-                term_span,
-                ctxt,
-                call_stack,
-                cur_scope,
-                local_decls,
-                bb,
-                &fndef,
-                &genargs,
-                args,
-            ),
+            InstanceKind::Item | InstanceKind::Shim => {
+                let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCall, cur_scope);
+                let r = self.interp_static_call(
+                    term_span,
+                    ctxt,
+                    call_stack,
+                    cur_scope,
+                    &new_scope,
+                    local_decls,
+                    fndef,
+                    args,
+                    &genargs,
+                    &new_cs,
+                    false,
+                );
+                drop(_timing_guard);
+                r
+            }
+            InstanceKind::Virtual { .. } => {
+                let _timing_guard = self.timing_span(TimingCat::TermInterpVirtualCall, cur_scope);
+                let r = self.interp_virtual_call(
+                    term_span,
+                    ctxt,
+                    call_stack,
+                    cur_scope,
+                    local_decls,
+                    bb,
+                    &fndef,
+                    &genargs,
+                    args,
+                );
+                drop(_timing_guard);
+                r
+            }
             InstanceKind::Intrinsic => self.retty_fallback_from_poly(fndef.fn_sig()),
         }
     }
 
+    /*
     fn build_param_summary(
         &self,
         scope: &VOID,
@@ -1339,15 +2060,6 @@ impl<'a> InterpPass<'a> {
         );
 
         let mut summary_stack = vec![scope.clone()];
-        // summary_stack is a fresh, isolated call stack for exploring this
-        // scope independent of whoever's calling chain led here - but
-        // key_stack is shared, global state. Pushing one entry onto it
-        // directly (bypassing prepare_call) leaves it desynced from
-        // summary_stack's own length the moment this is invoked from
-        // partway through an already-in-progress interpretation (i.e.
-        // whenever key_stack isn't already empty). Snapshot and fully
-        // replace it instead, matching summary_stack's isolated baseline,
-        // then restore the caller's real contents afterward.
         let saved_key_stack = self
             .key_stack
             .replace(vec![(scope.clone(), ArgSet::new(&param_cs))]);
@@ -1360,10 +2072,6 @@ impl<'a> InterpPass<'a> {
 
         self.summary_build_taint_stack.borrow_mut().push(false);
         let result = self.visit_body(&mut summary_ctxt, &mut summary_stack, scope, &body);
-        // key_stack should be back to the one-entry baseline this
-        // exploration started it at (popped via the normal Return path for
-        // scope itself) - restore the caller's actual contents now that
-        // the isolated exploration is done, regardless of outcome.
         self.key_stack.replace(saved_key_stack);
         let tainted = self
             .summary_build_taint_stack
@@ -1386,7 +2094,9 @@ impl<'a> InterpPass<'a> {
             other => other,
         }
     }
+    */
 
+    /*
     fn log_cache_sizes(&self, n: u64) {
         debug!(
             "\nCACHE SIZES at call {}: exact_memo={} summaries={} wq={} in_queue={} param_summaries={} building_summaries={} dispatch_targets={} dispatch_cha={} dispatch_tags={} dependencies={} incomplete={} scope_epoch={} scope_exact_memo_count={} scope_summaries_count={} key_stack={}\n",
@@ -1495,6 +2205,7 @@ impl<'a> InterpPass<'a> {
             self.dependencies.borrow().len(),
         );
     }
+    */
 
     fn interp_static_call(
         &self,
@@ -1510,18 +2221,20 @@ impl<'a> InterpPass<'a> {
         cur_cs: &Vec<Constraints>,
         is_closure: bool,
     ) -> Result<Option<Constraints>, Error> {
-        {
-            let mut n = self.call_count.borrow_mut();
-            *n += 1;
-            if *n % 10_000 == 0 {
-                self.log_cache_sizes(*n);
-            }
-        }
+        //{
+        //    let mut n = self.call_count.borrow_mut();
+        //    *n += 1;
+        //    if *n % 10_000 == 0 {
+        //        self.log_cache_sizes(*n);
+        //    }
+        //}
 
         if cur_scope.0.has_body() {
             let body = self.get_body(cur_scope);
             let key = (cur_scope.clone(), ArgSet::new(cur_cs));
 
+            /*
+            let summary_start = std::time::Instant::now();
             let cached_summary = self.param_summaries.borrow().get(cur_scope).cloned();
             match cached_summary {
                 Some(ParamSummary::Built(summary)) => {
@@ -1551,7 +2264,8 @@ impl<'a> InterpPass<'a> {
                             .borrow_mut()
                             .insert(cur_scope.clone(), ParamSummary::Unavailable);
                     } else {
-                        match self.build_param_summary(cur_scope, is_closure) {
+                        let build_result = self.build_param_summary(cur_scope, is_closure);
+                        match build_result {
                             Ok(built) => {
                                 debug!("built param_summary for {:?}", cur_scope.0.name());
                                 self.param_summaries
@@ -1575,7 +2289,14 @@ impl<'a> InterpPass<'a> {
                     }
                 }
             }
+            self.record_timing(
+                TimingCat::TermParamSummary,
+                cur_scope,
+                summary_start.elapsed(),
+            );
+            */
 
+            let _timing_guard = self.timing_span(TimingCat::TermMemo, cur_scope);
             let precise_count = *self
                 .scope_exact_memo_count
                 .borrow()
@@ -1591,23 +2312,23 @@ impl<'a> InterpPass<'a> {
                 key.clone()
             };
 
-            let scope_name = format!("{:?}", cur_scope.0.name());
-            if scope_name.contains("RawVecInner") {
-                let will_hit = self
-                    .exact_memo
-                    .borrow()
-                    .get(&memo_key)
-                    .map(|(_, e)| *e == *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0))
-                    .unwrap_or(false);
-                debug!(
-                    "\nRAWVEC TRACE for {}: precise_count={} widened={} exact_memo_hit={} exact_memo_key_hash={:?}\n",
-                    scope_name,
-                    precise_count,
-                    precise_count >= 50,
-                    will_hit,
-                    memo_key.1,
-                );
-            }
+            //let scope_name = format!("{:?}", cur_scope.0.name());
+            //if scope_name.contains("RawVecInner") {
+            //    let will_hit = self
+            //        .exact_memo
+            //        .borrow()
+            //        .get(&memo_key)
+            //        .map(|(_, e)| *e == *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0))
+            //        .unwrap_or(false);
+            //    debug!(
+            //        "\nRAWVEC TRACE for {}: precise_count={} widened={} exact_memo_hit={} exact_memo_key_hash={:?}\n",
+            //        scope_name,
+            //        precise_count,
+            //        precise_count >= 50,
+            //        will_hit,
+            //        memo_key.1,
+            //    );
+            //}
 
             let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
             if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
@@ -1620,7 +2341,9 @@ impl<'a> InterpPass<'a> {
                     return Ok(cached.clone());
                 }
             }
+            drop(_timing_guard);
 
+            let _timing_guard = self.timing_span(TimingCat::TermResolveArgs, cur_scope);
             self.resolve_args(
                 ctxt,
                 term_span,
@@ -1632,15 +2355,27 @@ impl<'a> InterpPass<'a> {
                 genargs,
                 is_closure,
             );
+            drop(_timing_guard);
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
 
+            let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
+                let _g1 = self.timing_span(TimingCat::TermInterpStaticCallPost1, cur_scope);
                 let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+                drop(_g1);
+
+                let _g2 = self.timing_span(TimingCat::TermInterpStaticCallPost2, cur_scope);
                 let is_new = !self.exact_memo.borrow().contains_key(&memo_key);
+                drop(_g2);
+
+                let _g3 = self.timing_span(TimingCat::TermInterpStaticCallPost3, cur_scope);
                 self.exact_memo
                     .borrow_mut()
                     .insert(memo_key.clone(), (cs.clone(), epoch_after));
+                drop(_g3);
+
+                let _g4 = self.timing_span(TimingCat::TermInterpStaticCallPost4, cur_scope);
                 if is_new && precise_count < 50 {
                     *self
                         .scope_exact_memo_count
@@ -1649,6 +2384,7 @@ impl<'a> InterpPass<'a> {
                         .or_insert(0) += 1;
                 }
             }
+            drop(_timing_guard);
 
             match result {
                 Ok(r) => Ok(r),
@@ -1692,24 +2428,18 @@ impl<'a> InterpPass<'a> {
         let mut widened = false;
         match ctxt.get_cstore_scope(callee_scope) {
             Some(box MapValue::Store(old_substore, old_es)) => {
-                store = merge_stores(
+                store = self.merge_stores_timed(
+                    callee_scope,
                     &old_substore,
                     &old_es,
                     &new_ctxt.cstore,
                     &Some(vec![caller_scope.clone()]),
                 );
-                // Same O(1) fast path Merge<ConstraintStore> already relies
-                // on: if the merged map still shares its underlying tree
-                // with the old one, this call's args added nothing new to
-                // callee_scope's substore (e.g. an identical repeat call),
-                // so exact_memo entries keyed on this scope stay valid.
                 widened = !store.0.cmap.ptr_eq(&old_substore.cmap);
             }
             Some(_) => panic!("got constraint, expected store"),
             None => {
                 store = (new_ctxt.cstore, Some(vec![caller_scope.clone()]));
-                // First-ever visit to this scope: nothing was cached under
-                // it before now, so there's nothing to invalidate - no bump.
             }
         }
 
@@ -1839,19 +2569,28 @@ impl<'a> InterpPass<'a> {
         // FIXME implementation is similar to convert::convert_place()
         match arg {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(caller_scope, local_decls, place, is_closure) {
-                    Some(constraints) => self.lift_traitobjtys(maybe_trait_argty, constraints),
+                match ctxt.get_constraints(caller_scope, local_decls, place, is_closure, Some(self))
+                {
+                    Some(constraints) => {
+                        self.lift_traitobjtys(maybe_trait_argty, constraints, caller_scope)
+                    }
                     None => {
-                        let (_maybe_traitobjty, constraint) = self
-                            .converter
-                            .convert_ty(&Location::unknown(), &place.ty(local_decls).unwrap());
+                        let (_maybe_traitobjty, constraint) = self.converter.convert_ty(
+                            &Location::unknown(),
+                            &place.ty(local_decls).unwrap(),
+                            Some(caller_scope),
+                            Some(self),
+                        );
                         Constraints::from(constraint)
                     }
                 }
             }
-            Operand::Constant(const_op) => self
-                .converter
-                .convert_const(&Location::unknown(), &const_op),
+            Operand::Constant(const_op) => self.converter.convert_const(
+                &Location::unknown(),
+                &const_op,
+                Some(caller_scope),
+                Some(self),
+            ),
             _ => todo!("runtime check arg"),
         }
     }
@@ -1876,9 +2615,9 @@ impl<'a> InterpPass<'a> {
         //debug!("output: {:?}", sig.value.output());
 
         // Return output type that matches type info (widening)
-        let (_, constraint) = self
-            .converter
-            .convert_ty(&Location::unknown(), &sig.value.output());
+        let (_, constraint) =
+            self.converter
+                .convert_ty(&Location::unknown(), &sig.value.output(), None, Some(self));
         Ok(Some(Constraints::from(constraint)))
     }
 
@@ -1891,9 +2630,9 @@ impl<'a> InterpPass<'a> {
             );
         }
 
-        let (_, constraint) = self
-            .converter
-            .convert_ty(&Location::unknown(), &sigval.output);
+        let (_, constraint) =
+            self.converter
+                .convert_ty(&Location::unknown(), &sigval.output, None, Some(self));
         Ok(Some(Constraints::from(constraint)))
     }
 
@@ -1929,23 +2668,70 @@ impl<'a> InterpPass<'a> {
 
         let key = (caller_scope.0.def.def_id(), bb);
 
+        let _timing_guard = self.timing_span(TimingCat::TermVirtualMemo, caller_scope);
+        let resolved_args: Vec<Constraints> = args
+            .iter()
+            .map(|op| {
+                self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false)
+            })
+            .collect();
+        let virtual_key: VirtualCallKey = (key, ArgSet::new(&resolved_args));
+        match self.virtual_call_memo.borrow().get(&virtual_key) {
+            Some((cached, recorded_scopes)) => {
+                let stale: Vec<(DefId, u64, u64)> = recorded_scopes
+                    .iter()
+                    .filter_map(|(scope, recorded_epoch)| {
+                        let current_epoch = *self.scope_epoch.borrow().get(scope).unwrap_or(&0);
+                        (current_epoch != *recorded_epoch)
+                            .then(|| (scope.0.def.def_id(), *recorded_epoch, current_epoch))
+                    })
+                    .collect();
+                if stale.is_empty() {
+                    debug!(
+                        "virtual_call_memo hit for call site {:?} ({} dependent scopes, all fresh)",
+                        key,
+                        recorded_scopes.len()
+                    );
+                    // `_timing_guard` (TermVirtualMemo) drops here automatically,
+                    // correctly closing this span even on this early-return
+                    // exit - same reasoning as `TermMemo`'s cache-hit path.
+                    return Ok(cached.clone());
+                } else {
+                    debug!(
+                        "virtual_call_memo MISS (stale) for call site {:?}: {} of {} dependent scopes changed: {:?}",
+                        key,
+                        stale.len(),
+                        recorded_scopes.len(),
+                        stale
+                    );
+                }
+            }
+            None => {
+                debug!("virtual_call_memo MISS (no entry) for call site {:?}", key);
+            }
+        }
+        drop(_timing_guard);
+
         // Get concrete type constraints for trait object
         // - ctxt (FSA) / tstore (CHA / RTA)
         // Get every concrete type constraint's impl of this function
         // - tstore.struct_assoc_fns (Map<(Struct, Trait), FnImpls>)
         let assoc_fn_impls_cha;
+        let _timing_guard = self.timing_span(TimingCat::TermGetImplsCha, caller_scope);
         if let Some(cha_impls) = self.dispatch_cha.borrow().get(&key) {
             assoc_fn_impls_cha = cha_impls.clone().1;
         } else {
-            assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid);
+            assoc_fn_impls_cha = self.get_impls_cha(&fndef.0, &trait_defid, genargs);
         }
+        drop(_timing_guard);
 
         for (cha_impl, _) in &assoc_fn_impls_cha {
             if *cha_impl == fndef.0 {
-                debug!("CHA set has the virtual dyn function");
+                //debug!("CHA set has the virtual dyn function");
             }
         }
 
+        let _timing_guard = self.timing_span(TimingCat::TermGetImplsFsa, caller_scope);
         let (is_closure, receiver_is_param, mut assoc_fn_impls_fsa) = self.get_impls_fsa(
             ctxt,
             term_span,
@@ -1955,27 +2741,21 @@ impl<'a> InterpPass<'a> {
             &fndef.0,
             args,
         );
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermVirtualCallPrep, caller_scope);
         let fsa_empty = assoc_fn_impls_fsa.is_empty();
 
         // The receiver's constraint is a `Param` placeholder, not a real (even if
         // unresolvable) value - we're inside `build_param_summary`, interpreting this
-        // function generically before any caller's concrete argument is known. An empty
-        // FSA set here means "not yet known", not "known and CHA-sized"; falling back to
-        // CHA and simulating its impls would (a) permanently bake an inflated/wrong answer
-        // into `dispatch_cha`/`dispatch_targets` for this call site, before the real
-        // per-call-site receiver type - which is exactly what would let FSA beat CHA here -
-        // is ever consulted, and (b) simulate those impls with genargs that still carry the
-        // trait-object receiver's type, which can resolve back to the same `Virtual`
-        // instance being dispatched and crash rustc's mono/shim machinery. Bail out the same
-        // way other param-driven control flow does, so `build_param_summary` discards this
-        // build (`ParamSummary::Unavailable`) and the call gets re-interpreted for real once
-        // a concrete receiver is available.
+        // function generically before any caller's concrete argument is known.
         if fsa_empty && receiver_is_param {
             debug!(
                 "FSA empty because receiver is an unresolved summary param (not yet known) - \
                  deferring to real call site instead of falling back to CHA"
             );
+            // `_timing_guard` (TermVirtualCallPrep) drops here automatically,
+            // correctly closing this span even on this early-return exit.
             return Err(Error::SummaryImprecise);
         }
 
@@ -1993,19 +2773,21 @@ impl<'a> InterpPass<'a> {
         // Log CHA vs FSA diffs
         if assoc_fn_impls_cha != assoc_fn_impls_fsa {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS DIFFER [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\tterm={:?}\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
                 fndef,
+                term_span,
             );
         } else {
             debug!(
-                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\n",
+                "\n\nDYNAMIC DISPATCH - SET OF IMPLS SAME [Trait {:?}]: (CHA:FSA) = ({:?}:{:?})\tFNDEF = {:?}\tterm={:?}\n",
                 trait_defid,
                 assoc_fn_impls_cha.len(),
                 assoc_fn_impls_fsa.len(),
                 fndef,
+                term_span,
             );
         }
 
@@ -2054,8 +2836,10 @@ impl<'a> InterpPass<'a> {
                 }
             }
         }
+        drop(_timing_guard);
 
-        self.simulate_static_calls(
+        let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
+        let result = self.simulate_static_calls(
             term_span,
             ctxt,
             call_stack,
@@ -2066,7 +2850,19 @@ impl<'a> InterpPass<'a> {
             args,
             is_closure,
             &fndef.0,
-        )
+            &mut touched_scopes,
+        );
+
+        // Only cache on success - an `Err` (e.g. a caught-and-skipped
+        // candidate panic bubbling up, or `SummaryImprecise`) shouldn't be
+        // treated as a stable, reusable outcome for this call site.
+        if let Ok(ref cs) = result {
+            self.virtual_call_memo
+                .borrow_mut()
+                .insert(virtual_key, (cs.clone(), touched_scopes));
+        }
+
+        result
     }
 
     fn compute_tag_plan(
@@ -2085,7 +2881,7 @@ impl<'a> InterpPass<'a> {
         }
 
         let place = self.get_traitobj_place(args);
-        let cs = match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
+        let cs = match ctxt.get_constraints(caller_scope, local_decls, &place, false, Some(self)) {
             Some(cs) => cs,
             None => return TagPlan::Poisoned,
         };
@@ -2223,9 +3019,10 @@ impl<'a> InterpPass<'a> {
         //callee_scope: &VOID,
         assoc_fn_defid: &DefId,
         trait_defid: &DefId,
+        call_site_genargs: &GenericArgs,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
         debug!("\n\nGETTING CHA IMPLS");
-        let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid);
+        let constraint_defids = self.get_cha_tyconstraint_defids(&trait_defid, call_site_genargs);
         //debug!(
         //    "constraint defids ({:?} total): {:?}",
         //    constraint_defids.len(),
@@ -2237,15 +3034,55 @@ impl<'a> InterpPass<'a> {
     fn get_cha_tyconstraint_defids(
         &self,
         trait_defid: &DefId,
+        call_site_genargs: &GenericArgs,
     ) -> Vec<(DefId, Option<GenericArgs>)> {
-        // Get concrete type constraints for trait object
+        // Get concrete type constraints for trait object, filtered to only
+        // those whose own trait parameterization (e.g. `Fn<Args>`'s `Args`)
+        // matches this call site's - a `Fn<(&u8,)>` impl is never a valid
+        // candidate for a `Fn<()>` call site, even though both implement
+        // "the same trait" by DefId.
         match self.tstore.trait_structs.get(trait_defid) {
             Some(tyconstraints) => tyconstraints
-                .into_iter()
-                .map(|x| (x.clone(), None))
+                .iter()
+                .filter(|(struct_defid, impl_genargs)| {
+                    Self::trait_params_compatible(call_site_genargs, struct_defid, impl_genargs)
+                })
+                .map(|(defid, _)| (defid.clone(), None))
                 .collect(),
-            None => panic!("trait {:?} does not point to any structs", trait_defid),
+            None => Vec::new(), //panic!("trait {:?} does not point to any structs", trait_defid),
         }
+    }
+
+    /// Compares a call site's own generic args (e.g. `std::ops::Fn::call`'s
+    /// `[Self, Args]`, where `Self` here is the erased `dyn Trait` object) -
+    /// against one specific impl's own `TraitRef` args
+    fn trait_params_compatible(
+        call_site_genargs: &GenericArgs,
+        impl_struct_defid: &DefId,
+        impl_genargs: &GenericArgs,
+    ) -> bool {
+        if call_site_genargs.0.len() != impl_genargs.0.len() {
+            // Different arities entirely - can't be the same trait
+            // instantiation regardless of which position is Self.
+            return false;
+        }
+
+        for (call_arg, impl_arg) in call_site_genargs.0.iter().zip(impl_genargs.0.iter()) {
+            let is_self_position = matches!(
+                impl_arg,
+                GenericArgKind::Type(ty) if matches!(
+                    ty.kind(),
+                    TyKind::RigidTy(RigidTy::Adt(adtdef, _)) if adtdef.0 == *impl_struct_defid
+                )
+            );
+            if is_self_position {
+                continue;
+            }
+            if call_arg != impl_arg {
+                return false;
+            }
+        }
+        true
     }
 
     /// Returns `(is_closure, receiver_is_unresolved_param, impls)`. See
@@ -2294,12 +3131,6 @@ impl<'a> InterpPass<'a> {
         }
     }
 
-    /// Returns `(receiver_is_unresolved_param, constraints)`. `receiver_is_unresolved_param` is
-    /// true when the trait-object receiver's constraint is (or contains) a `Param` placeholder -
-    /// i.e. we're inside `build_param_summary`, interpreting this function generically before any
-    /// real caller's argument is known, rather than genuinely having no concrete-type info about a
-    /// real value. Callers must NOT treat that case the same as a real "FSA has nothing" answer:
-    /// a `Param` receiver means "not yet known", not "known to be unresolvable".
     fn get_fsa_tyconstraints(
         &self,
         ctxt: &Context,
@@ -2308,7 +3139,7 @@ impl<'a> InterpPass<'a> {
         place: Place,
     ) -> (bool, Constraints) {
         // Get concrete type constraints for trait object
-        match ctxt.get_constraints(caller_scope, local_decls, &place, false) {
+        match ctxt.get_constraints(caller_scope, local_decls, &place, false, Some(self)) {
             Some(constraints) => {
                 let is_param = crate::constraints::contains_param(&constraints);
                 if is_param {
@@ -2358,7 +3189,7 @@ impl<'a> InterpPass<'a> {
         trait_defid: &DefId,
         constraint: &Constraint,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        debug!("RESOLVE DEFID");
+        //debug!("RESOLVE DEFID");
 
         match constraint {
             Constraint {
@@ -2387,34 +3218,42 @@ impl<'a> InterpPass<'a> {
                 toc: None,
                 cfc: Some(cfc),
                 prov: _,
-            } => {
-                match cfc {
-                    RunningConstraint::Adt(adtdef, genargs, _, fields) => {
-                        self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
-                    }
-                    RunningConstraint::Closure(cdef, genargs) => {
-                        if genargs.0.is_empty() {
-                            (true, vec![(cdef.0, None)])
-                        } else {
-                            (true, vec![(cdef.0, Some(genargs.clone()))])
-                        }
-                    }
-                    RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
-                    // truly a Dynamic constraint that we cannot resolve to any concrete types
-                    RunningConstraint::Dynamic(_) => (false, vec![]),
-                    RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
-                    RunningConstraint::Idk(box cs) => {
-                        let mut defids = Vec::new();
-                        for c in cs.inner.iter() {
-                            let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
-                            unique_append(&mut defids, res_defids);
-                        }
-                        (false, defids)
-                    }
-                    RunningConstraint::Param(..) => (false, vec![]),
-                    _ => todo!("{:?}", cfc),
+            } => match cfc {
+                RunningConstraint::Adt(adtdef, genargs, _, fields) => {
+                    self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                 }
-            }
+                RunningConstraint::Closure(cdef, genargs) => {
+                    if genargs.0.is_empty() {
+                        (true, vec![(cdef.0, None)])
+                    } else {
+                        (true, vec![(cdef.0, Some(genargs.clone()))])
+                    }
+                }
+                RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
+                RunningConstraint::Dynamic(tys) => {
+                    match tys.iter().find(|ty| ty.def.0 == *trait_defid) {
+                        Some(matching_ty) => (
+                            false,
+                            self.get_cha_tyconstraint_defids(trait_defid, &matching_ty.genargs),
+                        ),
+                        None => (false, vec![]),
+                    }
+                }
+                RunningConstraint::Ptr(box c) => self.resolve_defid(term_span, trait_defid, c),
+                RunningConstraint::Idk(box cs) => {
+                    let mut defids = Vec::new();
+                    for c in cs.inner.iter() {
+                        let (_, res_defids) = self.resolve_defid(term_span, trait_defid, c);
+                        unique_append(&mut defids, res_defids);
+                    }
+                    (false, defids)
+                }
+                RunningConstraint::Tuple(_)
+                | RunningConstraint::List(_)
+                | RunningConstraint::Param(..)
+                | RunningConstraint::FnDef(..)
+                | RunningConstraint::FnPtr(_) => (false, vec![]),
+            },
             _ => (false, vec![]),
         }
     }
@@ -2427,7 +3266,7 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         fields: &ADTFields,
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        debug!("\nRESOLVE ADT HELPER");
+        //debug!("\nRESOLVE ADT HELPER");
 
         let mut resvec = Vec::new();
         match self.tstore.struct_traits.get(&adtdef.0) {
@@ -2455,7 +3294,10 @@ impl<'a> InterpPass<'a> {
 
         // Also search in genargs for an implementing type
         for genarg in &genargs.0 {
-            match self.converter.convert_genarg(&Location::unknown(), &genarg) {
+            match self
+                .converter
+                .convert_genarg(&Location::unknown(), &genarg, None, Some(self))
+            {
                 Some(genarg_constraint) => {
                     let (_is_closure, inner_resvec) =
                         self.resolve_defid(term_span, trait_defid, &genarg_constraint);
@@ -2482,6 +3324,7 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         is_closure: bool,
         assoc_fn_defid: &DefId,
+        touched_scopes: &mut Vec<(VOID, u64)>,
     ) -> Result<Option<Constraints>, Error> {
         let mut results = Vec::<Option<Constraints>>::new();
 
@@ -2496,148 +3339,609 @@ impl<'a> InterpPass<'a> {
                 i + 1,
                 len
             );
-            let genargs = if *assoc_fn_impl == *assoc_fn_defid {
-                // Inherited default method: assoc_fn_impl is the trait's own
-                // decl defid, generic over Self, not a per-impl defid.
-                // get_impls_from_defids packed Self's Ty as adt_genargs'
-                // only element - splice it with whatever else the method's
-                // own params need, borrowed from the working call-site
-                // genargs (position 0 there is Self=dyn Trait, replaced;
-                // anything after is preserved as-is).
-                let self_ty = adt_genargs
-                    .as_ref()
-                    .and_then(|g| g.0.first())
-                    .and_then(|k| k.ty())
-                    .copied()
-                    .expect("get_impls_from_defids should set Self for a default method");
-                GenericArgs(
-                    std::iter::once(GenericArgKind::Type(self_ty))
-                        .chain(method_genargs.0.iter().skip(1).cloned())
-                        .collect(),
-                )
-            } else if is_closure && adt_genargs.is_some() {
-                GenericArgs(
-                    adt_genargs
-                        .clone()
-                        .unwrap()
-                        .0
-                        .iter()
-                        .chain(method_genargs.0.iter())
-                        .cloned()
-                        .collect(),
-                )
-            } else if !is_closure && adt_genargs.is_some() {
-                adt_genargs.clone().unwrap()
-            } else {
-                method_genargs.clone()
-            };
+            // Snapshotted so a caught panic (below) can roll `call_stack`/
+            // `key_stack` back to exactly this point
+            let pre_candidate_call_stack_len = call_stack.len();
+            let pre_candidate_key_stack_len = self.key_stack.borrow().len();
+            let candidate_result: std::thread::Result<Result<(), Error>> = std::panic::catch_unwind(
+                std::panic::AssertUnwindSafe(|| -> Result<(), Error> {
+                    let _timing_guard =
+                        self.timing_span(TimingCat::TermSimulateCallPrep, cur_scope);
+                    let genargs = if *assoc_fn_impl == *assoc_fn_defid {
+                        let self_ty = adt_genargs
+                            .as_ref()
+                            .and_then(|g| g.0.first())
+                            .and_then(|k| k.ty())
+                            .copied()
+                            .expect("get_impls_from_defids should set Self for a default method");
+                        // Self isn't necessarily at index 0 - the trait/method
+                        // may have leading lifetime params ahead of it, which
+                        // must be preserved unchanged (rustc's own type
+                        // instantiation panics if a Type arg lands where it
+                        // expects a Region). Replace the first Type arg found,
+                        // wherever it is, instead of assuming position 0.
+                        let mut replaced = false;
+                        let mut new_args: Vec<GenericArgKind> = method_genargs
+                            .0
+                            .iter()
+                            .cloned()
+                            .map(|arg| {
+                                if !replaced && matches!(arg, GenericArgKind::Type(_)) {
+                                    replaced = true;
+                                    GenericArgKind::Type(self_ty)
+                                } else {
+                                    arg
+                                }
+                            })
+                            .collect();
+                        if !replaced {
+                            // No existing Type arg to replace (e.g.
+                            // method_genargs was empty) - append instead.
+                            new_args.push(GenericArgKind::Type(self_ty));
+                        }
+                        GenericArgs(new_args)
+                    } else if is_closure && adt_genargs.is_some() {
+                        GenericArgs(
+                            adt_genargs
+                                .clone()
+                                .unwrap()
+                                .0
+                                .iter()
+                                .chain(method_genargs.0.iter())
+                                .cloned()
+                                .collect(),
+                        )
+                    } else if !is_closure && adt_genargs.is_some() {
+                        adt_genargs.clone().unwrap()
+                    } else {
+                        method_genargs.clone()
+                    };
 
-            // TODO different resolves for fn_ptr / closure
-            let fndef = FnDef(*assoc_fn_impl);
-            let expected_count = match fndef.ty().kind() {
-                TyKind::RigidTy(RigidTy::FnDef(_, identity_args)) => identity_args.0.len(),
-                _ => 0,
-            };
+                    // TODO different resolves for fn_ptr / closure
+                    let fndef = FnDef(*assoc_fn_impl);
+                    let identity_args = match fndef.ty().kind() {
+                        TyKind::RigidTy(RigidTy::FnDef(_, identity_args)) => Some(identity_args),
+                        _ => None,
+                    };
+                    let expected_count = identity_args.as_ref().map(|a| a.0.len()).unwrap_or(0);
 
-            if genargs.0.len() < expected_count {
-                debug!(
-                    "skipping {:?}: only {:?} genargs available but {:?} required, falling back to poly sig",
-                    assoc_fn_impl,
-                    genargs.0.len(),
-                    expected_count
-                );
-                results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-                continue;
-            }
-            let instance_ = match Instance::resolve(fndef, &genargs) {
-                Ok(i) => i,
-                Err(_) => {
-                    results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-                    continue;
+                    if genargs.0.len() < expected_count {
+                        debug!(
+                            "skipping {:?}: only {:?} genargs available but {:?} required, falling back to poly sig",
+                            assoc_fn_impl,
+                            genargs.0.len(),
+                            expected_count
+                        );
+                        results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        return Ok(());
+                    }
+
+                    // Beyond length, each position's *kind* (Type vs Lifetime
+                    // vs Const) must match what the callee's real signature
+                    // expects. A mismatch here - e.g. a Type landing in a
+                    // slot the signature says is a Lifetime - is exactly the
+                    // invariant rustc's own type instantiation panics on, so
+                    // treat it the same as a length mismatch: skip, don't
+                    // hand rustc a malformed args list.
+                    let kind_mismatch =
+                        identity_args.as_ref().is_some_and(|template| {
+                            genargs.0.iter().zip(template.0.iter()).any(|(a, b)| {
+                                std::mem::discriminant(a) != std::mem::discriminant(b)
+                            })
+                        });
+                    if kind_mismatch {
+                        debug!(
+                            "skipping {:?}: genargs kind shape doesn't match callee signature, falling back to poly sig",
+                            assoc_fn_impl,
+                        );
+                        results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        return Ok(());
+                    }
+
+                    let instance_ = match Instance::resolve(fndef, &genargs) {
+                        Ok(i) => i,
+                        Err(_) => {
+                            results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                            return Ok(());
+                        }
+                    };
+                    let (is_virtual, instance) = match instance_.kind {
+                        // Likely a default trait method implementation, convert to a concrete InstanceKind
+                        // so we can interpret it
+                        InstanceKind::Virtual { .. } => (
+                            true,
+                            Instance {
+                                kind: InstanceKind::Item,
+                                def: instance_.def,
+                            },
+                        ),
+                        _ => (false, instance_),
+                    };
+                    let callee_scope = (instance, genargs.clone());
+                    drop(_timing_guard);
+
+                    // the `if` and `else if` blocks might be creating a soundness error...
+                    // if we're not actually stepping into new code + updating our cmap,
+                    // we could be omitting actually-used concrete type variants in our
+                    // eventual rewrite FIXME
+                    let recursive_hit = call_stack.contains(&callee_scope);
+                    if recursive_hit {
+                        let _timing_guard =
+                            self.timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
+                        results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        drop(_timing_guard);
+                        return Ok(());
+                    }
+
+                    let _timing_guard =
+                        self.timing_span(TimingCat::TermSimulateStdlibStub, cur_scope);
+                    let stub_attempt = self.stdlib_stub(
+                        ctxt,
+                        cur_scope,
+                        term_span,
+                        local_decls,
+                        &fndef,
+                        &genargs,
+                        args,
+                    );
+                    match stub_attempt {
+                        Some(stub_result) => {
+                            drop(_timing_guard);
+                            results.push(stub_result?);
+                        }
+                        None => {
+                            drop(_timing_guard);
+
+                            if !instance.has_body() {
+                                let _timing_guard =
+                                    self.timing_span(TimingCat::TermSigFallback, cur_scope);
+                                results
+                                    .push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                                drop(_timing_guard);
+                                return Ok(());
+                            }
+
+                            let _timing_guard =
+                                self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
+                            let base_wtos_len = ctxt.wtos.len();
+                            let base_refs_len = ctxt.cstore.refs.len();
+                            // O(1) clone; snapshot for the ptr_eq check below.
+                            let wtos_snapshot = ctxt.wtos.clone();
+                            let refs_snapshot = ctxt.cstore.refs.clone();
+                            let mut ctxt_clone = ctxt.clone();
+                            let mut call_stack_clone = call_stack.clone();
+
+                            let body = if is_virtual {
+                                // FIXME not monomorphized
+                                fndef.body().unwrap()
+                            } else {
+                                self.get_body(&callee_scope)
+                            };
+
+                            let cs = self.collect_resolved_args(
+                                ctxt,
+                                term_span,
+                                cur_scope,
+                                &body,
+                                local_decls,
+                                args,
+                                is_closure,
+                            );
+
+                            results.push(self.interp_static_call(
+                                term_span,
+                                &mut ctxt_clone,
+                                &mut call_stack_clone,
+                                cur_scope,
+                                &callee_scope,
+                                local_decls,
+                                fndef,
+                                args,
+                                &genargs,
+                                &cs,
+                                is_closure,
+                            )?);
+                            // ptr_eq, not ==: set_wto/add_ref are the only
+                            // mutation sites for wtos/refs, and both only
+                            // fire on genuinely new info, so an untouched
+                            // map stays the same allocation - O(1), sound,
+                            // false negatives just fall back to union().
+                            let wtos_unchanged = ctxt_clone.wtos.ptr_eq(&wtos_snapshot);
+                            let refs_unchanged = ctxt_clone.cstore.refs.ptr_eq(&refs_snapshot);
+                            touched_scopes.push((
+                                callee_scope.clone(),
+                                *self.scope_epoch.borrow().get(&callee_scope).unwrap_or(&0),
+                            ));
+                            drop(_timing_guard);
+
+                            let _timing_guard = self
+                                .timing_span(TimingCat::TermSimulateLoopMergeResults, cur_scope);
+
+                            let _tg = self.timing_span(TimingCat::Take, cur_scope);
+                            let taken = acc.take();
+                            drop(_tg);
+
+                            acc = Some(match taken {
+                                None => ctxt_clone,
+                                Some(a) => {
+                                    let _tg =
+                                        self.timing_span(TimingCat::VecConstruction, cur_scope);
+                                    let vec = Vec::from([a, ctxt_clone]);
+                                    drop(_tg);
+
+                                    self.merge_contexts_timed(
+                                        cur_scope,
+                                        vec,
+                                        Some(base_wtos_len),
+                                        Some(base_refs_len),
+                                        Some(wtos_unchanged),
+                                        Some(refs_unchanged),
+                                    )?
+                                    .unwrap()
+                                }
+                            });
+                            drop(_timing_guard);
+                        }
+                    }
+                    Ok(())
+                }),
+            );
+
+            match candidate_result {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => return Err(e),
+                Err(panic_payload) => {
+                    let msg = panic_payload
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+                        .unwrap_or_else(|| "<non-string panic payload>".to_string());
+                    debug!(
+                        "candidate {:?} panicked during simulation, skipping (no fallback pushed): {}",
+                        assoc_fn_impl, msg
+                    );
+
+                    debug!(
+                        "STACK STATE before catch_unwind-recovery truncate: call_stack.len()={} key_stack.len()={} target_len={}",
+                        call_stack.len(),
+                        self.key_stack.borrow().len(),
+                        pre_candidate_call_stack_len
+                    );
+                    call_stack.truncate(pre_candidate_call_stack_len);
+                    self.key_stack
+                        .borrow_mut()
+                        .truncate(pre_candidate_key_stack_len);
+                    self.assert_stacks_synced(
+                        call_stack,
+                        "simulate_static_calls catch_unwind recovery",
+                    );
                 }
-            };
-            let (is_virtual, instance) = match instance_.kind {
-                // Likely a default trait method implementation, convert to a concrete InstanceKind
-                // so we can interpret it
-                InstanceKind::Virtual { .. } => (
-                    true,
-                    Instance {
-                        kind: InstanceKind::Item,
-                        def: instance_.def,
-                    },
-                ),
-                _ => (false, instance_),
-            };
-            let callee_scope = (instance, genargs.clone());
-
-            // the `if` and `else if` blocks might be creating a soundness error...
-            // if we're not actually stepping into new code + updating our cmap,
-            // we could be omitting actually-used concrete type variants in our
-            // eventual rewrite FIXME
-            if call_stack.contains(&callee_scope) {
-                results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
-            } else if let Some(stub_result) = self.stdlib_stub(
-                ctxt,
-                cur_scope,
-                term_span,
-                local_decls,
-                &fndef,
-                &genargs,
-                args,
-            ) {
-                results.push(stub_result?);
-            } else {
-                let mut ctxt_clone = ctxt.clone();
-                let mut call_stack_clone = call_stack.clone();
-
-                if !instance.has_body() {
-                    panic!("instance has no body");
-                }
-                let body = if is_virtual {
-                    // FIXME not monomorphized
-                    fndef.body().unwrap()
-                } else {
-                    self.get_body(&callee_scope)
-                };
-
-                let cs = self.collect_resolved_args(
-                    ctxt,
-                    term_span,
-                    cur_scope,
-                    &body,
-                    local_decls,
-                    args,
-                    is_closure,
-                );
-
-                results.push(self.interp_static_call(
-                    term_span,
-                    &mut ctxt_clone,
-                    &mut call_stack_clone,
-                    cur_scope,
-                    &callee_scope,
-                    local_decls,
-                    fndef,
-                    args,
-                    &genargs,
-                    &cs,
-                    is_closure,
-                )?);
-
-                acc = Some(match acc {
-                    None => ctxt_clone,
-                    Some(a) => vec![a, ctxt_clone].merge()?.unwrap(),
-                });
             }
         }
 
-        *ctxt = acc.unwrap();
-        self.merge_results_and_ret(&mut results)
+        let _timing_guard = self.timing_span(TimingCat::TermSimulateMergeResults, cur_scope);
+        match acc {
+            Some(acc) => *ctxt = acc,
+            None => {}
+        }
+        let result = self.merge_results_and_ret(&mut results, cur_scope);
+        drop(_timing_guard);
+        result
+    }
+
+    /// Instrumented equivalent of `Vec<Context>::merge()`
+    /// Counts how many keys `a` and `b` have in common, iterating whichever
+    /// is smaller. Used purely for diagnostics (see the `MERGE_OVERLAP_STATS`
+    /// log lines below) - this is *not* free (O(min(len)) lookups into the
+    /// other map), so it's a real, temporary addition to the run's cost
+    /// while this specific investigation is ongoing, not something to
+    /// leave on permanently.
+    fn count_shared_keys<K, V>(a: &ImHashMap<K, V>, b: &ImHashMap<K, V>) -> usize
+    where
+        K: std::hash::Hash + Eq + Clone,
+        V: Clone,
+    {
+        let (smaller, larger) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+        smaller.keys().filter(|k| larger.contains_key(k)).count()
+    }
+
+    /// Keys present in both `a` and `b` whose values genuinely differ
+    /// (`PartialEq`, not just present). Used specifically to detect a
+    /// real `union()` collision - not just "this key exists on both
+    /// sides" (which `count_shared_keys` already covers and is the
+    /// overwhelmingly common, harmless case per the earlier overlap
+    /// investigation), but "the two sides disagreed about what this key
+    /// maps to, and `union()` is about to arbitrarily keep one and
+    /// discard the other." See `wtos_merge_conflicts`.
+    fn find_conflicting_keys<K, V>(a: &ImHashMap<K, V>, b: &ImHashMap<K, V>) -> Vec<K>
+    where
+        K: std::hash::Hash + Eq + Clone,
+        V: Clone + PartialEq,
+    {
+        let (smaller, larger) = if a.len() <= b.len() { (a, b) } else { (b, a) };
+        smaller
+            .iter()
+            .filter_map(|(k, v)| match larger.get(k) {
+                Some(other_v) if other_v != v => Some(k.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn merge_contexts_timed(
+        &self,
+        scope: &VOID,
+        contexts: Vec<Context>,
+        // The shared-ancestor `wtos` size for the *last* context in
+        // `contexts` (the only caller passes exactly 2, so this
+        // corresponds 1:1 to the single wtos-union iteration below) - see
+        // where this gets computed in `simulate_static_calls`, right
+        // before that context's own clone is taken. `None` when the
+        // caller has no meaningful ancestor to report (e.g. the final
+        // top-level merge in `merge_results_and_ret`'s caller).
+        rhs_base_wtos_len: Option<usize>,
+        // Same idea, for `refs` (threaded through to `merge_cstores_timed`).
+        rhs_base_refs_len: Option<usize>,
+        // `Some(true)` when a full equality check (not just a size
+        // comparison) confirmed this candidate's `wtos` is identical to
+        // what it started from before its own simulation ran - see
+        // `simulate_static_calls`. When true, the union() below is
+        // skipped entirely: the accumulator is already a strict superset
+        // (union() only ever adds keys), so there's nothing this
+        // candidate could contribute that isn't already reflected.
+        rhs_wtos_unchanged: Option<bool>,
+        // Same idea, for `refs` (threaded through to `merge_cstores_timed`).
+        rhs_refs_unchanged: Option<bool>,
+    ) -> Result<Option<Context>, Error> {
+        let _timing_guard = self.timing_span(TimingCat::TermMergeContextsSetup, scope);
+        if contexts.is_empty() {
+            return Ok(None);
+        }
+        if contexts.len() == 1 {
+            // Ownership means this is a move, not a clone - `contexts[0].clone()`
+            // used to be unavoidable here since `contexts` was only borrowed.
+            return Ok(Some(contexts.into_iter().next().unwrap()));
+        }
+        drop(_timing_guard);
+
+        // Splitting each `Context` into its two fields, by move, instead of
+        // cloning `.cstore`/`.wtos` off a borrowed slice - see
+        // `merge_cstores_timed` and the `wtos` union loop below for why this
+        // matters: whichever side arrives here uniquely owned (refcount 1)
+        // lets `im::HashMap`'s copy-on-write `insert`/`entry` skip the
+        // forced-copy path entirely, rather than just deferring that same
+        // cost from this "clone" step into the very next "union" step.
+        let mut cstores = Vec::with_capacity(contexts.len());
+        let mut wtos_list = Vec::with_capacity(contexts.len());
+        for ctxt in contexts.into_iter() {
+            cstores.push(ctxt.cstore);
+            wtos_list.push(ctxt.wtos);
+        }
+
+        let _timing_guard = self.timing_span(TimingCat::TermMergeCstoresMerge, scope);
+        let m_cstores =
+            self.merge_cstores_timed(scope, cstores, rhs_base_refs_len, rhs_refs_unchanged);
+        drop(_timing_guard);
+
+        let mut wtos_iter = wtos_list.into_iter();
+        // Moved, not cloned - this used to be `contexts[0].wtos.clone()`.
+        let mut m_wtos = wtos_iter.next().unwrap();
+
+        let _timing_guard = self.timing_span(TimingCat::TermMergeWtosUnion, scope);
+        for wtos in wtos_iter {
+            if rhs_wtos_unchanged == Some(true) {
+                // Verified unchanged (full equality, not just size) at
+                // the point this candidate's simulation finished - skip
+                // the union entirely, `m_wtos` already reflects
+                // everything `wtos` has to contribute. Nothing to log:
+                // there's no overlap/conflict question to ask about a
+                // side that's provably identical to a subset of the
+                // accumulator.
+                continue;
+            }
+
+            let shared = Self::count_shared_keys(&m_wtos, &wtos);
+            let ptr_identical = m_wtos.ptr_eq(&wtos);
+            let rhs_len = wtos.len();
+            let new_entries = rhs_base_wtos_len.map(|base| rhs_len.saturating_sub(base));
+            debug!(
+                "MERGE_OVERLAP_STATS kind=wtos bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={} rhs_base_len={} rhs_new_entries={}",
+                *self.bb_visit_count.borrow(),
+                m_wtos.len(),
+                rhs_len,
+                shared,
+                ptr_identical,
+                rhs_base_wtos_len
+                    .map(|b| b.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
+                new_entries
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "n/a".to_string()),
+            );
+
+            // Diagnostic-only: same O(min(len)) cost caveat as
+            // `count_shared_keys` above. Records which scopes' `wtos`
+            // entries are *actually* about to have one side's progress
+            // discarded by the `union()` below (not just "present on both
+            // sides," which per the earlier overlap investigation is the
+            // overwhelmingly common, harmless case) - see `visit_body`
+            // for where this gets checked against the specific pattern
+            // that could plausibly cause silent under-processing.
+            for conflicting_scope in Self::find_conflicting_keys(&m_wtos, &wtos) {
+                self.wtos_merge_conflicts
+                    .borrow_mut()
+                    .insert(conflicting_scope);
+            }
+
+            m_wtos = m_wtos.union(wtos);
+        }
+        drop(_timing_guard);
+
+        let _timing_guard = self.timing_span(TimingCat::TermMergeNewContext, scope);
+        let c = Context::new(m_cstores, m_wtos);
+        drop(_timing_guard);
+
+        Ok(Some(c))
+    }
+
+    /// Replaces the free function `merge_stores` (in merge.rs, now removed)
+    /// + its private `merge_stores_helper`, which built a 2-element `Vec`
+    /// and dispatched to the generic `impl Merge<ConstraintStore> for
+    /// Vec<ConstraintStore>` trait impl - a *second*, completely separate
+    /// place `refs` got unioned, with none of the instrumentation
+    /// `merge_cstores_timed` has (including the `REFS MERGE CONFLICT`
+    /// detection). Pulling this in as a method means both callers -
+    /// `simulate_static_calls`'s candidate merging, and this function's
+    /// caller `resolve_args`, invoked on every function call - now go
+    /// through the exact same instrumented path, rather than maintaining
+    /// two implementations of the same merge logic with only one of them
+    /// visible to diagnostics.
+    pub(crate) fn merge_stores_timed(
+        &self,
+        scope: &VOID,
+        cur_store: &ConstraintStore,
+        cur_es: &EnclosingScopes,
+        new_store: &ConstraintStore,
+        new_es: &EnclosingScopes,
+    ) -> (ConstraintStore, EnclosingScopes) {
+        let _tg = self.timing_span(TimingCat::TermMergeStoresEs, scope);
+        let merged_es = match (cur_es, new_es) {
+            (Some(cur_es_vec), Some(new_es_vec)) => {
+                let mut merged_es_vec = cur_es_vec.clone();
+                unique_append(&mut merged_es_vec, new_es_vec.to_vec());
+                Some(merged_es_vec)
+            }
+            (Some(cur_es_vec), None) => Some(cur_es_vec.to_vec()),
+            (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
+            (None, None) => None,
+        };
+        drop(_tg);
+
+        let merged_store = self.merge_cstores_timed(
+            scope,
+            vec![cur_store.clone(), new_store.clone()],
+            None,
+            None,
+        );
+
+        (merged_store, merged_es)
+    }
+
+    /// Instrumented equivalent of `Vec<ConstraintStore>::merge()` (see
+    /// `merge.rs`), called from `merge_contexts_timed` above and from
+    /// `merge_stores_timed` below. Takes `stores` by value (not
+    /// `&[ConstraintStore]`) for the same reason `merge_contexts_timed`
+    /// now takes `contexts` by value - see the comments there.
+    fn merge_cstores_timed(
+        &self,
+        scope: &VOID,
+        stores: Vec<ConstraintStore>,
+        _rhs_base_refs_len: Option<usize>,
+        // `Some(true)` when a full equality check confirmed this
+        // candidate's `refs` is identical to what it started from before
+        // its own simulation ran - see `simulate_static_calls` and the
+        // matching `rhs_wtos_unchanged` parameter on
+        // `merge_contexts_timed`. When true, the `refs` union below is
+        // skipped (the per-key `cmap` merge still happens - that's a
+        // separate concern from `refs`).
+        rhs_refs_unchanged: Option<bool>,
+    ) -> ConstraintStore {
+        let mut stores_iter = stores.into_iter();
+        // Moved, not cloned - this used to be `stores[0].clone()`.
+        let mut merged = stores_iter.next().unwrap();
+
+        for store in stores_iter {
+            let _timing_guard = self.timing_span(TimingCat::TermMergeIdentityCheck, scope);
+            let identical = merged.cmap.ptr_eq(&store.cmap) && merged.refs == store.refs;
+            drop(_timing_guard);
+            if identical {
+                continue;
+            }
+
+            // HERE
+            let _timing_guard = self.timing_span(TimingCat::TermMergePerKeyMapvals, scope);
+            for (key, val) in store.cmap.iter() {
+                match merged.cmap.get_mut(key) {
+                    Some(merged_val) => {
+                        // HERE
+                        let _tg = self.timing_span(TimingCat::TermMergeMapsvalsMerge, scope);
+                        let new_merged_val =
+                            crate::merge::merge_mapvals(merged_val, val, Some((self, scope)));
+                        drop(_tg);
+                        merged.cmap.insert(key.clone(), Box::new(new_merged_val));
+                    }
+                    None => {
+                        merged.cmap.insert(key.clone(), val.clone());
+                    }
+                }
+            }
+            drop(_timing_guard);
+
+            // HERE - `store.refs` moved directly into `union`, not cloned
+            // first (used to be `store.refs.clone()` under
+            // `TermMergeRefsClone`, now gone - nothing left to clone).
+            let _timing_guard = self.timing_span(TimingCat::TermMergeRefsUnion, scope);
+            if rhs_refs_unchanged == Some(true) {
+                // Verified unchanged (full equality, not just size) at
+                // the point this candidate's simulation finished - skip
+                // the union entirely, `merged.refs` already reflects
+                // everything `store.refs` has to contribute. Nothing to
+                // log or check for conflicts: a side that's provably
+                // identical to a subset of the accumulator can't
+                // introduce a genuine collision.
+                drop(_timing_guard);
+                continue;
+            }
+            //let shared = Self::count_shared_keys(&merged.refs, &store.refs);
+            //let ptr_identical = merged.refs.ptr_eq(&store.refs);
+            //let rhs_len = store.refs.len();
+            //let new_entries = rhs_base_refs_len.map(|base| rhs_len.saturating_sub(base));
+            //debug!(
+            //    "MERGE_OVERLAP_STATS kind=refs bb_visit={} lhs_len={} rhs_len={} shared={} ptr_identical={} rhs_base_len={} rhs_new_entries={}",
+            //    *self.bb_visit_count.borrow(),
+            //    merged.refs.len(),
+            //    rhs_len,
+            //    shared,
+            //    ptr_identical,
+            //    rhs_base_refs_len.map(|b| b.to_string()).unwrap_or_else(|| "n/a".to_string()),
+            //    new_entries.map(|n| n.to_string()).unwrap_or_else(|| "n/a".to_string()),
+            //);
+
+            // Same idea as the `wtos` conflict tracking above, but also
+            // logged immediately here (not just recorded for a later
+            // read-side check) since `resolve_ref`/`resolve_mut_ref` can't
+            // conveniently check `refs_merge_conflicts` themselves - see
+            // the field doc. This alone answers "how often does a
+            // genuine refs collision happen at all," which is the thing
+            // to look at first before deciding whether the harder,
+            // read-side-consequence check is worth building.
+            let refs_conflicts = Self::find_conflicting_keys(&merged.refs, &store.refs);
+            if !refs_conflicts.is_empty() {
+                debug!(
+                    "REFS MERGE CONFLICT: bb_visit={} {} key(s) had disagreeing alias targets, \
+                     one side's will be silently discarded by union(): {:?}",
+                    *self.bb_visit_count.borrow(),
+                    refs_conflicts.len(),
+                    refs_conflicts
+                );
+            }
+            for conflicting_key in refs_conflicts {
+                self.refs_merge_conflicts
+                    .borrow_mut()
+                    .insert(conflicting_key);
+            }
+
+            merged.refs = merged.refs.union(store.refs);
+            drop(_timing_guard);
+        }
+
+        merged
     }
 
     fn merge_results_and_ret(
         &self,
         results: &mut Vec<Option<Constraints>>,
+        cur_scope: &VOID,
     ) -> Result<Option<Constraints>, Error> {
         let filtered_results: Vec<Constraints> = results
             .into_iter()
@@ -2645,7 +3949,7 @@ impl<'a> InterpPass<'a> {
             .map(|x| x.clone().unwrap())
             .collect();
 
-        match filtered_results.merge() {
+        match filtered_results.merge(Some((self, cur_scope))) {
             Ok(Some(merged_constraints)) => {
                 return Ok(Some(merged_constraints));
             }
@@ -2666,7 +3970,7 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
-                match ctxt.get_constraints(cur_scope, local_decls, place, false) {
+                match ctxt.get_constraints(cur_scope, local_decls, place, false, Some(self)) {
                     Some(constraints) => {
                         if crate::constraints::contains_param(&constraints) {
                             if let Some(tainted) =
@@ -2840,15 +4144,6 @@ impl<'a> InterpPass<'a> {
         );
 
         let key = (callee_scope.clone(), ArgSet::new(&callee_cs));
-        // call_stack here is a clone the caller made - isolated from
-        // whatever the "real" call stack actually is right now - but
-        // key_stack is shared, global state with no notion of that
-        // isolation. Snapshot it and replace it with a fresh stack of
-        // matching depth before operating on this clone, then restore the
-        // caller's real contents afterward regardless of outcome. Content
-        // below the top entry doesn't matter: key_stack is only ever read
-        // via .last() (never indexed), and prepare_call's own push below
-        // sets the top entry correctly.
         let saved_key_stack = self.key_stack.replace(
             std::iter::repeat_with(|| key.clone())
                 .take(call_stack.len())
@@ -2889,16 +4184,25 @@ impl<'a> InterpPass<'a> {
         };
 
         // Get and "return" the constraints at Place(0)
-        let retval = match ctxt
-            .cstore
-            .scoped_get(cur_scope, &MapKey::Var(ret_place), false)
-        {
+        let _timing_guard = self.timing_span(TimingCat::TermReturnScopedGet, cur_scope);
+        let scoped_get_result =
+            ctxt.cstore
+                .scoped_get(cur_scope, &MapKey::Var(ret_place.clone()), false);
+        drop(_timing_guard);
+
+        let retval = match scoped_get_result {
             Some(retval) => match retval {
                 MapValue::Constraints(retval_constraints) => {
                     //debug!(
                     //    "\n###### RETURNING constraints:\n\t{:?}\n\n",
                     //    retval_constraints
                     //);
+                    debug!(
+                        "RETURNING scope={:?} local={} disjuncts={}",
+                        cur_scope.0.name(),
+                        ret_place.local,
+                        crate::constraints::constraints_size(&retval_constraints)
+                    );
                     Some(retval_constraints)
                 }
                 _ => panic!("should not be returning a scope"),
@@ -2909,7 +4213,10 @@ impl<'a> InterpPass<'a> {
             }
         };
 
-        self.finish_frame(ctxt, call_stack, cur_scope, retval)
+        let _timing_guard = self.timing_span(TimingCat::TermReturnFinishFrame, cur_scope);
+        let result = self.finish_frame(ctxt, call_stack, cur_scope, retval);
+        drop(_timing_guard);
+        result
     }
 
     fn finish_frame(
@@ -2953,6 +4260,7 @@ impl<'a> InterpPass<'a> {
             .collect();
 
         *self.rec_depth.borrow_mut() += 1;
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameReinterp, cur_scope);
         for (scope, constraints, stack) in queued {
             let depth = call_stack.len();
 
@@ -2975,9 +4283,13 @@ impl<'a> InterpPass<'a> {
                 self.incomplete.borrow_mut().insert(cur_scope.clone());
 
                 *self.rec_depth.borrow_mut() -= 1;
+                // `_timing_guard` (TermFinishFrameReinterp) drops here
+                // automatically, correctly closing this span even on this
+                // early-return exit.
                 return res;
             }
         }
+        drop(_timing_guard);
 
         for (scope, old) in saved {
             match old {
@@ -2997,6 +4309,7 @@ impl<'a> InterpPass<'a> {
         }
 
         // final traverse after recursive wq drained
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameRevisit, cur_scope);
         let body = self.get_body(cur_scope);
 
         // constrain arguments
@@ -3018,6 +4331,7 @@ impl<'a> InterpPass<'a> {
 
         self.prepare_call(call_stack, &key);
         let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
+        drop(_timing_guard);
         *self.rec_depth.borrow_mut() -= 1;
         match result {
             Ok(r) => Ok(r),

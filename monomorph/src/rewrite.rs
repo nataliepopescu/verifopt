@@ -67,12 +67,21 @@ impl Callbacks for FsaCallbacks {
 
             let mut store = store().lock().unwrap();
 
-            let to_hash = |did| tcx.def_path_hash(rustc_internal::internal(tcx, did));
+            let to_hash = |did| -> Option<DefPathHash> {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    tcx.def_path_hash(rustc_internal::internal(tcx, did))
+                }))
+                .inspect_err(|_| eprintln!("to_hash panicked on {:?}, skipping", did))
+                .ok()
+            };
 
             for ((defid, bb), (_, ts)) in targets {
-                let hash = to_hash(defid);
+                let Some(hash) = to_hash(defid) else {
+                    continue;
+                };
 
-                let t_hashes: Vec<DefPathHash> = ts.iter().map(|(did, _)| to_hash(*did)).collect();
+                let t_hashes: Vec<DefPathHash> =
+                    ts.iter().filter_map(|(did, _)| to_hash(*did)).collect();
 
                 store.targets.insert((hash, bb), t_hashes);
             }
@@ -85,19 +94,21 @@ impl Callbacks for FsaCallbacks {
                     continue;
                 }
 
-                let hash = to_hash(defid);
+                let Some(hash) = to_hash(defid) else {
+                    continue;
+                };
 
                 let mut next: u64 = 0;
                 let mut assigned: HashMap<DefId, u64> = HashMap::default();
 
                 let entry: Vec<(usize, usize, u64, DefPathHash)> = sites
                     .iter()
-                    .map(|(bb, stmt, did)| {
+                    .filter_map(|(bb, stmt, did)| {
                         let tag = *assigned.entry(*did).or_insert_with(|| {
                             next += 1;
                             next - 1
                         });
-                        (*bb, *stmt, tag, to_hash(*did))
+                        to_hash(*did).map(|h| (*bb, *stmt, tag, h))
                     })
                     .collect();
 
@@ -222,7 +233,10 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 
         match edit {
             Edit::Single(hash) => {
-                let (fnc, self_ty) = fn_op(tcx, hash, gen_args, span).unwrap();
+                let (fnc, self_ty) = match fn_op(tcx, hash, gen_args, span) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
 
                 let (recv, new_stmts) = narrow_dyn(
                     tcx,
@@ -272,7 +286,12 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let proj =
                     Ty::new_projection(tcx, metadata_assoc, tcx.mk_args(&[pointee_ty.into()]));
 
-                let meta_ty = tcx.normalize_erasing_regions(TypingEnv::fully_monomorphized(), proj); // DynMetadata<dyn X>
+                let meta_ty = match tcx
+                    .try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), proj)
+                {
+                    Ok(ty) => ty, // DynMetadata<dyn X>
+                    Err(_) => continue,
+                };
                 let raw_ptr_ty = Ty::new_ptr(tcx, tcx.types.unit, Mutability::Not); // *const ()
 
                 // DynMetadata<dyn X>
@@ -578,7 +597,15 @@ fn fn_op<'tcx>(
 
     let impl_did = tcx.parent(target_did);
     let self_ty = tcx.type_of(impl_did).instantiate(tcx, instance.args);
-    let self_ty = tcx.normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty);
+    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty)
+    {
+        Ok(ty) => ty,
+        // Can genuinely fail to normalize here (e.g. an unresolved
+        // Iterator::Item projection through a closure chain) rather than
+        // it being a bug on our end - rustc's own ICE message for the
+        // panicking variant says to use this fallible one instead.
+        Err(_) => return Err(()),
+    };
 
     Ok((op, self_ty))
 }

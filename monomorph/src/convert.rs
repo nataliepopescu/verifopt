@@ -13,14 +13,15 @@ use rustc_public::ty::{
 use crate::TraitStore;
 use crate::constraints::{ADTFields, unique_append, unique_push};
 use crate::constraints::{
-    Constraint, Constraints, Context, Location, TagProv, RunningConstraint, TraitObjConstraint,
+    Constraint, Constraints, Context, Location, RunningConstraint, TagProv, TraitObjConstraint,
     TraitObjTy, VOID,
 };
 use crate::constraints::{hash_val, memoize_by_rc};
+use crate::interp::{InterpPass, TimingCat};
 use crate::sig_collect::SigVal;
 
-//use log::debug;
 use indexmap::IndexSet;
+use log::debug;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Weak;
@@ -129,45 +130,77 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         destty: &Ty,
         to_convert: &Rvalue,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         match to_convert {
-            Rvalue::Use(op) => self.convert_op(ctxt, span, local_decls, cur_scope, op, destty),
+            Rvalue::Use(op) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
+            }
             Rvalue::Ref(_region, _borrow_kind, place) => {
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::Discriminant(place) => {
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::CopyForDeref(place) => {
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::Cast(kind, op, ty) => {
-                self.convert_cast(ctxt, span, local_decls, cur_scope, kind, op, ty)
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertCast, cur_scope));
+                self.convert_cast(ctxt, span, local_decls, cur_scope, kind, op, ty, timing)
             }
             Rvalue::Aggregate(kind, ops) => {
-                self.convert_agg(ctxt, span, local_decls, cur_scope, destty, kind, ops)
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAgg, cur_scope));
+                self.convert_agg(
+                    ctxt,
+                    span,
+                    local_decls,
+                    cur_scope,
+                    destty,
+                    kind,
+                    ops,
+                    timing,
+                )
             }
             Rvalue::AddressOf(_rawptrkind, place) => {
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
             Rvalue::UnaryOp(unop, op) => {
-                self.convert_unop(ctxt, span, local_decls, cur_scope, destty, unop, op)
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertUnop, cur_scope));
+                self.convert_unop(ctxt, span, local_decls, cur_scope, destty, unop, op, timing)
             }
             Rvalue::BinaryOp(binop, op1, op2) => {
-                self.convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2)
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertBinop, cur_scope));
+                self.convert_binop(
+                    ctxt,
+                    span,
+                    local_decls,
+                    cur_scope,
+                    destty,
+                    binop,
+                    op1,
+                    op2,
+                    timing,
+                )
             }
-            Rvalue::CheckedBinaryOp(binop, op1, op2) => self.convert_checked_binop(
-                ctxt,
-                span,
-                local_decls,
-                cur_scope,
-                destty,
-                binop,
-                op1,
-                op2,
-            ),
+            Rvalue::CheckedBinaryOp(binop, op1, op2) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertCheckedBinop, cur_scope));
+                self.convert_checked_binop(
+                    ctxt,
+                    span,
+                    local_decls,
+                    cur_scope,
+                    destty,
+                    binop,
+                    op1,
+                    op2,
+                    timing,
+                )
+            }
             Rvalue::Repeat(op, _tyconst) => {
-                self.convert_op(ctxt, span, local_decls, cur_scope, op, destty)
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
             }
             _ => todo!("other rval: {:?}", to_convert),
         }
@@ -181,28 +214,46 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         op: &Operand,
         destty: &Ty,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         match op {
             Operand::Copy(place) | Operand::Move(place) => {
-                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty)
+                self.convert_place(ctxt, span, local_decls, cur_scope, place, destty, timing)
             }
-            Operand::Constant(const_op) => self.convert_const(span, &const_op),
+            Operand::Constant(const_op) => {
+                self.convert_const(span, &const_op, Some(cur_scope), timing)
+            }
             _ => todo!("runtime checks"),
         }
     }
 
-    pub fn convert_const(&self, span: &Location, const_op: &ConstOperand) -> Constraints {
+    pub fn convert_const(
+        &self,
+        span: &Location,
+        const_op: &ConstOperand,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         //debug!("CONVERTING CONST");
         let ty = const_op.const_.ty();
 
         match const_op.const_.kind() {
-            ConstantKind::Allocated(alloc) => self.convert_allocated_const(span, &ty, alloc),
-            ConstantKind::ZeroSized => self.convert_zero_sized_const(span, &ty),
-            _ => self.convert_const_fallback(span, &ty),
+            ConstantKind::Allocated(alloc) => {
+                self.convert_allocated_const(span, &ty, alloc, cur_scope, timing)
+            }
+            ConstantKind::ZeroSized => self.convert_zero_sized_const(span, &ty, cur_scope, timing),
+            _ => self.convert_const_fallback(span, &ty, cur_scope, timing),
         }
     }
 
-    fn convert_allocated_const(&self, span: &Location, ty: &Ty, alloc: &Allocation) -> Constraints {
+    fn convert_allocated_const(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         match ty.kind() {
             TyKind::RigidTy(RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_)) => {
                 match alloc.read_int() {
@@ -222,14 +273,22 @@ impl<'a> RvalConverter<'a> {
                     adtdef.clone(),
                     genargs.clone(),
                     None,
-                    self.convert_allocated_adt(span, &adtdef, &genargs, ty, alloc),
+                    self.convert_allocated_adt(
+                        span, &adtdef, &genargs, ty, alloc, cur_scope, timing,
+                    ),
                 )),
             )),
-            _ => self.convert_const_fallback(span, ty),
+            _ => self.convert_const_fallback(span, ty, cur_scope, timing),
         }
     }
 
-    fn convert_zero_sized_const(&self, span: &Location, ty: &Ty) -> Constraints {
+    fn convert_zero_sized_const(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         match ty.kind() {
             // A zero-sized ADT (unit struct, empty enum variant, etc.) - build
             // the Adt shape directly rather than falling through to convert_ty,
@@ -246,7 +305,7 @@ impl<'a> RvalConverter<'a> {
             // Zero-sized non-ADT (e.g. `()`, a zero-length array/tuple, a ZST
             // closure) - no field structure to build, so the generic fallback
             // is the right answer here, not a gap to fill in later.
-            _ => self.convert_const_fallback(span, ty),
+            _ => self.convert_const_fallback(span, ty, cur_scope, timing),
         }
     }
 
@@ -257,6 +316,8 @@ impl<'a> RvalConverter<'a> {
         genargs: &GenericArgs,
         ty: &Ty,
         alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
     ) -> ADTFields {
         let layout = ty.layout().expect("no layout for a concrete, sized ADT");
         let shape = layout.shape();
@@ -287,7 +348,8 @@ impl<'a> RvalConverter<'a> {
 
             // Recurse: a scalar field bottoms out via read_int as today;
             // a nested struct field recurses back into this same function.
-            let field_constraint = self.convert_sub_alloc(span, &field_ty, &sub_alloc);
+            let field_constraint =
+                self.convert_sub_alloc(span, &field_ty, &sub_alloc, cur_scope, timing);
             fields.insert(i, Constraints::from(field_constraint));
         }
         fields
@@ -297,7 +359,14 @@ impl<'a> RvalConverter<'a> {
     /// parent struct's Allocation) into a Constraint, dispatching on the
     /// field's own type the same way convert_const dispatches on the whole
     /// operand's type.
-    fn convert_sub_alloc(&self, span: &Location, ty: &Ty, alloc: &Allocation) -> Constraint {
+    fn convert_sub_alloc(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraint {
         match ty.kind() {
             TyKind::RigidTy(RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_)) => {
                 match alloc.read_int() {
@@ -312,7 +381,9 @@ impl<'a> RvalConverter<'a> {
                     adtdef.clone(),
                     genargs.clone(),
                     None,
-                    self.convert_allocated_adt(span, &adtdef, &genargs, ty, alloc),
+                    self.convert_allocated_adt(
+                        span, &adtdef, &genargs, ty, alloc, cur_scope, timing,
+                    ),
                 )),
             ),
 
@@ -320,7 +391,7 @@ impl<'a> RvalConverter<'a> {
             // real but much rarer (a `&'static` reference to a static, mostly) —
             // not worth a bytes-level decoder yet
             _ => {
-                let (_, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty, cur_scope, timing);
                 constraint
             }
         }
@@ -336,8 +407,14 @@ impl<'a> RvalConverter<'a> {
         ProvenanceMap { ptrs }
     }
 
-    fn convert_const_fallback(&self, span: &Location, ty: &Ty) -> Constraints {
-        let (_, constraint) = self.convert_ty(span, ty);
+    fn convert_const_fallback(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
+        let (_, constraint) = self.convert_ty(span, ty, cur_scope, timing);
         Constraints::from(constraint)
     }
 
@@ -349,12 +426,19 @@ impl<'a> RvalConverter<'a> {
         cur_scope: &VOID,
         place: &Place,
         destty: &Ty,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
-        match ctxt.get_constraints(cur_scope, local_decls, place, false) {
+        let _g0 = timing.map(|p| p.timing_span(TimingCat::ConvertPlace, cur_scope));
+
+        let _g1 = timing.map(|p| p.timing_span(TimingCat::ConvertPlaceGetConstraints, cur_scope));
+        let constraints_op = ctxt.get_constraints(cur_scope, local_decls, place, false, timing);
+        drop(_g1);
+
+        match constraints_op {
             Some(constraints) => constraints,
             None => {
                 let place_ty = place.ty(local_decls).unwrap_or(*destty);
-                let (_, constraint) = self.convert_ty(span, &place_ty);
+                let (_, constraint) = self.convert_ty(span, &place_ty, Some(cur_scope), timing);
                 Constraints::from(constraint)
             }
         }
@@ -392,7 +476,7 @@ impl<'a> RvalConverter<'a> {
             RunningConstraint::List(box co) => match &co.cfc {
                 Some(c) => self.get_defid_candidates(&c),
                 None => vec![],
-            }
+            },
             RunningConstraint::Tuple(cs) => cs
                 .iter()
                 .flat_map(|inner| {
@@ -403,7 +487,7 @@ impl<'a> RvalConverter<'a> {
                         .flat_map(|cfc| self.get_defid_candidates(cfc))
                         .collect::<Vec<_>>()
                 })
-            .collect(),
+                .collect(),
             _ => todo!("cfc: {:?}", cfc),
         }
     }
@@ -522,11 +606,13 @@ impl<'a> RvalConverter<'a> {
         _kind: &CastKind,
         op: &Operand,
         ty: &Ty,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         match op {
             Operand::Constant(const_op) => {
-                let prev_constraints = self.convert_const(span, &const_op);
-                let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
+                let prev_constraints = self.convert_const(span, &const_op, Some(cur_scope), timing);
+                let (maybe_traitobj, post_constraint) =
+                    self.convert_ty(span, ty, Some(cur_scope), timing);
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
                 } else {
@@ -535,9 +621,10 @@ impl<'a> RvalConverter<'a> {
             }
             Operand::Copy(place) | Operand::Move(place) => {
                 let prev_constraints =
-                    self.convert_place(ctxt, span, local_decls, cur_scope, place, ty);
+                    { self.convert_place(ctxt, span, local_decls, cur_scope, place, ty, timing) };
 
-                let (maybe_traitobj, post_constraint) = self.convert_ty(span, ty);
+                let (maybe_traitobj, post_constraint) =
+                    self.convert_ty(span, ty, Some(cur_scope), timing);
 
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
@@ -554,6 +641,7 @@ impl<'a> RvalConverter<'a> {
                                 cur_scope,
                                 &prev_constraints,
                                 &ProjectionElem::Field(0, ty.clone()),
+                                timing,
                             );
                             if unwrapped.inner.is_empty() {
                                 Constraints::from(post_constraint)
@@ -661,15 +749,38 @@ impl<'a> RvalConverter<'a> {
         destty: &Ty,
         kind: &AggregateKind,
         ops: &Vec<Operand>,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         match kind {
             AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
                 if is_opaque_internal_defid(def) {
+                    let adt_name = def.0.name();
+                    let _g =
+                        timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtOpaque, cur_scope));
                     let mut flattened = Constraints::new();
                     for op in ops {
-                        let op_constraints =
-                            self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
-                        flattened.append(ctxt.flatten_all(&op_constraints));
+                        let op_constraints = {
+                            let _g0 =
+                                timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                            self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
+                        };
+                        let res = ctxt.flatten_all(&op_constraints, cur_scope, timing);
+
+                        // Logged on *every* call, not just the first time this
+                        // ADT is seen - a later invocation on the same type
+                        // can easily be the expensive one, and a first-seen-only
+                        // log would silently miss it.
+                        debug!(
+                            "convert_agg opaque ADT branch: type={} input_len={} output_len={}",
+                            adt_name,
+                            op_constraints.inner.len(),
+                            res.inner.len()
+                        );
+
+                        let _g1 = timing.map(|p| {
+                            p.timing_span(TimingCat::ConvertAggAdtOpaqueAppend, cur_scope)
+                        });
+                        flattened.append(res);
                     }
                     return Constraints::from(Constraint::new(
                         None,
@@ -683,10 +794,13 @@ impl<'a> RvalConverter<'a> {
                 }
 
                 // Create projections here to simulate field initializers
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggAdtFields, cur_scope));
                 let mut fields = ADTFields::new();
                 for (i, op) in ops.into_iter().enumerate() {
-                    let op_constraints =
-                        self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
+                    let op_constraints = {
+                        let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                        self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
+                    };
                     fields.insert(i, op_constraints);
                 }
 
@@ -701,10 +815,13 @@ impl<'a> RvalConverter<'a> {
                 ))
             }
             AggregateKind::Tuple => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggTuple, cur_scope));
                 let mut inner_constraints = Vec::new();
                 for op in ops {
-                    let op_constraints =
-                        self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
+                    let op_constraints = {
+                        let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                        self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
+                    };
                     inner_constraints.push(op_constraints); // preserve position; no merging across slots
                 }
                 Constraints::from(Constraint::new(
@@ -713,6 +830,7 @@ impl<'a> RvalConverter<'a> {
                 ))
             }
             AggregateKind::RawPtr(ty, _mut) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggRawPtr, cur_scope));
                 match ops.len() {
                     0 => todo!("no operands"),
                     1 => todo!("thin ptr (1 operand)"),
@@ -720,23 +838,27 @@ impl<'a> RvalConverter<'a> {
                     _ => todo!("more than 2 operands"),
                 }
 
-                let (_, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty, Some(cur_scope), timing);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::Ptr(Box::new(constraint))),
                 ))
             }
             AggregateKind::Array(ty) => {
-                let (_, constraint) = self.convert_ty(span, ty);
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggArray, cur_scope));
+                let (_, constraint) = self.convert_ty(span, ty, Some(cur_scope), timing);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::List(Box::new(constraint))),
                 ))
             }
-            AggregateKind::Closure(def, genargs) => Constraints::from(Constraint::new(
-                None,
-                Some(RunningConstraint::Closure(*def, genargs.clone())),
-            )),
+            AggregateKind::Closure(def, genargs) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggClosure, cur_scope));
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Closure(*def, genargs.clone())),
+                ))
+            }
             _ => todo!("other agg kind: {:?}", kind),
         }
     }
@@ -764,17 +886,32 @@ impl<'a> RvalConverter<'a> {
     }
     */
 
-    pub fn convert_genarg(&self, span: &Location, genarg: &GenericArgKind) -> Option<Constraint> {
+    pub fn convert_genarg(
+        &self,
+        span: &Location,
+        genarg: &GenericArgKind,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Option<Constraint> {
         match genarg {
             GenericArgKind::Type(ty) => {
-                let (_, constraint) = self.convert_ty(span, ty);
+                let (_, constraint) = self.convert_ty(span, ty, cur_scope, timing);
                 Some(constraint)
             }
             _ => None,
         }
     }
 
-    pub fn convert_ty(&self, span: &Location, ty: &Ty) -> (Option<Vec<TraitObjTy>>, Constraint) {
+    pub fn convert_ty(
+        &self,
+        span: &Location,
+        ty: &Ty,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> (Option<Vec<TraitObjTy>>, Constraint) {
+        let _g = cur_scope
+            .zip(timing)
+            .map(|(s, p)| p.timing_span(TimingCat::ConvertType, s));
         match ty.kind() {
             TyKind::RigidTy(rigidty) => match rigidty {
                 RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) => (
@@ -787,7 +924,7 @@ impl<'a> RvalConverter<'a> {
                     for genarg in &genargs.0 {
                         match genarg {
                             GenericArgKind::Type(ty) => {
-                                let (tot, _) = self.convert_ty(span, &ty);
+                                let (tot, _) = self.convert_ty(span, &ty, cur_scope, timing);
                                 match tot {
                                     Some(tot) => unique_append(&mut traitobjtys, tot),
                                     None => {}
@@ -821,7 +958,8 @@ impl<'a> RvalConverter<'a> {
                     let mut traitobj_vec = Vec::new();
                     for ty in ty_vec {
                         // FIXME
-                        let (maybe_traitobj, constraint) = self.convert_ty(span, &ty);
+                        let (maybe_traitobj, constraint) =
+                            self.convert_ty(span, &ty, cur_scope, timing);
                         unique_push(&mut inner, constraint);
                         match maybe_traitobj {
                             Some(to) => unique_append(&mut traitobj_vec, to),
@@ -846,7 +984,8 @@ impl<'a> RvalConverter<'a> {
                     )
                 }
                 RigidTy::Array(ty, _) | RigidTy::Slice(ty) => {
-                    let (maybe_traitobj, constraint) = self.convert_ty(span, &ty);
+                    let (maybe_traitobj, constraint) =
+                        self.convert_ty(span, &ty, cur_scope, timing);
                     (
                         maybe_traitobj,
                         Constraint::new(
@@ -873,8 +1012,8 @@ impl<'a> RvalConverter<'a> {
                         Constraint::new(None, Some(RunningConstraint::FnPtr(sigval))),
                     )
                 }
-                RigidTy::Ref(_, ty, _) => self.convert_ty(span, &ty),
-                RigidTy::RawPtr(ty, _mut) => self.convert_ty(span, &ty),
+                RigidTy::Ref(_, ty, _) => self.convert_ty(span, &ty, cur_scope, timing),
+                RigidTy::RawPtr(ty, _mut) => self.convert_ty(span, &ty, cur_scope, timing),
                 RigidTy::Char | RigidTy::Str | RigidTy::Never => {
                     (None, Constraint::new(None, None))
                 }
@@ -910,11 +1049,24 @@ impl<'a> RvalConverter<'a> {
         binop: &BinOp,
         op1: &Operand,
         op2: &Operand,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
-        let first = self
-            .convert_binop(ctxt, span, local_decls, cur_scope, destty, binop, op1, op2)
-            .at(0)
-            .clone();
+        let first = {
+            let _g = timing.map(|p| p.timing_span(TimingCat::ConvertBinop, cur_scope));
+            self.convert_binop(
+                ctxt,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                binop,
+                op1,
+                op2,
+                timing,
+            )
+        }
+        .at(0)
+        .clone();
 
         let second = Constraint::new(None, Some(RunningConstraint::Scalar(None)));
 
@@ -938,6 +1090,7 @@ impl<'a> RvalConverter<'a> {
         binop: &BinOp,
         op1: &Operand,
         op2: &Operand,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         let constraint = match binop {
             BinOp::Add | BinOp::AddUnchecked => self.convert_binop_helper(
@@ -949,6 +1102,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x + y,
+                timing,
             ),
             BinOp::Sub | BinOp::SubUnchecked => self.convert_binop_helper(
                 ctxt,
@@ -959,6 +1113,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x - y,
+                timing,
             ),
             BinOp::Mul | BinOp::MulUnchecked => self.convert_binop_helper(
                 ctxt,
@@ -969,6 +1124,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x * y,
+                timing,
             ),
             BinOp::Div => self.convert_binop_helper(
                 ctxt,
@@ -979,6 +1135,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x / y,
+                timing,
             ),
             BinOp::Rem => self.convert_binop_helper(
                 ctxt,
@@ -989,6 +1146,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x % y,
+                timing,
             ),
             BinOp::Eq => self.convert_binop_helper(
                 ctxt,
@@ -1001,6 +1159,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| {
                     if x == y { 1 } else { 0 }
                 },
+                timing,
             ),
             BinOp::Lt => self.convert_binop_helper(
                 ctxt,
@@ -1013,6 +1172,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| {
                     if x < y { 1 } else { 0 }
                 },
+                timing,
             ),
             BinOp::Le => self.convert_binop_helper(
                 ctxt,
@@ -1025,6 +1185,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| {
                     if x <= y { 1 } else { 0 }
                 },
+                timing,
             ),
             BinOp::Ne => self.convert_binop_helper(
                 ctxt,
@@ -1037,6 +1198,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| {
                     if x != y { 1 } else { 0 }
                 },
+                timing,
             ),
             BinOp::Ge => self.convert_binop_helper(
                 ctxt,
@@ -1049,6 +1211,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| {
                     if x >= y { 1 } else { 0 }
                 },
+                timing,
             ),
             BinOp::Gt => self.convert_binop_helper(
                 ctxt,
@@ -1061,6 +1224,7 @@ impl<'a> RvalConverter<'a> {
                 |x, y| {
                     if x > y { 1 } else { 0 }
                 },
+                timing,
             ),
             // bit-level binops
             BinOp::Shl | BinOp::ShlUnchecked => self.convert_binop_helper(
@@ -1072,6 +1236,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x << y,
+                timing,
             ),
             BinOp::Shr | BinOp::ShrUnchecked => self.convert_binop_helper(
                 ctxt,
@@ -1082,6 +1247,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x >> y,
+                timing,
             ),
             BinOp::BitAnd => self.convert_binop_helper(
                 ctxt,
@@ -1092,6 +1258,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x & y,
+                timing,
             ),
             BinOp::BitOr => self.convert_binop_helper(
                 ctxt,
@@ -1102,6 +1269,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x | y,
+                timing,
             ),
             BinOp::BitXor => self.convert_binop_helper(
                 ctxt,
@@ -1112,6 +1280,7 @@ impl<'a> RvalConverter<'a> {
                 op1,
                 op2,
                 |x, y| x ^ y,
+                timing,
             ),
             // This binop return Ord results
             BinOp::Cmp => self.convert_binop_helper(
@@ -1131,9 +1300,10 @@ impl<'a> RvalConverter<'a> {
                         0
                     }
                 },
+                timing,
             ),
             BinOp::Offset => {
-                let (_, ty) = self.convert_ty(span, destty);
+                let (_, ty) = self.convert_ty(span, destty, Some(cur_scope), timing);
                 ty
             }
         };
@@ -1151,9 +1321,16 @@ impl<'a> RvalConverter<'a> {
         op1: &Operand,
         op2: &Operand,
         f: fn(i128, i128) -> i128,
+        timing: Option<&InterpPass>,
     ) -> Constraint {
-        let c_op1 = self.convert_op(ctxt, span, local_decls, cur_scope, op1, destty);
-        let c_op2 = self.convert_op(ctxt, span, local_decls, cur_scope, op2, destty);
+        let c_op1 = {
+            let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+            self.convert_op(ctxt, span, local_decls, cur_scope, op1, destty, timing)
+        };
+        let c_op2 = {
+            let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+            self.convert_op(ctxt, span, local_decls, cur_scope, op2, destty, timing)
+        };
         if c_op1.len() != 1 || c_op2.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
@@ -1219,16 +1396,31 @@ impl<'a> RvalConverter<'a> {
         destty: &Ty,
         unop: &UnOp,
         op: &Operand,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
         let constraint = match unop {
-            UnOp::Neg => {
-                self.convert_unop_helper(ctxt, span, local_decls, cur_scope, destty, op, |x| -x)
-            }
-            UnOp::Not => {
-                self.convert_unop_helper(ctxt, span, local_decls, cur_scope, destty, op, |x| !x)
-            }
+            UnOp::Neg => self.convert_unop_helper(
+                ctxt,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op,
+                |x| -x,
+                timing,
+            ),
+            UnOp::Not => self.convert_unop_helper(
+                ctxt,
+                span,
+                local_decls,
+                cur_scope,
+                destty,
+                op,
+                |x| !x,
+                timing,
+            ),
             UnOp::PtrMetadata => {
-                let (_, ty) = self.convert_ty(span, destty);
+                let (_, ty) = self.convert_ty(span, destty, Some(cur_scope), timing);
                 ty
             }
         };
@@ -1245,8 +1437,12 @@ impl<'a> RvalConverter<'a> {
         destty: &Ty,
         op: &Operand,
         f: fn(i128) -> i128,
+        timing: Option<&InterpPass>,
     ) -> Constraint {
-        let c_op = self.convert_op(ctxt, span, local_decls, cur_scope, op, destty);
+        let c_op = {
+            let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+            self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
+        };
         if c_op.len() != 1 {
             return Constraint::new(None, Some(RunningConstraint::Scalar(None)));
         }
@@ -1278,9 +1474,15 @@ impl<'a> RvalConverter<'a> {
 
         match ty.kind() {
             TyKind::RigidTy(rty) => match rty {
-                RigidTy::Bool | RigidTy::Int(_) | RigidTy::Uint(_) | RigidTy::Float(_)
-                | RigidTy::Char | RigidTy::Str | RigidTy::Never
-                | RigidTy::FnDef(..) | RigidTy::FnPtr(_) => true,
+                RigidTy::Bool
+                | RigidTy::Int(_)
+                | RigidTy::Uint(_)
+                | RigidTy::Float(_)
+                | RigidTy::Char
+                | RigidTy::Str
+                | RigidTy::Never
+                | RigidTy::FnDef(..)
+                | RigidTy::FnPtr(_) => true,
 
                 RigidTy::Adt(adtdef, genargs) => {
                     if self.is_unsafe_cell(&adtdef) {
@@ -1310,7 +1512,9 @@ impl<'a> RvalConverter<'a> {
         span: &Location,
         ty: &Ty,
         alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
     ) -> Constraints {
-        self.convert_allocated_const(span, ty, alloc)
+        self.convert_allocated_const(span, ty, alloc, cur_scope, timing)
     }
 }

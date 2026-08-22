@@ -1,6 +1,6 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::ty::{
-    AssocContainer, AssocKind, FnDef, GenericArgKind, ImplDef, ImplTrait, RigidTy, TyKind,
+    AssocContainer, AssocKind, FnDef, GenericArgs, ImplDef, ImplTrait, RigidTy, TyKind,
 };
 use rustc_public::{CrateDefItems, DefId};
 
@@ -11,8 +11,8 @@ pub struct TraitVal {}
 pub struct TraitStore {
     // HashMap<Struct, Vec<Trait>>
     pub struct_traits: HashMap<DefId, Vec<DefId>>,
-    // (CHA/RTA) HashMap<Trait, Vec<Struct>>
-    pub trait_structs: HashMap<DefId, Vec<DefId>>,
+    // (CHA/RTA) HashMap<Trait, Vec<(Struct, TraitRef's own GenericArgs)>>
+    pub trait_structs: HashMap<DefId, Vec<(DefId, GenericArgs)>>,
     // HashMap<AssocFnDecl, Trait>
     pub assoc_fn_traits: HashMap<DefId, DefId>,
     // HashMap<(Struct, AssocFnDecl), Vec<AssocFnImpl>>
@@ -124,43 +124,15 @@ impl TraitCollectPass {
             let trait_defid = trait_impl.value.def_id.0;
             //debug!("TRAIT: {:?}", trait_defid);
 
-            // Get Struct DefId
-            let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
-            if result.is_err() {
-                continue;
-            }
-            let struct_defid;
-            if let Some(struct_defid_inner) = result.unwrap() {
-                struct_defid = struct_defid_inner;
-            } else {
-                //debug!("got a None struct_defid option (FIXME)");
-                continue;
-            }
-            //debug!("STRUCT: {:?}", struct_defid);
-
-            // Add trait to list of traits that this struct impls
-            match tstore.struct_traits.get_mut(&struct_defid) {
-                Some(trait_vec) => {
-                    //debug!("adding trait to existing vec: {:?}", trait_vec);
-                    trait_vec.push(trait_defid);
-                }
-                None => {
-                    //debug!("init w trait");
-                    tstore.struct_traits.insert(struct_defid, vec![trait_defid]);
-                }
-            }
-
-            // Add struct to list of structs that impl this trait
-            match tstore.trait_structs.get_mut(&trait_defid) {
-                Some(struct_vec) => {
-                    struct_vec.push(struct_defid);
-                }
-                None => {
-                    tstore.trait_structs.insert(trait_defid, vec![struct_defid]);
-                }
-            }
-
-            // Get AssocFn DefIds
+            // Get AssocFn DefIds - operates on `impl_def` directly, not on
+            // whatever `get_struct_defid` finds below, so this (and the
+            // trait-level back-pointer registration it feeds) runs
+            // unconditionally. A blanket impl (`impl<P> Trait for P where
+            // ...`) has no single concrete Self type, so `get_struct_defid`
+            // legitimately returns None for it below - but that impl still
+            // provides real, concrete method bodies (monomorphized per
+            // instantiation), and this trait-level bookkeeping doesn't need
+            // to know which struct to record that.
             let mut assoc_fn_defids = self.get_assoc_fn_defids(&impl_def);
             //debug!("assoc_fn_defids: {:?}", assoc_fn_defids);
             //debug!("trait_fn_defids: {:?}", tstore.trait_fns.get(&trait_defid));
@@ -200,13 +172,19 @@ impl TraitCollectPass {
                 None => {}
             }
 
-            // Add back pointers from associated fns to this trait
-            for (_, assoc_fn_decl_defid) in &assoc_fn_defids {
+            // Add back pointers from associated fns to this trait. This must
+            // cover *every* assoc fn decl in the trait, not just the
+            // dynamically-dispatchable (has_self) subset in
+            // `assoc_fn_defids` - `get_trait_defid` is also consulted for
+            // no-`self` fns (constructors, conversions, `Step`'s internal
+            // methods, etc.) reached via ordinary static/simulated calls, and
+            // will panic if it's missing an entry.
+            for assoc_fn_decl_defid in self.get_all_assoc_fn_decl_defids(&impl_def) {
                 match tstore.assoc_fn_traits.get(&assoc_fn_decl_defid) {
                     None => {
                         tstore
                             .assoc_fn_traits
-                            .insert(*assoc_fn_decl_defid, trait_defid);
+                            .insert(assoc_fn_decl_defid, trait_defid);
                     }
                     Some(existing_trait_defid) => {
                         if *existing_trait_defid != trait_defid {
@@ -216,6 +194,48 @@ impl TraitCollectPass {
                             );
                         }
                     }
+                }
+            }
+
+            // Get Struct DefId - only needed for the struct-specific
+            // bookkeeping below; a blanket impl legitimately has none, in
+            // which case we skip just that part, not the trait-level
+            // registration above (already done, and independent of this).
+            let result = std::panic::catch_unwind(|| self.get_struct_defid(&trait_impl));
+            if result.is_err() {
+                continue;
+            }
+            let struct_defid;
+            if let Some(struct_defid_inner) = result.unwrap() {
+                struct_defid = struct_defid_inner;
+            } else {
+                //debug!("got a None struct_defid option (FIXME)");
+                continue;
+            }
+            //debug!("STRUCT: {:?}", struct_defid);
+
+            // Add trait to list of traits that this struct impls
+            match tstore.struct_traits.get_mut(&struct_defid) {
+                Some(trait_vec) => {
+                    //debug!("adding trait to existing vec: {:?}", trait_vec);
+                    trait_vec.push(trait_defid);
+                }
+                None => {
+                    //debug!("init w trait");
+                    tstore.struct_traits.insert(struct_defid, vec![trait_defid]);
+                }
+            }
+
+            // Add struct to list of structs that impl this trait
+            match tstore.trait_structs.get_mut(&trait_defid) {
+                Some(struct_vec) => {
+                    struct_vec.push((struct_defid, trait_impl.value.args().clone()));
+                }
+                None => {
+                    tstore.trait_structs.insert(
+                        trait_defid,
+                        vec![(struct_defid, trait_impl.value.args().clone())],
+                    );
                 }
             }
 
@@ -244,59 +264,24 @@ impl TraitCollectPass {
         }
     }
 
-    /// Proxies the Self defid for this implementation as the first ADT encountered in the genargs
-    /// [This is probably wrong, needs fixing]
+    /// The Self type of this trait impl, via `TraitRef::self_ty()` directly
     fn get_struct_defid(&self, trait_impl: &ImplTrait) -> Option<DefId> {
-        // FIXME is there a better way to get Self type?
-        //debug!("all genargs: {:?}", &trait_impl.value.args().0);
-        let mut struct_defid = None;
-
-        for genarg in &trait_impl.value.args().0 {
-            //for (i, genarg) in trait_impl.value.args().0.clone().into_iter().enumerate() {
-            //    debug!("genarg #{}", i);
-            match genarg {
-                GenericArgKind::Lifetime(_region) => {} //debug!("lifetime: {:?}", region),
-                GenericArgKind::Type(ty) => {
-                    //debug!("type: {:?}", ty);
-                    //debug!("ty.kind: {:?}", ty.kind());
-                    match ty.kind() {
-                        TyKind::RigidTy(rigidty) => match rigidty {
-                            // TODO process _adt_genargs
-                            RigidTy::Adt(adtdef, adt_genargs) => {
-                                //debug!("ADT rigidty");
-                                if !adt_genargs.0.is_empty() {
-                                    //warn!("process adt generic args: {:?}", adt_genargs);
-                                }
-
-                                match struct_defid {
-                                    None => struct_defid = Some(adtdef.0),
-                                    Some(_existing_struct_defid) => {
-                                        //error!(
-                                        //    "already seen adt {:?} in this trait impls genargs",
-                                        //    existing_struct_defid
-                                        //);
-                                    }
-                                }
-                            }
-                            // TODO
-                            _ => {} //warn!("other rigidty kind"),
-                        },
-                        // TODO
-                        _ => {} //warn!("other ty kind"),
-                    }
-                }
-                GenericArgKind::Const(_tyconst) => {} //debug!("const: {:?}", tyconst),
-            }
+        match trait_impl.value.self_ty().kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, _adt_genargs)) => Some(adtdef.0),
+            _ => None,
         }
-
-        if struct_defid.is_none() {
-            //error!("never saw an Adt in this trait impls genargs");
-        }
-
-        struct_defid
     }
 
     /// Returns a vector of (concrete_impl_defid, decl_defid), one for each associated fn
+    /// that can be dynamically dispatched (i.e. takes `self`). Used to build
+    /// `struct_assoc_fns`, the vtable-candidate map - non-`self` fns
+    /// (constructors, conversions, etc.) can never be called through a `dyn
+    /// Trait`, so they're correctly excluded here.
+    ///
+    /// NOTE: this is *not* a complete list of associated fns in the impl -
+    /// see `get_all_assoc_fn_decl_defids` for that, used for `assoc_fn_traits`
+    /// back-pointer registration, which needs every assoc fn regardless of
+    /// dispatchability.
     fn get_assoc_fn_defids(&self, impl_def: &ImplDef) -> Vec<(DefId, DefId)> {
         let mut assoc_fns = Vec::new();
 
@@ -329,5 +314,35 @@ impl TraitCollectPass {
         }
 
         assoc_fns
+    }
+
+    /// Returns the trait-decl DefId for every associated fn in this impl,
+    /// regardless of whether it takes `self`. Used only to populate
+    /// `assoc_fn_traits` back-pointers, which `get_trait_defid` needs to be
+    /// able to resolve *any* assoc fn - including no-`self` constructors and
+    /// conversions like `Default::default`, `FromStr::from_str`,
+    /// `From::from`/`TryFrom::try_from`, `FromIterator::from_iter`, and
+    /// `Step::{steps_between, forward_checked, backward_checked, forward,
+    /// backward}` - none of which can be dynamically dispatched, but all of
+    /// which can still show up as the target of a static/simulated call
+    /// during interpretation.
+    fn get_all_assoc_fn_decl_defids(&self, impl_def: &ImplDef) -> Vec<DefId> {
+        let mut decls = Vec::new();
+
+        for assoc_item in impl_def.associated_items() {
+            // Only Fn assoc items have a meaningful trait-decl DefId to
+            // register here; assoc consts/types aren't looked up via
+            // `assoc_fn_traits` (see `get_trait_defid`'s callers).
+            match assoc_item.kind {
+                AssocKind::Fn { .. } => {}
+                _ => continue,
+            }
+
+            if let AssocContainer::TraitImpl(assoc_def) = assoc_item.container {
+                decls.push(assoc_def.0);
+            }
+        }
+
+        decls
     }
 }

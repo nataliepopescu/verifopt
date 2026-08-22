@@ -243,6 +243,10 @@ pub(crate) enum TimingCat {
     TermResolveArgs,
     TermInterpStaticCall,
     TermInterpStaticCallPost,
+    TermInterpStaticCallPost1,
+    TermInterpStaticCallPost2,
+    TermInterpStaticCallPost3,
+    TermInterpStaticCallPost4,
     TermInterpVirtualCall,
     //TermParamSummary,
     TermMemo,
@@ -294,7 +298,9 @@ pub(crate) enum TimingCat {
     GetConstraintsIsOpaqueInternal,
     GetConstraintsFlattenAll,
     GetConstraintsFilterVariant,
+    GetConstraintsFilterVariantPush,
     GetConstraintsStepField,
+    StepFieldAppend,
     // lift_traitobjtys parts
     LiftTraitobjtysHashVal,
     LiftTraitobjtysUncached,
@@ -2368,11 +2374,21 @@ impl<'a> InterpPass<'a> {
 
             let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
+                let _g1 = self.timing_span(TimingCat::TermInterpStaticCallPost1, cur_scope);
                 let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+                drop(_g1);
+
+                let _g2 = self.timing_span(TimingCat::TermInterpStaticCallPost2, cur_scope);
                 let is_new = !self.exact_memo.borrow().contains_key(&memo_key);
+                drop(_g2);
+
+                let _g3 = self.timing_span(TimingCat::TermInterpStaticCallPost3, cur_scope);
                 self.exact_memo
                     .borrow_mut()
                     .insert(memo_key.clone(), (cs.clone(), epoch_after));
+                drop(_g3);
+
+                let _g4 = self.timing_span(TimingCat::TermInterpStaticCallPost4, cur_scope);
                 if is_new && precise_count < 50 {
                     *self
                         .scope_exact_memo_count
@@ -3265,30 +3281,52 @@ impl<'a> InterpPass<'a> {
     ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
         //debug!("\nRESOLVE ADT HELPER");
 
-        // Diagnostic: are we about to recurse into this same AdtDef's own
-        // genargs again, having already seen it earlier on this same
-        // resolve_adt_helper call chain? That's exactly the
-        // Range<Range<Range<...>>>-style self-nesting we're trying to
-        // confirm. Checked (and the path entry pushed) up front, before
-        // the genargs loop below, so it covers every recursive re-entry
-        // into this function regardless of which branch got us here.
+        // This same AdtDef already appears earlier on this call chain's
+        // genargs recursion (the loop below, "search in genargs for an
+        // implementing type") - confirmed via RESOLVE_ADT_GENARG_PATH to be
+        // exactly how Range<Range<Range<...>>>-style self-nesting actually
+        // grows (a genuinely self-referential type binding, expanded one
+        // layer per call, with nothing previously stopping it - see the
+        // "might pose a termination problem" comment that used to sit on
+        // that loop). Once the same AdtDef reappears, further recursion
+        // only adds another identical layer forever; there's no new
+        // information to gain, and every layer risks being the one that
+        // finally overflows the stack or trips rustc's own normalization
+        // ICE. Stop here instead: report this ADT if it happens to
+        // implement the trait directly, but don't recurse into its genargs
+        // again.
         let this_defid = adtdef.0;
+        let is_cycle = RESOLVE_ADT_GENARG_PATH.with(|path| path.borrow().contains(&this_defid));
+        if is_cycle {
+            let path_names = RESOLVE_ADT_GENARG_PATH
+                .with(|path| path.borrow().iter().map(|d| d.name()).collect::<Vec<_>>());
+            warn!(
+                "RESOLVE_ADT_HELPER: breaking cycle - {:?} reappears on its own genargs-recursion path (path: {:?})",
+                this_defid.name(),
+                path_names,
+            );
+
+            let mut resvec = Vec::new();
+            if let Some(traits) = self.tstore.struct_traits.get(&adtdef.0) {
+                if traits.contains(trait_defid) {
+                    if genargs.0.is_empty() {
+                        unique_push(&mut resvec, (adtdef.0, None));
+                    } else {
+                        unique_push(&mut resvec, (adtdef.0, Some(genargs.clone())));
+                    }
+                }
+            }
+            return (false, resvec);
+        }
+
         RESOLVE_ADT_GENARG_PATH.with(|path| {
-            let path = path.borrow();
-            let depth = path.len() + 1;
-            if path.contains(&this_defid) {
-                warn!(
-                    "RESOLVE_ADT_HELPER: {:?} reappears on its own genargs-recursion path at depth {} (path: {:?})",
-                    this_defid.name(),
-                    depth,
-                    path.iter().map(|d| d.name()).collect::<Vec<_>>(),
-                );
-            } else if depth >= RESOLVE_ADT_GENARG_DEPTH_WARN {
+            let depth = path.borrow().len() + 1;
+            if depth >= RESOLVE_ADT_GENARG_DEPTH_WARN {
                 warn!(
                     "RESOLVE_ADT_HELPER: genargs-recursion depth {} reached at {:?} (path: {:?})",
                     depth,
                     this_defid.name(),
-                    path.iter().map(|d| d.name()).collect::<Vec<_>>(),
+                    path.borrow().iter().map(|d| d.name()).collect::<Vec<_>>(),
                 );
             }
         });

@@ -252,7 +252,7 @@ impl Constraints {
         }
     }
 
-    pub fn filter_variant(&self, vidx: VariantIdx) -> Constraints {
+    pub fn filter_variant(&self, vidx: VariantIdx, timing: Option<&InterpPass>) -> Constraints {
         let mut out = Constraints::new();
         for c in self.inner.iter() {
             match &c.cfc {
@@ -269,10 +269,12 @@ impl Constraints {
                 Some(RunningConstraint::Param(i, path)) => {
                     let mut new_path = path.clone();
                     new_path.push(ProjStep::Downcast(vidx));
-                    out.push(Constraint::new(
+                    let c = Constraint::new(
                         None,
                         Some(RunningConstraint::Param(*i, new_path)),
-                    ));
+                    );
+                    let _g = timing.map(|p| { p.timing_span(TimingCat::GetConstraintsFilterVariantPush, scope) });
+                    out.push(c);
                 }
                 _ => {}
             }
@@ -1035,7 +1037,9 @@ impl Context {
     ) -> Constraints {
         let mut out = Constraints::new();
         for constraint in constraints.inner.iter() {
-            out.append(self.step_field_one(scope, constraint, elem, timing));
+            let res = self.step_field_one(scope, constraint, elem, timing);
+            let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldAppend, scope));
+            out.append(res);
         }
         out
     }
@@ -1240,7 +1244,7 @@ impl Context {
                                     let _g = timing.map(|p| {
                                         p.timing_span(TimingCat::GetConstraintsFilterVariant, scope)
                                     });
-                                    cur = cur.filter_variant(*vidx);
+                                    cur = cur.filter_variant(*vidx, timing);
                                 }
                                 ProjectionElem::Field(..) => {
                                     let _g = timing.map(|p| {

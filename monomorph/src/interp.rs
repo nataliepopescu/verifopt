@@ -284,7 +284,8 @@ pub(crate) enum TimingCat {
     GetConstraintsIsOpaqueInternal,
     GetConstraintsFlattenAll,
     GetConstraintsFilterVariant,
-    GetConstraintsFilterVariantPush,
+    GetConstraintsFilterVariantPush1,
+    GetConstraintsFilterVariantPush2,
     GetConstraintsStepField,
     StepFieldAppend,
     // lift_traitobjtys parts

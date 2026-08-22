@@ -21,9 +21,10 @@ use crate::interp::{InterpPass, TimingCat};
 use crate::sig_collect::SigVal;
 
 use indexmap::IndexSet;
-use log::debug;
+use log::{debug, warn};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::rc::Weak;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -112,6 +113,63 @@ pub fn is_opaque_internal(ty: &Ty) -> bool {
 
 thread_local! {
     static CONVERT_CAST_HELPER_CACHE: RefCell<std::collections::HashMap<(usize, (u64, u64)), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(std::collections::HashMap::new());
+}
+
+thread_local! {
+    // Diagnostic only, for the "does the pathologically-deep
+    // Range<Range<Range<...>>>-shaped type already arrive this deep the
+    // very first time verifopt's code sees it?" hypothesis. Ruled out so
+    // far: neither live call-stack recursion (`recursive_hit` in
+    // `simulate_static_calls`, confirmed via logs to never fire) nor
+    // `merge_constraints`'s disjunct-set union (also checked, clean) ever
+    // construct such a value - `convert_ty`'s `RigidTy::Adt` arm is the
+    // earliest point a raw rustc `Ty` becomes a `Constraint`, and it's a
+    // pure pass-through of whatever `genargs` it's handed, so if the type
+    // is already self-nested by the time it gets here, that's it - nothing
+    // upstream of this in verifopt's own code, meaning it either arrives
+    // this way from the real MIR/type system, or from somewhere not yet
+    // considered.
+    //
+    // Deduplicated to at most one `warn!` per distinct `AdtDef` ever
+    // observed exceeding the threshold, specifically to avoid the kind of
+    // hot-path log flooding a per-call warn caused on ripgrep - this bounds
+    // output to (# of distinct ADTs that ever show up this deep), not
+    // (# of times convert_ty is called on one).
+    static CONVERT_TY_DEEP_ADT_SEEN: RefCell<HashSet<DefId>> = RefCell::new(HashSet::new());
+}
+
+/// Purely observational depth threshold - same value used previously for
+/// the (now-removed) `resolve_adt_helper`/`merge_constraints` checks, kept
+/// consistent so results are comparable.
+const CONVERT_TY_DEEP_ADT_WARN: usize = 15;
+
+/// Walks a raw rustc `Ty` looking for the same `AdtDef` nested inside its
+/// own generic args, returning the depth and DefId of the first such
+/// self-nesting found (if within `CONVERT_TY_DEEP_ADT_WARN` levels).
+/// Observation only - does not affect control flow.
+fn adt_self_nesting_probe(ty: &Ty) -> Option<(DefId, usize)> {
+    fn walk(ty: &Ty, path: &mut Vec<DefId>) -> Option<(DefId, usize)> {
+        if path.len() >= CONVERT_TY_DEEP_ADT_WARN {
+            return None;
+        }
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => {
+                if path.contains(&adtdef.0) {
+                    return Some((adtdef.0, path.len() + 1));
+                }
+                path.push(adtdef.0);
+                let hit = genargs.0.iter().find_map(|genarg| match genarg {
+                    GenericArgKind::Type(inner_ty) => walk(inner_ty, path),
+                    _ => None,
+                });
+                path.pop();
+                hit
+            }
+            _ => None,
+        }
+    }
+    let mut path = Vec::new();
+    walk(ty, &mut path)
 }
 
 impl<'a> RvalConverter<'a> {
@@ -920,6 +978,21 @@ impl<'a> RvalConverter<'a> {
                 ),
                 RigidTy::Float(_) => (None, Constraint::new(None, Some(RunningConstraint::Float))),
                 RigidTy::Adt(def, genargs) => {
+                    if let Some((defid, depth)) = adt_self_nesting_probe(ty) {
+                        let already_seen =
+                            CONVERT_TY_DEEP_ADT_SEEN.with(|seen| !seen.borrow_mut().insert(defid));
+                        if !already_seen {
+                            let label = cur_scope
+                                .map(|s| s.0.name())
+                                .unwrap_or_else(|| "<no scope>".to_string());
+                            warn!(
+                                "CONVERT_TY: {:?} already self-nested at depth {} the first time convert_ty saw it (scope: {})",
+                                defid.name(),
+                                depth,
+                                label,
+                            );
+                        }
+                    }
                     let mut traitobjtys = Vec::new();
                     for genarg in &genargs.0 {
                         match genarg {

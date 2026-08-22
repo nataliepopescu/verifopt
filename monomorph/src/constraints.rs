@@ -258,7 +258,9 @@ impl Constraints {
             match &c.cfc {
                 Some(RunningConstraint::Adt(_, _, variant, _)) => {
                     if variant.is_none() || *variant == Some(vidx) {
-                        out.push(c.clone());
+                        let cc = c.clone();
+                        let _g = timing.map(|p| { p.timing_span(TimingCat::GetConstraintsFilterVariantPush1, scope) });
+                        out.push(cc);
                     }
                 }
                 // Unknown-yet placeholder from a parametric summary: we
@@ -273,7 +275,7 @@ impl Constraints {
                         None,
                         Some(RunningConstraint::Param(*i, new_path)),
                     );
-                    let _g = timing.map(|p| { p.timing_span(TimingCat::GetConstraintsFilterVariantPush, scope) });
+                    let _g = timing.map(|p| { p.timing_span(TimingCat::GetConstraintsFilterVariantPush2, scope) });
                     out.push(c);
                 }
                 _ => {}

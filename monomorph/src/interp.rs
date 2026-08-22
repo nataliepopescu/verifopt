@@ -229,6 +229,10 @@ pub(crate) enum TimingCat {
     TermResolveArgs,
     TermInterpStaticCall,
     TermInterpStaticCallPost,
+    TermInterpStaticCallPost1,
+    TermInterpStaticCallPost2,
+    TermInterpStaticCallPost3,
+    TermInterpStaticCallPost4,
     TermInterpVirtualCall,
     //TermParamSummary,
     TermMemo,
@@ -280,7 +284,9 @@ pub(crate) enum TimingCat {
     GetConstraintsIsOpaqueInternal,
     GetConstraintsFlattenAll,
     GetConstraintsFilterVariant,
+    GetConstraintsFilterVariantPush,
     GetConstraintsStepField,
+    StepFieldAppend,
     // lift_traitobjtys parts
     LiftTraitobjtysHashVal,
     LiftTraitobjtysUncached,
@@ -2354,11 +2360,21 @@ impl<'a> InterpPass<'a> {
 
             let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
+                let _g1 = self.timing_span(TimingCat::TermInterpStaticCallPost1, cur_scope);
                 let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+                drop(_g1);
+
+                let _g2 = self.timing_span(TimingCat::TermInterpStaticCallPost2, cur_scope);
                 let is_new = !self.exact_memo.borrow().contains_key(&memo_key);
+                drop(_g2);
+
+                let _g3 = self.timing_span(TimingCat::TermInterpStaticCallPost3, cur_scope);
                 self.exact_memo
                     .borrow_mut()
                     .insert(memo_key.clone(), (cs.clone(), epoch_after));
+                drop(_g3);
+
+                let _g4 = self.timing_span(TimingCat::TermInterpStaticCallPost4, cur_scope);
                 if is_new && precise_count < 50 {
                     *self
                         .scope_exact_memo_count

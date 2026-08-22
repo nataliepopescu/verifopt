@@ -3533,7 +3533,26 @@ impl<'a> InterpPass<'a> {
                     // if we're not actually stepping into new code + updating our cmap,
                     // we could be omitting actually-used concrete type variants in our
                     // eventual rewrite FIXME
-                    let recursive_hit = call_stack.contains(&callee_scope);
+                    // Exact-match (`call_stack.contains`) alone misses a real
+                    // case: if `genargs`' Self type keeps nesting one more
+                    // layer deeper each recursive call (confirmed via
+                    // RESOLVE_ADT_GENARG_PATH - e.g. Range<Range<Range<...>>>
+                    // built up by repeated recursive interpretation of the
+                    // same generic method with an unresolved type param),
+                    // `callee_scope` is technically "new" every single call,
+                    // so this check never trips and the recursion never
+                    // terminates. Also treat it as a recursive hit if the
+                    // same instance (regardless of genargs) is already
+                    // anywhere on the stack - coarser, but matches the
+                    // existing fallback-to-approximate-return-type tradeoff
+                    // already made here (see FIXME above): less precise for
+                    // legitimately-varying bounded generic recursion, but
+                    // guarantees termination for the unbounded case, which a
+                    // crash makes moot anyway.
+                    let recursive_hit = call_stack.contains(&callee_scope)
+                        || call_stack
+                            .iter()
+                            .any(|(stacked_instance, _)| stacked_instance.def == instance.def);
                     if recursive_hit {
                         let _timing_guard =
                             self.timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);

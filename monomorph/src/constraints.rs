@@ -252,14 +252,21 @@ impl Constraints {
         }
     }
 
-    pub fn filter_variant(&self, vidx: VariantIdx, timing: Option<&InterpPass>) -> Constraints {
+    pub fn filter_variant(
+        &self,
+        vidx: VariantIdx,
+        scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
         let mut out = Constraints::new();
         for c in self.inner.iter() {
             match &c.cfc {
                 Some(RunningConstraint::Adt(_, _, variant, _)) => {
                     if variant.is_none() || *variant == Some(vidx) {
                         let cc = c.clone();
-                        let _g = timing.map(|p| { p.timing_span(TimingCat::GetConstraintsFilterVariantPush1, scope) });
+                        let _g = scope.zip(timing).map(|(s, p)| {
+                            p.timing_span(TimingCat::GetConstraintsFilterVariantPush1, s)
+                        });
                         out.push(cc);
                     }
                 }
@@ -275,7 +282,9 @@ impl Constraints {
                         None,
                         Some(RunningConstraint::Param(*i, new_path)),
                     );
-                    let _g = timing.map(|p| { p.timing_span(TimingCat::GetConstraintsFilterVariantPush2, scope) });
+                    let _g = scope.zip(timing).map(|(s, p)| {
+                        p.timing_span(TimingCat::GetConstraintsFilterVariantPush2, s)
+                    });
                     out.push(c);
                 }
                 _ => {}
@@ -453,7 +462,7 @@ fn apply_proj_path(base: &Constraints, path: &[ProjStep]) -> Constraints {
     for step in path {
         cur = match step {
             ProjStep::Field(idx) => apply_field_idx(&cur, *idx),
-            ProjStep::Downcast(vidx) => cur.filter_variant(*vidx),
+            ProjStep::Downcast(vidx) => cur.filter_variant(*vidx, None, None),
         };
     }
     cur
@@ -1178,7 +1187,7 @@ impl Context {
                                     let _g = timing.map(|p| {
                                         p.timing_span(TimingCat::GetConstraintsFilterVariant, scope)
                                     });
-                                    cur = cur.filter_variant(*vidx, timing);
+                                    cur = cur.filter_variant(*vidx, Some(scope), timing);
                                 }
                                 ProjectionElem::Field(..) => {
                                     let _g = timing.map(|p| {

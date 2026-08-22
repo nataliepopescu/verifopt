@@ -117,10 +117,6 @@ thread_local! {
     static RESOLVE_ADT_GENARG_PATH: RefCell<Vec<DefId>> = RefCell::new(Vec::new());
 }
 
-/// See `RESOLVE_ADT_GENARG_PATH`. Diagnostic-only; safe to remove once the
-/// genargs-recursion-as-termination-problem hypothesis is confirmed/refuted.
-const RESOLVE_ADT_GENARG_DEPTH_WARN: usize = 15;
-
 #[derive(Clone, PartialEq)]
 pub enum TagPlan {
     Poisoned,
@@ -3320,17 +3316,6 @@ impl<'a> InterpPass<'a> {
             return (false, resvec);
         }
 
-        RESOLVE_ADT_GENARG_PATH.with(|path| {
-            let depth = path.borrow().len() + 1;
-            if depth >= RESOLVE_ADT_GENARG_DEPTH_WARN {
-                warn!(
-                    "RESOLVE_ADT_HELPER: genargs-recursion depth {} reached at {:?} (path: {:?})",
-                    depth,
-                    this_defid.name(),
-                    path.borrow().iter().map(|d| d.name()).collect::<Vec<_>>(),
-                );
-            }
-        });
         RESOLVE_ADT_GENARG_PATH.with(|path| path.borrow_mut().push(this_defid));
 
         let mut resvec = Vec::new();

@@ -284,6 +284,7 @@ pub(crate) enum TimingCat {
     ConvertAggAdtFields,
     ConvertAggFieldsInsert,
     ConvertAggConstructRes,
+    ConvertAggConstraintsFrom,
     ConvertAggTuple,
     ConvertAggRawPtr,
     ConvertAggArray,

@@ -806,7 +806,7 @@ impl<'a> RvalConverter<'a> {
                 }
 
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggConstructRes, cur_scope));
-                Constraints::from(Constraint::new(
+                let new_c = Constraint::new(
                     None,
                     Some(RunningConstraint::Adt(
                         *def,
@@ -814,7 +814,11 @@ impl<'a> RvalConverter<'a> {
                         Some(*variant_idx),
                         fields,
                     )),
-                ))
+                );
+                drop(_g);
+
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggConstraintsFrom, cur_scope));
+                Constraints::from(new_c)
             }
             AggregateKind::Tuple => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggTuple, cur_scope));

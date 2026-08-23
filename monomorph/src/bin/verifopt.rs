@@ -114,16 +114,28 @@ fn main() {
         //let compiler = rustc_driver::RunCompiler::new(&rustc_command_line_arguments, &mut callbacks);
         //compiler.run()
         let mut callbacks = FsaCallbacks { options };
-        rustc_driver::catch_fatal_errors(|| {
+        match rustc_driver::catch_fatal_errors(|| {
             rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
-        })
-        .unwrap();
+        }) {
+            Ok(()) => {}
+            Err(_) => {
+                debug!(
+                    "FsaCallbacks phase returned FatalError - continuing anyway to reach the rewrite/codegen stage"
+                );
+            }
+        }
 
         let mut callbacks = RewriteCallbacks;
-        rustc_driver::catch_fatal_errors(|| {
+        match rustc_driver::catch_fatal_errors(|| {
             rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
-        })
-        .unwrap();
+        }) {
+            Ok(()) => {}
+            Err(_) => {
+                debug!(
+                    "RewriteCallbacks phase returned FatalError - continuing anyway to reach the codegen stage"
+                );
+            }
+        }
     });
 
     let exit_code = match result {

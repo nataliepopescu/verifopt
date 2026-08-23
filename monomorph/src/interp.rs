@@ -222,6 +222,15 @@ pub(crate) enum TimingCat {
     TermReturnFinishFrame,
     TermFinishFrameReinterp,
     TermFinishFrameRevisit,
+    TermFinishFrameGetKey,
+    TermFinishFrameDequeue,
+    TermFinishFrameEarlyRet,
+    TermFinishFramePrepareQueue,
+    TermFinishFramePreserveVoidConflicts,
+    TermFinishFrameInsertScope,
+    TermFinishFrameCheckDepth,
+    TermFinishFrameFirstPrepareReturn,
+    TermFinishFrameSecondPrepareReturn,
     StmtNewConstraintsRef,
     StmtNewConstraintsStatic,
     StmtNewConstraintsFromConvert,
@@ -273,6 +282,8 @@ pub(crate) enum TimingCat {
     ConvertAggAdtOpaque,
     ConvertAggAdtOpaqueAppend,
     ConvertAggAdtFields,
+    ConvertAggFieldsInsert,
+    ConvertAggConstructRes,
     ConvertAggTuple,
     ConvertAggRawPtr,
     ConvertAggArray,
@@ -4226,26 +4237,37 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         retval: Option<Constraints>,
     ) -> Result<Option<Constraints>, Error> {
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameGetKey, cur_scope);
         let key = self.key_stack.borrow().last().cloned().unwrap();
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameFirstPrepareReturn, cur_scope);
         let old_scope = self.prepare_return(call_stack);
         if old_scope.clone().unwrap() != *cur_scope {
             log_call_stack(call_stack);
             panic!("call stack out of sorts");
         }
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameDequeue, cur_scope);
         let queued = self.wq.borrow_mut().remove(&key).unwrap_or_default();
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameEarlyRet, cur_scope);
         if self.in_queue.borrow().contains(&key) || queued.is_empty() {
             // use summary version OR
             // no recursive calls, no recursed interp needed
             return Ok(retval);
         }
+        drop(_timing_guard);
 
         // about to be queueing, set to prevent infinite recursion
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFramePrepareQueue, cur_scope);
         self.in_queue.borrow_mut().insert(key.clone());
+        drop(_timing_guard);
 
         // janky method to preserve stores conflicting on voids but not keys
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFramePreserveVoidConflicts, cur_scope);
         let saved: Vec<(VOID, Option<Box<MapValue>>)> = queued
             .iter()
             .map(|(scope, _, _)| {
@@ -4258,6 +4280,7 @@ impl<'a> InterpPass<'a> {
                 )
             })
             .collect();
+        drop(_timing_guard);
 
         *self.rec_depth.borrow_mut() += 1;
         let _timing_guard = self.timing_span(TimingCat::TermFinishFrameReinterp, cur_scope);
@@ -4291,6 +4314,7 @@ impl<'a> InterpPass<'a> {
         }
         drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameInsertScope, cur_scope);
         for (scope, old) in saved {
             match old {
                 Some(v) => {
@@ -4301,12 +4325,15 @@ impl<'a> InterpPass<'a> {
                 }
             }
         }
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameCheckDepth, cur_scope);
         if *self.rec_depth.borrow() > MAX_DEPTH {
             *self.rec_depth.borrow_mut() -= 1;
             self.incomplete.borrow_mut().insert(cur_scope.clone());
             return Ok(retval);
         }
+        drop(_timing_guard);
 
         // final traverse after recursive wq drained
         let _timing_guard = self.timing_span(TimingCat::TermFinishFrameRevisit, cur_scope);
@@ -4336,7 +4363,9 @@ impl<'a> InterpPass<'a> {
         match result {
             Ok(r) => Ok(r),
             Err(e) => {
+                let _timing_guard = self.timing_span(TimingCat::TermFinishFrameSecondPrepareReturn, cur_scope);
                 self.prepare_return(call_stack);
+                drop(_timing_guard);
                 Err(e)
             }
         }

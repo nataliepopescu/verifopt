@@ -801,9 +801,11 @@ impl<'a> RvalConverter<'a> {
                         let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
                     };
+                    let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggFieldsInsert, cur_scope));
                     fields.insert(i, op_constraints);
                 }
 
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggConstructRes, cur_scope));
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::Adt(

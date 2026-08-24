@@ -26,7 +26,8 @@ use rustc_middle::ty::{
 use rustc_public::{DefId, rustc_internal};
 use rustc_span::Span;
 
-use std::io::{self, Write};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -38,7 +39,7 @@ use crate::util::options::AnalysisOptions;
 
 #[derive(Default)]
 pub struct Store {
-    pub targets: HashMap<(DefPathHash, usize), Vec<DefPathHash>>,
+    pub targets: HashMap<(DefPathHash, usize), Vec<(DefPathHash, Option<DefPathHash>)>>,
     pub tags: HashMap<
         (DefPathHash, usize),
         Vec<(
@@ -75,13 +76,46 @@ impl Callbacks for FsaCallbacks {
                 .ok()
             };
 
+            // FSA already resolved the concrete Self type for each
+            // candidate (e.g. `Fast` for an inherited `Worker::run` call
+            // dispatched to `Fast`) - but `Ty`/`GenericArgs`/`Instance`
+            // are all tied to *this* compiler session's arena and can't
+            // be carried into the rewrite phase's separate session. A
+            // `DefPathHash` can (that's its whole purpose), so extract
+            // just the concrete Self type's own DefId and hash *that*,
+            // for the common case where Self is a plain concrete ADT.
+            // Anything else (no genargs, or a shape we don't recognize)
+            // becomes `None` - the rewrite phase falls back to its
+            // previous (call-site-genargs-based) behavior for that case,
+            // which is correct for a real per-impl override but wrong
+            // for an inherited default method with no call-site genargs
+            // to speak of - see `fn_op`.
+            let to_self_hash = |genargs: &Option<rustc_public::ty::GenericArgs>| -> Option<DefPathHash> {
+                let genargs = genargs.as_ref()?;
+                let first = genargs.0.first()?;
+                let rustc_public::ty::GenericArgKind::Type(ty) = first else {
+                    return None;
+                };
+                let rustc_public::ty::TyKind::RigidTy(rustc_public::ty::RigidTy::Adt(adtdef, _)) =
+                    ty.kind()
+                else {
+                    return None;
+                };
+                to_hash(adtdef.0)
+            };
+
             for ((defid, bb), (_, ts)) in targets {
                 let Some(hash) = to_hash(defid) else {
                     continue;
                 };
 
-                let t_hashes: Vec<DefPathHash> =
-                    ts.iter().filter_map(|(did, _)| to_hash(*did)).collect();
+                let t_hashes: Vec<(DefPathHash, Option<DefPathHash>)> = ts
+                    .iter()
+                    .filter_map(|(did, genargs)| {
+                        let method_hash = to_hash(*did)?;
+                        Some((method_hash, to_self_hash(genargs)))
+                    })
+                    .collect();
 
                 store.targets.insert((hash, bb), t_hashes);
             }
@@ -134,20 +168,34 @@ impl Callbacks for RewriteCallbacks {
     }
 }
 
+static MIR_DUMP_FILE: OnceLock<Mutex<File>> = OnceLock::new();
+
+fn mir_dump_file() -> &'static Mutex<File> {
+    MIR_DUMP_FILE.get_or_init(|| {
+        let file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("mir_dump.txt")
+            .expect("failed to open mir_dump.txt for writing");
+        Mutex::new(file)
+    })
+}
+
 fn dump_body<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, label: &str) {
     let mut buf = Vec::new();
 
     let writer = MirWriter::new(tcx);
     let _ = writer.write_mir_fn(body, &mut buf);
 
-    eprintln!("\n######### MIR {label} #########");
-    io::stderr().write_all(&buf).unwrap();
-    eprintln!("######### END {label} #########\n");
+    let mut file = mir_dump_file().lock().unwrap();
+    let _ = writeln!(file, "\n######### MIR {label} #########");
+    let _ = file.write_all(&buf);
+    let _ = writeln!(file, "######### END {label} #########\n");
 }
 
 enum Edit {
-    Single(DefPathHash),
-    Pointers(Vec<DefPathHash>),
+    Single(DefPathHash, Option<DefPathHash>),
+    Pointers(Vec<(DefPathHash, Option<DefPathHash>)>),
     Tagged(Vec<(usize, usize, u64, DefPathHash)>),
 }
 
@@ -169,7 +217,7 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 
             if targets.len() == 1 {
                 // directly swap terminator
-                Some((bb.as_usize(), Edit::Single(targets[0])))
+                Some((bb.as_usize(), Edit::Single(targets[0].0, targets[0].1)))
             } else if let Some(tags) = tags {
                 // tag dyn casts and switchint
                 Some((bb.as_usize(), Edit::Tagged(tags.to_vec())))
@@ -232,8 +280,8 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
         };
 
         match edit {
-            Edit::Single(hash) => {
-                let (fnc, self_ty) = match fn_op(tcx, hash, gen_args, span) {
+            Edit::Single(hash, self_hash) => {
+                let (fnc, self_ty) = match fn_op(tcx, hash, self_hash, gen_args, span) {
                     Ok(v) => v,
                     Err(_) => continue,
                 };
@@ -386,8 +434,11 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let mut fallback = None;
                 let n = hashes.len();
 
-                for (i, &hash) in hashes.iter().enumerate() {
-                    let (fnc, self_ty) = fn_op(tcx, hash, gen_args, span).unwrap();
+                for (i, &(hash, self_hash)) in hashes.iter().enumerate() {
+                    let (fnc, self_ty) = match fn_op(tcx, hash, self_hash, gen_args, span) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
 
                     let (recv, new_stmts) = narrow_dyn(
                         tcx,
@@ -520,7 +571,19 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let mut arms = Vec::new();
 
                 for (_, _, tag, impl_hash) in &sites {
-                    let (fnc, self_ty) = fn_op(tcx, *impl_hash, gen_args, span).unwrap();
+                    // TagPlan (interp.rs) doesn't carry a resolved Self
+                    // hash the way `targets` does, so this path still has
+                    // the same call-site-genargs limitation `fn_op`'s
+                    // `self_hash` parameter was added to fix for the
+                    // other two edit kinds - passing `None` here
+                    // preserves current (unfixed) behavior for tagged
+                    // dyn-cast sites specifically. Fixing this properly
+                    // needs `TagPlan` itself extended to carry the
+                    // resolved Self type, same as `targets` now does.
+                    let (fnc, self_ty) = match fn_op(tcx, *impl_hash, None, gen_args, span) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
                     let (recv, stmts) = narrow_dyn(
                         tcx,
                         &mut body,
@@ -573,12 +636,35 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 fn fn_op<'tcx>(
     tcx: TyCtxt<'tcx>,
     hash: DefPathHash,
+    self_hash: Option<DefPathHash>,
     gen_args: &'tcx List<GenericArg<'tcx>>,
     span: Span,
 ) -> Result<(Operand<'tcx>, Ty<'tcx>), ()> {
     let target_did = tcx.def_path_hash_to_def_id(hash).unwrap();
 
-    let args = tcx.mk_args_from_iter(gen_args.iter().skip(1));
+    let args = match self_hash {
+        Some(sh) => {
+            // FSA already resolved the concrete Self type for this
+            // candidate (e.g. an inherited default trait method
+            // dispatched to a concrete impl) - a true virtual call site's
+            // own `gen_args` carries no monomorphization info at all, so
+            // `gen_args.iter().skip(1)` below is empty here, and handing
+            // an empty args list to a target that needs Self is exactly
+            // what panics deep inside rustc's own generic-args
+            // instantiation code ("index out of bounds: the len is 0 but
+            // the index is 0"). Reconstruct Self from its own
+            // DefPathHash instead - unlike a GenericArgs or Instance,
+            // that's safe to carry across the two separate compiler
+            // sessions FSA and rewrite each run in.
+            let self_did = tcx.def_path_hash_to_def_id(sh).ok_or(())?;
+            let self_ty = tcx.type_of(self_did).instantiate_identity();
+            tcx.mk_args(&[self_ty.into()])
+        }
+        // No resolved Self available (e.g. a real per-impl override,
+        // where the target's own DefId needs no further substitution) -
+        // fall back to the previous behavior unchanged.
+        None => tcx.mk_args_from_iter(gen_args.iter().skip(1)),
+    };
 
     let instance =
         match Instance::try_resolve(tcx, TypingEnv::fully_monomorphized(), target_did, args) {

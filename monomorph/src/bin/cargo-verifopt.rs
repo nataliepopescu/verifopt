@@ -303,9 +303,19 @@ fn call_verifopt() {
 }
 
 fn call_rustc() {
-    // todo: invoke the rust compiler for the appropriate tool chain?
-    let mut cmd =
-        Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc")));
+    // Under the RUSTC_WRAPPER protocol, cargo invokes us as
+    // `cargo-verifopt <real-rustc-path> <rustc-args...>` — argv[1] is
+    // already the exact rustc binary paired with whichever cargo drove
+    // this build (see `pinned_cargo_path`). Re-resolving via `$RUSTC`/
+    // `$PATH` here risked picking up a *different*, ambient rustc (e.g.
+    // one from an unrelated project's toolchain override still first on
+    // PATH), which would then be handed flags shaped for the pinned
+    // toolchain instead — exactly the kind of mismatch this wrapper
+    // exists to avoid.
+    let rustc_path = std::env::args()
+        .nth(1)
+        .expect("expected real rustc path as argv[1] per RUSTC_WRAPPER protocol");
+    let mut cmd = Command::new(rustc_path);
     cmd.args(std::env::args().skip(2));
     let exit_status = cmd
         .spawn()

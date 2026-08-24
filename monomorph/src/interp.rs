@@ -3779,7 +3779,24 @@ impl<'a> InterpPass<'a> {
             // overwhelmingly common, harmless case) - see `visit_body`
             // for where this gets checked against the specific pattern
             // that could plausibly cause silent under-processing.
-            for conflicting_scope in Self::find_conflicting_keys(&m_wtos, &wtos) {
+            //
+            // Mirrors `REFS MERGE CONFLICT` below exactly - MERGE_OVERLAP_STATS
+            // above only reports *shared* keys, which per that same overlap
+            // investigation are overwhelmingly harmless (identical values on
+            // both sides); this reports specifically the subset where the
+            // values actually disagree, which is what `union()` silently
+            // discards one side of.
+            let wtos_conflicts = Self::find_conflicting_keys(&m_wtos, &wtos);
+            if !wtos_conflicts.is_empty() {
+                debug!(
+                    "WTOS MERGE CONFLICT: bb_visit={} {} scope(s) had disagreeing BBDeps, \
+                     one side's traversal state will be silently discarded by union(): {:?}",
+                    *self.bb_visit_count.borrow(),
+                    wtos_conflicts.len(),
+                    wtos_conflicts
+                );
+            }
+            for conflicting_scope in wtos_conflicts {
                 self.wtos_merge_conflicts
                     .borrow_mut()
                     .insert(conflicting_scope);

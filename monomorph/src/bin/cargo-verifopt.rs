@@ -120,10 +120,50 @@ fn call_cargo_on_each_package_target(package: &Package) {
     }
 }
 
+/// Resolves the `cargo` binary belonging to the exact toolchain that this
+/// build of `verifopt` was compiled against, via `rustup which`.
+///
+/// `verifopt` links `rustc_driver` directly (`#![feature(rustc_private)]`),
+/// which has no stable ABI across nightlies. Trusting an ambient `$CARGO`
+/// or `$PATH` (e.g. a project-local fenix/rustup toolchain override) risks
+/// driving the build with a *different* cargo/rustc than the one `verifopt`
+/// was built against, producing flag mismatches (e.g. a flag that is stable
+/// in the ambient toolchain but still unstable in verifopt's pinned one).
+/// Always resolving our own pinned toolchain's cargo here keeps the whole
+/// build self-consistent regardless of what toolchain the caller's shell
+/// or project has active.
+fn pinned_cargo_path() -> OsString {
+    let toolchain = option_env!("RUSTUP_TOOLCHAIN").expect(
+        "verifopt must be built under rustup with a pinned toolchain \
+         (RUSTUP_TOOLCHAIN was not set at compile time)",
+    );
+
+    let output = Command::new("rustup")
+        .args(["which", "--toolchain", toolchain, "cargo"])
+        .output()
+        .expect("could not invoke `rustup which` to resolve pinned toolchain's cargo");
+
+    if !output.status.success() {
+        panic!(
+            "`rustup which --toolchain {toolchain} cargo` failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let path = String::from_utf8(output.stdout)
+        .expect("`rustup which` produced non-UTF-8 output")
+        .trim()
+        .to_owned();
+
+    OsString::from(path)
+}
+
 fn call_cargo_on_target(target: &String, kind: &TargetKind) {
-    // Build a cargo command for target
-    let mut cmd =
-        Command::new(std::env::var_os("CARGO").unwrap_or_else(|| OsString::from("cargo")));
+    // Build a cargo command for target. Always use the cargo binary paired
+    // with the toolchain verifopt itself was built against (see
+    // `pinned_cargo_path`), rather than an ambient `$CARGO`/`$PATH` cargo
+    // that may belong to a different, incompatible nightly.
+    let mut cmd = Command::new(pinned_cargo_path());
     match kind {
         TargetKind::Bin => {
             cmd.arg("build");
@@ -198,7 +238,11 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     // the RUSTC_WRAPPER setting.
     cmd.env("VERIFOPT_TARGET_KIND", kind.to_string());
 
-    // Set the tool chain to be compatible with verifopt
+    // Belt-and-suspenders: `pinned_cargo_path()` above already invokes the
+    // exact toolchain binary directly (not a rustup shim), so this env var
+    // shouldn't be load-bearing anymore. Kept in case any child process in
+    // the build graph re-resolves `cargo`/`rustc` via a rustup proxy rather
+    // than inheriting the binary we already selected.
     if let Some(toolchain) = option_env!("RUSTUP_TOOLCHAIN") {
         cmd.env("RUSTUP_TOOLCHAIN", toolchain);
     }

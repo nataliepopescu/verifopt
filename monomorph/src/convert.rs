@@ -801,11 +801,13 @@ impl<'a> RvalConverter<'a> {
                         let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                         self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
                     };
-                    let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggFieldsInsert, cur_scope));
+                    let _g =
+                        timing.map(|p| p.timing_span(TimingCat::ConvertAggFieldsInsert, cur_scope));
                     fields.insert(i, op_constraints);
                 }
 
-                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggConstructRes, cur_scope));
+                let _g =
+                    timing.map(|p| p.timing_span(TimingCat::ConvertAggConstructRes, cur_scope));
                 let new_c = Constraint::new(
                     None,
                     Some(RunningConstraint::Adt(
@@ -817,7 +819,8 @@ impl<'a> RvalConverter<'a> {
                 );
                 drop(_g);
 
-                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggConstraintsFrom, cur_scope));
+                let _g =
+                    timing.map(|p| p.timing_span(TimingCat::ConvertAggConstraintsFrom, cur_scope));
                 Constraints::from(new_c)
             }
             AggregateKind::Tuple => {

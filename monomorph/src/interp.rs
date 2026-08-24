@@ -112,10 +112,10 @@ pub enum TagPlan {
     Poisoned,
     Tagged(
         Vec<(
-            usize,                /* bb */
-            usize,                /* stmt */
-            DefId,                /* impl */
-            Option<GenericArgs>,  /* concrete Self, when resolvable */
+            usize,               /* bb */
+            usize,               /* stmt */
+            DefId,               /* impl */
+            Option<GenericArgs>, /* concrete Self, when resolvable */
         )>,
     ),
 }
@@ -1099,7 +1099,8 @@ impl<'a> InterpPass<'a> {
                         cfc,
                         prov,
                     } => {
-                        let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush1, cur_scope);
+                        let _g =
+                            self.timing_span(TimingCat::LiftTraitobjtysUncachedPush1, cur_scope);
                         constraints.push(Constraint::new(toc, cfc).with_prov(prov));
                     }
                     Constraint {
@@ -1110,7 +1111,8 @@ impl<'a> InterpPass<'a> {
                         if *existing_toc != toc.unwrap() {
                             todo!("update existing TOC");
                         } else {
-                            let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush2, cur_scope);
+                            let _g = self
+                                .timing_span(TimingCat::LiftTraitobjtysUncachedPush2, cur_scope);
                             constraints.push(constraint);
                         }
                     }
@@ -4267,7 +4269,8 @@ impl<'a> InterpPass<'a> {
         let key = self.key_stack.borrow().last().cloned().unwrap();
         drop(_timing_guard);
 
-        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameFirstPrepareReturn, cur_scope);
+        let _timing_guard =
+            self.timing_span(TimingCat::TermFinishFrameFirstPrepareReturn, cur_scope);
         let old_scope = self.prepare_return(call_stack);
         if old_scope.clone().unwrap() != *cur_scope {
             log_call_stack(call_stack);
@@ -4293,7 +4296,8 @@ impl<'a> InterpPass<'a> {
         drop(_timing_guard);
 
         // janky method to preserve stores conflicting on voids but not keys
-        let _timing_guard = self.timing_span(TimingCat::TermFinishFramePreserveVoidConflicts, cur_scope);
+        let _timing_guard =
+            self.timing_span(TimingCat::TermFinishFramePreserveVoidConflicts, cur_scope);
         let saved: Vec<(VOID, Option<Box<MapValue>>)> = queued
             .iter()
             .map(|(scope, _, _)| {
@@ -4389,7 +4393,8 @@ impl<'a> InterpPass<'a> {
         match result {
             Ok(r) => Ok(r),
             Err(e) => {
-                let _timing_guard = self.timing_span(TimingCat::TermFinishFrameSecondPrepareReturn, cur_scope);
+                let _timing_guard =
+                    self.timing_span(TimingCat::TermFinishFrameSecondPrepareReturn, cur_scope);
                 self.prepare_return(call_stack);
                 drop(_timing_guard);
                 Err(e)

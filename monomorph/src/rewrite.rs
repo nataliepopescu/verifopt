@@ -43,11 +43,11 @@ pub struct Store {
     pub tags: HashMap<
         (DefPathHash, usize),
         Vec<(
-            usize,                /* bb */
-            usize,                /* stmt */
-            u64,                  /* tag */
-            DefPathHash,          /* impl fn */
-            Option<DefPathHash>,  /* concrete Self, when resolvable */
+            usize,               /* bb */
+            usize,               /* stmt */
+            u64,                 /* tag */
+            DefPathHash,         /* impl fn */
+            Option<DefPathHash>, /* concrete Self, when resolvable */
         )>,
     >,
 }
@@ -91,19 +91,22 @@ impl Callbacks for FsaCallbacks {
             // which is correct for a real per-impl override but wrong
             // for an inherited default method with no call-site genargs
             // to speak of - see `fn_op`.
-            let to_self_hash = |genargs: &Option<rustc_public::ty::GenericArgs>| -> Option<DefPathHash> {
-                let genargs = genargs.as_ref()?;
-                let first = genargs.0.first()?;
-                let rustc_public::ty::GenericArgKind::Type(ty) = first else {
-                    return None;
+            let to_self_hash =
+                |genargs: &Option<rustc_public::ty::GenericArgs>| -> Option<DefPathHash> {
+                    let genargs = genargs.as_ref()?;
+                    let first = genargs.0.first()?;
+                    let rustc_public::ty::GenericArgKind::Type(ty) = first else {
+                        return None;
+                    };
+                    let rustc_public::ty::TyKind::RigidTy(rustc_public::ty::RigidTy::Adt(
+                        adtdef,
+                        _,
+                    )) = ty.kind()
+                    else {
+                        return None;
+                    };
+                    to_hash(adtdef.0)
                 };
-                let rustc_public::ty::TyKind::RigidTy(rustc_public::ty::RigidTy::Adt(adtdef, _)) =
-                    ty.kind()
-                else {
-                    return None;
-                };
-                to_hash(adtdef.0)
-            };
 
             for ((defid, bb), (_, ts)) in targets {
                 let Some(hash) = to_hash(defid) else {
@@ -540,8 +543,10 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 
                 let found = find_casts(&bbs, preds, bb_idx, recv_local, &mut HashSet::new());
 
-                let planned: HashSet<(usize, usize)> =
-                    sites.iter().map(|(bb, stmt, _, _, _)| (*bb, *stmt)).collect();
+                let planned: HashSet<(usize, usize)> = sites
+                    .iter()
+                    .map(|(bb, stmt, _, _, _)| (*bb, *stmt))
+                    .collect();
                 if found != Some(planned) {
                     continue;
                 }

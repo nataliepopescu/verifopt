@@ -112,9 +112,10 @@ pub enum TagPlan {
     Poisoned,
     Tagged(
         Vec<(
-            usize, /* bb */
-            usize, /* stmt */
-            DefId, /* impl */
+            usize,               /* bb */
+            usize,               /* stmt */
+            DefId,               /* impl */
+            Option<GenericArgs>, /* concrete Self, when resolvable */
         )>,
     ),
 }
@@ -125,15 +126,21 @@ impl TagPlan {
             (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => *self = TagPlan::Poisoned,
 
             (TagPlan::Tagged(a), TagPlan::Tagged(b)) => {
-                let mut by_site = HashMap::new();
+                let mut by_site: HashMap<(usize, usize), (DefId, Option<GenericArgs>)> =
+                    HashMap::new();
 
-                for &(bb, stmt, did) in a.iter().chain(b.iter()) {
-                    match by_site.entry((bb, stmt)) {
+                for (bb, stmt, did, genargs) in a.iter().chain(b.iter()) {
+                    match by_site.entry((*bb, *stmt)) {
                         Entry::Vacant(e) => {
-                            e.insert(did);
+                            e.insert((*did, genargs.clone()));
                         }
                         Entry::Occupied(e) => {
-                            if *e.get() != did {
+                            // Poison if either the target impl or its
+                            // resolved Self type disagrees across what's
+                            // being joined - a single tag site only makes
+                            // sense if it always resolves to the exact
+                            // same concrete candidate.
+                            if e.get().0 != *did || e.get().1 != *genargs {
                                 *self = TagPlan::Poisoned;
                                 return;
                             }
@@ -141,11 +148,11 @@ impl TagPlan {
                     }
                 }
 
-                let mut out: Vec<(usize, usize, DefId)> = by_site
+                let mut out: Vec<(usize, usize, DefId, Option<GenericArgs>)> = by_site
                     .into_iter()
-                    .map(|((bb, stmt), impl_did)| (bb, stmt, impl_did))
+                    .map(|((bb, stmt), (impl_did, genargs))| (bb, stmt, impl_did, genargs))
                     .collect();
-                out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
+                out.sort_by_key(|(bb, stmt, _, _)| (*bb, *stmt));
 
                 *self = TagPlan::Tagged(out);
             }
@@ -222,6 +229,15 @@ pub(crate) enum TimingCat {
     TermReturnFinishFrame,
     TermFinishFrameReinterp,
     TermFinishFrameRevisit,
+    TermFinishFrameGetKey,
+    TermFinishFrameDequeue,
+    TermFinishFrameEarlyRet,
+    TermFinishFramePrepareQueue,
+    TermFinishFramePreserveVoidConflicts,
+    TermFinishFrameInsertScope,
+    TermFinishFrameCheckDepth,
+    TermFinishFrameFirstPrepareReturn,
+    TermFinishFrameSecondPrepareReturn,
     StmtNewConstraintsRef,
     StmtNewConstraintsStatic,
     StmtNewConstraintsFromConvert,
@@ -273,6 +289,9 @@ pub(crate) enum TimingCat {
     ConvertAggAdtOpaque,
     ConvertAggAdtOpaqueAppend,
     ConvertAggAdtFields,
+    ConvertAggFieldsInsert,
+    ConvertAggConstructRes,
+    ConvertAggConstraintsFrom,
     ConvertAggTuple,
     ConvertAggRawPtr,
     ConvertAggArray,
@@ -1080,7 +1099,8 @@ impl<'a> InterpPass<'a> {
                         cfc,
                         prov,
                     } => {
-                        let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush1, cur_scope);
+                        let _g =
+                            self.timing_span(TimingCat::LiftTraitobjtysUncachedPush1, cur_scope);
                         constraints.push(Constraint::new(toc, cfc).with_prov(prov));
                     }
                     Constraint {
@@ -1091,7 +1111,8 @@ impl<'a> InterpPass<'a> {
                         if *existing_toc != toc.unwrap() {
                             todo!("update existing TOC");
                         } else {
-                            let _g = self.timing_span(TimingCat::LiftTraitobjtysUncachedPush2, cur_scope);
+                            let _g = self
+                                .timing_span(TimingCat::LiftTraitobjtysUncachedPush2, cur_scope);
                             constraints.push(constraint);
                         }
                     }
@@ -2891,7 +2912,8 @@ impl<'a> InterpPass<'a> {
 
         let caller_did = caller_scope.0.def.def_id();
 
-        let mut by_site = HashMap::new();
+        let mut by_site: HashMap<(DefId, usize, usize), (DefId, Option<GenericArgs>)> =
+            HashMap::new();
 
         for c in cs.inner.iter() {
             let c = c.clone();
@@ -2906,7 +2928,7 @@ impl<'a> InterpPass<'a> {
                 return TagPlan::Poisoned;
             }
 
-            let target = impls[0].0;
+            let (target, target_genargs) = (impls[0].0, impls[0].1.clone());
 
             for site in tags {
                 if site.0 != caller_did {
@@ -2916,22 +2938,22 @@ impl<'a> InterpPass<'a> {
                 match by_site.entry(*site) {
                     Entry::Occupied(e) => {
                         // same site claimed by two
-                        if *e.get() != target {
+                        if e.get().0 != target || e.get().1 != target_genargs {
                             return TagPlan::Poisoned;
                         }
                     }
                     Entry::Vacant(e) => {
-                        e.insert(target);
+                        e.insert((target, target_genargs.clone()));
                     }
                 }
             }
         }
 
-        let mut out: Vec<(usize, usize, DefId)> = by_site
+        let mut out: Vec<(usize, usize, DefId, Option<GenericArgs>)> = by_site
             .into_iter()
-            .map(|((_fn_did, bb, stmt), impl_did)| (bb, stmt, impl_did))
+            .map(|((_fn_did, bb, stmt), (impl_did, genargs))| (bb, stmt, impl_did, genargs))
             .collect();
-        out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
+        out.sort_by_key(|(bb, stmt, _, _)| (*bb, *stmt));
 
         TagPlan::Tagged(out)
     }
@@ -3767,7 +3789,24 @@ impl<'a> InterpPass<'a> {
             // overwhelmingly common, harmless case) - see `visit_body`
             // for where this gets checked against the specific pattern
             // that could plausibly cause silent under-processing.
-            for conflicting_scope in Self::find_conflicting_keys(&m_wtos, &wtos) {
+            //
+            // Mirrors `REFS MERGE CONFLICT` below exactly - MERGE_OVERLAP_STATS
+            // above only reports *shared* keys, which per that same overlap
+            // investigation are overwhelmingly harmless (identical values on
+            // both sides); this reports specifically the subset where the
+            // values actually disagree, which is what `union()` silently
+            // discards one side of.
+            let wtos_conflicts = Self::find_conflicting_keys(&m_wtos, &wtos);
+            if !wtos_conflicts.is_empty() {
+                debug!(
+                    "WTOS MERGE CONFLICT: bb_visit={} {} scope(s) had disagreeing BBDeps, \
+                     one side's traversal state will be silently discarded by union(): {:?}",
+                    *self.bb_visit_count.borrow(),
+                    wtos_conflicts.len(),
+                    wtos_conflicts
+                );
+            }
+            for conflicting_scope in wtos_conflicts {
                 self.wtos_merge_conflicts
                     .borrow_mut()
                     .insert(conflicting_scope);
@@ -4226,26 +4265,39 @@ impl<'a> InterpPass<'a> {
         cur_scope: &VOID,
         retval: Option<Constraints>,
     ) -> Result<Option<Constraints>, Error> {
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameGetKey, cur_scope);
         let key = self.key_stack.borrow().last().cloned().unwrap();
+        drop(_timing_guard);
 
+        let _timing_guard =
+            self.timing_span(TimingCat::TermFinishFrameFirstPrepareReturn, cur_scope);
         let old_scope = self.prepare_return(call_stack);
         if old_scope.clone().unwrap() != *cur_scope {
             log_call_stack(call_stack);
             panic!("call stack out of sorts");
         }
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameDequeue, cur_scope);
         let queued = self.wq.borrow_mut().remove(&key).unwrap_or_default();
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameEarlyRet, cur_scope);
         if self.in_queue.borrow().contains(&key) || queued.is_empty() {
             // use summary version OR
             // no recursive calls, no recursed interp needed
             return Ok(retval);
         }
+        drop(_timing_guard);
 
         // about to be queueing, set to prevent infinite recursion
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFramePrepareQueue, cur_scope);
         self.in_queue.borrow_mut().insert(key.clone());
+        drop(_timing_guard);
 
         // janky method to preserve stores conflicting on voids but not keys
+        let _timing_guard =
+            self.timing_span(TimingCat::TermFinishFramePreserveVoidConflicts, cur_scope);
         let saved: Vec<(VOID, Option<Box<MapValue>>)> = queued
             .iter()
             .map(|(scope, _, _)| {
@@ -4258,6 +4310,7 @@ impl<'a> InterpPass<'a> {
                 )
             })
             .collect();
+        drop(_timing_guard);
 
         *self.rec_depth.borrow_mut() += 1;
         let _timing_guard = self.timing_span(TimingCat::TermFinishFrameReinterp, cur_scope);
@@ -4291,6 +4344,7 @@ impl<'a> InterpPass<'a> {
         }
         drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameInsertScope, cur_scope);
         for (scope, old) in saved {
             match old {
                 Some(v) => {
@@ -4301,12 +4355,15 @@ impl<'a> InterpPass<'a> {
                 }
             }
         }
+        drop(_timing_guard);
 
+        let _timing_guard = self.timing_span(TimingCat::TermFinishFrameCheckDepth, cur_scope);
         if *self.rec_depth.borrow() > MAX_DEPTH {
             *self.rec_depth.borrow_mut() -= 1;
             self.incomplete.borrow_mut().insert(cur_scope.clone());
             return Ok(retval);
         }
+        drop(_timing_guard);
 
         // final traverse after recursive wq drained
         let _timing_guard = self.timing_span(TimingCat::TermFinishFrameRevisit, cur_scope);
@@ -4336,7 +4393,10 @@ impl<'a> InterpPass<'a> {
         match result {
             Ok(r) => Ok(r),
             Err(e) => {
+                let _timing_guard =
+                    self.timing_span(TimingCat::TermFinishFrameSecondPrepareReturn, cur_scope);
                 self.prepare_return(call_stack);
+                drop(_timing_guard);
                 Err(e)
             }
         }

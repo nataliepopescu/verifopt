@@ -115,7 +115,10 @@ fn merge_stores_fallback(
 }
 
 impl Merge<ConstraintStore> for Vec<ConstraintStore> {
-    fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<ConstraintStore>, Error> {
+    fn merge(
+        &self,
+        timing: Option<(&InterpPass, &VOID)>,
+    ) -> Result<Option<ConstraintStore>, Error> {
         //debug!("interp stores to merge: {:?}", self);
 
         if self.is_empty() {
@@ -138,8 +141,9 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
                 continue;
             }
 
-            let cmap_guard = timing
-                .map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackCmapLoop, scope));
+            let cmap_guard = timing.map(|(pass, scope)| {
+                pass.timing_span(TimingCat::MergeStoresFallbackCmapLoop, scope)
+            });
             for (key, val) in store.cmap.iter() {
                 match merged.cmap.get_mut(key) {
                     Some(merged_val) => {
@@ -153,8 +157,9 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
             }
             drop(cmap_guard);
 
-            let refs_guard = timing
-                .map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackRefsUnion, scope));
+            let refs_guard = timing.map(|(pass, scope)| {
+                pass.timing_span(TimingCat::MergeStoresFallbackRefsUnion, scope)
+            });
             merged.refs = merged.refs.union(store.refs.clone());
             drop(refs_guard);
         }

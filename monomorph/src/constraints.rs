@@ -278,10 +278,7 @@ impl Constraints {
                 Some(RunningConstraint::Param(i, path)) => {
                     let mut new_path = path.clone();
                     new_path.push(ProjStep::Downcast(vidx));
-                    let c = Constraint::new(
-                        None,
-                        Some(RunningConstraint::Param(*i, new_path)),
-                    );
+                    let c = Constraint::new(None, Some(RunningConstraint::Param(*i, new_path)));
                     let _g = scope.zip(timing).map(|(s, p)| {
                         p.timing_span(TimingCat::GetConstraintsFilterVariantPush2, s)
                     });

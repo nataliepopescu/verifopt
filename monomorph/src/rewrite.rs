@@ -640,7 +640,7 @@ fn fn_op<'tcx>(
 ) -> Result<(Operand<'tcx>, Ty<'tcx>), ()> {
     let target_did = tcx.def_path_hash_to_def_id(hash).unwrap();
 
-    let args = match self_hash {
+    let (args, self_ty_from_hash) = match self_hash {
         Some(sh) => {
             // FSA already resolved the concrete Self type for this
             // candidate (e.g. an inherited default trait method
@@ -656,12 +656,12 @@ fn fn_op<'tcx>(
             // sessions FSA and rewrite each run in.
             let self_did = tcx.def_path_hash_to_def_id(sh).ok_or(())?;
             let self_ty = tcx.type_of(self_did).instantiate_identity();
-            tcx.mk_args(&[self_ty.into()])
+            (tcx.mk_args(&[self_ty.into()]), Some(self_ty))
         }
         // No resolved Self available (e.g. a real per-impl override,
         // where the target's own DefId needs no further substitution) -
         // fall back to the previous behavior unchanged.
-        None => tcx.mk_args_from_iter(gen_args.iter().skip(1)),
+        None => (tcx.mk_args_from_iter(gen_args.iter().skip(1)), None),
     };
 
     let instance =
@@ -679,9 +679,22 @@ fn fn_op<'tcx>(
         const_: new_const,
     }));
 
-    let impl_did = tcx.parent(target_did);
-    let self_ty = tcx.type_of(impl_did).instantiate(tcx, instance.args);
-    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), self_ty)
+    // For an inherited default trait method, `target_did`'s own parent is
+    // the *trait* itself (e.g. `Worker`), not an impl block - calling
+    // `tcx.type_of` on a bare trait DefId is invalid and ICEs rustc
+    // directly ("compute_type_of_item: unexpected item type: Trait(...)").
+    // We already know the concrete Self type in that case (computed
+    // above, from self_hash) - only derive it from target_did's parent
+    // for a real per-impl override, where that parent genuinely is an
+    // impl block and this is the correct way to get its Self type.
+    let raw_self_ty = match self_ty_from_hash {
+        Some(ty) => ty,
+        None => {
+            let impl_did = tcx.parent(target_did);
+            tcx.type_of(impl_did).instantiate(tcx, instance.args)
+        }
+    };
+    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), raw_self_ty)
     {
         Ok(ty) => ty,
         // Can genuinely fail to normalize here (e.g. an unresolved

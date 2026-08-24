@@ -112,9 +112,10 @@ pub enum TagPlan {
     Poisoned,
     Tagged(
         Vec<(
-            usize, /* bb */
-            usize, /* stmt */
-            DefId, /* impl */
+            usize,                /* bb */
+            usize,                /* stmt */
+            DefId,                /* impl */
+            Option<GenericArgs>,  /* concrete Self, when resolvable */
         )>,
     ),
 }
@@ -125,15 +126,21 @@ impl TagPlan {
             (TagPlan::Poisoned, _) | (_, TagPlan::Poisoned) => *self = TagPlan::Poisoned,
 
             (TagPlan::Tagged(a), TagPlan::Tagged(b)) => {
-                let mut by_site = HashMap::new();
+                let mut by_site: HashMap<(usize, usize), (DefId, Option<GenericArgs>)> =
+                    HashMap::new();
 
-                for &(bb, stmt, did) in a.iter().chain(b.iter()) {
-                    match by_site.entry((bb, stmt)) {
+                for (bb, stmt, did, genargs) in a.iter().chain(b.iter()) {
+                    match by_site.entry((*bb, *stmt)) {
                         Entry::Vacant(e) => {
-                            e.insert(did);
+                            e.insert((*did, genargs.clone()));
                         }
                         Entry::Occupied(e) => {
-                            if *e.get() != did {
+                            // Poison if either the target impl or its
+                            // resolved Self type disagrees across what's
+                            // being joined - a single tag site only makes
+                            // sense if it always resolves to the exact
+                            // same concrete candidate.
+                            if e.get().0 != *did || e.get().1 != *genargs {
                                 *self = TagPlan::Poisoned;
                                 return;
                             }
@@ -141,11 +148,11 @@ impl TagPlan {
                     }
                 }
 
-                let mut out: Vec<(usize, usize, DefId)> = by_site
+                let mut out: Vec<(usize, usize, DefId, Option<GenericArgs>)> = by_site
                     .into_iter()
-                    .map(|((bb, stmt), impl_did)| (bb, stmt, impl_did))
+                    .map(|((bb, stmt), (impl_did, genargs))| (bb, stmt, impl_did, genargs))
                     .collect();
-                out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
+                out.sort_by_key(|(bb, stmt, _, _)| (*bb, *stmt));
 
                 *self = TagPlan::Tagged(out);
             }
@@ -2903,7 +2910,8 @@ impl<'a> InterpPass<'a> {
 
         let caller_did = caller_scope.0.def.def_id();
 
-        let mut by_site = HashMap::new();
+        let mut by_site: HashMap<(DefId, usize, usize), (DefId, Option<GenericArgs>)> =
+            HashMap::new();
 
         for c in cs.inner.iter() {
             let c = c.clone();
@@ -2918,7 +2926,7 @@ impl<'a> InterpPass<'a> {
                 return TagPlan::Poisoned;
             }
 
-            let target = impls[0].0;
+            let (target, target_genargs) = (impls[0].0, impls[0].1.clone());
 
             for site in tags {
                 if site.0 != caller_did {
@@ -2928,22 +2936,22 @@ impl<'a> InterpPass<'a> {
                 match by_site.entry(*site) {
                     Entry::Occupied(e) => {
                         // same site claimed by two
-                        if *e.get() != target {
+                        if e.get().0 != target || e.get().1 != target_genargs {
                             return TagPlan::Poisoned;
                         }
                     }
                     Entry::Vacant(e) => {
-                        e.insert(target);
+                        e.insert((target, target_genargs.clone()));
                     }
                 }
             }
         }
 
-        let mut out: Vec<(usize, usize, DefId)> = by_site
+        let mut out: Vec<(usize, usize, DefId, Option<GenericArgs>)> = by_site
             .into_iter()
-            .map(|((_fn_did, bb, stmt), impl_did)| (bb, stmt, impl_did))
+            .map(|((_fn_did, bb, stmt), (impl_did, genargs))| (bb, stmt, impl_did, genargs))
             .collect();
-        out.sort_by_key(|(bb, stmt, _)| (*bb, *stmt));
+        out.sort_by_key(|(bb, stmt, _, _)| (*bb, *stmt));
 
         TagPlan::Tagged(out)
     }

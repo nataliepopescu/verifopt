@@ -43,10 +43,11 @@ pub struct Store {
     pub tags: HashMap<
         (DefPathHash, usize),
         Vec<(
-            usize,       /* bb */
-            usize,       /* stmt */
-            u64,         /* tag */
-            DefPathHash, /* impl fn */
+            usize,                /* bb */
+            usize,                /* stmt */
+            u64,                  /* tag */
+            DefPathHash,          /* impl fn */
+            Option<DefPathHash>,  /* concrete Self, when resolvable */
         )>,
     >,
 }
@@ -135,14 +136,15 @@ impl Callbacks for FsaCallbacks {
                 let mut next: u64 = 0;
                 let mut assigned: HashMap<DefId, u64> = HashMap::default();
 
-                let entry: Vec<(usize, usize, u64, DefPathHash)> = sites
+                let entry: Vec<(usize, usize, u64, DefPathHash, Option<DefPathHash>)> = sites
                     .iter()
-                    .filter_map(|(bb, stmt, did)| {
+                    .filter_map(|(bb, stmt, did, genargs)| {
                         let tag = *assigned.entry(*did).or_insert_with(|| {
                             next += 1;
                             next - 1
                         });
-                        to_hash(*did).map(|h| (*bb, *stmt, tag, h))
+                        let hash = to_hash(*did)?;
+                        Some((*bb, *stmt, tag, hash, to_self_hash(genargs)))
                     })
                     .collect();
 
@@ -196,7 +198,7 @@ fn dump_body<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, label: &str) {
 enum Edit {
     Single(DefPathHash, Option<DefPathHash>),
     Pointers(Vec<(DefPathHash, Option<DefPathHash>)>),
-    Tagged(Vec<(usize, usize, u64, DefPathHash)>),
+    Tagged(Vec<(usize, usize, u64, DefPathHash, Option<DefPathHash>)>),
 }
 
 fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
@@ -539,14 +541,14 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let found = find_casts(&bbs, preds, bb_idx, recv_local, &mut HashSet::new());
 
                 let planned: HashSet<(usize, usize)> =
-                    sites.iter().map(|(bb, stmt, _, _)| (*bb, *stmt)).collect();
+                    sites.iter().map(|(bb, stmt, _, _, _)| (*bb, *stmt)).collect();
                 if found != Some(planned) {
                     continue;
                 }
 
                 let tag_local = body.local_decls.push(LocalDecl::new(tcx.types.usize, span));
 
-                for (bb_idx, stmt_idx, tag, _) in &sites {
+                for (bb_idx, stmt_idx, tag, _, _) in &sites {
                     let cb = BasicBlock::from_usize(*bb_idx);
 
                     bbs[cb].statements.insert(
@@ -570,17 +572,8 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 
                 let mut arms = Vec::new();
 
-                for (_, _, tag, impl_hash) in &sites {
-                    // TagPlan (interp.rs) doesn't carry a resolved Self
-                    // hash the way `targets` does, so this path still has
-                    // the same call-site-genargs limitation `fn_op`'s
-                    // `self_hash` parameter was added to fix for the
-                    // other two edit kinds - passing `None` here
-                    // preserves current (unfixed) behavior for tagged
-                    // dyn-cast sites specifically. Fixing this properly
-                    // needs `TagPlan` itself extended to carry the
-                    // resolved Self type, same as `targets` now does.
-                    let (fnc, self_ty) = match fn_op(tcx, *impl_hash, None, gen_args, span) {
+                for (_, _, tag, impl_hash, self_hash) in &sites {
+                    let (fnc, self_ty) = match fn_op(tcx, *impl_hash, *self_hash, gen_args, span) {
                         Ok(v) => v,
                         Err(_) => continue,
                     };

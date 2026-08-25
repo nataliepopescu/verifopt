@@ -6,9 +6,13 @@ use rustc_public::CrateDef;
 use rustc_public::mir::mono::Instance;
 
 pub mod safeose;
+pub mod unsafe_finder;
 pub mod util;
 
 use crate::util::options::AnalysisOptions;
+use crate::unsafe_finder::UnsafeFinder;
+
+use log::debug;
 
 pub fn start_safeose(
     options: AnalysisOptions,
@@ -65,4 +69,7 @@ pub fn start_safeose(
         Instance::try_from(entry_fn_opt.unwrap()).unwrap()
     };
 
+    debug!("RUNNING UNSAFE FINDER TOOL");
+    let unsafe_finder = UnsafeFinder::new();
+    unsafe_finder.run(entry_instance);
 }

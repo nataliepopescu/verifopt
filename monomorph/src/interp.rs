@@ -757,12 +757,23 @@ impl<'a> InterpPass<'a> {
                     );
                 }
             }
-            if !bb_deps.has_ret {
+            // Gate on whether there's anything left to walk, not on
+            // whether the function has a Return terminator. Block-level
+            // filtering already excludes Unreachable/Resume/Abort blocks
+            // (see BBDeps::new) — a function whose *entire* body is
+            // panic/abort paths correctly ends up with an empty ordering
+            // here. But a function that does substantial real work and
+            // only diverges at the very end (e.g. an embedded kernel's
+            // `main`, which never returns because it ends in an infinite
+            // scheduler loop or a `-> !` call) still has real blocks left
+            // in `ordering` and should still be walked — gating on
+            // `has_ret` alone was skipping those entirely.
+            if bb_deps.ordering.is_empty() {
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
         } else {
             bb_deps = BBDeps::new(body);
-            if !bb_deps.has_ret {
+            if bb_deps.ordering.is_empty() {
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
             ctxt.set_wto(cur_scope, &bb_deps);

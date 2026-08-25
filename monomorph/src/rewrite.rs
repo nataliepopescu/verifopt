@@ -17,6 +17,7 @@ use rustc_span::def_id::{DefPathHash, LocalDefId};
 
 use rustc_driver::{Callbacks, Compilation};
 use rustc_hir::Safety;
+use rustc_hir::def::DefKind;
 use rustc_interface::interface::{Compiler, Config};
 use rustc_middle::mir::pretty::MirWriter;
 use rustc_middle::ty::adjustment::PointerCoercion;
@@ -39,15 +40,15 @@ use crate::util::options::AnalysisOptions;
 
 #[derive(Default)]
 pub struct Store {
-    pub targets: HashMap<(DefPathHash, usize), Vec<(DefPathHash, Option<DefPathHash>)>>,
+    pub targets: HashMap<(DefPathHash, usize), Vec<(DefPathHash, Option<Vec<DefPathHash>>)>>,
     pub tags: HashMap<
         (DefPathHash, usize),
         Vec<(
-            usize,               /* bb */
-            usize,               /* stmt */
-            u64,                 /* tag */
-            DefPathHash,         /* impl fn */
-            Option<DefPathHash>, /* concrete Self, when resolvable */
+            usize,                     /* bb */
+            usize,                     /* stmt */
+            u64,                       /* tag */
+            DefPathHash,               /* impl fn */
+            Option<Vec<DefPathHash>>,  /* concrete generic args, when resolvable */
         )>,
     >,
 }
@@ -77,47 +78,75 @@ impl Callbacks for FsaCallbacks {
                 .ok()
             };
 
-            // FSA already resolved the concrete Self type for each
-            // candidate (e.g. `Fast` for an inherited `Worker::run` call
-            // dispatched to `Fast`) - but `Ty`/`GenericArgs`/`Instance`
-            // are all tied to *this* compiler session's arena and can't
-            // be carried into the rewrite phase's separate session. A
-            // `DefPathHash` can (that's its whole purpose), so extract
-            // just the concrete Self type's own DefId and hash *that*,
-            // for the common case where Self is a plain concrete ADT.
-            // Anything else (no genargs, or a shape we don't recognize)
-            // becomes `None` - the rewrite phase falls back to its
-            // previous (call-site-genargs-based) behavior for that case,
-            // which is correct for a real per-impl override but wrong
-            // for an inherited default method with no call-site genargs
-            // to speak of - see `fn_op`.
-            let to_self_hash =
-                |genargs: &Option<rustc_public::ty::GenericArgs>| -> Option<DefPathHash> {
-                    let genargs = genargs.as_ref()?;
-                    let first = genargs.0.first()?;
-                    let rustc_public::ty::GenericArgKind::Type(ty) = first else {
+            // FSA already resolved the concrete generic args each
+            // candidate needs (e.g. `Self=Fast` for an inherited
+            // `Worker::run` call dispatched to `Fast`, or `[I, A]` for a
+            // blanket impl like `impl<I, A> Iterator for Box<I, A>`) -
+            // but `Ty`/`GenericArgs`/`Instance` are all tied to *this*
+            // compiler session's arena and can't be carried into the
+            // rewrite phase's separate session. A `DefPathHash` can
+            // (that's its whole purpose), so extract each arg's own
+            // concrete type's DefId and hash *that*, for the common case
+            // where every arg is a plain, non-generic concrete ADT.
+            //
+            // Three possible outcomes, not two - the middle one matters:
+            //   - `None` (outer): FSA had no genargs for this candidate
+            //     at all - a real per-impl override needs no further
+            //     substitution, so the rewrite phase's previous
+            //     call-site-genargs-based fallback is *correct* here.
+            //   - `Some(None)`: same as above, spelled out explicitly.
+            //   - `Some(Some(hashes))`: every arg was a plain concrete
+            //     ADT and got hashed successfully - reconstruct from
+            //     these.
+            //   - Dropped entirely (the caller's `?` skips this
+            //     candidate): FSA *did* resolve genargs, but at least
+            //     one arg isn't a plain concrete ADT (a nested generic
+            //     type, a lifetime, a const) - we can't safely
+            //     reconstruct it from a hash without risking a subtly
+            //     wrong partial substitution, so this candidate just
+            //     doesn't get devirtualized at all, leaving the original
+            //     (correct, if unoptimized) virtual call in place.
+            let to_genargs_hashes = |genargs: &Option<rustc_public::ty::GenericArgs>|
+             -> Option<Option<Vec<DefPathHash>>> {
+                let Some(genargs) = genargs.as_ref() else {
+                    return Some(None);
+                };
+                let mut hashes = Vec::with_capacity(genargs.0.len());
+                for arg in &genargs.0 {
+                    let rustc_public::ty::GenericArgKind::Type(ty) = arg else {
                         return None;
                     };
                     let rustc_public::ty::TyKind::RigidTy(rustc_public::ty::RigidTy::Adt(
                         adtdef,
-                        _,
+                        sub_genargs,
                     )) = ty.kind()
                     else {
                         return None;
                     };
-                    to_hash(adtdef.0)
-                };
+                    if !sub_genargs.0.is_empty() {
+                        // Has its own nested generics (e.g. Vec<T> rather
+                        // than a bare struct) - reconstructing this
+                        // correctly would need to recurse, which risks
+                        // getting it subtly wrong without a compiler to
+                        // check against. Drop the candidate instead.
+                        return None;
+                    }
+                    hashes.push(to_hash(adtdef.0)?);
+                }
+                Some(Some(hashes))
+            };
 
             for ((defid, bb), (_, ts)) in targets {
                 let Some(hash) = to_hash(defid) else {
                     continue;
                 };
 
-                let t_hashes: Vec<(DefPathHash, Option<DefPathHash>)> = ts
+                let t_hashes: Vec<(DefPathHash, Option<Vec<DefPathHash>>)> = ts
                     .iter()
                     .filter_map(|(did, genargs)| {
                         let method_hash = to_hash(*did)?;
-                        Some((method_hash, to_self_hash(genargs)))
+                        let self_hashes = to_genargs_hashes(genargs)?;
+                        Some((method_hash, self_hashes))
                     })
                     .collect();
 
@@ -139,7 +168,7 @@ impl Callbacks for FsaCallbacks {
                 let mut next: u64 = 0;
                 let mut assigned: HashMap<DefId, u64> = HashMap::default();
 
-                let entry: Vec<(usize, usize, u64, DefPathHash, Option<DefPathHash>)> = sites
+                let entry: Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)> = sites
                     .iter()
                     .filter_map(|(bb, stmt, did, genargs)| {
                         let tag = *assigned.entry(*did).or_insert_with(|| {
@@ -147,7 +176,8 @@ impl Callbacks for FsaCallbacks {
                             next - 1
                         });
                         let hash = to_hash(*did)?;
-                        Some((*bb, *stmt, tag, hash, to_self_hash(genargs)))
+                        let self_hashes = to_genargs_hashes(genargs)?;
+                        Some((*bb, *stmt, tag, hash, self_hashes))
                     })
                     .collect();
 
@@ -199,9 +229,9 @@ fn dump_body<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, label: &str) {
 }
 
 enum Edit {
-    Single(DefPathHash, Option<DefPathHash>),
-    Pointers(Vec<(DefPathHash, Option<DefPathHash>)>),
-    Tagged(Vec<(usize, usize, u64, DefPathHash, Option<DefPathHash>)>),
+    Single(DefPathHash, Option<Vec<DefPathHash>>),
+    Pointers(Vec<(DefPathHash, Option<Vec<DefPathHash>>)>),
+    Tagged(Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)>),
 }
 
 fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
@@ -222,7 +252,7 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 
             if targets.len() == 1 {
                 // directly swap terminator
-                Some((bb.as_usize(), Edit::Single(targets[0].0, targets[0].1)))
+                Some((bb.as_usize(), Edit::Single(targets[0].0, targets[0].1.clone())))
             } else if let Some(tags) = tags {
                 // tag dyn casts and switchint
                 Some((bb.as_usize(), Edit::Tagged(tags.to_vec())))
@@ -439,8 +469,9 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let mut fallback = None;
                 let n = hashes.len();
 
-                for (i, &(hash, self_hash)) in hashes.iter().enumerate() {
-                    let (fnc, self_ty) = match fn_op(tcx, hash, self_hash, gen_args, span) {
+                for (i, (hash, self_hash)) in hashes.iter().enumerate() {
+                    let (fnc, self_ty) = match fn_op(tcx, *hash, self_hash.clone(), gen_args, span)
+                    {
                         Ok(v) => v,
                         Err(_) => continue,
                     };
@@ -578,10 +609,11 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 let mut arms = Vec::new();
 
                 for (_, _, tag, impl_hash, self_hash) in &sites {
-                    let (fnc, self_ty) = match fn_op(tcx, *impl_hash, *self_hash, gen_args, span) {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
+                    let (fnc, self_ty) =
+                        match fn_op(tcx, *impl_hash, self_hash.clone(), gen_args, span) {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
                     let (recv, stmts) = narrow_dyn(
                         tcx,
                         &mut body,
@@ -634,34 +666,47 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
 fn fn_op<'tcx>(
     tcx: TyCtxt<'tcx>,
     hash: DefPathHash,
-    self_hash: Option<DefPathHash>,
+    self_hashes: Option<Vec<DefPathHash>>,
     gen_args: &'tcx List<GenericArg<'tcx>>,
     span: Span,
 ) -> Result<(Operand<'tcx>, Ty<'tcx>), ()> {
     let target_did = tcx.def_path_hash_to_def_id(hash).unwrap();
 
-    let (args, self_ty_from_hash) = match self_hash {
-        Some(sh) => {
-            // FSA already resolved the concrete Self type for this
-            // candidate (e.g. an inherited default trait method
-            // dispatched to a concrete impl) - a true virtual call site's
-            // own `gen_args` carries no monomorphization info at all, so
-            // `gen_args.iter().skip(1)` below is empty here, and handing
-            // an empty args list to a target that needs Self is exactly
-            // what panics deep inside rustc's own generic-args
-            // instantiation code ("index out of bounds: the len is 0 but
-            // the index is 0"). Reconstruct Self from its own
-            // DefPathHash instead - unlike a GenericArgs or Instance,
-            // that's safe to carry across the two separate compiler
-            // sessions FSA and rewrite each run in.
-            let self_did = tcx.def_path_hash_to_def_id(sh).ok_or(())?;
-            let self_ty = tcx.type_of(self_did).instantiate_identity();
-            (tcx.mk_args(&[self_ty.into()]), Some(self_ty))
+    let args = match &self_hashes {
+        Some(hashes) => {
+            // FSA already resolved the full set of concrete generic args
+            // this candidate needs (e.g. `Self=Fast` for an inherited
+            // default trait method, or `[I, A]` for a blanket impl like
+            // `impl<I, A> Iterator for Box<I, A>`) - a true virtual call
+            // site's own `gen_args` carries no monomorphization info at
+            // all, so `gen_args.iter().skip(1)` below is empty here, and
+            // handing an incomplete/empty args list to a target that
+            // needs more is exactly what panics deep inside rustc's own
+            // generic-args instantiation code (either an out-of-bounds
+            // index, or "has parameters, but no args were provided").
+            // Reconstruct every arg from its own DefPathHash instead -
+            // unlike a GenericArgs or Instance, that's safe to carry
+            // across the two separate compiler sessions FSA and rewrite
+            // each run in. Each hash is only usable here if it names a
+            // plain, non-generic concrete type (see `to_genargs_hashes`
+            // in FsaCallbacks::after_analysis) - anything more complex
+            // (a nested-generic type, a lifetime, a const) was already
+            // filtered out at that point rather than risking a wrong
+            // partial reconstruction here.
+            let tys: Vec<Ty<'tcx>> = hashes
+                .iter()
+                .map(|h| {
+                    let did = tcx.def_path_hash_to_def_id(*h).ok_or(())?;
+                    Ok(tcx.type_of(did).instantiate_identity())
+                })
+                .collect::<Result<Vec<_>, ()>>()?;
+            let arg_list: Vec<GenericArg<'tcx>> = tys.into_iter().map(|t| t.into()).collect();
+            tcx.mk_args(&arg_list)
         }
-        // No resolved Self available (e.g. a real per-impl override,
+        // No resolved args available (e.g. a real per-impl override,
         // where the target's own DefId needs no further substitution) -
         // fall back to the previous behavior unchanged.
-        None => (tcx.mk_args_from_iter(gen_args.iter().skip(1)), None),
+        None => tcx.mk_args_from_iter(gen_args.iter().skip(1)),
     };
 
     let instance =
@@ -679,20 +724,30 @@ fn fn_op<'tcx>(
         const_: new_const,
     }));
 
-    // For an inherited default trait method, `target_did`'s own parent is
-    // the *trait* itself (e.g. `Worker`), not an impl block - calling
-    // `tcx.type_of` on a bare trait DefId is invalid and ICEs rustc
-    // directly ("compute_type_of_item: unexpected item type: Trait(...)").
-    // We already know the concrete Self type in that case (computed
-    // above, from self_hash) - only derive it from target_did's parent
-    // for a real per-impl override, where that parent genuinely is an
-    // impl block and this is the correct way to get its Self type.
-    let raw_self_ty = match self_ty_from_hash {
-        Some(ty) => ty,
-        None => {
-            let impl_did = tcx.parent(target_did);
-            tcx.type_of(impl_did).instantiate(tcx, instance.args)
+    let parent_did = tcx.parent(target_did);
+    let raw_self_ty = if tcx.def_kind(parent_did) == DefKind::Trait {
+        // Inherited default trait method - target_did's own parent is
+        // the *trait* itself (e.g. `Worker`), not an impl block. Calling
+        // `tcx.type_of` on a bare trait DefId is invalid and ICEs rustc
+        // directly ("compute_type_of_item: unexpected item type:
+        // Trait(...)"). There's no impl block to derive Self from here -
+        // it's exactly the one resolved arg we already have (a trait
+        // default method's only extra generic parameter is Self itself).
+        match &self_hashes {
+            Some(hashes) if !hashes.is_empty() => {
+                let self_did = tcx.def_path_hash_to_def_id(hashes[0]).ok_or(())?;
+                tcx.type_of(self_did).instantiate_identity()
+            }
+            _ => return Err(()),
         }
+    } else {
+        // A real impl block - either a per-impl override (args is empty,
+        // matching the target's own already-concrete DefId) or a
+        // blanket impl like `impl<I, A> Iterator for Box<I, A>` (args is
+        // our reconstructed [I, A]) - `type_of` on the impl block,
+        // applied to those args, gives the correct Self either way (a
+        // concrete struct, or `Box<I, A>`).
+        tcx.type_of(parent_did).instantiate(tcx, instance.args)
     };
     let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), raw_self_ty)
     {

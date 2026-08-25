@@ -15,9 +15,9 @@ use log::*;
 use std::env;
 use std::io::Write;
 
-use monomorph::rewrite::{FsaCallbacks, RewriteCallbacks};
-use monomorph::util;
-use monomorph::util::options::AnalysisOptions;
+use safeose::safeose::SafeOSECallbacks;
+use safeose::util;
+use safeose::util::options::AnalysisOptions;
 
 fn main() {
     let early_dcx =
@@ -27,7 +27,7 @@ fn main() {
     if env::var("RUSTC_LOG").is_ok() {
         rustc_driver::init_rustc_env_logger(&early_dcx);
     }
-    if env::var("VERIFOPT_LOG").is_ok() {
+    if env::var("SAFEOSE_LOG").is_ok() {
         env_logger::Builder::new()
             .format(|buf, record| {
                 //writeln!(buf, "{}: {}", record.level(), record.args())
@@ -36,15 +36,15 @@ fn main() {
             })
             .parse_env(
                 env_logger::Env::new()
-                    .filter("VERIFOPT_LOG")
-                    .write_style("VERIFOPT_LOG_STYLE"),
+                    .filter("SAFEOSE_LOG")
+                    .write_style("SAFEOSE_LOG_STYLE"),
             )
             .init();
     }
 
-    // Get any options specified via the VERIFOPT_FLAGS environment variable
+    // Get any options specified via the SAFEOSE_FLAGS environment variable
     let mut options = AnalysisOptions::default();
-    let pta_flags = env::var("VERIFOPT_FLAGS").unwrap_or_default();
+    let pta_flags = env::var("SAFEOSE_FLAGS").unwrap_or_default();
     let pta_args: Vec<String> = serde_json::from_str(&pta_flags).unwrap_or_default();
     let rustc_args = options.parse_from_args(&pta_args[..], true);
 
@@ -65,7 +65,7 @@ fn main() {
     }
 
     let mut rustc_command_line_arguments = options.parse_from_args(&args[1..], false);
-    info!("VerifOpt Options: {:?}", options);
+    info!("SafeOSE Options: {:?}", options);
 
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -108,29 +108,29 @@ fn main() {
         //let mut callbacks = VerifOptCallbacks::new(options);
         //let compiler = rustc_driver::RunCompiler::new(&rustc_command_line_arguments, &mut callbacks);
         //compiler.run()
-        let mut callbacks = FsaCallbacks { options };
+        let mut callbacks = SafeOSECallbacks { options };
         match rustc_driver::catch_fatal_errors(|| {
             rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
         }) {
             Ok(()) => {}
             Err(_) => {
-                debug!(
-                    "FsaCallbacks phase returned FatalError - continuing anyway to reach the rewrite/codegen stage"
+                panic!(
+                    "SafeOSECallbacks phase returned FatalError"
                 );
             }
         }
 
-        let mut callbacks = RewriteCallbacks;
-        match rustc_driver::catch_fatal_errors(|| {
-            rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
-        }) {
-            Ok(()) => {}
-            Err(_) => {
-                debug!(
-                    "RewriteCallbacks phase returned FatalError - continuing anyway to reach the codegen stage"
-                );
-            }
-        }
+        //let mut callbacks = RewriteCallbacks;
+        //match rustc_driver::catch_fatal_errors(|| {
+        //    rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
+        //}) {
+        //    Ok(()) => {}
+        //    Err(_) => {
+        //        debug!(
+        //            "RewriteCallbacks phase returned FatalError - continuing anyway to reach the codegen stage"
+        //        );
+        //    }
+        //}
     });
 
     let exit_code = match result {

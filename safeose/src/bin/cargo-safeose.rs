@@ -1,0 +1,403 @@
+// Copyright (c) 2024 <Wei Li>.
+//
+// This source code is licensed under the GNU license found in the
+// LICENSE file in the root directory of this source tree.
+//
+// Modified by <Natalie Popescu>.
+
+//! This provides an implementation for the "cargo safeose" subcommand.
+//!
+//! The subcommand is the same as "cargo build" but with three differences:
+//! 1) It implicitly adds the options "-Z always_encode_mir" to the rustc invocation.
+//! 2) It calls `safeose` rather than `rustc` for all the targets of the current package.
+//! 3) It runs `cargo test --no-run` for test targets.
+
+#![feature(rustc_private)]
+
+extern crate rustc_driver;
+
+use cargo_metadata::{Package, TargetKind};
+use log::info;
+use serde_json;
+use std::env;
+use std::ffi::OsString;
+use std::ops::Index;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use safeose::util;
+
+/// The help message for `cargo-safeose`
+const CARGO_SAFEOSE_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
+Usage:
+    cargo safeose
+"#;
+
+/// Set the environment variable `SAFEOSE_BUILD_STD` to enable the building of std library when running safeose.
+const SAFEOSE_BUILD_STD: &str = "SAFEOSE_BUILD_STD";
+
+pub fn main() {
+    if std::env::args()
+        .take_while(|a| a != "--")
+        .any(|a| a == "--help" || a == "-h")
+    {
+        println!("{}", CARGO_SAFEOSE_HELP);
+        return;
+    }
+
+    match std::env::args().nth(1).as_ref().map(AsRef::<str>::as_ref) {
+        Some(s) if s.ends_with("safeose") => {
+            // Get here for the top level cargo execution, i.e. "cargo safeose".
+            call_cargo();
+        }
+        Some(s) if s.ends_with("rustc") => {
+            // 'cargo rustc ..' redirects here because RUSTC_WRAPPER points to this binary.
+            // execute rustc with SafeOSE applicable parameters for dependencies and call SafeOSE
+            // to analyze targets in the current package.
+            call_rustc_or_safeose();
+        }
+        Some(arg) => {
+            eprintln!(
+                "`cargo-safeose` called with invalid first argument: {arg}; please only invoke this binary through `cargo safeose`"
+            );
+        }
+        _ => {
+            eprintln!("current args: {:?}", std::env::args());
+            eprintln!(
+                "`cargo-safeose` called without first argument; please only invoke this binary through `cargo safeose`"
+            );
+        }
+    }
+}
+
+/// Read the toml associated with the current directory and
+/// recursively execute cargo for each applicable package target/workspace member in the toml
+fn call_cargo() {
+    let manifest_path =
+        get_arg_flag_value("--manifest-path").map(|m| Path::new(&m).canonicalize().unwrap());
+
+    let mut cmd = cargo_metadata::MetadataCommand::new();
+    if let Some(ref manifest_path) = manifest_path {
+        cmd.manifest_path(manifest_path);
+    }
+
+    let metadata = if let Ok(metadata) = cmd.exec() {
+        metadata
+    } else {
+        eprintln!("Could not obtain Cargo metadata; likely an ill-formed manifest");
+        std::process::exit(1);
+    };
+
+    // If a binary is specified, analyze this binary only.
+    if let Some(target) = get_arg_flag_value("--bin") {
+        call_cargo_on_target(&target, &TargetKind::Bin);
+        return;
+    }
+
+    if let Some(root) = metadata.root_package() {
+        call_cargo_on_each_package_target(root);
+        return;
+    }
+
+    // There is no root, this must be a workspace, so call_cargo_on_each_package_target on each workspace member
+    for package_id in &metadata.workspace_members {
+        let package = metadata.index(package_id);
+        call_cargo_on_each_package_target(package);
+    }
+}
+
+fn call_cargo_on_each_package_target(package: &Package) {
+    let lib_only = has_arg_flag("--lib");
+    for target in &package.targets {
+        let kind = target
+            .kind
+            .first()
+            .expect("bad cargo metadata: target::kind");
+        if lib_only && *kind != TargetKind::Lib {
+            continue;
+        }
+        call_cargo_on_target(&target.name, kind);
+    }
+}
+
+/// Resolves a binary (`cargo`, `rustc`, ...) belonging to the exact
+/// toolchain that this build of `safeose` was compiled against, via
+/// `rustup which`.
+///
+/// `safeose` links `rustc_driver` directly (`#![feature(rustc_private)]`),
+/// which has no stable ABI across nightlies. Trusting an ambient `$CARGO`/
+/// `$RUSTC`/`$PATH` (e.g. a project-local fenix/rustup toolchain override)
+/// risks driving the build with a *different* cargo/rustc than the one
+/// `safeose` was built against, producing flag mismatches (e.g. a flag
+/// that is stable in the ambient toolchain but still unstable in
+/// safeose's pinned one).
+///
+/// Note: cargo does NOT, by default, resolve and pass an absolute rustc
+/// path to RUSTC_WRAPPER — it hands the wrapper the bare string "rustc"
+/// and relies on `$PATH` (this is what rustup's own shim mechanism
+/// depends on). Since we invoke the pinned toolchain's `cargo` directly
+/// rather than through rustup's shim, nothing corrects that PATH lookup
+/// for us — so both `cargo` and `rustc` must be resolved explicitly here,
+/// and `rustc` must additionally be threaded through as the `RUSTC` env
+/// var on the child `cargo build` invocation (see `call_cargo_on_target`)
+/// so cargo doesn't fall back to a bare, PATH-resolved "rustc" itself.
+fn pinned_toolchain_bin(name: &str) -> OsString {
+    let toolchain = option_env!("RUSTUP_TOOLCHAIN").expect(
+        "safeose must be built under rustup with a pinned toolchain \
+         (RUSTUP_TOOLCHAIN was not set at compile time)",
+    );
+
+    let output = Command::new("rustup")
+        .args(["which", "--toolchain", toolchain, name])
+        .output()
+        .unwrap_or_else(|e| panic!("could not invoke `rustup which` to resolve {name}: {e}"));
+
+    if !output.status.success() {
+        panic!(
+            "`rustup which --toolchain {toolchain} {name}` failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let path = String::from_utf8(output.stdout)
+        .unwrap_or_else(|_| panic!("`rustup which {name}` produced non-UTF-8 output"))
+        .trim()
+        .to_owned();
+
+    OsString::from(path)
+}
+
+fn call_cargo_on_target(target: &String, kind: &TargetKind) {
+    // Build a cargo command for target. Always use the cargo binary paired
+    // with the toolchain safeose itself was built against (see
+    // `pinned_toolchain_bin`), rather than an ambient `$CARGO`/`$PATH`
+    // cargo that may belong to a different, incompatible nightly.
+    let mut cmd = Command::new(pinned_toolchain_bin("cargo"));
+    // Cargo's own default rustc resolution is just the bare string
+    // "rustc" via $PATH — it does not hand RUSTC_WRAPPER an absolute
+    // path unless told to. Set RUSTC explicitly so cargo (and, in turn,
+    // whatever it passes to our own RUSTC_WRAPPER dispatch) stays pinned
+    // to the same toolchain as the cargo binary above, regardless of
+    // what else is first on the caller's $PATH.
+    cmd.env("RUSTC", pinned_toolchain_bin("rustc"));
+    match kind {
+        TargetKind::Bin => {
+            cmd.arg("build");
+            if get_arg_flag_value("--bin").is_none() {
+                cmd.arg("--bin").arg(target);
+            }
+        }
+        TargetKind::Lib => {
+            cmd.arg("build");
+            cmd.arg("--lib");
+        }
+        TargetKind::Test => {
+            cmd.arg("test");
+            cmd.arg("--no-run");
+        }
+        _ => {
+            return;
+        }
+    }
+    cmd.arg("--verbose");
+
+    let mut args = std::env::args().skip(2);
+    // Add cargo args to cmd until first `--`.
+    for arg in args.by_ref() {
+        if arg == "--" {
+            break;
+        }
+        if arg == "--lib" {
+            continue;
+        }
+        cmd.arg(arg);
+    }
+
+    // Enable Cargo to compile the standard library from source code as part of a crate graph compilation.
+    if env::var(SAFEOSE_BUILD_STD).is_ok() {
+        cmd.arg("-Zbuild-std");
+
+        if !has_arg_flag("--target") {
+            let toolchain_target = toolchain_target().expect("could not get toolchain target");
+            cmd.arg("--target").arg(toolchain_target);
+        }
+    }
+
+    // Serialize the remaining args into an environment variable.
+    let args_vec: Vec<String> = args.collect();
+    if !args_vec.is_empty() {
+        cmd.env(
+            "SAFEOSE_FLAGS",
+            serde_json::to_string(&args_vec).expect("failed to serialize args"),
+        );
+    }
+
+    // Force cargo to recompile all dependencies with SafeOSE friendly flags
+    //cmd.env("RUSTFLAGS", "-Z always_encode_mir");
+    let mut rustflags = std::env::var("RUSTFLAGS").unwrap_or_default();
+    if !rustflags.is_empty() {
+        rustflags.push(' ');
+    }
+    rustflags.push_str("-Z always_encode_mir");
+    cmd.env("RUSTFLAGS", rustflags);
+
+    // Replace the rustc executable through RUSTC_WRAPPER environment variable so that rustc
+    // calls generated by cargo come back to cargo-safeose.
+    let path = std::env::current_exe().expect("current executable path invalid");
+    cmd.env("RUSTC_WRAPPER", path);
+
+    // Communicate the name of the root crate to the calls to cargo-safeose that are invoked via
+    // the RUSTC_WRAPPER setting.
+    cmd.env("SAFEOSE_CRATE", target.replace('-', "_"));
+
+    // Communicate the target kind of the root crate to the calls to cargo-safeose that are invoked via
+    // the RUSTC_WRAPPER setting.
+    cmd.env("SAFEOSE_TARGET_KIND", kind.to_string());
+
+    // Belt-and-suspenders: `pinned_cargo_path()` above already invokes the
+    // exact toolchain binary directly (not a rustup shim), so this env var
+    // shouldn't be load-bearing anymore. Kept in case any child process in
+    // the build graph re-resolves `cargo`/`rustc` via a rustup proxy rather
+    // than inheriting the binary we already selected.
+    if let Some(toolchain) = option_env!("RUSTUP_TOOLCHAIN") {
+        cmd.env("RUSTUP_TOOLCHAIN", toolchain);
+    }
+
+    // Execute cmd
+    info!("cmd: {:?}", cmd);
+    let exit_status = cmd
+        .spawn()
+        .expect("could not run cargo")
+        .wait()
+        .expect("failed to wait for cargo");
+
+    if !exit_status.success() {
+        std::process::exit(exit_status.code().unwrap_or(-1))
+    }
+}
+
+fn call_rustc_or_safeose() {
+    if let Some(crate_name) = get_arg_flag_value("--crate-name") {
+        if let Ok(safeose_crate) = std::env::var("SAFEOSE_CRATE") {
+            if crate_name.eq(&safeose_crate) {
+                if let Ok(kind) = std::env::var("SAFEOSE_TARGET_KIND") {
+                    if let Some(t) = get_arg_flag_value("--crate-type") {
+                        if kind.eq(&t) {
+                            call_safeose();
+                            return;
+                        }
+                    } else if kind == "test" {
+                        call_safeose();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    call_rustc()
+}
+
+fn call_safeose() {
+    let mut path = std::env::current_exe().expect("current executable path invalid");
+    let extension = path.extension().map(|e| e.to_owned());
+    path.pop(); // remove the cargo_safeose bit
+    path.push("safeose");
+    if let Some(ext) = extension {
+        path.set_extension(ext);
+    }
+    let mut cmd = Command::new(path);
+    cmd.args(std::env::args().skip(2));
+    let exit_status = cmd
+        .spawn()
+        .expect("could not run safeose")
+        .wait()
+        .expect("failed to wait for safeose");
+
+    if !exit_status.success() {
+        std::process::exit(exit_status.code().unwrap_or(-1))
+    }
+}
+
+fn call_rustc() {
+    // NOTE: cargo's RUSTC_WRAPPER protocol hands us argv[1] as "the rustc
+    // to run" — but cargo's *default* resolution for that is just the
+    // bare string "rustc" (verified empirically: cargo -v output showed
+    // literally `cargo-safeose rustc --crate-name ...`, not an absolute
+    // path). Cargo relies on `$PATH` to resolve that, which is exactly
+    // what rustup's own shim mechanism is designed to intercept — but we
+    // invoke the pinned toolchain's cargo directly (bypassing rustup's
+    // shim), so nothing corrects that PATH lookup anymore. Trusting
+    // argv[1] here previously reproduced the *same* wrong-compiler bug
+    // as the original `$RUSTC`/`$PATH` fallback it replaced. Resolve the
+    // pinned toolchain's rustc explicitly instead, exactly as
+    // `call_cargo_on_target` resolves cargo.
+    let mut cmd = Command::new(pinned_toolchain_bin("rustc"));
+    cmd.args(std::env::args().skip(2));
+    let exit_status = cmd
+        .spawn()
+        .expect("could not run rustc")
+        .wait()
+        .expect("failed to wait for rustc");
+
+    if !exit_status.success() {
+        std::process::exit(exit_status.code().unwrap_or(-1))
+    }
+}
+
+/// Determines whether a flag `name` is present before `--`.
+/// For example, has_arg_flag("-v")
+fn has_arg_flag(name: &str) -> bool {
+    let mut args = std::env::args().take_while(|val| val != "--");
+    args.any(|val| val == name)
+}
+
+/// Gets the value of `name`.
+/// `--name value` or `--name=value`
+fn get_arg_flag_value(name: &str) -> Option<String> {
+    let mut args = std::env::args().take_while(|val| val != "--");
+    loop {
+        let arg = match args.next() {
+            Some(arg) => arg,
+            None => return None,
+        };
+        if !arg.starts_with(name) {
+            continue;
+        }
+        // Strip `name`.
+        let suffix = &arg[name.len()..];
+        if suffix.is_empty() {
+            // This argument is `name` and the next one is the value.
+            return args.next();
+        } else if let Some(arg_value) = suffix.strip_prefix('=') {
+            return Some(arg_value.to_owned());
+        }
+    }
+}
+
+/// Returns the target of the toolchain, e.g. "x86_64-unknown-linux-gnu".
+fn toolchain_target() -> Option<String> {
+    let sysroot = util::find_sysroot();
+
+    // get the supported rustup targets
+    let output = String::from_utf8(
+        Command::new("rustup")
+            .arg("target")
+            .arg("list")
+            .stdout(Stdio::piped())
+            .output()
+            .expect("could not run 'rustup target list'")
+            .stdout,
+    )
+    .unwrap();
+
+    let target = output.lines().find_map(|line| {
+        let target = line.split_whitespace().next().unwrap().to_owned();
+        if sysroot.ends_with(&target) {
+            Some(target)
+        } else {
+            None
+        }
+    });
+
+    target
+}

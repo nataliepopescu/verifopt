@@ -69,7 +69,7 @@ pub fn start_safeose(
         Instance::try_from(entry_fn_opt.unwrap()).unwrap()
     };
 
-    debug!("RUNNING UNSAFE FINDER TOOL");
+    debug!("RUNNING UNSAFE FINDER TOOL\n");
     let unsafe_finder = UnsafeFinder::new();
     unsafe_finder.run(entry_instance);
 }

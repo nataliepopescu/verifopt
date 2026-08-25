@@ -4,9 +4,9 @@ use clap::error::ErrorKind;
 use clap::{Arg, Command};
 use itertools::Itertools;
 
-//use crate::common::VerifOptType;
+//use crate::common::SafeOSEType;
 
-const VERIFOPT_USAGE: &str = r#"verifopt [OPTIONS] INPUT -- [RUSTC OPTIONS]"#;
+const VERIFOPT_USAGE: &str = r#"safeose [OPTIONS] INPUT -- [RUSTC OPTIONS]"#;
 
 /// The version information from Cargo.toml.
 fn version() -> &'static str {
@@ -22,7 +22,7 @@ fn version() -> &'static str {
 fn make_options_parser() -> Command {
     // We could put this into lazy_static! with a Mutex around, but we really do not expect
     // to construct this more then once per regular program run.
-    let parser = Command::new("verifopt")
+    let parser = Command::new("safeose")
         .no_binary_name(true)
         .override_usage(VERIFOPT_USAGE)
         .version(version())
@@ -38,15 +38,6 @@ fn make_options_parser() -> Command {
                 .value_name("id")
                 .value_parser(clap::value_parser!(u32))
                 .help("The def_id of entry function from which the flow analysis begins."),
-        )
-        .arg(
-            Arg::new("verifopt-type")
-                .long("verifopt-type")
-                .value_name("analysis-type")
-                .value_parser(["flow-sensitive", "fsa"])
-                .default_value("flow-sensitive")
-                .help("The type of analysis.")
-                .long_help("Flow-sensitive analyses is supported now."),
         )
         .arg(
             Arg::new("INPUT")
@@ -90,7 +81,6 @@ fn make_options_parser() -> Command {
 pub struct AnalysisOptions {
     pub entry_func: String,
     pub entry_def_id: Option<u32>,
-    //pub verifopt_type: VerifOptType,
 }
 
 impl Default for AnalysisOptions {
@@ -98,7 +88,6 @@ impl Default for AnalysisOptions {
         Self {
             entry_func: String::new(),
             entry_def_id: None,
-            //verifopt_type: VerifOptType::FlowSensitive,
         }
     }
 }
@@ -107,20 +96,20 @@ impl AnalysisOptions {
     /// Parses options from a list of strings. Any content beyond the leftmost `--` token
     /// will be returned (excluding this token).
     pub fn parse_from_args(&mut self, args: &[String], from_env: bool) -> Vec<String> {
-        let mut verifopt_args_end = args.len();
+        let mut safeose_args_end = args.len();
         let mut rustc_args_start = 0;
         if let Some((p, _)) = args.iter().find_position(|s| s.as_str() == "--") {
-            verifopt_args_end = p;
+            safeose_args_end = p;
             rustc_args_start = p + 1;
         }
-        let verifopt_args = &args[0..verifopt_args_end];
+        let safeose_args = &args[0..safeose_args_end];
 
         let matches = if !from_env && rustc_args_start == 0 {
-            // The arguments may not be intended for VerifOpt and may get here via some tool, so do not
-            // report errors here, but just assume that the arguments were not meant for VerifOpt.
-            match make_options_parser().try_get_matches_from(verifopt_args.iter()) {
+            // The arguments may not be intended for SafeOSE and may get here via some tool, so do not
+            // report errors here, but just assume that the arguments were not meant for SafeOSE.
+            match make_options_parser().try_get_matches_from(safeose_args.iter()) {
                 Ok(matches) => {
-                    // Looks like these are VerifOpt options after all and there are no rustc options.
+                    // Looks like these are SafeOSE options after all and there are no rustc options.
                     rustc_args_start = args.len();
                     matches
                 }
@@ -131,9 +120,9 @@ impl AnalysisOptions {
                     }
                     ErrorKind::UnknownArgument => {
                         // Just send all of the arguments to rustc.
-                        // Note that this means that VerifOpt options and rustc options must always
-                        // be separated by --. I.e. any VerifOpt options present in arguments list
-                        // will stay unknown to VerifOpt and will make rustc unhappy.
+                        // Note that this means that SafeOSE options and rustc options must always
+                        // be separated by --. I.e. any SafeOSE options present in arguments list
+                        // will stay unknown to SafeOSE and will make rustc unhappy.
                         return args.to_vec();
                     }
                     _ => {
@@ -142,8 +131,8 @@ impl AnalysisOptions {
                 },
             }
         } else {
-            // This will display error diagnostics for arguments that are not valid for VerifOpt.
-            match make_options_parser().try_get_matches_from(verifopt_args.iter()) {
+            // This will display error diagnostics for arguments that are not valid for SafeOSE.
+            match make_options_parser().try_get_matches_from(safeose_args.iter()) {
                 Ok(matches) => {
                     if rustc_args_start == 0 {
                         rustc_args_start = args.len();
@@ -161,10 +150,9 @@ impl AnalysisOptions {
         }
         self.entry_def_id = matches.get_one::<u32>("entry-func-id").cloned();
 
-        //if matches.contains_id("verifopt-type") {
-        //    self.verifopt_type = match matches.get_one::<String>("verifopt-type").unwrap().as_str()
+        //if matches.contains_id("safeose-type") {
+        //    self.safeose_type = match matches.get_one::<String>("safeose-type").unwrap().as_str()
         //    {
-        //        "flow-sensitive" | "fsa" => VerifOptType::FlowSensitive,
         //        _ => unreachable!(),
         //    }
         //}

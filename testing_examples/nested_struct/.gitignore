@@ -1,4 +1,9 @@
 target
 log.md
 stats
+calls
 *.mir
+*.zst
+*.txt
+*.log
+*.stderr

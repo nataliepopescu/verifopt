@@ -1,6 +1,9 @@
 target
 log.md
-found_ex
-notfound_ex
 stats
 calls
+*.mir
+*.zst
+*.txt
+*.log
+*.stderr

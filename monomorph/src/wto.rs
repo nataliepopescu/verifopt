@@ -177,8 +177,15 @@ impl BBDeps {
             bb_deps.has_ret = true;
         }
 
-        // add return bb last
-        bb_deps.ordering.push_back(ret_bb);
+        // add return bb last (only if a real one was found — for a
+        // diverging function (no Return terminator anywhere, e.g. an
+        // embedded kernel's `main` that ends in an infinite scheduler
+        // loop or a `-> !` call), `ret_bb` is left at its default of 0,
+        // and pushing it here would silently re-add block 0 to the
+        // ordering a second time, bogus)
+        if ret_found {
+            bb_deps.ordering.push_back(ret_bb);
+        }
         debug!("%%%%%");
         debug!("self.ordering: {:?}", bb_deps.ordering);
         debug!("%%%%%");

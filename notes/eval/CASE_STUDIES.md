@@ -2,12 +2,13 @@
 
 - [ ] ripgrep
     - file regex searcher
-    - one last panic! (hopefully)
-    - now runs in 65 min? sus idk what happened
+    - now runs (to completion!) in 65 min? sus idk what happened
         - also, worst-performers has slightly changed
         - TermInterpStaticCall is #4 now, but idk whats in there
     - changes?
         - rewrite caps variants at 7
+        - deps.has_ret -> deps.ordering.is_empty / only push ifWTOs found ret
+            - maybe results in fewer blocks to exec
 
         - weird but not crucial to look at right now
 
@@ -24,9 +25,6 @@
     - ~hits same panic as dynolog at its 14th dynamic dispatch site~
     - now stack overflow
 
-
-----
-
 - [ ] tock
     - embedded kernel!
     - testing on boards/imix
@@ -34,17 +32,16 @@
         - tockloader installed
         - where is cargo invoked?
     - non-verifopt release build (via `cargo`) time: ~17s
-    - *no entry fn*
-    - `--entry-func main`
+    - *no entry fn*: `--entry-func main`
 
 - [ ] eza
     - ls written in Rust
     - smaller binary
     - non-verifopt release build time: 38s
-    - *no entry fn*
+    - *no entry fn*: TODO
 
 - [ ] quixote
     - "Blazing-fast blockchain event indexer"
     - debug build time for unmodified Rustc was over 3 min
     - non-verifopt release build time: >4 min
-    - *no entry fn*
+    - *no entry fn*: TODO

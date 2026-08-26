@@ -3809,9 +3809,9 @@ impl<'a> InterpPass<'a> {
             // discards one side of.
             let wtos_conflicts = Self::find_conflicting_keys(&m_wtos, &wtos);
             if !wtos_conflicts.is_empty() {
-                debug!(
-                    "WTOS MERGE CONFLICT: bb_visit={} {} scope(s) had disagreeing BBDeps, \
-                     one side's traversal state will be silently discarded by union(): {:?}",
+                panic!(
+                    "WTOS MERGE CONFLICT: bb_visit={} {} scope(s) had disagreeing BBDeps - \
+                     union() would silently discard one side's traversal state: {:?}",
                     *self.bb_visit_count.borrow(),
                     wtos_conflicts.len(),
                     wtos_conflicts
@@ -3967,9 +3967,9 @@ impl<'a> InterpPass<'a> {
             // read-side-consequence check is worth building.
             let refs_conflicts = Self::find_conflicting_keys(&merged.refs, &store.refs);
             if !refs_conflicts.is_empty() {
-                debug!(
-                    "REFS MERGE CONFLICT: bb_visit={} {} key(s) had disagreeing alias targets, \
-                     one side's will be silently discarded by union(): {:?}",
+                panic!(
+                    "REFS MERGE CONFLICT: bb_visit={} {} key(s) had disagreeing alias targets - \
+                     union() would silently discard one side: {:?}",
                     *self.bb_visit_count.borrow(),
                     refs_conflicts.len(),
                     refs_conflicts

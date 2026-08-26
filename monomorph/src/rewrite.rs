@@ -235,6 +235,21 @@ enum Edit {
 }
 
 fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
+    // Edit::Pointers builds a chain of runtime function-pointer-equality
+    // checks, one per candidate, all merging into a shared continuation
+    // block. Past a handful of candidates this produces a very wide
+    // fan-in into that continuation block (and into its shared unwind
+    // path) - observed in practice with ~40-80 candidates on a real
+    // ripgrep flag-dispatch call site, where it triggered an LLVM
+    // "Instruction does not dominate all uses!" codegen failure. Cap it
+    // here: past this many candidates, fall back to leaving the original
+    // (correct, if unoptimized) virtual call in place rather than risk
+    // broken codegen. Edit::Tagged's integer-switch construction is
+    // structurally different (no per-candidate pointer-comparison chain,
+    // no shared wide-fan-in merge block the same way) and isn't
+    // implicated, so it isn't capped here.
+    const MAX_POINTERS_CANDIDATES: usize = 7;
+
     let original = ORIGINAL.get().unwrap();
     let default = original(tcx, def_id);
 
@@ -256,7 +271,7 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
             } else if let Some(tags) = tags {
                 // tag dyn casts and switchint
                 Some((bb.as_usize(), Edit::Tagged(tags.to_vec())))
-            } else if targets.len() > 1 {
+            } else if targets.len() > 1 && targets.len() <= MAX_POINTERS_CANDIDATES {
                 // direct conditionals on pointers
                 Some((bb.as_usize(), Edit::Pointers(targets.to_vec())))
             } else {

@@ -25,15 +25,23 @@
 #   -e NAMES    Comma-separated list of example dir names to run (default: all)
 #   -h          Show this help and exit
 #
-# Per-example run arguments:
-#   If an example directory contains a file named `bench_args.txt`, its
-#   entire contents are word-split and passed as CLI arguments to the
-#   binary on every timed run (both the plain and the verifopt build).
-#   If absent, the binary is run with no arguments. Add a bench_args.txt
-#   to any example that needs real arguments to do meaningful work (e.g.
-#   a ripgrep invocation with a real pattern and directory). Relative
-#   paths in it resolve against the example's own directory, not
-#   wherever this script was invoked from.
+# Per-example run arguments (one or more named scenarios):
+#   If an example directory contains a file named `bench_args.txt`, each
+#   non-blank, non-comment (#) line is a separate benchmark scenario,
+#   run independently (its own warmup + timed runs, its own row in the
+#   output) against both the plain and the verifopt build. A line of
+#   the form
+#       label: arg1 arg2 ...
+#   uses `label` to identify the scenario in output/CSV; a line with no
+#   such prefix is auto-labeled args1, args2, ... by position. Blank
+#   lines and lines starting with # are ignored. If the file is absent,
+#   the binary is run once with no arguments, labeled "default".
+#   Relative paths in any scenario's args resolve against the example's
+#   own directory, not wherever this script was invoked from.
+#
+#   Example bench_args.txt with two scenarios:
+#       large_corpus: -n TODO /home/user/big_repo
+#       flag_heavy: -i -w --hidden --no-ignore -C 3 -g *.rs nomatch small_dir/
 #
 # Skipping the verifopt build for a specific example:
 #   If an example directory contains a file named
@@ -47,9 +55,10 @@
 #   rebuilding normally.
 #
 # Output:
-#   A comparison table per example (plain vs verifopt: mean/median/
-#   stddev/min/max, plus % change), a final summary across all examples,
-#   and a CSV with one row per (example, build kind) for further analysis.
+#   A comparison table per (example, scenario) (plain vs verifopt:
+#   mean/median/stddev/min/max, plus % change), a final summary across
+#   all of them, and a CSV with one row per (example, scenario, build
+#   kind) for further analysis.
 
 set -uo pipefail
 
@@ -127,14 +136,46 @@ for line in sys.stdin:
 ' <<< "$build_output" | tail -n 1
 }
 
-# Read bench_args.txt (if present) into an array, word-split.
-read_bench_args() {
+# Parse bench_args.txt (if present) into one or more scenarios. Prints
+# one "label<TAB>args..." line per scenario. A file line of the form
+# "label: args..." uses that label; a line with no such prefix is
+# auto-labeled args1, args2, ... by position. Blank lines and lines
+# starting with # are skipped. If the file is absent or has no usable
+# lines, prints a single "default<TAB>" scenario (no args).
+parse_bench_scenarios() {
     local example_dir="$1"
     local args_file="$example_dir/bench_args.txt"
+    local -a raw_lines=()
+
     if [ -f "$args_file" ]; then
-        # shellcheck disable=SC2046,SC2086
-        printf '%s' "$(cat "$args_file")"
+        local line
+        while IFS= read -r line || [ -n "$line" ]; do
+            # trim leading/trailing whitespace
+            line="${line#"${line%%[![:space:]]*}"}"
+            line="${line%"${line##*[![:space:]]}"}"
+            [ -z "$line" ] && continue
+            [[ "$line" == \#* ]] && continue
+            raw_lines+=("$line")
+        done < "$args_file"
     fi
+
+    if [ "${#raw_lines[@]}" -eq 0 ]; then
+        printf 'default\t\n'
+        return
+    fi
+
+    local n=0 label args
+    for line in "${raw_lines[@]}"; do
+        n=$((n + 1))
+        if [[ "$line" =~ ^([A-Za-z0-9_-]+):[[:space:]]+(.*)$ ]]; then
+            label="${BASH_REMATCH[1]}"
+            args="${BASH_REMATCH[2]}"
+        else
+            label="args$n"
+            args="$line"
+        fi
+        printf '%s\t%s\n' "$label" "$args"
+    done
 }
 
 # Read prebuilt_verifopt_binary.txt (if present): a path to an
@@ -168,14 +209,14 @@ read_prebuilt_verifopt_binary() {
 # measured. A warmup run failing or timing out doesn't affect anything
 # else; it's just warned about.
 warmup_runs() {
-    local kind="$1" example="$2" binary="$3" run_dir="$4"
-    shift 4
+    local kind="$1" example="$2" scenario="$3" binary="$4" run_dir="$5"
+    shift 5
     local -a args=("$@")
 
     local i
     for i in $(seq 1 "$NUM_WARMUP"); do
         if ! (cd "$run_dir" && timeout "${RUN_TIMEOUT}s" "$binary" "${args[@]}") >/dev/null 2>&1; then
-            echo "  warning: warmup run $i/$NUM_WARMUP ($kind) exited non-zero or timed out" >&2
+            echo "  warning: warmup run $i/$NUM_WARMUP ($kind, $scenario) exited non-zero or timed out" >&2
         fi
     done
 }
@@ -184,8 +225,8 @@ warmup_runs() {
 # $RESULTS_JSONL. Skips (with a warning) rather than aborting on a
 # per-run failure or timeout, so one bad run doesn't lose the rest.
 time_runs() {
-    local kind="$1" example="$2" binary="$3" run_dir="$4"
-    shift 4
+    local kind="$1" example="$2" scenario="$3" binary="$4" run_dir="$5"
+    shift 5
     local -a args=("$@")
 
     local i seconds
@@ -193,19 +234,19 @@ time_runs() {
         local start end
         start=$EPOCHREALTIME
         if ! (cd "$run_dir" && timeout "${RUN_TIMEOUT}s" "$binary" "${args[@]}") >/dev/null 2>&1; then
-            echo "  warning: run $i/$NUM_RUNS ($kind) exited non-zero or timed out - excluded from stats" >&2
+            echo "  warning: run $i/$NUM_RUNS ($kind, $scenario) exited non-zero or timed out - excluded from stats" >&2
             continue
         fi
         end=$EPOCHREALTIME
         seconds=$(python3 -c "print(f'{$end - $start:.6f}')")
-        printf '{"kind": "%s", "example": "%s", "run_index": %d, "seconds": %s}\n' \
-            "$kind" "$example" "$i" "$seconds" >> "$RESULTS_JSONL"
+        printf '{"kind": "%s", "example": "%s", "scenario": "%s", "run_index": %d, "seconds": %s}\n' \
+            "$kind" "$example" "$scenario" "$i" "$seconds" >> "$RESULTS_JSONL"
     done
 }
 
 # --- main --------------------------------------------------------------
 
-mapfile -t example_dirs < <(find "$EXAMPLES_DIR" -maxdepth 1 -mindepth 1 -type d | sort)
+mapfile -t example_dirs < <(find -L "$EXAMPLES_DIR" -maxdepth 1 -mindepth 1 -type d | sort)
 
 if [ -n "$ONLY_EXAMPLES" ]; then
     IFS=',' read -ra wanted <<< "$ONLY_EXAMPLES"
@@ -241,12 +282,16 @@ for example_dir in "${example_dirs[@]}"; do
         continue
     fi
 
-    read -ra bench_args < <(read_bench_args "$example_dir")
-    if [ "${#bench_args[@]}" -gt 0 ]; then
-        echo "  args: ${bench_args[*]}"
-    else
-        echo "  args: (none - add bench_args.txt to this example dir to set some)"
-    fi
+    mapfile -t scenario_lines < <(parse_bench_scenarios "$example_dir")
+    echo "  scenarios:"
+    for scenario_line in "${scenario_lines[@]}"; do
+        IFS=$'\t' read -r s_label s_args_str <<< "$scenario_line"
+        if [ -n "$s_args_str" ]; then
+            echo "    $s_label: $s_args_str"
+        else
+            echo "    $s_label: (no args)"
+        fi
+    done
 
     example_abs_dir="$(cd "$example_dir" && pwd)"
     plain_build_stderr="$example_abs_dir/.bench_plain_build.stderr"
@@ -274,12 +319,16 @@ for example_dir in "${example_dirs[@]}"; do
         continue
     fi
     echo "  [plain]    binary: $plain_binary"
-    if [ "$NUM_WARMUP" -gt 0 ]; then
-        echo "  [plain]    warming up ($NUM_WARMUP run(s), untimed) ..."
-        warmup_runs "plain" "$example" "$plain_binary" "$example_abs_dir" "${bench_args[@]}"
-    fi
-    echo "  [plain]    running $NUM_RUNS times ..."
-    time_runs "plain" "$example" "$plain_binary" "$example_abs_dir" "${bench_args[@]}"
+    for scenario_line in "${scenario_lines[@]}"; do
+        IFS=$'\t' read -r s_label s_args_str <<< "$scenario_line"
+        read -ra s_args <<< "$s_args_str"
+        if [ "$NUM_WARMUP" -gt 0 ]; then
+            echo "  [plain]    [$s_label] warming up ($NUM_WARMUP run(s), untimed) ..."
+            warmup_runs "plain" "$example" "$s_label" "$plain_binary" "$example_abs_dir" "${s_args[@]}"
+        fi
+        echo "  [plain]    [$s_label] running $NUM_RUNS times ..."
+        time_runs "plain" "$example" "$s_label" "$plain_binary" "$example_abs_dir" "${s_args[@]}"
+    done
 
     # --- verifopt build ---
     prebuilt_verifopt_binary="$(read_prebuilt_verifopt_binary "$example_abs_dir")"
@@ -318,12 +367,16 @@ for example_dir in "${example_dirs[@]}"; do
         fi
     fi
     echo "  [verifopt] binary: $verifopt_binary"
-    if [ "$NUM_WARMUP" -gt 0 ]; then
-        echo "  [verifopt] warming up ($NUM_WARMUP run(s), untimed) ..."
-        warmup_runs "verifopt" "$example" "$verifopt_binary" "$example_abs_dir" "${bench_args[@]}"
-    fi
-    echo "  [verifopt] running $NUM_RUNS times ..."
-    time_runs "verifopt" "$example" "$verifopt_binary" "$example_abs_dir" "${bench_args[@]}"
+    for scenario_line in "${scenario_lines[@]}"; do
+        IFS=$'\t' read -r s_label s_args_str <<< "$scenario_line"
+        read -ra s_args <<< "$s_args_str"
+        if [ "$NUM_WARMUP" -gt 0 ]; then
+            echo "  [verifopt] [$s_label] warming up ($NUM_WARMUP run(s), untimed) ..."
+            warmup_runs "verifopt" "$example" "$s_label" "$verifopt_binary" "$example_abs_dir" "${s_args[@]}"
+        fi
+        echo "  [verifopt] [$s_label] running $NUM_RUNS times ..."
+        time_runs "verifopt" "$example" "$s_label" "$verifopt_binary" "$example_abs_dir" "${s_args[@]}"
+    done
 
     rm -f "$plain_build_stderr" "$verifopt_build_log"
     echo

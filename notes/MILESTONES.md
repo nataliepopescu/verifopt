@@ -7,9 +7,10 @@
         - [x] hierarchical field support
         - [x] exact function memoization
         - [x] generalize function summaries
+        - [ ] inline asm
+
         - [ ] widening vs stubbing
         - [ ] loops
-        - [ ] inline asm
         - [ ] fn ptrs to nested fn decls
         - [ ] ~fn sig narrowing (scope?)~
 
@@ -26,12 +27,11 @@
 
     - [ ] general rewrite
         - [x] tag-based rewrite (doesn't use vtables)
-        - [ ] vtable ptr mod
+        - [ ] vtable ptr mod?
 
     - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
         - [ ] make call_stack and friends use interior mutability
         - [x] unique-vec data structure/api
-        - [ ] span cleanup
 
 
 - [ ] eval
@@ -75,14 +75,14 @@ by aug 14
 - [ ] run on 4 examples total
 - [ ] write summary/synthesis
 - [ ] general rewrite / use vtable ptrs
-- [ ] fn summaries
-- [ ] widening
+- [ ] ~fn summaries~
+- [ ] ~widening~
 
 by aug 21
-- [ ] loops
 - [ ] run on 7 examples total
 - [ ] write summary/synthesis
 - [ ] microbenchmarks
+- [ ] ~loops~
 
 by sept 4
 - [ ] impl RTA + Rupta baselines + test on existing examples

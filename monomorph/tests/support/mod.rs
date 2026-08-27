@@ -161,10 +161,12 @@ struct RunOutcome {
 }
 
 fn run_verifopt(dir: &Path) -> RunOutcome {
-    // `stats`/`found_ex`/`notfound_ex` are opened in append mode by VOLogger,
-    // so stale files from a previous run would silently corrupt this run's
-    // parsed output. Clear them first.
-    for f in ["stats", "found_ex", "notfound_ex"] {
+    // `stats` is opened in append mode by VOLogger,
+    // and `mir_dump.txt` is opened in append mode by rewrite.rs's
+    // `dump_body`, so stale files from a previous run would silently
+    // corrupt this run's parsed output (or, for mir_dump.txt, just pile up
+    // duplicate before/after blocks). Clear them all first.
+    for f in ["stats", "mir_dump.txt"] {
         let _ = fs::remove_file(dir.join(f));
     }
     let _ = Command::new("cargo").arg("clean").current_dir(dir).output();

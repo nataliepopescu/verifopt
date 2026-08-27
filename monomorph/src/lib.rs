@@ -14,6 +14,7 @@ use rustc_public::DefId;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{GenericArgs, Span};
 use std::collections::HashMap;
+use std::fs;
 
 use log::debug;
 
@@ -45,6 +46,16 @@ pub fn start_verifopt(
     HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     HashMap<(DefId, usize), TagPlan>,
 ) {
+    // `stats` (opened in append mode by VOLogger::new below) and
+    // `mir_dump.txt` (opened in append mode by rewrite.rs's `dump_body`,
+    // written during the later RewriteCallbacks compiler session within
+    // this same process) both accumulate across runs instead of being
+    // overwritten. Clear them here, at the very start of the whole
+    // verifopt pipeline, so each invocation starts from a clean slate.
+    for f in ["stats", "mir_dump.txt"] {
+        let _ = fs::remove_file(f);
+    }
+
     // TODO make log filename a cmdline option
     let f_filename = "found_ex";
     let nf_filename = "notfound_ex";

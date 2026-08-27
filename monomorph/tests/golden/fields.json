@@ -1,0 +1,17 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:29:5: 29:29",
+      "is_maybe_example": true,
+      "cha": [
+        "<fields::Inner1 as fields::Thing>::do_thing",
+        "<fields::Inner2 as fields::Thing>::do_thing"
+      ],
+      "fsa": [
+        "<fields::Inner1 as fields::Thing>::do_thing"
+      ]
+    }
+  ]
+}

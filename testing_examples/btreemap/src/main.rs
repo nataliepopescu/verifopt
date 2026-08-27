@@ -41,6 +41,7 @@ fn main() {
         // find out what's stored at this key. With the stub, FSA should
         // read the constraint straight off the map's synthetic element
         // slot and immediately know the candidate set is {Dog, Cat}.
-        println!("{name}: {}", animal.speak());
+        //println!("{name}: {}", animal.speak());
+        std::hint::black_box(animal.speak());
     }
 }

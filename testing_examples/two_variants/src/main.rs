@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use std::ptr::DynMetadata;
+use std::hint::black_box;
 
 pub trait Animal {
     fn speak(&self) -> usize;
@@ -76,7 +77,8 @@ fn main() {
             let _cat_vtable = core::ptr::metadata(&*cat);
             //let res = wrap_dyn_call(&animal, animal_vtable, cat_vtable);
             let res = animal.speak();
-            println!("res: {:?}", res);
+            black_box(res);
+            //println!("res: {:?}", res);
         }
     }
 }

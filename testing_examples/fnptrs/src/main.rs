@@ -67,6 +67,6 @@ fn main() {
     //black_box(rng);
 
     let t = TestFnPtr::new(add_one);
-    let res = t.call(2);
-    println!("res: {}", res);
+    std::hint::black_box(t.call(2));
+    //println!("res: {}", res);
 }

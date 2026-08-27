@@ -29,6 +29,7 @@ fn main() {
         };
 
     let res = animal.speak(100);
+    std::hint::black_box(res);
 
-    println!("{}", res);
+    //println!("{}", res);
 }

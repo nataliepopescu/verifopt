@@ -1,3 +1,5 @@
+use std::hint::black_box;
+
 fn main() {
     // Force multiple reallocations (capacity growth) of a Vec<u8>'s
     // internal buffer - each grow touches RawVec's Unique<u8>/NonNull<u8>
@@ -14,5 +16,8 @@ fn main() {
         s.push(i as char);
     }
 
-    println!("{} {}", buf.len(), s.len());
+    black_box(buf);
+    black_box(s);
+
+    //println!("{} {}", buf.len(), s.len());
 }

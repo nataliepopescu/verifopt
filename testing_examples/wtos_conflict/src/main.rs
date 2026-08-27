@@ -80,6 +80,6 @@ fn main() {
         // resulting contexts (including their `wtos` maps) back together.
         let n = if i == 0 { 3 } else { -1 };
         let result = w.run(n);
-        println!("{result}");
+        std::hint::black_box(result);
     }
 }

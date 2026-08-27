@@ -1,3 +1,5 @@
+use std::hint::black_box;
+
 pub trait Animal {
     fn speak(&self) -> usize;
 }
@@ -47,6 +49,7 @@ fn main() {
         };
 
     let res = animal.speak();
+    black_box(res);
 
-    println!("{}", res);
+    //println!("{}", res);
 }

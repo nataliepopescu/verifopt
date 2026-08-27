@@ -128,5 +128,6 @@ fn main() {
         }
         None => {},
     }
+    std::hint::black_box(l);
     //println!("functional list: {:?}", l);
 }

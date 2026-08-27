@@ -1,7 +1,7 @@
 { pkgs ? import <nixpkgs> {} }:
 
 pkgs.mkShell {
-  buildInputs = [ pkgs.rustup ];
+  buildInputs = [ pkgs.rustup pkgs.python3 ];
 
   shellHook = ''
     # Make sure the nightly toolchain is present (no-op if already installed)

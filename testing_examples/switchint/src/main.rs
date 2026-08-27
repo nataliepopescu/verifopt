@@ -17,5 +17,6 @@ fn choose(b: bool) -> fn(i32) -> i32 {
 
 fn main() {
     let f = choose(true);
-    println!("output: {}", f(2));
+    std::hint::black_box(f(2));
+    //println!("output: {}", f(2));
 }

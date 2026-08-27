@@ -41,9 +41,9 @@ fn main() {
     let _c = Circle { r: 2.0 };
     let r = Rect { h: 3.0, w: 4.0 };
 
-    noop();
+    //noop();
     let res = foo(&r);
-    noop();
+    //noop();
     black_box(res);
     //let res = foo(&c);
     //println!("res: {:?}", res);

@@ -64,6 +64,7 @@ fn main() {
         // both A and B as candidates here, then merges the resulting
         // contexts (including their `refs` maps) back together.
         let result = h.touch(i as i32);
-        println!("{result}");
+        std::hint::black_box(result);
+        //println!("{result}");
     }
 }

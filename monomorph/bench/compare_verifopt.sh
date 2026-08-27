@@ -29,10 +29,22 @@
 #   If an example directory contains a file named `bench_args.txt`, its
 #   entire contents are word-split and passed as CLI arguments to the
 #   binary on every timed run (both the plain and the verifopt build).
-#   If absent, the binary is run with no arguments. This is the only
-#   per-example convention this script assumes - add a bench_args.txt to
-#   any example that needs real arguments to do meaningful work (e.g. a
-#   ripgrep invocation with a real pattern and directory).
+#   If absent, the binary is run with no arguments. Add a bench_args.txt
+#   to any example that needs real arguments to do meaningful work (e.g.
+#   a ripgrep invocation with a real pattern and directory). Relative
+#   paths in it resolve against the example's own directory, not
+#   wherever this script was invoked from.
+#
+# Skipping the verifopt build for a specific example:
+#   If an example directory contains a file named
+#   `prebuilt_verifopt_binary.txt`, its first line is used as the path
+#   to an already-built verifopt binary, and `cargo clean` + `cargo
+#   verifopt --release` are skipped entirely for that example - useful
+#   when that build is expensive enough (e.g. a full ripgrep build) that
+#   re-running it on every benchmark invocation isn't practical. A
+#   relative path resolves against the example's own directory; an
+#   absolute path is used as-is. Remove or empty the file to go back to
+#   rebuilding normally.
 #
 # Output:
 #   A comparison table per example (plain vs verifopt: mean/median/
@@ -51,7 +63,7 @@ OUTPUT_CSV="bench_results.csv"
 ONLY_EXAMPLES=""
 
 usage() {
-    sed -n '2,41p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,52p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while getopts "d:n:w:t:o:e:h" opt; do
@@ -125,19 +137,44 @@ read_bench_args() {
     fi
 }
 
+# Read prebuilt_verifopt_binary.txt (if present): a path to an
+# already-built verifopt binary to use instead of rebuilding one. Meant
+# for examples (like a full ripgrep build) where `cargo verifopt
+# --release` takes long enough that re-running it on every benchmark
+# invocation isn't practical. A relative path is resolved against the
+# example's own absolute directory; an absolute path is used as-is.
+# Prints nothing if the file is absent or empty.
+read_prebuilt_verifopt_binary() {
+    local example_abs_dir="$1"
+    local marker_file="$example_abs_dir/prebuilt_verifopt_binary.txt"
+    if [ ! -f "$marker_file" ]; then
+        return
+    fi
+    local raw
+    raw="$(head -n 1 "$marker_file" | tr -d '[:space:]')"
+    if [ -z "$raw" ]; then
+        return
+    fi
+    if [[ "$raw" == /* ]]; then
+        printf '%s' "$raw"
+    else
+        printf '%s' "$example_abs_dir/$raw"
+    fi
+}
+
 # Run a binary NUM_WARMUP times, discarding the results entirely - not
 # timed, not recorded, just executed to warm up OS page/disk cache for
 # the binary (and anything it reads) before the runs that actually get
 # measured. A warmup run failing or timing out doesn't affect anything
 # else; it's just warned about.
 warmup_runs() {
-    local kind="$1" example="$2" binary="$3"
-    shift 3
+    local kind="$1" example="$2" binary="$3" run_dir="$4"
+    shift 4
     local -a args=("$@")
 
     local i
     for i in $(seq 1 "$NUM_WARMUP"); do
-        if ! timeout "${RUN_TIMEOUT}s" "$binary" "${args[@]}" >/dev/null 2>&1; then
+        if ! (cd "$run_dir" && timeout "${RUN_TIMEOUT}s" "$binary" "${args[@]}") >/dev/null 2>&1; then
             echo "  warning: warmup run $i/$NUM_WARMUP ($kind) exited non-zero or timed out" >&2
         fi
     done
@@ -147,15 +184,15 @@ warmup_runs() {
 # $RESULTS_JSONL. Skips (with a warning) rather than aborting on a
 # per-run failure or timeout, so one bad run doesn't lose the rest.
 time_runs() {
-    local kind="$1" example="$2" binary="$3"
-    shift 3
+    local kind="$1" example="$2" binary="$3" run_dir="$4"
+    shift 4
     local -a args=("$@")
 
     local i seconds
     for i in $(seq 1 "$NUM_RUNS"); do
         local start end
         start=$EPOCHREALTIME
-        if ! timeout "${RUN_TIMEOUT}s" "$binary" "${args[@]}" >/dev/null 2>&1; then
+        if ! (cd "$run_dir" && timeout "${RUN_TIMEOUT}s" "$binary" "${args[@]}") >/dev/null 2>&1; then
             echo "  warning: run $i/$NUM_RUNS ($kind) exited non-zero or timed out - excluded from stats" >&2
             continue
         fi
@@ -239,43 +276,54 @@ for example_dir in "${example_dirs[@]}"; do
     echo "  [plain]    binary: $plain_binary"
     if [ "$NUM_WARMUP" -gt 0 ]; then
         echo "  [plain]    warming up ($NUM_WARMUP run(s), untimed) ..."
-        warmup_runs "plain" "$example" "$plain_binary" "${bench_args[@]}"
+        warmup_runs "plain" "$example" "$plain_binary" "$example_abs_dir" "${bench_args[@]}"
     fi
     echo "  [plain]    running $NUM_RUNS times ..."
-    time_runs "plain" "$example" "$plain_binary" "${bench_args[@]}"
+    time_runs "plain" "$example" "$plain_binary" "$example_abs_dir" "${bench_args[@]}"
 
     # --- verifopt build ---
-    echo "  [verifopt] cargo clean + cargo verifopt --release ..."
-    if ! (cd "$example_dir" && cargo clean) >/dev/null 2>&1; then
-        echo "  skipping verifopt leg: cargo clean failed"
-        echo
-        continue
-    fi
-    if ! (cd "$example_dir" && cargo verifopt --release) >"$verifopt_build_log" 2>&1; then
-        echo "  skipping verifopt leg: cargo verifopt --release failed"
-        echo "  --- last 30 lines of output ---"
-        tail -n 30 "$verifopt_build_log" | sed 's/^/    /'
-        echo
-        continue
-    fi
-    # cargo-verifopt is a rustc-wrapper substitution, not a different
-    # build/output layout - it produces its binary at the exact same
-    # path a plain `cargo build --release` would, so reuse the path we
-    # already discovered rather than re-parsing (verifopt's own build
-    # doesn't cleanly support --message-format=json passthrough).
-    verifopt_binary="$plain_binary"
-    if [ ! -x "$verifopt_binary" ]; then
-        echo "  skipping verifopt leg: expected binary not found or not executable at $verifopt_binary"
-        echo
-        continue
+    prebuilt_verifopt_binary="$(read_prebuilt_verifopt_binary "$example_abs_dir")"
+    if [ -n "$prebuilt_verifopt_binary" ]; then
+        if [ ! -x "$prebuilt_verifopt_binary" ]; then
+            echo "  skipping verifopt leg: prebuilt_verifopt_binary.txt points to a missing or non-executable file: $prebuilt_verifopt_binary"
+            echo
+            continue
+        fi
+        echo "  [verifopt] using prebuilt binary from prebuilt_verifopt_binary.txt (skipping cargo clean + cargo verifopt --release)"
+        verifopt_binary="$prebuilt_verifopt_binary"
+    else
+        echo "  [verifopt] cargo clean + cargo verifopt --release ..."
+        if ! (cd "$example_dir" && cargo clean) >/dev/null 2>&1; then
+            echo "  skipping verifopt leg: cargo clean failed"
+            echo
+            continue
+        fi
+        if ! (cd "$example_dir" && cargo verifopt --release) >"$verifopt_build_log" 2>&1; then
+            echo "  skipping verifopt leg: cargo verifopt --release failed"
+            echo "  --- last 30 lines of output ---"
+            tail -n 30 "$verifopt_build_log" | sed 's/^/    /'
+            echo
+            continue
+        fi
+        # cargo-verifopt is a rustc-wrapper substitution, not a different
+        # build/output layout - it produces its binary at the exact same
+        # path a plain `cargo build --release` would, so reuse the path we
+        # already discovered rather than re-parsing (verifopt's own build
+        # doesn't cleanly support --message-format=json passthrough).
+        verifopt_binary="$plain_binary"
+        if [ ! -x "$verifopt_binary" ]; then
+            echo "  skipping verifopt leg: expected binary not found or not executable at $verifopt_binary"
+            echo
+            continue
+        fi
     fi
     echo "  [verifopt] binary: $verifopt_binary"
     if [ "$NUM_WARMUP" -gt 0 ]; then
         echo "  [verifopt] warming up ($NUM_WARMUP run(s), untimed) ..."
-        warmup_runs "verifopt" "$example" "$verifopt_binary" "${bench_args[@]}"
+        warmup_runs "verifopt" "$example" "$verifopt_binary" "$example_abs_dir" "${bench_args[@]}"
     fi
     echo "  [verifopt] running $NUM_RUNS times ..."
-    time_runs "verifopt" "$example" "$verifopt_binary" "${bench_args[@]}"
+    time_runs "verifopt" "$example" "$verifopt_binary" "$example_abs_dir" "${bench_args[@]}"
 
     rm -f "$plain_build_stderr" "$verifopt_build_log"
     echo

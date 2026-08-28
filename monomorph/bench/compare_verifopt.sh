@@ -65,6 +65,17 @@
 #   absolute path is used as-is. Remove or empty the file to go back to
 #   rebuilding normally.
 #
+# Specifying the --bin target explicitly:
+#   Both cargo-verifopt invocations pass --bin <name> explicitly, so
+#   cargo doesn't also compile every test target in the package (its
+#   own default behavior without --bin - see cargo-verifopt.rs's own
+#   docs), which can otherwise be mistaken for the real binary. The
+#   name is normally auto-discovered via `cargo metadata`, but if an
+#   example directory contains a file named `bin_target_name.txt`, its
+#   first line is used directly instead, skipping the metadata call
+#   entirely - useful for a crate with more than one [[bin]], or any
+#   other case where auto-discovery can't uniquely determine one.
+#
 # Output:
 #   A comparison table per (example, scenario) (plain vs verifopt:
 #   mean/median/stddev/min/max, plus % change), a final summary across
@@ -87,7 +98,7 @@ OUTPUT_SIZES_CSV="bench_sizes.csv"
 ONLY_EXAMPLES=""
 
 usage() {
-    sed -n '2,75p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,86p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while getopts "d:n:w:t:o:z:e:h" opt; do
@@ -289,6 +300,23 @@ read_prebuilt_verifopt_binary() {
     fi
 }
 
+# Read bin_target_name.txt (if present): an explicit override for the
+# package's binary target name, checked before ever calling `cargo
+# metadata`. Meant for any example where auto-discovery (below) can't
+# uniquely determine one - e.g. a crate with more than one [[bin]], or
+# any other cargo-metadata quirk specific to that example - since this
+# skips the metadata call entirely, it's also a way to bypass whatever
+# is causing auto-discovery to fail rather than needing to diagnose it.
+# Prints nothing if the file is absent or empty.
+read_bin_target_name_override() {
+    local example_dir="$1"
+    local marker_file="$example_dir/bin_target_name.txt"
+    if [ ! -f "$marker_file" ]; then
+        return
+    fi
+    head -n 1 "$marker_file" | tr -d '[:space:]'
+}
+
 # Find the package's own binary target name via `cargo metadata` (a
 # fast, side-effect-free introspection call - no compilation happens),
 # so both cargo-verifopt invocations below can pass --bin <name>
@@ -301,7 +329,9 @@ read_prebuilt_verifopt_binary() {
 # an ordinary compiler-artifact too). Prints nothing (callers fall back
 # to the old, ambiguous discovery with a warning) if zero or more than
 # one bin target is found - this is meant for the common single-binary
-# case, not to arbitrate a genuinely multi-binary example.
+# case, not to arbitrate a genuinely multi-binary example. See
+# read_bin_target_name_override above for a direct way to skip this
+# entirely for a specific example.
 discover_bin_target_name() {
     local example_dir="$1"
     local metadata
@@ -439,13 +469,20 @@ for example_dir in "${example_dirs[@]}"; do
     verifopt_clean_log="$example_abs_dir/.bench_verifopt_clean.log"
     verifopt_build_log="$example_abs_dir/.bench_verifopt_build.log"
 
-    bin_target_name="$(discover_bin_target_name "$example_dir")"
+    bin_target_name="$(read_bin_target_name_override "$example_dir")"
+    if [ -n "$bin_target_name" ]; then
+        echo "  bin target: $bin_target_name (from bin_target_name.txt)"
+    else
+        bin_target_name="$(discover_bin_target_name "$example_dir")"
+        if [ -n "$bin_target_name" ]; then
+            echo "  bin target: $bin_target_name"
+        fi
+    fi
     bin_flag=()
     if [ -n "$bin_target_name" ]; then
-        echo "  bin target: $bin_target_name"
         bin_flag=(--bin "$bin_target_name")
     else
-        echo "  warning: could not uniquely determine a --bin target via cargo metadata - cargo verifopt may also compile test harnesses, which could be mistaken for the real binary" >&2
+        echo "  warning: could not uniquely determine a --bin target via cargo metadata - cargo verifopt may also compile test harnesses, which could be mistaken for the real binary. Add a bin_target_name.txt to this example to specify it directly." >&2
     fi
 
     # --- plain (control) build: cargo verifopt --no-rewrite ---

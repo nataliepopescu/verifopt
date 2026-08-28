@@ -3,7 +3,7 @@
   "not_count": 1,
   "sites": [
     {
-      "span": "src/main.rs:44:32: 44:46",
+      "span": "src/main.rs:45:30: 45:44",
       "is_maybe_example": false,
       "cha": [
         "<btreemap::Cat as btreemap::Speak>::speak",

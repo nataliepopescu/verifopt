@@ -3,7 +3,7 @@
   "not_count": 0,
   "sites": [
     {
-      "span": "src/main.rs:70:15: 70:29",
+      "span": "src/main.rs:72:15: 72:29",
       "is_maybe_example": true,
       "cha": [
         "<two_variants_static_nonzst::Cat as two_variants_static_nonzst::Animal>::speak",

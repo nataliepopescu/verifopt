@@ -357,12 +357,25 @@ for example_dir in "${example_dirs[@]}"; do
     verifopt_build_log="$example_abs_dir/.bench_verifopt_build.log"
 
     # --- plain build ---
+    plain_clean_log="$example_abs_dir/.bench_plain_clean.log"
     echo "  [plain]    cargo clean + cargo build --release (isolated target-dir) ..."
-    if ! (cd "$example_dir" && cargo clean --target-dir "$PLAIN_TARGET_DIR") >/dev/null 2>&1; then
-        echo "  skipping: cargo clean failed (plain)"
-        echo
-        continue
+    # cargo refuses to clean a --target-dir that doesn't already contain
+    # its own CACHEDIR.TAG marker (a safety check against accidentally
+    # wiping a directory it didn't create) - on the first example in a
+    # fresh script invocation, PLAIN_TARGET_DIR is a brand-new mktemp -d
+    # with no tag yet, so there'd be nothing to clean anyway. Only clean
+    # once a prior example's build has actually populated it.
+    if [ -f "$PLAIN_TARGET_DIR/CACHEDIR.TAG" ]; then
+        if ! (cd "$example_dir" && cargo clean --target-dir "$PLAIN_TARGET_DIR") >"$plain_clean_log" 2>&1; then
+            echo "  skipping: cargo clean failed (plain)"
+            echo "  --- last 30 lines of output ---"
+            tail -n 30 "$plain_clean_log" | sed 's/^/    /'
+            rm -f "$plain_clean_log"
+            echo
+            continue
+        fi
     fi
+    rm -f "$plain_clean_log"
     plain_build_output="$(cd "$example_dir" && cargo build --release --target-dir "$PLAIN_TARGET_DIR" --message-format=json 2>"$plain_build_stderr")"
     if [ -z "$plain_build_output" ]; then
         echo "  skipping: cargo build --release produced no output (plain build likely failed)"
@@ -417,8 +430,10 @@ for example_dir in "${example_dirs[@]}"; do
         # need prebuilt_verifopt_binary.txt in the first place (e.g.
         # ripgrep), this branch won't run for it at all.
         echo "  [verifopt] cargo clean + cargo verifopt --release ..."
-        if ! (cd "$example_dir" && cargo clean) >/dev/null 2>&1; then
+        if ! (cd "$example_dir" && cargo clean) >"$verifopt_build_log" 2>&1; then
             echo "  skipping verifopt leg: cargo clean failed"
+            echo "  --- last 30 lines of output ---"
+            tail -n 30 "$verifopt_build_log" | sed 's/^/    /'
             echo
             continue
         fi

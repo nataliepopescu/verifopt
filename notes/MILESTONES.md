@@ -35,20 +35,20 @@
 
 
 - [ ] eval
-    - [ ] perf bottlenecks / tool benchmarks (verifopt performance)
+    - [x] perf bottlenecks / tool benchmarks (verifopt performance)
 
     - [ ] how to validate FSA
         - run binary tests
         - sample dynamic dispatches
 
-    - [ ] hook verifopt into non-main entry points (for benchmarks)
+    - [x] hook verifopt into non-main entry points (for benchmarks)
 
     - [ ] microbenchmarks
         - [ ] look into fallback rewrite - why performs worse than initial dyn call?
         - [ ] whats the expected speedup amount for different cases?
 
     - [ ] complete runs on _at least_ 10 full binaries
-        - [ ] ripgrep
+        - [x] ripgrep
         - [ ] dynolog cli
         - [ ] quixote
         - [ ] zellij
@@ -65,31 +65,17 @@
 
 ## Tentative Milestones
 
-by aug 1
-- [ ] run verifopt on full ripgrep
-- [ ] run on 1 new example
-- [x] merge ayush changes
-- [x] make progress on general rewrite / vtable ptr changes
-
-by aug 14
+as of aug 27
+- [x] run verifopt on full ripgrep
+    - verifopt runs on ripgrep runs in just over an hour
+- [ ] rewrite effectiveness
+    - perf
+    - code size
 - [ ] run on 4 examples total
-- [ ] write summary/synthesis
-- [ ] general rewrite / use vtable ptrs
-- [ ] ~fn summaries~
-- [ ] ~widening~
-
-by aug 21
-- [ ] run on 7 examples total
-- [ ] write summary/synthesis
-- [ ] microbenchmarks
-- [ ] ~loops~
-
-by sept 4
-- [ ] impl RTA + Rupta baselines + test on existing examples
-- [ ] write summary/synthesis
-
-by sept 9
-- [ ] fill in paper
+    - starting to run on other examples
+    - need to impl inline asm
+- [ ] impl RTA + Rupta baselines
+- [ ] write
 
 ## Deadlines
 

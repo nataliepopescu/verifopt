@@ -3809,12 +3809,17 @@ impl<'a> InterpPass<'a> {
             // discards one side of.
             let wtos_conflicts = Self::find_conflicting_keys(&m_wtos, &wtos);
             if !wtos_conflicts.is_empty() {
+                let detailed: Vec<_> = wtos_conflicts
+                    .iter()
+                    .map(|k| (k, m_wtos.get(k), wtos.get(k)))
+                    .collect();
                 panic!(
                     "WTOS MERGE CONFLICT: bb_visit={} {} scope(s) had disagreeing BBDeps - \
-                     union() would silently discard one side's traversal state: {:?}",
+                     union() would silently discard one side's traversal state.\n\
+                     (scope, existing_BBDeps_kept, incoming_BBDeps_discarded): {:#?}",
                     *self.bb_visit_count.borrow(),
                     wtos_conflicts.len(),
-                    wtos_conflicts
+                    detailed
                 );
             }
             for conflicting_scope in wtos_conflicts {
@@ -3967,12 +3972,17 @@ impl<'a> InterpPass<'a> {
             // read-side-consequence check is worth building.
             let refs_conflicts = Self::find_conflicting_keys(&merged.refs, &store.refs);
             if !refs_conflicts.is_empty() {
+                let detailed: Vec<_> = refs_conflicts
+                    .iter()
+                    .map(|k| (k, merged.refs.get(k), store.refs.get(k)))
+                    .collect();
                 panic!(
                     "REFS MERGE CONFLICT: bb_visit={} {} key(s) had disagreeing alias targets - \
-                     union() would silently discard one side: {:?}",
+                     union() would silently discard one side.\n\
+                     (key, existing_value_kept, incoming_value_discarded): {:#?}",
                     *self.bb_visit_count.borrow(),
                     refs_conflicts.len(),
-                    refs_conflicts
+                    detailed
                 );
             }
             for conflicting_key in refs_conflicts {

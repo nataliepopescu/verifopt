@@ -73,6 +73,7 @@ example_test!(casting_traitobj, "casting_traitobj", Passing);
 example_test!(closures, "closures", Passing);
 example_test!(constraint_hierarchy, "constraint_hierarchy", Passing);
 example_test!(default, "default", Passing);
+example_test!(diff_sites, "diff_sites", Passing);
 example_test!(fields, "fields", Passing);
 example_test!(fnptrs, "fnptrs", Passing);
 example_test!(generic, "generic", Passing);

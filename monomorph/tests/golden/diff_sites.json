@@ -1,0 +1,28 @@
+{
+  "maybe_count": 1,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:55:5: 55:14",
+      "is_maybe_example": true,
+      "cha": [
+        "<diff_sites::Cat as diff_sites::Animal>::speak",
+        "<diff_sites::Dog as diff_sites::Animal>::speak"
+      ],
+      "fsa": [
+        "<diff_sites::Cat as diff_sites::Animal>::speak"
+      ]
+    },
+    {
+      "span": "src/main.rs:60:5: 60:14",
+      "is_maybe_example": false,
+      "cha": [
+        "<diff_sites::Cat as diff_sites::Animal>::speak",
+        "<diff_sites::Dog as diff_sites::Animal>::speak"
+      ],
+      "fsa": [
+        "<diff_sites::Dog as diff_sites::Animal>::speak"
+      ]
+    }
+  ]
+}

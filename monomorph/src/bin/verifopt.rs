@@ -113,19 +113,34 @@ fn main() {
         //let mut callbacks = VerifOptCallbacks::new(options);
         //let compiler = rustc_driver::RunCompiler::new(&rustc_command_line_arguments, &mut callbacks);
         //compiler.run()
-        let mut callbacks = FsaCallbacks { options };
-        match rustc_driver::catch_fatal_errors(|| {
-            rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
-        }) {
-            Ok(()) => {}
-            Err(_) => {
-                debug!(
-                    "FsaCallbacks phase returned FatalError - continuing anyway to reach the rewrite/codegen stage"
-                );
+        //
+        // In --no-rewrite (control) mode, nothing downstream will ever
+        // read this invocation's output - RewriteCallbacks's
+        // optimized_mir override bypasses the Store entirely regardless
+        // of what's in it (see SKIP_REWRITE). Skipping the whole
+        // invocation here, not just the interpretation inside
+        // FsaCallbacks::after_analysis, avoids paying for a full
+        // parse/type-check/borrow-check pass that would otherwise
+        // happen twice for no reason. This is the only place
+        // FsaCallbacks is ever constructed, so this guard alone is
+        // sufficient - after_analysis doesn't duplicate the check.
+        if !options.no_rewrite {
+            let mut callbacks = FsaCallbacks {
+                options: options.clone(),
+            };
+            match rustc_driver::catch_fatal_errors(|| {
+                rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
+            }) {
+                Ok(()) => {}
+                Err(_) => {
+                    debug!(
+                        "FsaCallbacks phase returned FatalError - continuing anyway to reach the rewrite/codegen stage"
+                    );
+                }
             }
         }
 
-        let mut callbacks = RewriteCallbacks;
+        let mut callbacks = RewriteCallbacks { options };
         match rustc_driver::catch_fatal_errors(|| {
             rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
         }) {

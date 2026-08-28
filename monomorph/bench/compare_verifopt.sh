@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
 #
 # compare_verifopt.sh - for each example project under a testing_examples
-# directory, build it two ways (plain `cargo build --release` and
-# `cargo verifopt --release`), run each resulting binary N times, and
-# report summary timing stats comparing the two.
+# directory, build it two ways - a control build (`cargo verifopt
+# --release -- --no-rewrite`, going through the exact same pipeline and
+# RUSTFLAGS as a real verifopt build, but with every rewrite skipped)
+# and a real rewritten build (`cargo verifopt --release`) - run each
+# resulting binary N times, and report summary timing stats comparing
+# the two.
+#
+# Using --no-rewrite for the "plain" leg (rather than a bare `cargo
+# build --release`) isolates the effect of the rewrites themselves from
+# any effect of the pipeline/flags alone (e.g. -Z always_encode_mir
+# potentially changing inlining or other codegen decisions even with
+# zero rewrites applied) - see --no-rewrite's own documentation in
+# monomorph/src/util/options.rs for the full rationale.
 #
 # Not wired up as `cargo bench` on purpose: this orchestrates two entirely
 # separate build pipelines (different rustc wrappers) across multiple
@@ -77,7 +87,7 @@ OUTPUT_SIZES_CSV="bench_sizes.csv"
 ONLY_EXAMPLES=""
 
 usage() {
-    sed -n '2,65p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,75p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while getopts "d:n:w:t:o:z:e:h" opt; do
@@ -129,19 +139,20 @@ fi
 
 RESULTS_JSONL="$(mktemp)"
 SIZES_JSONL="$(mktemp)"
-# The plain leg's `cargo clean` + `cargo build` are pointed at this
-# isolated directory rather than the example's own (default) target/ -
-# without it, running this script against an example whose real target/
-# is also being used by something else (e.g. a separate, long-running
-# `cargo verifopt` invocation you're not routing through
-# prebuilt_verifopt_binary.txt) would have this script's own `cargo
-# clean` for the plain build wipe out that other build's in-progress
-# dependency artifacts out from under it. Shared across all examples in
+# Both legs now go through `cargo verifopt` (control build via
+# --no-rewrite, or the real thing), so both get their own isolated
+# --target-dir - without this, running this script against an example
+# whose real target/ is also being used by something else (e.g. a
+# separate, long-running `cargo verifopt` invocation you're not routing
+# through prebuilt_verifopt_binary.txt) would have this script's own
+# `cargo clean` wipe out that other build's in-progress dependency
+# artifacts out from under it. Each is shared across all examples in
 # this invocation (safe: examples are processed one at a time, and each
 # is cleaned immediately before its own build, so there's no
 # cross-example contamination within a single run).
 PLAIN_TARGET_DIR="$(mktemp -d)"
-trap 'rm -f "$RESULTS_JSONL" "$SIZES_JSONL"; rm -rf "$PLAIN_TARGET_DIR"' EXIT
+VERIFOPT_TARGET_DIR="$(mktemp -d)"
+trap 'rm -f "$RESULTS_JSONL" "$SIZES_JSONL"; rm -rf "$PLAIN_TARGET_DIR" "$VERIFOPT_TARGET_DIR"' EXIT
 
 echo "kind,example,run_index,seconds" > /dev/null # (CSV header written by bench_stats.py at the end)
 
@@ -154,6 +165,7 @@ discover_binary() {
     local build_output="$1"
     python3 -c '
 import json, sys
+candidates = []
 for line in sys.stdin:
     line = line.strip()
     if not line:
@@ -163,8 +175,23 @@ for line in sys.stdin:
     except json.JSONDecodeError:
         continue
     if msg.get("reason") == "compiler-artifact" and msg.get("executable"):
-        print(msg["executable"])
-' <<< "$build_output" | tail -n 1
+        candidates.append(msg)
+
+if not candidates:
+    sys.exit(0)
+
+# Prefer an artifact whose target is actually a "bin" - matters when
+# more than one compiler-artifact message shows up (e.g. `cargo verifopt`
+# without an explicit --bin, run against a pure-workspace example with
+# no root package, builds every member). Falls back to "whichever came
+# last" if that field is missing for some reason, matching the simpler
+# heuristic this replaced.
+bin_candidates = [msg["executable"] for msg in candidates if "bin" in ((msg.get("target") or {}).get("kind") or [])]
+if bin_candidates:
+    print(bin_candidates[-1])
+else:
+    print(candidates[-1]["executable"])
+' <<< "$build_output"
 }
 
 # Record a binary's size (via the `size` command, plus raw on-disk file
@@ -262,6 +289,42 @@ read_prebuilt_verifopt_binary() {
     fi
 }
 
+# Find the package's own binary target name via `cargo metadata` (a
+# fast, side-effect-free introspection call - no compilation happens),
+# so both cargo-verifopt invocations below can pass --bin <name>
+# explicitly. Without it, `cargo verifopt --release` (no --bin) falls
+# back to cargo-verifopt.rs's own default behavior of also running
+# `cargo test --no-run` for every test target in the package - its
+# --message-format=json output then includes compiled integration-test
+# harnesses alongside the real binary, with no reliable way to tell
+# them apart from that output alone (a compiled test harness looks like
+# an ordinary compiler-artifact too). Prints nothing (callers fall back
+# to the old, ambiguous discovery with a warning) if zero or more than
+# one bin target is found - this is meant for the common single-binary
+# case, not to arbitrate a genuinely multi-binary example.
+discover_bin_target_name() {
+    local example_dir="$1"
+    local metadata
+    metadata="$(cd "$example_dir" && cargo metadata --format-version 1 --no-deps 2>/dev/null)"
+    if [ -z "$metadata" ]; then
+        return
+    fi
+    python3 -c '
+import json, sys
+try:
+    data = json.loads(sys.stdin.read())
+except json.JSONDecodeError:
+    sys.exit(0)
+bin_names = []
+for pkg in data.get("packages", []):
+    for target in pkg.get("targets", []):
+        if "bin" in (target.get("kind") or []):
+            bin_names.append(target["name"])
+if len(bin_names) == 1:
+    print(bin_names[0])
+' <<< "$metadata"
+}
+
 # Run a binary NUM_WARMUP times, discarding the results entirely - not
 # timed, not recorded, just executed to warm up OS page/disk cache for
 # the binary (and anything it reads) before the runs that actually get
@@ -301,6 +364,24 @@ time_runs() {
         printf '{"kind": "%s", "example": "%s", "scenario": "%s", "run_index": %d, "seconds": %s}\n' \
             "$kind" "$example" "$scenario" "$i" "$seconds" >> "$RESULTS_JSONL"
     done
+}
+
+# Clean an isolated --target-dir, but only if it's actually been used
+# before (has cargo's own CACHEDIR.TAG marker). cargo refuses to clean a
+# --target-dir that doesn't already contain that marker (a safety check
+# against accidentally wiping a directory it didn't create), and on the
+# first use of a freshly mktemp'd directory there's nothing to clean
+# anyway - only later examples sharing the same directory actually need
+# a real clean. Writes cargo's own output to $log_file; returns cargo's
+# exit status (or 0, untouched log file, when skipped as a no-op).
+clean_isolated_target_dir() {
+    local example_dir="$1" target_dir="$2" log_file="$3"
+    if [ -f "$target_dir/CACHEDIR.TAG" ]; then
+        (cd "$example_dir" && cargo clean --target-dir "$target_dir") >"$log_file" 2>&1
+    else
+        : > "$log_file"
+        return 0
+    fi
 }
 
 # --- main --------------------------------------------------------------
@@ -353,32 +434,34 @@ for example_dir in "${example_dirs[@]}"; do
     done
 
     example_abs_dir="$(cd "$example_dir" && pwd)"
+    plain_clean_log="$example_abs_dir/.bench_plain_clean.log"
     plain_build_stderr="$example_abs_dir/.bench_plain_build.stderr"
+    verifopt_clean_log="$example_abs_dir/.bench_verifopt_clean.log"
     verifopt_build_log="$example_abs_dir/.bench_verifopt_build.log"
 
-    # --- plain build ---
-    plain_clean_log="$example_abs_dir/.bench_plain_clean.log"
-    echo "  [plain]    cargo clean + cargo build --release (isolated target-dir) ..."
-    # cargo refuses to clean a --target-dir that doesn't already contain
-    # its own CACHEDIR.TAG marker (a safety check against accidentally
-    # wiping a directory it didn't create) - on the first example in a
-    # fresh script invocation, PLAIN_TARGET_DIR is a brand-new mktemp -d
-    # with no tag yet, so there'd be nothing to clean anyway. Only clean
-    # once a prior example's build has actually populated it.
-    if [ -f "$PLAIN_TARGET_DIR/CACHEDIR.TAG" ]; then
-        if ! (cd "$example_dir" && cargo clean --target-dir "$PLAIN_TARGET_DIR") >"$plain_clean_log" 2>&1; then
-            echo "  skipping: cargo clean failed (plain)"
-            echo "  --- last 30 lines of output ---"
-            tail -n 30 "$plain_clean_log" | sed 's/^/    /'
-            rm -f "$plain_clean_log"
-            echo
-            continue
-        fi
+    bin_target_name="$(discover_bin_target_name "$example_dir")"
+    bin_flag=()
+    if [ -n "$bin_target_name" ]; then
+        echo "  bin target: $bin_target_name"
+        bin_flag=(--bin "$bin_target_name")
+    else
+        echo "  warning: could not uniquely determine a --bin target via cargo metadata - cargo verifopt may also compile test harnesses, which could be mistaken for the real binary" >&2
+    fi
+
+    # --- plain (control) build: cargo verifopt --no-rewrite ---
+    echo "  [plain]    cargo clean + cargo verifopt --release -- --no-rewrite (isolated target-dir, control build) ..."
+    if ! clean_isolated_target_dir "$example_dir" "$PLAIN_TARGET_DIR" "$plain_clean_log"; then
+        echo "  skipping: cargo clean failed (plain)"
+        echo "  --- last 30 lines of output ---"
+        tail -n 30 "$plain_clean_log" | sed 's/^/    /'
+        rm -f "$plain_clean_log"
+        echo
+        continue
     fi
     rm -f "$plain_clean_log"
-    plain_build_output="$(cd "$example_dir" && cargo build --release --target-dir "$PLAIN_TARGET_DIR" --message-format=json 2>"$plain_build_stderr")"
+    plain_build_output="$(cd "$example_dir" && cargo verifopt --release --target-dir "$PLAIN_TARGET_DIR" "${bin_flag[@]}" --message-format=json -- --no-rewrite 2>"$plain_build_stderr")"
     if [ -z "$plain_build_output" ]; then
-        echo "  skipping: cargo build --release produced no output (plain build likely failed)"
+        echo "  skipping: cargo verifopt --release -- --no-rewrite produced no output (plain/control build likely failed)"
         echo "  --- last 30 lines of stderr ---"
         tail -n 30 "$plain_build_stderr" 2>/dev/null | sed 's/^/    /'
         echo
@@ -414,47 +497,34 @@ for example_dir in "${example_dirs[@]}"; do
         echo "  [verifopt] using prebuilt binary from prebuilt_verifopt_binary.txt (skipping cargo clean + cargo verifopt --release)"
         verifopt_binary="$prebuilt_verifopt_binary"
     else
-        # Unlike the plain leg above, this deliberately still uses the
-        # example's own (default) target/ directory - `cargo-verifopt`
-        # is a custom subcommand, not vanilla `cargo build`, and its
-        # support for `--target-dir` passthrough hasn't been verified,
-        # so an isolated target-dir isn't applied here to avoid risking
-        # this leg silently misbehaving. This means: don't run this
-        # script's verifopt-building path concurrently with any other
-        # `cargo verifopt` invocation against the same example
-        # directory - exactly this collision (this script's plain-leg
-        # clean wiping a separately-running, non-isolated cargo verifopt
-        # build's dependency artifacts) is what the plain leg's
-        # isolation above exists to prevent, but only for the plain
-        # side. If you're benchmarking an example expensive enough to
-        # need prebuilt_verifopt_binary.txt in the first place (e.g.
-        # ripgrep), this branch won't run for it at all.
-        echo "  [verifopt] cargo clean + cargo verifopt --release ..."
-        if ! (cd "$example_dir" && cargo clean) >"$verifopt_build_log" 2>&1; then
+        # Now that --target-dir is confirmed to work with cargo
+        # verifopt (it's forwarded as an ordinary arg to the real
+        # `cargo build` underneath - see cargo-verifopt.rs's
+        # call_cargo_on_target), this leg gets the same isolation and
+        # --message-format=json discovery as the plain leg above,
+        # instead of sharing the example's own default target/ and
+        # reusing the plain build's binary name.
+        echo "  [verifopt] cargo clean + cargo verifopt --release (isolated target-dir) ..."
+        if ! clean_isolated_target_dir "$example_dir" "$VERIFOPT_TARGET_DIR" "$verifopt_clean_log"; then
             echo "  skipping verifopt leg: cargo clean failed"
             echo "  --- last 30 lines of output ---"
-            tail -n 30 "$verifopt_build_log" | sed 's/^/    /'
+            tail -n 30 "$verifopt_clean_log" | sed 's/^/    /'
+            rm -f "$verifopt_clean_log"
             echo
             continue
         fi
-        if ! (cd "$example_dir" && cargo verifopt --release) >"$verifopt_build_log" 2>&1; then
-            echo "  skipping verifopt leg: cargo verifopt --release failed"
+        rm -f "$verifopt_clean_log"
+        verifopt_build_output="$(cd "$example_dir" && cargo verifopt --release --target-dir "$VERIFOPT_TARGET_DIR" "${bin_flag[@]}" --message-format=json 2>"$verifopt_build_log")"
+        if [ -z "$verifopt_build_output" ]; then
+            echo "  skipping verifopt leg: cargo verifopt --release produced no output (likely failed)"
             echo "  --- last 30 lines of output ---"
             tail -n 30 "$verifopt_build_log" | sed 's/^/    /'
             echo
             continue
         fi
-        # cargo-verifopt is a rustc-wrapper substitution, not a different
-        # build/output layout - it produces its binary at the standard
-        # target/release/<name> path under the example's own (default,
-        # non-isolated) target dir. The binary's *name* is the same one
-        # discovered for the plain build (just its directory differs
-        # now that the plain leg uses an isolated --target-dir), so
-        # reuse that name rather than re-parsing (verifopt's own build
-        # doesn't cleanly support --message-format=json passthrough).
-        verifopt_binary="$example_abs_dir/target/release/$(basename "$plain_binary")"
-        if [ ! -x "$verifopt_binary" ]; then
-            echo "  skipping verifopt leg: expected binary not found or not executable at $verifopt_binary"
+        verifopt_binary="$(discover_binary "$verifopt_build_output")"
+        if [ -z "$verifopt_binary" ] || [ ! -x "$verifopt_binary" ]; then
+            echo "  skipping verifopt leg: could not discover a built, executable binary"
             echo
             continue
         fi

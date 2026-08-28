@@ -192,10 +192,15 @@ impl Callbacks for FsaCallbacks {
 static ORIGINAL: OnceLock<for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>> =
     OnceLock::new();
 
-pub struct RewriteCallbacks;
+static SKIP_REWRITE: OnceLock<bool> = OnceLock::new();
+
+pub struct RewriteCallbacks {
+    pub options: AnalysisOptions,
+}
 
 impl Callbacks for RewriteCallbacks {
     fn config(&mut self, config: &mut Config) {
+        let _ = SKIP_REWRITE.set(self.options.no_rewrite);
         config.override_queries = Some(|_sess, providers| {
             let _ = ORIGINAL.set(providers.optimized_mir);
             providers.optimized_mir = optimized_mir;
@@ -235,6 +240,21 @@ enum Edit {
 }
 
 fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
+    let original = ORIGINAL.get().unwrap();
+    let default = original(tcx, def_id);
+
+    // Control mode (--no-rewrite): skip every rewrite unconditionally,
+    // regardless of what FSA found - the resulting MIR (and therefore
+    // codegen) is identical to a plain, unwrapped build, while still
+    // going through the same two-phase pipeline and RUSTFLAGS. This is
+    // what makes it a valid control for isolating the rewrites'
+    // performance effect from anything the pipeline/flags alone might
+    // change (e.g. -Z always_encode_mir potentially affecting inlining
+    // or other optimization decisions even with zero rewrites applied).
+    if *SKIP_REWRITE.get().unwrap_or(&false) {
+        return default;
+    }
+
     // Edit::Pointers builds a chain of runtime function-pointer-equality
     // checks, one per candidate, all merging into a shared continuation
     // block. Past a handful of candidates this produces a very wide
@@ -249,9 +269,6 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
     // no shared wide-fan-in merge block the same way) and isn't
     // implicated, so it isn't capped here.
     const MAX_POINTERS_CANDIDATES: usize = 7;
-
-    let original = ORIGINAL.get().unwrap();
-    let default = original(tcx, def_id);
 
     let hash = tcx.def_path_hash(def_id.to_def_id());
     let store = store().lock().unwrap();

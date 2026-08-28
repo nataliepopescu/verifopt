@@ -49,6 +49,20 @@ fn make_options_parser() -> Command {
                 .long_help("Flow-sensitive analyses is supported now."),
         )
         .arg(
+            Arg::new("no-rewrite")
+                .long("no-rewrite")
+                .action(clap::ArgAction::SetTrue)
+                .help(
+                    "Skip all verifopt-specific analysis and rewriting, \
+                     building through the same pipeline (RUSTFLAGS, \
+                     two-phase compiler invocation) unchanged - useful \
+                     as a like-for-like control build when comparing \
+                     against a rewritten binary, isolating the effect \
+                     of the rewrites themselves from any effect of the \
+                     pipeline/flags alone.",
+                ),
+        )
+        .arg(
             Arg::new("INPUT")
                 .num_args(0..)
                 .help("The input file to be analyzed."),
@@ -91,6 +105,7 @@ pub struct AnalysisOptions {
     pub entry_func: String,
     pub entry_def_id: Option<u32>,
     pub verifopt_type: VerifOptType,
+    pub no_rewrite: bool,
 }
 
 impl Default for AnalysisOptions {
@@ -99,6 +114,7 @@ impl Default for AnalysisOptions {
             entry_func: String::new(),
             entry_def_id: None,
             verifopt_type: VerifOptType::FlowSensitive,
+            no_rewrite: false,
         }
     }
 }
@@ -168,6 +184,14 @@ impl AnalysisOptions {
                 _ => unreachable!(),
             }
         }
+
+        // OR'd rather than overwritten: parse_from_args is called once
+        // for VERIFOPT_FLAGS (env var) and once for CLI args, and a
+        // plain on/off flag has no way to explicitly negate a true set
+        // by the other call - so once either sets it, it stays set,
+        // matching every other field's "CLI can add to, but an absent
+        // flag doesn't erase what the env var already set" behavior.
+        self.no_rewrite = self.no_rewrite || matches.get_flag("no-rewrite");
 
         //if let Some(depth) = matches.get_one::<u32>("context-depth") {
         //    self.context_depth = *depth;

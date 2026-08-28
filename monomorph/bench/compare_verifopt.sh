@@ -21,7 +21,8 @@
 #   -n N        Number of timed runs per binary (default: 10)
 #   -w N        Number of untimed warmup runs before the timed ones (default: 2)
 #   -t SECS     Per-run timeout in seconds, applies to warmup and timed runs (default: 60)
-#   -o FILE     CSV output path (default: bench_results.csv)
+#   -o FILE     Timing CSV output path (default: bench_results.csv)
+#   -z FILE     Binary size CSV output path (default: bench_sizes.csv)
 #   -e NAMES    Comma-separated list of example dir names to run (default: all)
 #   -h          Show this help and exit
 #
@@ -58,7 +59,10 @@
 #   A comparison table per (example, scenario) (plain vs verifopt:
 #   mean/median/stddev/min/max, plus % change), a final summary across
 #   all of them, and a CSV with one row per (example, scenario, build
-#   kind) for further analysis.
+#   kind) for further analysis. Also a binary size comparison (via the
+#   `size` command, plus raw file size) per example - one row per
+#   (example, build kind), since size doesn't depend on scenario args.
+#   Skipped with a warning if `size` isn't available.
 
 set -uo pipefail
 
@@ -69,19 +73,21 @@ NUM_RUNS=10
 NUM_WARMUP=2
 RUN_TIMEOUT=60
 OUTPUT_CSV="bench_results.csv"
+OUTPUT_SIZES_CSV="bench_sizes.csv"
 ONLY_EXAMPLES=""
 
 usage() {
-    sed -n '2,52p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,65p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
-while getopts "d:n:w:t:o:e:h" opt; do
+while getopts "d:n:w:t:o:z:e:h" opt; do
     case "$opt" in
         d) EXAMPLES_DIR="$OPTARG" ;;
         n) NUM_RUNS="$OPTARG" ;;
         w) NUM_WARMUP="$OPTARG" ;;
         t) RUN_TIMEOUT="$OPTARG" ;;
         o) OUTPUT_CSV="$OPTARG" ;;
+        z) OUTPUT_SIZES_CSV="$OPTARG" ;;
         e) ONLY_EXAMPLES="$OPTARG" ;;
         h) usage; exit 0 ;;
         *) usage; exit 1 ;;
@@ -109,8 +115,33 @@ if [ ! -f "$STATS_PY" ]; then
     exit 1
 fi
 
+SIZES_PY="$SCRIPT_DIR/bench_sizes.py"
+if [ ! -f "$SIZES_PY" ]; then
+    echo "error: expected helper script at $SIZES_PY" >&2
+    exit 1
+fi
+
+HAVE_SIZE_CMD=1
+if ! command -v size >/dev/null 2>&1; then
+    HAVE_SIZE_CMD=0
+    echo "warning: 'size' command not found - binary size comparison will be skipped" >&2
+fi
+
 RESULTS_JSONL="$(mktemp)"
-trap 'rm -f "$RESULTS_JSONL"' EXIT
+SIZES_JSONL="$(mktemp)"
+# The plain leg's `cargo clean` + `cargo build` are pointed at this
+# isolated directory rather than the example's own (default) target/ -
+# without it, running this script against an example whose real target/
+# is also being used by something else (e.g. a separate, long-running
+# `cargo verifopt` invocation you're not routing through
+# prebuilt_verifopt_binary.txt) would have this script's own `cargo
+# clean` for the plain build wipe out that other build's in-progress
+# dependency artifacts out from under it. Shared across all examples in
+# this invocation (safe: examples are processed one at a time, and each
+# is cleaned immediately before its own build, so there's no
+# cross-example contamination within a single run).
+PLAIN_TARGET_DIR="$(mktemp -d)"
+trap 'rm -f "$RESULTS_JSONL" "$SIZES_JSONL"; rm -rf "$PLAIN_TARGET_DIR"' EXIT
 
 echo "kind,example,run_index,seconds" > /dev/null # (CSV header written by bench_stats.py at the end)
 
@@ -134,6 +165,34 @@ for line in sys.stdin:
     if msg.get("reason") == "compiler-artifact" and msg.get("executable"):
         print(msg["executable"])
 ' <<< "$build_output" | tail -n 1
+}
+
+# Record a binary's size (via the `size` command, plus raw on-disk file
+# size) as one JSON object appended to $SIZES_JSONL. Size doesn't depend
+# on scenario args - called once per (example, kind), not per scenario.
+# Skips silently (size command unavailable, checked once up front) or
+# with a warning (size/wc failed on this specific binary) rather than
+# treating this as fatal - it's a nice-to-have alongside the timing
+# comparison, not the main point of a run.
+record_binary_size() {
+    local kind="$1" example="$2" binary="$3"
+    if [ "$HAVE_SIZE_CMD" -ne 1 ]; then
+        return
+    fi
+    local size_line text data bss dec file_size
+    size_line="$(size "$binary" 2>/dev/null | tail -n 1)"
+    if [ -z "$size_line" ]; then
+        echo "  warning: 'size' failed on $binary - skipping size record for ($kind, $example)" >&2
+        return
+    fi
+    read -r text data bss dec _ <<< "$size_line"
+    if ! [[ "$text" =~ ^[0-9]+$ && "$data" =~ ^[0-9]+$ && "$bss" =~ ^[0-9]+$ && "$dec" =~ ^[0-9]+$ ]]; then
+        echo "  warning: could not parse 'size' output for $binary - skipping size record for ($kind, $example)" >&2
+        return
+    fi
+    file_size="$(wc -c < "$binary" | tr -d '[:space:]')"
+    printf '{"kind": "%s", "example": "%s", "text": %s, "data": %s, "bss": %s, "dec": %s, "file_size_bytes": %s}\n' \
+        "$kind" "$example" "$text" "$data" "$bss" "$dec" "$file_size" >> "$SIZES_JSONL"
 }
 
 # Parse bench_args.txt (if present) into one or more scenarios. Prints
@@ -298,13 +357,13 @@ for example_dir in "${example_dirs[@]}"; do
     verifopt_build_log="$example_abs_dir/.bench_verifopt_build.log"
 
     # --- plain build ---
-    echo "  [plain]    cargo clean + cargo build --release ..."
-    if ! (cd "$example_dir" && cargo clean) >/dev/null 2>&1; then
+    echo "  [plain]    cargo clean + cargo build --release (isolated target-dir) ..."
+    if ! (cd "$example_dir" && cargo clean --target-dir "$PLAIN_TARGET_DIR") >/dev/null 2>&1; then
         echo "  skipping: cargo clean failed (plain)"
         echo
         continue
     fi
-    plain_build_output="$(cd "$example_dir" && cargo build --release --message-format=json 2>"$plain_build_stderr")"
+    plain_build_output="$(cd "$example_dir" && cargo build --release --target-dir "$PLAIN_TARGET_DIR" --message-format=json 2>"$plain_build_stderr")"
     if [ -z "$plain_build_output" ]; then
         echo "  skipping: cargo build --release produced no output (plain build likely failed)"
         echo "  --- last 30 lines of stderr ---"
@@ -319,6 +378,7 @@ for example_dir in "${example_dirs[@]}"; do
         continue
     fi
     echo "  [plain]    binary: $plain_binary"
+    record_binary_size "plain" "$example" "$plain_binary"
     for scenario_line in "${scenario_lines[@]}"; do
         IFS=$'\t' read -r s_label s_args_str <<< "$scenario_line"
         read -ra s_args <<< "$s_args_str"
@@ -341,6 +401,21 @@ for example_dir in "${example_dirs[@]}"; do
         echo "  [verifopt] using prebuilt binary from prebuilt_verifopt_binary.txt (skipping cargo clean + cargo verifopt --release)"
         verifopt_binary="$prebuilt_verifopt_binary"
     else
+        # Unlike the plain leg above, this deliberately still uses the
+        # example's own (default) target/ directory - `cargo-verifopt`
+        # is a custom subcommand, not vanilla `cargo build`, and its
+        # support for `--target-dir` passthrough hasn't been verified,
+        # so an isolated target-dir isn't applied here to avoid risking
+        # this leg silently misbehaving. This means: don't run this
+        # script's verifopt-building path concurrently with any other
+        # `cargo verifopt` invocation against the same example
+        # directory - exactly this collision (this script's plain-leg
+        # clean wiping a separately-running, non-isolated cargo verifopt
+        # build's dependency artifacts) is what the plain leg's
+        # isolation above exists to prevent, but only for the plain
+        # side. If you're benchmarking an example expensive enough to
+        # need prebuilt_verifopt_binary.txt in the first place (e.g.
+        # ripgrep), this branch won't run for it at all.
         echo "  [verifopt] cargo clean + cargo verifopt --release ..."
         if ! (cd "$example_dir" && cargo clean) >/dev/null 2>&1; then
             echo "  skipping verifopt leg: cargo clean failed"
@@ -355,11 +430,14 @@ for example_dir in "${example_dirs[@]}"; do
             continue
         fi
         # cargo-verifopt is a rustc-wrapper substitution, not a different
-        # build/output layout - it produces its binary at the exact same
-        # path a plain `cargo build --release` would, so reuse the path we
-        # already discovered rather than re-parsing (verifopt's own build
+        # build/output layout - it produces its binary at the standard
+        # target/release/<name> path under the example's own (default,
+        # non-isolated) target dir. The binary's *name* is the same one
+        # discovered for the plain build (just its directory differs
+        # now that the plain leg uses an isolated --target-dir), so
+        # reuse that name rather than re-parsing (verifopt's own build
         # doesn't cleanly support --message-format=json passthrough).
-        verifopt_binary="$plain_binary"
+        verifopt_binary="$example_abs_dir/target/release/$(basename "$plain_binary")"
         if [ ! -x "$verifopt_binary" ]; then
             echo "  skipping verifopt leg: expected binary not found or not executable at $verifopt_binary"
             echo
@@ -367,6 +445,7 @@ for example_dir in "${example_dirs[@]}"; do
         fi
     fi
     echo "  [verifopt] binary: $verifopt_binary"
+    record_binary_size "verifopt" "$example" "$verifopt_binary"
     for scenario_line in "${scenario_lines[@]}"; do
         IFS=$'\t' read -r s_label s_args_str <<< "$scenario_line"
         read -ra s_args <<< "$s_args_str"
@@ -386,3 +465,11 @@ echo "=== Summary ==="
 python3 "$STATS_PY" "$RESULTS_JSONL" --csv "$OUTPUT_CSV"
 echo
 echo "Full per-run data written to: $OUTPUT_CSV"
+
+if [ "$HAVE_SIZE_CMD" -eq 1 ]; then
+    echo
+    echo "=== Binary Size Summary ==="
+    python3 "$SIZES_PY" "$SIZES_JSONL" --csv "$OUTPUT_SIZES_CSV"
+    echo
+    echo "Binary size data written to: $OUTPUT_SIZES_CSV"
+fi

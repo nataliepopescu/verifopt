@@ -6,10 +6,16 @@ Usage:
     plot_bench_results.py [RESULTS_CSV] [-o OUTPUT_PNG] [--sort-by {overhead,name}]
 
 Produces a two-panel chart:
-  - top: mean wall time per (example, scenario), log-scale, error bars
-    from stddev
-  - bottom: % change (verifopt vs plain) per (example, scenario),
-    colored by slower (red) / faster (green)
+  - top: wall time per (example, scenario), log-scale. Solid bars are
+    the mean (with stddev error bars); a black diamond marks the
+    median on each bar, so you can see at a glance whether a handful
+    of slow/fast runs are pulling the mean away from the typical case.
+  - bottom: % change (verifopt vs plain) per (example, scenario), one
+    pair of bars per entry - solid for % change by mean, hatched for
+    % change by median. The two bars diverging noticeably is itself
+    the signal that outliers are affecting the mean-based comparison;
+    median is far less sensitive to a handful of unusually slow or
+    fast runs (page cache misses, scheduler noise, etc.) than mean is.
 
 An example with no bench_args.txt (or a bench_args.txt with a single
 unlabeled line) has one scenario named "default" and is shown by its
@@ -57,6 +63,12 @@ def load_results(path):
     return by_key
 
 
+def pct_change(plain_val, verifopt_val):
+    if plain_val <= 0:
+        return 0.0
+    return (verifopt_val - plain_val) / plain_val * 100.0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("csv_path", nargs="?", default="results.csv", help="path to results.csv (default: results.csv)")
@@ -65,7 +77,7 @@ def main():
         "--sort-by",
         choices=["overhead", "name"],
         default="overhead",
-        help="order bars by verifopt overhead (worst first) or alphabetically (default: overhead)",
+        help="order bars by verifopt overhead by mean (worst first) or alphabetically (default: overhead)",
     )
     args = ap.parse_args()
 
@@ -79,15 +91,16 @@ def main():
         print(f"error: {args.csv_path} has no data rows", file=sys.stderr)
         sys.exit(1)
 
-    paired = []       # (name, plain, verifopt, pct) for keys with both sides
+    paired = []       # (name, plain, verifopt, pct_mean, pct_median)
     unpaired = []      # (name, kinds) for keys with only one side
 
     for (example, scenario), kinds in by_key.items():
         name = display_name(example, scenario)
         if "plain" in kinds and "verifopt" in kinds:
             plain, verifopt = kinds["plain"], kinds["verifopt"]
-            pct = ((verifopt["mean"] - plain["mean"]) / plain["mean"] * 100.0) if plain["mean"] > 0 else 0.0
-            paired.append((name, plain, verifopt, pct))
+            pm = pct_change(plain["mean"], verifopt["mean"])
+            pmed = pct_change(plain["median"], verifopt["median"])
+            paired.append((name, plain, verifopt, pm, pmed))
         else:
             unpaired.append((name, kinds))
 
@@ -106,10 +119,13 @@ def main():
 
     names = [p[0] for p in paired]
     plain_means = [p[1]["mean"] for p in paired]
+    plain_medians = [p[1]["median"] for p in paired]
     plain_stddevs = [p[1]["stddev"] for p in paired]
     verifopt_means = [p[2]["mean"] for p in paired]
+    verifopt_medians = [p[2]["median"] for p in paired]
     verifopt_stddevs = [p[2]["stddev"] for p in paired]
-    pct_changes = [p[3] for p in paired]
+    pct_means = [p[3] for p in paired]
+    pct_medians = [p[4] for p in paired]
 
     n = len(names)
     fig_height = max(6, 0.9 * n + 3)
@@ -117,50 +133,53 @@ def main():
         2, 1, figsize=(max(8, 0.8 * n + 4), fig_height), gridspec_kw={"height_ratios": [2, 1]}
     )
 
-    x = range(n)
+    x = list(range(n))
     width = 0.35
 
+    plain_x = [i - width / 2 for i in x]
+    verifopt_x = [i + width / 2 for i in x]
+
+    ax_time.bar(plain_x, plain_means, width, yerr=plain_stddevs, capsize=3, label="plain (mean)", color="#4c72b0")
     ax_time.bar(
-        [i - width / 2 for i in x],
-        plain_means,
-        width,
-        yerr=plain_stddevs,
-        capsize=3,
-        label="plain",
-        color="#4c72b0",
+        verifopt_x, verifopt_means, width, yerr=verifopt_stddevs, capsize=3, label="verifopt (mean)", color="#dd8452"
     )
-    ax_time.bar(
-        [i + width / 2 for i in x],
-        verifopt_means,
-        width,
-        yerr=verifopt_stddevs,
-        capsize=3,
-        label="verifopt",
-        color="#dd8452",
-    )
+    ax_time.scatter(plain_x, plain_medians, marker="D", s=28, color="black", zorder=3, label="median")
+    ax_time.scatter(verifopt_x, verifopt_medians, marker="D", s=28, color="black", zorder=3)
     ax_time.set_yscale("log")
-    ax_time.set_ylabel("mean wall time, seconds (log scale)")
-    ax_time.set_title("Plain vs verifopt: mean run time per example/scenario")
-    ax_time.set_xticks(list(x))
+    ax_time.set_ylabel("wall time, seconds (log scale)")
+    ax_time.set_title("Plain vs verifopt: run time per example/scenario (bars: mean, diamonds: median)")
+    ax_time.set_xticks(x)
     ax_time.set_xticklabels(names, rotation=30, ha="right")
     ax_time.legend()
     ax_time.grid(axis="y", linestyle=":", alpha=0.5)
 
-    colors = ["#c44e52" if p >= 0 else "#55a868" for p in pct_changes]
-    ax_pct.bar(list(x), pct_changes, color=colors)
+    mean_colors = ["#c44e52" if p >= 0 else "#55a868" for p in pct_means]
+    median_colors = ["#c44e52" if p >= 0 else "#55a868" for p in pct_medians]
+    ax_pct.bar([i - width / 2 for i in x], pct_means, width, color=mean_colors, label="% change (mean)")
+    ax_pct.bar(
+        [i + width / 2 for i in x],
+        pct_medians,
+        width,
+        color=median_colors,
+        hatch="////",
+        edgecolor="black",
+        linewidth=0.5,
+        label="% change (median)",
+    )
     ax_pct.axhline(0, color="black", linewidth=0.8)
     ax_pct.set_ylabel("% change\n(verifopt vs plain)")
-    ax_pct.set_xticks(list(x))
+    ax_pct.set_xticks(x)
     ax_pct.set_xticklabels(names, rotation=30, ha="right")
     ax_pct.grid(axis="y", linestyle=":", alpha=0.5)
-    for i, p in enumerate(pct_changes):
+    ax_pct.legend(fontsize=8, loc="best")
+    for i, (pm, pmed) in enumerate(zip(pct_means, pct_medians)):
         ax_pct.text(
-            i,
-            p + (2 if p >= 0 else -2),
-            f"{p:+.1f}%",
-            ha="center",
-            va="bottom" if p >= 0 else "top",
-            fontsize=8,
+            i - width / 2, pm + (2 if pm >= 0 else -2), f"{pm:+.0f}%",
+            ha="center", va="bottom" if pm >= 0 else "top", fontsize=7,
+        )
+        ax_pct.text(
+            i + width / 2, pmed + (2 if pmed >= 0 else -2), f"{pmed:+.0f}%",
+            ha="center", va="bottom" if pmed >= 0 else "top", fontsize=7,
         )
 
     fig.tight_layout()
@@ -168,13 +187,18 @@ def main():
     print(f"wrote {args.output}")
 
     print()
-    print(f"{'example [scenario]':30s} {'plain mean':>12s} {'verifopt mean':>14s} {'% change':>10s}")
-    for name, plain, verifopt, pct in paired:
-        direction = "slower" if pct >= 0 else "faster"
+    print(
+        f"{'example [scenario]':30s} {'plain mean':>11s} {'plain med':>10s} "
+        f"{'vopt mean':>11s} {'vopt med':>10s} {'%chg mean':>10s} {'%chg med':>10s}"
+    )
+    for (name, plain, verifopt, pm, pmed) in paired:
         print(
-            f"{name:30s} {plain['mean']:>10.4f}s {verifopt['mean']:>12.4f}s "
-            f"{abs(pct):>8.1f}% {direction}"
+            f"{name:30s} {plain['mean']:>9.4f}s {plain['median']:>8.4f}s "
+            f"{verifopt['mean']:>9.4f}s {verifopt['median']:>8.4f}s "
+            f"{pm:>+9.1f}% {pmed:>+9.1f}%"
         )
+        if abs(pm - pmed) > 10:
+            print(f"{'':30s} note: mean and median % change diverge by {abs(pm - pmed):.1f} points - check for outlier runs")
 
     if unpaired:
         print()

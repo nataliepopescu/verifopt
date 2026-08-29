@@ -27,9 +27,10 @@ use log::{debug, error};
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
 use crate::constraints::{
-    ADTFields, ArgSet, Constraint, ConstraintStore, Constraints, EnclosingScopes, Location, MapKey,
-    MapValue, RunningConstraint, SummaryKey, TagProv, TraitObjConstraint, TraitObjTy, VOID,
-    hash_val, memoize_by_rc, summary_key,
+    ADTFields, ArgSet, BaseScopeId, Constraint, ConstraintStore, Constraints, EnclosingScopes,
+    Location, MapKey, MapValue, MemoKey, RunningConstraint, SummaryKey, TagProv,
+    TraitObjConstraint, TraitObjTy, VOID, base_scope_id, hash_val, memoize_by_rc,
+    push_caller_context, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
 use crate::convert::RvalConverter;
@@ -57,11 +58,12 @@ pub enum ParamSummary {
 
 /// Opt-in, name-filtered scope tracing for investigating specific
 /// dispatch/recursion behavior without flooding the log for the whole
-/// run - set VERIFOPT_TRACE_SCOPE to a substring (e.g. "sum") to
-/// enable. Adapted for this (pre-callsite-specificity) commit's plain
-/// 2-tuple VOID = (Instance, GenericArgs), for direct before/after
-/// comparison against the same tracing on the callsite-specificity
-/// branch.
+/// run - set VERIFOPT_TRACE_SCOPE to a substring (e.g. "sum" or
+/// "recursive_dyn3") to enable. Mirrors the ad hoc
+/// `if scope_name.contains("RawVecInner")`-style filtering already used
+/// elsewhere in this file, just as a small, reusable, non-recursion-
+/// depth-affecting env-var-gated helper instead of a one-off inline
+/// check, since this investigation spans three different call sites.
 fn trace_scope_filter() -> &'static Option<String> {
     static FILTER: OnceLock<Option<String>> = OnceLock::new();
     FILTER.get_or_init(|| std::env::var("VERIFOPT_TRACE_SCOPE").ok())
@@ -76,17 +78,67 @@ fn scope_matches_trace_filter(scope: &VOID) -> bool {
     }
 }
 
+/// Checks whether (instance, genargs) - the base identity of a
+/// prospective new scope, before any caller-tag would be applied - is
+/// already active somewhere on call_stack. If so, this is genuine,
+/// live recursion (the same function calling itself, directly or
+/// through intermediate frames, while still on the stack) - not two
+/// unrelated call sites reaching the same callee at different times,
+/// which never overlap on the stack (e.g. diff_sites's
+/// first_speak/second_speak, where first_speak's call has already
+/// returned before second_speak's begins). Returns a clone of the
+/// innermost (most recent) matching ancestor's own full scope,
+/// including its own tag, so the new call reuses it verbatim -
+/// collapsing the whole currently-active recursive chain back onto one
+/// shared identity, restoring the property finish_frame's queue/revisit
+/// cascade actually depends on (see the recursive_dyn2 regression this
+/// addresses), without reverting to full context-insensitivity for
+/// genuinely distinct, non-overlapping call sites.
+fn find_active_recursive_scope(
+    call_stack: &[VOID],
+    instance: &Instance,
+    genargs: &GenericArgs,
+) -> Option<VOID> {
+    let result = call_stack
+        .iter()
+        .rev()
+        .find(|scope| &scope.0 == instance && &scope.1 == genargs)
+        .cloned();
+
+    if let Some(filter) = trace_scope_filter() {
+        if !filter.is_empty() && format!("{:?}", instance.name()).contains(filter.as_str()) {
+            debug!(
+                "TRACE find_active_recursive_scope for {:?}: genargs={:?} call_stack_len={} call_stack={:?} MATCH={:?}",
+                instance.name(),
+                genargs,
+                call_stack.len(),
+                call_stack,
+                result
+            );
+        }
+    }
+
+    result
+}
+
 pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
     pub converter: RvalConverter<'a>,
+
+    // How many levels of immediate-caller context to fold into a new
+    // scope's own identity when one is constructed (see
+    // constraints::push_caller_context) - 0 reproduces the previous,
+    // context-insensitive behavior. See --context-depth's own docs in
+    // util/options.rs for the full rationale.
+    pub call_context_k: usize,
 
     pub dispatch_targets:
         RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
     pub dispatch_cha: RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
     pub dispatch_tags: RefCell<ImHashMap<(DefId, usize), TagPlan>>,
 
-    pub summaries: RefCell<HashMap<SummaryKey, Constraints>>,
+    pub summaries: RefCell<HashMap<MemoKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
@@ -112,14 +164,14 @@ pub struct InterpPass<'a> {
     pub wtos_merge_conflicts: RefCell<ImHashSet<VOID>>,
     pub refs_merge_conflicts: RefCell<ImHashSet<(Place, VOID)>>,
 
-    pub exact_memo: RefCell<HashMap<SummaryKey, (Option<Constraints>, u64)>>,
+    pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, u64)>>,
 
     pub virtual_call_memo:
         RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>)>>,
 
-    pub scope_epoch: RefCell<HashMap<VOID, u64>>,
-    pub scope_exact_memo_count: RefCell<HashMap<VOID, u32>>,
-    pub scope_summaries_count: RefCell<HashMap<VOID, u32>>,
+    pub scope_epoch: RefCell<HashMap<BaseScopeId, u64>>,
+    pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
+    pub scope_summaries_count: RefCell<HashMap<BaseScopeId, u32>>,
     //pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
     pub building_summaries: RefCell<HashSet<VOID>>,
@@ -452,11 +504,16 @@ impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
 }
 
 impl<'a> InterpPass<'a> {
-    pub fn new(sigstore: &'a SigStore, tstore: &'a TraitStore) -> InterpPass<'a> {
+    pub fn new(
+        sigstore: &'a SigStore,
+        tstore: &'a TraitStore,
+        call_context_k: usize,
+    ) -> InterpPass<'a> {
         Self {
             sigstore,
             tstore,
             converter: RvalConverter::new(tstore),
+            call_context_k,
             dispatch_targets: ImHashMap::new().into(),
             dispatch_cha: ImHashMap::new().into(),
             dispatch_tags: ImHashMap::new().into(),
@@ -541,7 +598,7 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         *self.main_ctxt_ptr.borrow_mut() = Some(ctxt as *const Context as usize);
 
-        let start_scope = (start_instance, GenericArgs(vec![]));
+        let start_scope = (start_instance, GenericArgs(vec![]), Vec::new());
         let mut call_stack = vec![start_scope.clone()];
 
         self.key_stack
@@ -1724,7 +1781,14 @@ impl<'a> InterpPass<'a> {
         let closure_kind = self.get_closure_kind(&genargs);
         if let Some(_body) = cdef.body() {
             let instance = Instance::resolve_closure(cdef, &genargs, closure_kind).unwrap();
-            let new_scope = (instance, genargs.clone());
+            let new_scope = find_active_recursive_scope(call_stack, &instance, genargs)
+                .unwrap_or_else(|| {
+                    (
+                        instance,
+                        genargs.clone(),
+                        push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
+                    )
+                });
             let body = self.get_body(&new_scope);
 
             let key = summary_key(
@@ -1894,7 +1958,14 @@ impl<'a> InterpPass<'a> {
             }
         };
 
-        let new_scope = (instance, genargs.clone());
+        let new_scope = find_active_recursive_scope(call_stack, &instance, genargs)
+            .unwrap_or_else(|| {
+                (
+                    instance.clone(),
+                    genargs.clone(),
+                    push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
+                )
+            });
         debug!(
             "--- CALLING {:?} -> resolved instance: kind={:?} name={:?}",
             fndef,
@@ -1969,16 +2040,16 @@ impl<'a> InterpPass<'a> {
             let precise_count = *self
                 .scope_summaries_count
                 .borrow()
-                .get(&new_scope)
+                .get(&base_scope_id(&new_scope))
                 .unwrap_or(&0);
-            let new_key = if precise_count >= 50 {
+            let new_key: MemoKey = if precise_count >= 50 {
                 let widened: Vec<Constraints> = new_cs
                     .iter()
                     .map(crate::constraints::widen_constraints)
                     .collect();
-                (new_scope.clone(), ArgSet::new(&widened))
+                (base_scope_id(&new_scope), ArgSet::new(&widened))
             } else {
-                (new_scope.clone(), ArgSet::new(&new_cs))
+                (base_scope_id(&new_scope), ArgSet::new(&new_cs))
             };
 
             if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
@@ -2011,7 +2082,7 @@ impl<'a> InterpPass<'a> {
                 *self
                     .scope_summaries_count
                     .borrow_mut()
-                    .entry(new_scope.clone())
+                    .entry(base_scope_id(&new_scope))
                     .or_insert(0) += 1;
             }
 
@@ -2385,16 +2456,16 @@ impl<'a> InterpPass<'a> {
             let precise_count = *self
                 .scope_exact_memo_count
                 .borrow()
-                .get(cur_scope)
+                .get(&base_scope_id(cur_scope))
                 .unwrap_or(&0);
-            let memo_key: SummaryKey = if precise_count >= 50 {
+            let memo_key: MemoKey = if precise_count >= 50 {
                 let widened: Vec<Constraints> = cur_cs
                     .iter()
                     .map(crate::constraints::widen_constraints)
                     .collect();
-                (cur_scope.clone(), ArgSet::new(&widened))
+                (base_scope_id(cur_scope), ArgSet::new(&widened))
             } else {
-                key.clone()
+                (base_scope_id(cur_scope), key.1.clone())
             };
 
             //let scope_name = format!("{:?}", cur_scope.0.name());
@@ -2415,7 +2486,7 @@ impl<'a> InterpPass<'a> {
             //    );
             //}
 
-            let epoch_before = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+            let epoch_before = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
             if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
                 if *cached_epoch == epoch_before {
                     debug!(
@@ -2447,7 +2518,7 @@ impl<'a> InterpPass<'a> {
             let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
                 let _g1 = self.timing_span(TimingCat::TermInterpStaticCallPost1, cur_scope);
-                let epoch_after = *self.scope_epoch.borrow().get(cur_scope).unwrap_or(&0);
+                let epoch_after = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
                 drop(_g1);
 
                 let _g2 = self.timing_span(TimingCat::TermInterpStaticCallPost2, cur_scope);
@@ -2465,7 +2536,7 @@ impl<'a> InterpPass<'a> {
                     *self
                         .scope_exact_memo_count
                         .borrow_mut()
-                        .entry(cur_scope.clone())
+                        .entry(base_scope_id(cur_scope))
                         .or_insert(0) += 1;
                 }
             }
@@ -2530,7 +2601,7 @@ impl<'a> InterpPass<'a> {
 
         if widened {
             let mut epochs = self.scope_epoch.borrow_mut();
-            let e = epochs.entry(callee_scope.clone()).or_insert(0);
+            let e = epochs.entry(base_scope_id(callee_scope)).or_insert(0);
             *e += 1;
         }
 
@@ -2766,7 +2837,8 @@ impl<'a> InterpPass<'a> {
                 let stale: Vec<(DefId, u64, u64)> = recorded_scopes
                     .iter()
                     .filter_map(|(scope, recorded_epoch)| {
-                        let current_epoch = *self.scope_epoch.borrow().get(scope).unwrap_or(&0);
+                        let current_epoch =
+                            *self.scope_epoch.borrow().get(&base_scope_id(scope)).unwrap_or(&0);
                         (current_epoch != *recorded_epoch)
                             .then(|| (scope.0.def.def_id(), *recorded_epoch, current_epoch))
                     })
@@ -3543,7 +3615,14 @@ impl<'a> InterpPass<'a> {
                         ),
                         _ => (false, instance_),
                     };
-                    let callee_scope = (instance, genargs.clone());
+                    let callee_scope = find_active_recursive_scope(call_stack, &instance, &genargs)
+                        .unwrap_or_else(|| {
+                            (
+                                instance.clone(),
+                                genargs.clone(),
+                                push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
+                            )
+                        });
                     drop(_timing_guard);
 
                     // the `if` and `else if` blocks might be creating a soundness error...
@@ -3636,7 +3715,7 @@ impl<'a> InterpPass<'a> {
                             let refs_unchanged = ctxt_clone.cstore.refs.ptr_eq(&refs_snapshot);
                             touched_scopes.push((
                                 callee_scope.clone(),
-                                *self.scope_epoch.borrow().get(&callee_scope).unwrap_or(&0),
+                                *self.scope_epoch.borrow().get(&base_scope_id(&callee_scope)).unwrap_or(&0),
                             ));
                             drop(_timing_guard);
 
@@ -4260,7 +4339,7 @@ impl<'a> InterpPass<'a> {
             );
         }
         ctxt.cstore.cmap.insert(
-            MapKey::ScopeId(callee_scope.clone()),
+            MapKey::ScopeId(base_scope_id(callee_scope)),
             Box::new(MapValue::Store(substore, None)),
         );
 
@@ -4292,9 +4371,10 @@ impl<'a> InterpPass<'a> {
         }
 
         // publish refined summary for widened constraints
-        self.summaries
-            .borrow_mut()
-            .insert(key.clone(), refined.clone().unwrap_or_default());
+        self.summaries.borrow_mut().insert(
+            (base_scope_id(&key.0), key.1.clone()),
+            refined.clone().unwrap_or_default(),
+        );
 
         Ok(refined)
     }
@@ -4404,7 +4484,7 @@ impl<'a> InterpPass<'a> {
                     scope.clone(),
                     ctxt.cstore
                         .cmap
-                        .get(&MapKey::ScopeId(scope.clone()))
+                        .get(&MapKey::ScopeId(base_scope_id(scope)))
                         .cloned(),
                 )
             })
@@ -4447,10 +4527,10 @@ impl<'a> InterpPass<'a> {
         for (scope, old) in saved {
             match old {
                 Some(v) => {
-                    ctxt.cstore.cmap.insert(MapKey::ScopeId(scope), v);
+                    ctxt.cstore.cmap.insert(MapKey::ScopeId(base_scope_id(&scope)), v);
                 }
                 None => {
-                    ctxt.cstore.cmap.remove(&MapKey::ScopeId(scope));
+                    ctxt.cstore.cmap.remove(&MapKey::ScopeId(base_scope_id(&scope)));
                 }
             }
         }
@@ -4489,7 +4569,7 @@ impl<'a> InterpPass<'a> {
                 .insert(MapKey::Var(place), Box::new(MapValue::Constraints(cs)));
         }
         ctxt.cstore.cmap.insert(
-            MapKey::ScopeId(cur_scope.clone()),
+            MapKey::ScopeId(base_scope_id(cur_scope)),
             Box::new(MapValue::Store(substore, None)),
         );
 

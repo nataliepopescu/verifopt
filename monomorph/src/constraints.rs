@@ -55,8 +55,14 @@ pub fn unique_append<T: PartialEq>(vec: &mut Vec<T>, to_append: Vec<T>) {
 /// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
 ///
 /// The third field is a k-CFA-style bounded call context: the last `k`
-/// immediate callers' own (Instance, GenericArgs) identities, most
-/// recent first, where `k` is `--context-depth` (see util/options.rs).
+/// immediate callers' own (Instance, GenericArgs, call-site Span)
+/// identities, most recent first, where `k` is `--context-depth` (see
+/// util/options.rs). The Span is which specific call site *within* that
+/// caller produced this scope - without it, two structurally distinct
+/// calls from the same caller function (e.g. `main`'s two separate
+/// calls to `get_animal`, once for a Cat, once for a Dog) would still
+/// collapse onto one identity, since the caller's own (Instance,
+/// GenericArgs) alone doesn't distinguish "which of its call sites".
 /// This is what lets two different call sites reaching the same callee
 /// be distinguished as genuinely different scopes, rather than
 /// silently merged - which is what caused the REFS/WTOS MERGE CONFLICT
@@ -69,60 +75,69 @@ pub fn unique_append<T: PartialEq>(vec: &mut Vec<T>, to_append: Vec<T>) {
 ///
 /// Constructed via `push_caller_context` below, never directly, so
 /// direct/mutual recursion still terminates: each entry is the
-/// caller's own *base* identity only, never folding in the caller's
-/// own context recursively, which would otherwise make the context
-/// grow unboundedly with recursion depth and break the
-/// `call_stack.contains(...)`-based cycle detection that recursive
-/// interpretation relies on.
-pub type CallContext = Vec<(Instance, GenericArgs)>;
+/// caller's own *base* identity (plus this one call site) only, never
+/// folding in the caller's own context recursively, which would
+/// otherwise make the context grow unboundedly with recursion depth
+/// and break the `call_stack.contains(...)`-based cycle detection that
+/// recursive interpretation relies on. A recursive call's own call
+/// site is the same source-level expression on every recursive step
+/// (e.g. `sum`'s own `n + sum(next)`), so this doesn't fragment
+/// recursion the way it correctly does fragment get_animal's two
+/// distinct call sites.
+pub type CallContext = Vec<(Instance, GenericArgs, Span)>;
 pub type VOID = (Instance, GenericArgs, CallContext);
 
 /// Builds the CallContext for a new scope being entered from
-/// `caller_scope`, bounded to `k` entries. Prepends the caller's own
-/// base (Instance, GenericArgs) - *not* `caller_scope.clone()` as a
-/// whole, which would fold in the caller's own context and grow
-/// unboundedly across recursion depth - then keeps only as much of the
-/// caller's own existing context as still fits within the bound.
-pub fn push_caller_context(caller_scope: &VOID, k: usize) -> CallContext {
+/// `caller_scope` via `call_site`, bounded to `k` entries. Prepends the
+/// caller's own base (Instance, GenericArgs) plus this call site - not
+/// `caller_scope.clone()` as a whole, which would fold in the caller's
+/// own context and grow unboundedly across recursion depth - then
+/// keeps only as much of the caller's own existing context as still
+/// fits within the bound.
+pub fn push_caller_context(caller_scope: &VOID, call_site: Span, k: usize) -> CallContext {
     if k == 0 {
         return Vec::new();
     }
     let mut ctx = Vec::with_capacity(k);
-    ctx.push((caller_scope.0.clone(), caller_scope.1.clone()));
+    ctx.push((caller_scope.0.clone(), caller_scope.1.clone(), call_site));
     ctx.extend(caller_scope.2.iter().take(k - 1).cloned());
     ctx
 }
 
 /// The scope-identity component used for things that should stay
-/// context-insensitive despite VOID itself now carrying a call
+/// mostly context-insensitive despite VOID itself now carrying a call
 /// context: `cmap` (the main constraint-propagation store) and the
 /// "summary cache" family (summaries, exact_memo, scope_epoch,
-/// scope_exact_memo_count, scope_summaries_count) - a function's own
-/// computed constraints/summary shouldn't depend on who's asking, any
-/// more than its constraint propagation should. Making either
-/// context-sensitive would fragment the sharing flatten_all's
+/// scope_exact_memo_count, scope_summaries_count). Unlike VOID's full
+/// CallContext, this keeps only the *immediate* call site (the first
+/// entry of the scope's own CallContext, if any) rather than the full
+/// k-deep chain - enough to distinguish get_animal's two separate call
+/// sites from each other, without going all the way to full k-CFA
+/// sensitivity for cmap, which would fragment the sharing flatten_all's
 /// memoization (and friends) rely on for tractable performance at
-/// scale - a materially different, larger tradeoff than making
-/// refs/wtos/call_stack (and call_stack's own tightly-coupled
-/// siblings: key_stack, wq, in_queue - together they track call
-/// nesting/recursion state, which does need the caller-tag) context-
-/// sensitive. Constructed only via `base_scope_id` below, never
-/// directly, so a VOID's call context can't be accidentally leaked
-/// into either's keying by a future call site that forgets to project
-/// it away - a mismatch there wouldn't error, it would just silently
-/// fail to find data that was stored under a differently-shaped key.
+/// scale. call_stack (and its tightly-coupled siblings: key_stack, wq,
+/// in_queue - together they track call nesting/recursion state) keeps
+/// the full, unprojected VOID, since it needs the complete chain for
+/// correct recursion detection. Constructed only via `base_scope_id`
+/// below, never directly, so a VOID's call context can't be
+/// accidentally leaked into cmap's keying by a future call site that
+/// forgets to project it away - a mismatch there wouldn't error, it
+/// would just silently fail to find data that was stored under a
+/// differently-shaped key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BaseScopeId(pub Instance, pub GenericArgs);
+pub struct BaseScopeId(pub Instance, pub GenericArgs, pub Option<Span>);
 
 pub fn base_scope_id(scope: &VOID) -> BaseScopeId {
-    BaseScopeId(scope.0.clone(), scope.1.clone())
+    let immediate_call_site = scope.2.first().map(|(_, _, span)| span.clone());
+    BaseScopeId(scope.0.clone(), scope.1.clone(), immediate_call_site)
 }
 
 /// The summary-cache family's own key shape, mirroring SummaryKey's
-/// (scope, args) structure but with the caller-tag projected away via
-/// BaseScopeId - unlike SummaryKey itself, which must keep the full
-/// VOID (see prepare_call: `call_stack.push(key.0.clone())` needs the
-/// caller-tag for correct recursion detection).
+/// (scope, args) structure but with the caller-tag projected down to
+/// just the immediate call site via BaseScopeId - unlike SummaryKey
+/// itself, which must keep the full VOID (see prepare_call:
+/// `call_stack.push(key.0.clone())` needs the full caller-tag chain
+/// for correct recursion detection).
 pub type MemoKey = (BaseScopeId, ArgSet);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -1786,7 +1786,7 @@ impl<'a> InterpPass<'a> {
                     (
                         instance,
                         genargs.clone(),
-                        push_caller_context(cur_scope, self.call_context_k),
+                        push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
                     )
                 });
             let body = self.get_body(&new_scope);
@@ -1963,7 +1963,7 @@ impl<'a> InterpPass<'a> {
                 (
                     instance.clone(),
                     genargs.clone(),
-                    push_caller_context(cur_scope, self.call_context_k),
+                    push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
                 )
             });
         debug!(
@@ -3620,7 +3620,7 @@ impl<'a> InterpPass<'a> {
                             (
                                 instance.clone(),
                                 genargs.clone(),
-                                push_caller_context(cur_scope, self.call_context_k),
+                                push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
                             )
                         });
                     drop(_timing_guard);

@@ -1,6 +1,6 @@
 {
-  "maybe_count": 1,
-  "not_count": 1,
+  "maybe_count": 2,
+  "not_count": 0,
   "sites": [
     {
       "span": "src/main.rs:55:5: 55:14",
@@ -15,7 +15,7 @@
     },
     {
       "span": "src/main.rs:60:5: 60:14",
-      "is_maybe_example": false,
+      "is_maybe_example": true,
       "cha": [
         "<diff_sites::Cat as diff_sites::Animal>::speak",
         "<diff_sites::Dog as diff_sites::Animal>::speak"

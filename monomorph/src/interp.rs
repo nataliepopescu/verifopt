@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use im::HashMap as ImHashMap;
 use im::HashSet as ImHashSet;
@@ -53,6 +54,28 @@ type VirtualCallKey = ((DefId, usize), ArgSet);
 pub enum ParamSummary {
     Built(Option<Constraints>),
     Unavailable,
+}
+
+/// Opt-in, name-filtered scope tracing for investigating specific
+/// dispatch/recursion behavior without flooding the log for the whole
+/// run - set VERIFOPT_TRACE_SCOPE to a substring (e.g. "sum" or
+/// "recursive_dyn3") to enable. Mirrors the ad hoc
+/// `if scope_name.contains("RawVecInner")`-style filtering already used
+/// elsewhere in this file, just as a small, reusable, non-recursion-
+/// depth-affecting env-var-gated helper instead of a one-off inline
+/// check, since this investigation spans three different call sites.
+fn trace_scope_filter() -> &'static Option<String> {
+    static FILTER: OnceLock<Option<String>> = OnceLock::new();
+    FILTER.get_or_init(|| std::env::var("VERIFOPT_TRACE_SCOPE").ok())
+}
+
+fn scope_matches_trace_filter(scope: &VOID) -> bool {
+    match trace_scope_filter() {
+        Some(filter) if !filter.is_empty() => {
+            format!("{:?}", scope.0.name()).contains(filter.as_str())
+        }
+        _ => false,
+    }
 }
 
 pub struct InterpPass<'a> {
@@ -1957,6 +1980,13 @@ impl<'a> InterpPass<'a> {
         drop(_timing_guard);
 
         if call_stack.contains(&new_scope) {
+            if scope_matches_trace_filter(&new_scope) {
+                debug!(
+                    "TRACE recursive_hit ENTER for {:?}: new_scope={:?}",
+                    new_scope.0.name(),
+                    new_scope
+                );
+            }
             let _g = self.timing_span(TimingCat::InterpFnDefCallStackChecks, cur_scope);
             let precise_count = *self
                 .scope_summaries_count
@@ -1974,12 +2004,28 @@ impl<'a> InterpPass<'a> {
             };
 
             if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
+                if scope_matches_trace_filter(&new_scope) {
+                    debug!(
+                        "TRACE recursive_hit MEMOIZED HIT for {:?}: new_scope={:?} cached={:?}",
+                        new_scope.0.name(),
+                        new_scope,
+                        cs
+                    );
+                }
                 return Ok(Some(cs));
             }
 
             let retty = self
                 .retty_fallback_from_poly(fndef.fn_sig())?
                 .unwrap_or_default();
+            if scope_matches_trace_filter(&new_scope) {
+                debug!(
+                    "TRACE recursive_hit FALLBACK COMPUTED for {:?}: new_scope={:?} retty={:?}",
+                    new_scope.0.name(),
+                    new_scope,
+                    retty
+                );
+            }
             self.summaries
                 .borrow_mut()
                 .insert(new_key.clone(), retty.clone());
@@ -1993,6 +2039,14 @@ impl<'a> InterpPass<'a> {
 
             let cur_key = self.key_stack.borrow().last().cloned().unwrap();
 
+            if scope_matches_trace_filter(&new_scope) {
+                debug!(
+                    "TRACE recursive_hit QUEUEING for {:?}: new_scope={:?} new_cs={:?}",
+                    new_scope.0.name(),
+                    new_scope,
+                    new_cs
+                );
+            }
             self.wq.borrow_mut().entry(cur_key).or_default().push((
                 new_scope.clone(),
                 new_cs,
@@ -4213,6 +4267,14 @@ impl<'a> InterpPass<'a> {
         callee_scope: &VOID,
         callee_cs: &[Constraints],
     ) -> Result<Option<Constraints>, Error> {
+        if scope_matches_trace_filter(callee_scope) {
+            debug!(
+                "TRACE reinterp_recursive ENTER for {:?}: callee_scope={:?} callee_cs={:?}",
+                callee_scope.0.name(),
+                callee_scope,
+                callee_cs
+            );
+        }
         let mut substore = ConstraintStore::new();
         for (i, cs) in callee_cs.iter().enumerate() {
             let place = Place {
@@ -4246,6 +4308,15 @@ impl<'a> InterpPass<'a> {
             }
         };
         self.key_stack.replace(saved_key_stack);
+
+        if scope_matches_trace_filter(callee_scope) {
+            debug!(
+                "TRACE reinterp_recursive REFINED for {:?}: callee_scope={:?} refined={:?}",
+                callee_scope.0.name(),
+                callee_scope,
+                refined
+            );
+        }
 
         // publish refined summary for widened constraints
         self.summaries.borrow_mut().insert(
@@ -4334,6 +4405,14 @@ impl<'a> InterpPass<'a> {
         if self.in_queue.borrow().contains(&key) || queued.is_empty() {
             // use summary version OR
             // no recursive calls, no recursed interp needed
+            if scope_matches_trace_filter(cur_scope) {
+                debug!(
+                    "TRACE finish_frame EARLY RETURN (no reprocessing) for {:?}: cur_scope={:?} retval={:?}",
+                    cur_scope.0.name(),
+                    cur_scope,
+                    retval
+                );
+            }
             return Ok(retval);
         }
         drop(_timing_guard);
@@ -4409,6 +4488,14 @@ impl<'a> InterpPass<'a> {
         if *self.rec_depth.borrow() > MAX_DEPTH {
             *self.rec_depth.borrow_mut() -= 1;
             self.incomplete.borrow_mut().insert(cur_scope.clone());
+            if scope_matches_trace_filter(cur_scope) {
+                debug!(
+                    "TRACE finish_frame MAX_DEPTH RETURN for {:?}: cur_scope={:?} retval={:?}",
+                    cur_scope.0.name(),
+                    cur_scope,
+                    retval
+                );
+            }
             return Ok(retval);
         }
         drop(_timing_guard);
@@ -4438,6 +4525,15 @@ impl<'a> InterpPass<'a> {
         let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
         drop(_timing_guard);
         *self.rec_depth.borrow_mut() -= 1;
+        if scope_matches_trace_filter(cur_scope) {
+            debug!(
+                "TRACE finish_frame POST-REVISIT RESULT (after queued reprocessing drained) for {:?}: cur_scope={:?} original_retval={:?} result={:?}",
+                cur_scope.0.name(),
+                cur_scope,
+                retval,
+                result
+            );
+        }
         match result {
             Ok(r) => Ok(r),
             Err(e) => {

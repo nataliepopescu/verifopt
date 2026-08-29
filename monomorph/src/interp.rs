@@ -99,11 +99,26 @@ fn find_active_recursive_scope(
     instance: &Instance,
     genargs: &GenericArgs,
 ) -> Option<VOID> {
-    call_stack
+    let result = call_stack
         .iter()
         .rev()
         .find(|scope| &scope.0 == instance && &scope.1 == genargs)
-        .cloned()
+        .cloned();
+
+    if let Some(filter) = trace_scope_filter() {
+        if !filter.is_empty() && format!("{:?}", instance.name()).contains(filter.as_str()) {
+            debug!(
+                "TRACE find_active_recursive_scope for {:?}: genargs={:?} call_stack_len={} call_stack={:?} MATCH={:?}",
+                instance.name(),
+                genargs,
+                call_stack.len(),
+                call_stack,
+                result
+            );
+        }
+    }
+
+    result
 }
 
 pub struct InterpPass<'a> {

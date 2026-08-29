@@ -104,32 +104,35 @@ pub fn push_caller_context(caller_scope: &VOID, call_site: Span, k: usize) -> Ca
     ctx
 }
 
-/// The scope-identity component used for things that should stay
-/// mostly context-insensitive despite VOID itself now carrying a call
-/// context: `cmap` (the main constraint-propagation store) and the
-/// "summary cache" family (summaries, exact_memo, scope_epoch,
-/// scope_exact_memo_count, scope_summaries_count). Unlike VOID's full
-/// CallContext, this keeps only the *immediate* call site (the first
-/// entry of the scope's own CallContext, if any) rather than the full
-/// k-deep chain - enough to distinguish get_animal's two separate call
-/// sites from each other, without going all the way to full k-CFA
-/// sensitivity for cmap, which would fragment the sharing flatten_all's
-/// memoization (and friends) rely on for tractable performance at
-/// scale. call_stack (and its tightly-coupled siblings: key_stack, wq,
-/// in_queue - together they track call nesting/recursion state) keeps
-/// the full, unprojected VOID, since it needs the complete chain for
-/// correct recursion detection. Constructed only via `base_scope_id`
-/// below, never directly, so a VOID's call context can't be
-/// accidentally leaked into cmap's keying by a future call site that
-/// forgets to project it away - a mismatch there wouldn't error, it
-/// would just silently fail to find data that was stored under a
-/// differently-shaped key.
+/// The scope-identity component used for `cmap` (the main
+/// constraint-propagation store) and the "summary cache" family
+/// (summaries, exact_memo, scope_epoch, scope_exact_memo_count,
+/// scope_summaries_count). Currently uses the *same* full k-deep
+/// CallContext as VOID itself - i.e. cmap is exactly as context-
+/// sensitive as refs/wtos/call_stack are, not a coarser projection of
+/// it. An *immediate-call-site-only* version was tried first (enough
+/// to distinguish get_animal's two call sites from each other), but a
+/// case one level of indirection deeper defeats it: if `wrapper()` is
+/// called from two different places but itself has only one call site
+/// to some `helper()`, an immediate-only projection gives every call
+/// to `helper()` the same identity regardless of which `wrapper()`
+/// invocation is running, since `helper()`'s own call site never
+/// changes - only the *chain* leading up to it does. Using the full
+/// k-deep context here closes that gap. This is a deliberate
+/// correctness-first choice: full k-CFA sensitivity for cmap risks
+/// fragmenting the sharing flatten_all's memoization (and friends)
+/// rely on for tractable performance at scale, more so than the
+/// immediate-only version did - if that turns out to matter in
+/// practice, revisiting this (e.g. a separate, shallower depth just
+/// for cmap, decoupled from --context-depth) is the place to look,
+/// once there's a concrete performance case motivating it rather than
+/// a theoretical one. Constructed only via `base_scope_id` below,
+/// never directly.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BaseScopeId(pub Instance, pub GenericArgs, pub Option<Span>);
+pub struct BaseScopeId(pub Instance, pub GenericArgs, pub CallContext);
 
 pub fn base_scope_id(scope: &VOID) -> BaseScopeId {
-    let immediate_call_site = scope.2.first().map(|(_, _, span)| span.clone());
-    BaseScopeId(scope.0.clone(), scope.1.clone(), immediate_call_site)
+    BaseScopeId(scope.0.clone(), scope.1.clone(), scope.2.clone())
 }
 
 /// The summary-cache family's own key shape, mirroring SummaryKey's

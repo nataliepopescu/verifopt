@@ -8,3 +8,4 @@ calls
 *.log
 *.stderr
 *.ll
+*.s

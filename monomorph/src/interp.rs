@@ -78,6 +78,34 @@ fn scope_matches_trace_filter(scope: &VOID) -> bool {
     }
 }
 
+/// Checks whether (instance, genargs) - the base identity of a
+/// prospective new scope, before any caller-tag would be applied - is
+/// already active somewhere on call_stack. If so, this is genuine,
+/// live recursion (the same function calling itself, directly or
+/// through intermediate frames, while still on the stack) - not two
+/// unrelated call sites reaching the same callee at different times,
+/// which never overlap on the stack (e.g. diff_sites's
+/// first_speak/second_speak, where first_speak's call has already
+/// returned before second_speak's begins). Returns a clone of the
+/// innermost (most recent) matching ancestor's own full scope,
+/// including its own tag, so the new call reuses it verbatim -
+/// collapsing the whole currently-active recursive chain back onto one
+/// shared identity, restoring the property finish_frame's queue/revisit
+/// cascade actually depends on (see the recursive_dyn2 regression this
+/// addresses), without reverting to full context-insensitivity for
+/// genuinely distinct, non-overlapping call sites.
+fn find_active_recursive_scope(
+    call_stack: &[VOID],
+    instance: &Instance,
+    genargs: &GenericArgs,
+) -> Option<VOID> {
+    call_stack
+        .iter()
+        .rev()
+        .find(|scope| &scope.0 == instance && &scope.1 == genargs)
+        .cloned()
+}
+
 pub struct InterpPass<'a> {
     pub sigstore: &'a SigStore,
     pub tstore: &'a TraitStore,
@@ -1738,11 +1766,14 @@ impl<'a> InterpPass<'a> {
         let closure_kind = self.get_closure_kind(&genargs);
         if let Some(_body) = cdef.body() {
             let instance = Instance::resolve_closure(cdef, &genargs, closure_kind).unwrap();
-            let new_scope = (
-                instance,
-                genargs.clone(),
-                push_caller_context(cur_scope, self.call_context_k),
-            );
+            let new_scope = find_active_recursive_scope(call_stack, &instance, genargs)
+                .unwrap_or_else(|| {
+                    (
+                        instance,
+                        genargs.clone(),
+                        push_caller_context(cur_scope, self.call_context_k),
+                    )
+                });
             let body = self.get_body(&new_scope);
 
             let key = summary_key(
@@ -1912,11 +1943,14 @@ impl<'a> InterpPass<'a> {
             }
         };
 
-        let new_scope = (
-            instance,
-            genargs.clone(),
-            push_caller_context(cur_scope, self.call_context_k),
-        );
+        let new_scope = find_active_recursive_scope(call_stack, &instance, genargs)
+            .unwrap_or_else(|| {
+                (
+                    instance.clone(),
+                    genargs.clone(),
+                    push_caller_context(cur_scope, self.call_context_k),
+                )
+            });
         debug!(
             "--- CALLING {:?} -> resolved instance: kind={:?} name={:?}",
             fndef,
@@ -3566,11 +3600,14 @@ impl<'a> InterpPass<'a> {
                         ),
                         _ => (false, instance_),
                     };
-                    let callee_scope = (
-                        instance,
-                        genargs.clone(),
-                        push_caller_context(cur_scope, self.call_context_k),
-                    );
+                    let callee_scope = find_active_recursive_scope(call_stack, &instance, &genargs)
+                        .unwrap_or_else(|| {
+                            (
+                                instance.clone(),
+                                genargs.clone(),
+                                push_caller_context(cur_scope, self.call_context_k),
+                            )
+                        });
                     drop(_timing_guard);
 
                     // the `if` and `else if` blocks might be creating a soundness error...

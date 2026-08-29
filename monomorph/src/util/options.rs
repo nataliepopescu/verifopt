@@ -63,17 +63,28 @@ fn make_options_parser() -> Command {
                 ),
         )
         .arg(
+            Arg::new("context-depth")
+                .long("context-depth")
+                .value_parser(clap::value_parser!(usize))
+                .default_value("1")
+                .help(
+                    "How many levels of immediate-caller context to track \
+                     as part of a scope's own identity (k-CFA-style \
+                     context sensitivity) - 0 disables it entirely, \
+                     matching the previous (unfixed) behavior where two \
+                     different call sites reaching the same callee were \
+                     treated as one indistinguishable scope. Higher \
+                     values give more precision at the cost of tracking \
+                     more distinct scope instances; 1 is the traditional \
+                     sweet spot in the literature and the default here.",
+                ),
+        )
+        .arg(
             Arg::new("INPUT")
                 .num_args(0..)
                 .help("The input file to be analyzed."),
         );
 
-    //.arg(Arg::new("context-depth")
-    //    .long("context-depth")
-    //    .takes_value(true)
-    //    .value_parser(clap::value_parser!(u32))
-    //    .default_value("1")
-    //    .help("The context depth limit for a context-sensitive pointer analysis."))
     //.arg(Arg::new("dump-stats")
     //    .long("dump-stats")
     //    .takes_value(false)
@@ -106,6 +117,7 @@ pub struct AnalysisOptions {
     pub entry_def_id: Option<u32>,
     pub verifopt_type: VerifOptType,
     pub no_rewrite: bool,
+    pub context_depth: usize,
 }
 
 impl Default for AnalysisOptions {
@@ -115,6 +127,7 @@ impl Default for AnalysisOptions {
             entry_def_id: None,
             verifopt_type: VerifOptType::FlowSensitive,
             no_rewrite: false,
+            context_depth: 1,
         }
     }
 }
@@ -193,9 +206,20 @@ impl AnalysisOptions {
         // flag doesn't erase what the env var already set" behavior.
         self.no_rewrite = self.no_rewrite || matches.get_flag("no-rewrite");
 
-        //if let Some(depth) = matches.get_one::<u32>("context-depth") {
-        //    self.context_depth = *depth;
-        //}
+        // Unlike the boolean flags above, --context-depth has a clap
+        // default_value, so `matches` always "contains" some value for
+        // it - checking value_source specifically distinguishes "the
+        // user actually passed this on this call" from "this is just
+        // the default filling in," so a call that didn't mention
+        // --context-depth at all doesn't silently stomp on a value the
+        // other call (env var or CLI, whichever ran first) explicitly
+        // set.
+        if matches!(
+            matches.value_source("context-depth"),
+            Some(clap::parser::ValueSource::CommandLine)
+        ) {
+            self.context_depth = *matches.get_one::<usize>("context-depth").unwrap();
+        }
 
         //self.cast_constraint = !matches.contains_id("no-cast-constraint");
         //self.stack_filtering = matches.contains_id("stack-filtering");

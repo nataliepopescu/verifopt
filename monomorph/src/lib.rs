@@ -150,7 +150,7 @@ pub fn start_verifopt(
     // Abstractly Interpret MIR
     debug!("\n\nINTERP PASS");
     let mut ctxt = Context::empty();
-    let interp = InterpPass::new(&sigstore, &tstore);
+    let interp = InterpPass::new(&sigstore, &tstore, options.context_depth);
     let _ = interp.run(&mut ctxt, entry_instance);
 
     let incomplete = &interp.incomplete.borrow();

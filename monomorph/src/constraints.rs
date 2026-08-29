@@ -53,12 +53,82 @@ pub fn unique_append<T: PartialEq>(vec: &mut Vec<T>, to_append: Vec<T>) {
 }
 
 /// Using `Instance` as unique ID (internal objects are interned so this is apparently cheap)
-pub type VOID = (Instance, GenericArgs);
+///
+/// The third field is a k-CFA-style bounded call context: the last `k`
+/// immediate callers' own (Instance, GenericArgs) identities, most
+/// recent first, where `k` is `--context-depth` (see util/options.rs).
+/// This is what lets two different call sites reaching the same callee
+/// be distinguished as genuinely different scopes, rather than
+/// silently merged - which is what caused the REFS/WTOS MERGE CONFLICT
+/// panics (see interp.rs) to fire on cases like diff_sites, where
+/// first_speak and second_speak both dynamically dispatch to the same
+/// Cat::speak but with genuinely different receiver aliasing per call
+/// site. k=0 reproduces the previous (unfixed) context-insensitive
+/// behavior exactly - an empty context is indistinguishable from no
+/// context tracking at all.
+///
+/// Constructed via `push_caller_context` below, never directly, so
+/// direct/mutual recursion still terminates: each entry is the
+/// caller's own *base* identity only, never folding in the caller's
+/// own context recursively, which would otherwise make the context
+/// grow unboundedly with recursion depth and break the
+/// `call_stack.contains(...)`-based cycle detection that recursive
+/// interpretation relies on.
+pub type CallContext = Vec<(Instance, GenericArgs)>;
+pub type VOID = (Instance, GenericArgs, CallContext);
+
+/// Builds the CallContext for a new scope being entered from
+/// `caller_scope`, bounded to `k` entries. Prepends the caller's own
+/// base (Instance, GenericArgs) - *not* `caller_scope.clone()` as a
+/// whole, which would fold in the caller's own context and grow
+/// unboundedly across recursion depth - then keeps only as much of the
+/// caller's own existing context as still fits within the bound.
+pub fn push_caller_context(caller_scope: &VOID, k: usize) -> CallContext {
+    if k == 0 {
+        return Vec::new();
+    }
+    let mut ctx = Vec::with_capacity(k);
+    ctx.push((caller_scope.0.clone(), caller_scope.1.clone()));
+    ctx.extend(caller_scope.2.iter().take(k - 1).cloned());
+    ctx
+}
+
+/// The scope-identity component used for things that should stay
+/// context-insensitive despite VOID itself now carrying a call
+/// context: `cmap` (the main constraint-propagation store) and the
+/// "summary cache" family (summaries, exact_memo, scope_epoch,
+/// scope_exact_memo_count, scope_summaries_count) - a function's own
+/// computed constraints/summary shouldn't depend on who's asking, any
+/// more than its constraint propagation should. Making either
+/// context-sensitive would fragment the sharing flatten_all's
+/// memoization (and friends) rely on for tractable performance at
+/// scale - a materially different, larger tradeoff than making
+/// refs/wtos/call_stack (and call_stack's own tightly-coupled
+/// siblings: key_stack, wq, in_queue - together they track call
+/// nesting/recursion state, which does need the caller-tag) context-
+/// sensitive. Constructed only via `base_scope_id` below, never
+/// directly, so a VOID's call context can't be accidentally leaked
+/// into either's keying by a future call site that forgets to project
+/// it away - a mismatch there wouldn't error, it would just silently
+/// fail to find data that was stored under a differently-shaped key.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BaseScopeId(pub Instance, pub GenericArgs);
+
+pub fn base_scope_id(scope: &VOID) -> BaseScopeId {
+    BaseScopeId(scope.0.clone(), scope.1.clone())
+}
+
+/// The summary-cache family's own key shape, mirroring SummaryKey's
+/// (scope, args) structure but with the caller-tag projected away via
+/// BaseScopeId - unlike SummaryKey itself, which must keep the full
+/// VOID (see prepare_call: `call_stack.push(key.0.clone())` needs the
+/// caller-tag for correct recursion detection).
+pub type MemoKey = (BaseScopeId, ArgSet);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum MapKey {
     Var(Place),
-    ScopeId(VOID),
+    ScopeId(BaseScopeId),
     Static(DefId),
 }
 
@@ -1214,13 +1284,13 @@ impl Context {
         enclosing_scope: EnclosingScopes,
     ) {
         self.cstore.cmap.insert(
-            MapKey::ScopeId(scope.clone()),
+            MapKey::ScopeId(base_scope_id(scope)),
             Box::new(MapValue::Store(store, enclosing_scope)),
         );
     }
 
     pub fn get_cstore_scope(&self, scope: &VOID) -> Option<&Box<MapValue>> {
-        self.cstore.cmap.get(&MapKey::ScopeId(scope.clone()))
+        self.cstore.cmap.get(&MapKey::ScopeId(base_scope_id(scope)))
     }
 
     pub fn get_static(&self, defid: DefId) -> Option<Constraints> {
@@ -1320,7 +1390,7 @@ impl ConstraintStore {
             MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
         };
 
-        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
+        match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scopes) => {
                     // Is key in inner_cmap? if not:
@@ -1385,7 +1455,7 @@ impl ConstraintStore {
         drop(_resolve_guard);
 
         let _get_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateGetScope, &scope));
-        let mapres = self.cmap.get(&MapKey::ScopeId(scope.clone()));
+        let mapres = self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope)));
         drop(_get_guard);
 
         match mapres {
@@ -1425,7 +1495,7 @@ impl ConstraintStore {
                         timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, &scope));
                     store.cmap.insert(key, new_val);
                     self.cmap.insert(
-                        MapKey::ScopeId(scope.clone()),
+                        MapKey::ScopeId(base_scope_id(&scope)),
                         Box::new(MapValue::Store(store, enclosing_scope)),
                     );
                 }
@@ -1439,7 +1509,7 @@ impl ConstraintStore {
                 let mut new_store = ConstraintStore::new();
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(
-                    MapKey::ScopeId(scope.clone()),
+                    MapKey::ScopeId(base_scope_id(&scope)),
                     Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
                 );
             }
@@ -1461,12 +1531,12 @@ impl ConstraintStore {
             MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
         };
 
-        match self.cmap.get(&MapKey::ScopeId(scope.clone())) {
+        match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {
                     store.cmap.insert(key, value);
                     self.cmap.insert(
-                        MapKey::ScopeId(scope.clone()),
+                        MapKey::ScopeId(base_scope_id(&scope)),
                         Box::new(MapValue::Store(store, enclosing_scope)),
                     );
                 }
@@ -1479,7 +1549,7 @@ impl ConstraintStore {
                 let mut new_store = ConstraintStore::new();
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(
-                    MapKey::ScopeId(scope.clone()),
+                    MapKey::ScopeId(base_scope_id(&scope)),
                     Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
                 );
             }

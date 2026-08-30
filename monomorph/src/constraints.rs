@@ -1405,7 +1405,8 @@ impl ConstraintStore {
                 let (place, scope) = self.resolve(place.clone(), scope.clone(), false);
                 (scope, MapKey::Var(place))
             }
-            MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
+            MapKey::ScopeId(_) => (scope.clone(), key.clone()),
+            MapKey::Static(_) => panic!("use get_static/set_static"),
         };
 
         match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {

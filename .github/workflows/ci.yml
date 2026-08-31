@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Safety net for exactly the kind of bug we just hit - a hung test
+    # would otherwise tie up the runner for hours (GitHub's own default
+    # job timeout) instead of failing fast and visibly.
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: monomorph
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # rustup already respects monomorph/rust-toolchain.toml (channel +
+      # components) automatically once installed - this step just makes
+      # sure that exact toolchain is present before cargo needs it,
+      # rather than relying on whatever nightly happens to already be on
+      # the runner.
+      - name: Install pinned toolchain
+        run: |
+          TOOLCHAIN=$(grep '^channel' rust-toolchain.toml | cut -d'"' -f2)
+          rustup toolchain install "$TOOLCHAIN" \
+            --component llvm-tools --component rustc-dev --component rust-src
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            monomorph/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('monomorph/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # librustc_driver.so lives in the toolchain's own sysroot, not a
+      # standard system library path - without this, the built
+      # verifopt/cargo-verifopt binaries fail to run at all. Matches the
+      # troubleshooting note in monomorph/README.md.
+      - name: Set LD_LIBRARY_PATH
+        run: echo "LD_LIBRARY_PATH=$(rustc --print sysroot)/lib" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --locked
+
+      - name: Run tests
+        run: cargo test --locked

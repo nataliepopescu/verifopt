@@ -498,7 +498,8 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                     ))),
                 ));
 
-                let mut fallback = None;
+                let orig = bbs[bb].terminator().clone();
+                let mut fallback = bbs.push(BasicBlockData::new_stmts(vec![], Some(orig), false));
                 let n = hashes.len();
 
                 for (i, (hash, self_hash)) in hashes.iter().enumerate() {
@@ -535,11 +536,6 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                         }),
                         false,
                     ));
-
-                    let Some(fallback_bb) = fallback else {
-                        fallback = Some(call_bb);
-                        continue;
-                    };
 
                     let cand_ptr_place =
                         Place::from(body.local_decls.push(LocalDecl::new(fn_ptr_ty, span)));
@@ -579,7 +575,7 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                         source_info,
                         kind: TerminatorKind::SwitchInt {
                             discr: Operand::Copy(eq_place),
-                            targets: SwitchTargets::static_if(1, call_bb, fallback_bb),
+                            targets: SwitchTargets::static_if(1, call_bb, fallback),
                         },
                     };
 
@@ -587,11 +583,11 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                         bbs[bb].statements.push(eq_stmt);
                         bbs[bb].terminator = Some(new_term);
                     } else {
-                        fallback = Some(bbs.push(BasicBlockData::new_stmts(
+                        fallback = bbs.push(BasicBlockData::new_stmts(
                             vec![eq_stmt],
                             Some(new_term),
                             false,
-                        )));
+                        ));
                     }
                 }
             }

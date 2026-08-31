@@ -57,9 +57,7 @@ pub fn start_verifopt(
     }
 
     // TODO make log filename a cmdline option
-    let f_filename = "found_ex";
-    let nf_filename = "notfound_ex";
-    let mut logger = VOLogger::new(f_filename, nf_filename);
+    let mut logger = VOLogger::new();
 
     // `rustc_public::entry_fn()` only resolves rustc's own notion of "the
     // crate's designated entry point" — tied to the ordinary Rust runtime

@@ -10,7 +10,7 @@ pub struct VOLogger {
 }
 
 impl VOLogger {
-    pub fn new<'a>(_f_filename: &'a str, _nf_filename: &'a str) -> VOLogger {
+    pub fn new<'a>() -> VOLogger {
         let stats_file = OpenOptions::new()
             .append(true)
             .create(true)

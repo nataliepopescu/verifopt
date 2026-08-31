@@ -31,7 +31,7 @@ pub fn get_dog() -> Box<dyn Animal> {
 pub struct Cat;
 pub struct Dog;
 
-#[votrace::trace]
+//#[votrace::trace]
 impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
@@ -41,7 +41,7 @@ impl Animal for Cat {
     }
 }
 
-#[votrace::trace]
+//#[votrace::trace]
 impl Animal for Dog {
     fn speak(&self) -> usize {
         22222

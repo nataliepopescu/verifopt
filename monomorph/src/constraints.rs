@@ -16,6 +16,7 @@ use crate::wto::BBDeps;
 use log::{debug, warn};
 
 use im::HashMap as ImHashMap;
+use im::HashSet as ImHashSet;
 use indexmap::IndexSet;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1329,7 +1330,18 @@ impl Context {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintStore {
     pub cmap: ImHashMap<MapKey, Box<MapValue>>,
-    pub refs: ImHashMap<(Place, VOID), ((Place, VOID), Mutability)>,
+    /// Each place can alias *multiple* targets - e.g. the same shared,
+    /// type-erased stdlib call chain (like RawVecInner's allocation
+    /// machinery, generic over element size/align rather than the
+    /// concrete element type) can be reached from genuinely unrelated
+    /// parts of a program, each recording a different alias target for
+    /// the same key. A single-valued map forces choosing one target and
+    /// silently discarding the other on merge - a real soundness gap,
+    /// not just an imprecision, since the discarded fact could still
+    /// matter. Retaining the full set is the sound alternative: nothing
+    /// gets discarded, readers consider every possible target, at the
+    /// cost of resolving to potentially more than one place.
+    pub refs: ImHashMap<(Place, VOID), ImHashSet<((Place, VOID), Mutability)>>,
 }
 
 impl ConstraintStore {
@@ -1340,7 +1352,7 @@ impl ConstraintStore {
         }
     }
 
-    fn resolve(&self, place: Place, scope: VOID, for_mut: bool) -> (Place, VOID) {
+    fn resolve(&self, place: Place, scope: VOID, for_mut: bool) -> ImHashSet<(Place, VOID)> {
         if place.projection.first() == Some(&ProjectionElem::Deref) {
             let base = Place {
                 local: place.local,
@@ -1348,26 +1360,30 @@ impl ConstraintStore {
             };
             let rest = place.projection[1..].to_vec();
 
-            let (tplace, tscope) = if for_mut {
+            let targets = if for_mut {
                 self.resolve_mut_ref(base.clone(), scope.clone())
             } else {
                 self.resolve_ref(base.clone(), scope.clone())
             };
 
-            if tplace == base && tscope == scope {
-                return (place, scope);
-            }
-
-            let mut projection = tplace.projection.clone();
-            projection.extend(rest);
-
-            (
-                Place {
-                    local: tplace.local,
-                    projection,
-                },
-                tscope,
-            )
+            targets
+                .into_iter()
+                .map(|(tplace, tscope)| {
+                    if tplace == base && tscope == scope {
+                        (place.clone(), scope.clone())
+                    } else {
+                        let mut projection = tplace.projection.clone();
+                        projection.extend(rest.clone());
+                        (
+                            Place {
+                                local: tplace.local,
+                                projection,
+                            },
+                            tscope,
+                        )
+                    }
+                })
+                .collect()
         } else if for_mut {
             self.resolve_mut_ref(place, scope)
         } else {
@@ -1376,52 +1392,127 @@ impl ConstraintStore {
     }
 
     pub fn add_ref(&mut self, from: (Place, VOID), to: (Place, VOID), bk: Mutability) {
-        self.refs.insert(from, (to, bk));
+        self.refs
+            .entry(from)
+            .or_insert_with(ImHashSet::new)
+            .insert((to, bk));
     }
 
-    fn resolve_ref(&self, place: Place, scope: VOID) -> (Place, VOID) {
-        let mut cur = (place, scope);
-        while let Some(((p, s), _)) = self.refs.get(&cur) {
-            cur = (p.clone(), s.clone());
-        }
-        cur
-    }
-
-    fn resolve_mut_ref(&self, place: Place, scope: VOID) -> (Place, VOID) {
-        let mut cur = (place, scope);
-        while let Some(((p, s), bk)) = self.refs.get(&cur) {
-            if matches!(bk, Mutability::Mut) {
-                cur = (p.clone(), s.clone());
-            } else {
-                return cur;
+    /// Explores every possible alias path from (place, scope), since a
+    /// single hop can now have multiple recorded targets (see `refs`'s
+    /// own field doc). Returns the set of all terminal (no-further-
+    /// alias) places reached - a sound read/write must consider all of
+    /// them, since which one is "real" isn't known at analysis time.
+    /// `visited` guards against a cycle in the alias graph turning this
+    /// into an infinite loop (shouldn't happen with well-formed data,
+    /// but this makes termination a guarantee rather than an
+    /// assumption).
+    fn resolve_ref(&self, place: Place, scope: VOID) -> ImHashSet<(Place, VOID)> {
+        let mut results = ImHashSet::new();
+        let mut visited: ImHashSet<(Place, VOID)> = ImHashSet::new();
+        let mut worklist = vec![(place, scope)];
+        while let Some(cur) = worklist.pop() {
+            if visited.contains(&cur) {
+                continue;
+            }
+            visited.insert(cur.clone());
+            match self.refs.get(&cur) {
+                Some(targets) if !targets.is_empty() => {
+                    for (to, _bk) in targets.iter() {
+                        worklist.push(to.clone());
+                    }
+                }
+                _ => {
+                    results.insert(cur);
+                }
             }
         }
-        cur
+        results
+    }
+
+    /// Same traversal as `resolve_ref`, but stops (treating the place
+    /// *before* the borrow, not the aliased-to place, as terminal) the
+    /// moment it hits a `Not` (immutable) borrow along any path - a
+    /// mutable write can't soundly be pushed through an immutable
+    /// reference, matching the original single-valued version's own
+    /// `return cur` (not `return (p, s)`) behavior on that branch.
+    fn resolve_mut_ref(&self, place: Place, scope: VOID) -> ImHashSet<(Place, VOID)> {
+        let mut results = ImHashSet::new();
+        let mut visited: ImHashSet<(Place, VOID)> = ImHashSet::new();
+        let mut worklist = vec![(place, scope)];
+        while let Some(cur) = worklist.pop() {
+            if visited.contains(&cur) {
+                continue;
+            }
+            visited.insert(cur.clone());
+            match self.refs.get(&cur) {
+                Some(targets) if !targets.is_empty() => {
+                    for (to, bk) in targets.iter() {
+                        if matches!(bk, Mutability::Mut) {
+                            worklist.push(to.clone());
+                        } else {
+                            results.insert(cur.clone());
+                        }
+                    }
+                }
+                _ => {
+                    results.insert(cur);
+                }
+            }
+        }
+        results
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
-        let (scope, key) = match key {
-            MapKey::Var(place) => {
-                let (place, scope) = self.resolve(place.clone(), scope.clone(), false);
-                (scope, MapKey::Var(place))
-            }
-            MapKey::ScopeId(_) => (scope.clone(), key.clone()),
+        let targets: Vec<(VOID, MapKey)> = match key {
+            MapKey::Var(place) => self
+                .resolve(place.clone(), scope.clone(), false)
+                .into_iter()
+                .map(|(p, s)| (s, MapKey::Var(p)))
+                .collect(),
+            MapKey::ScopeId(_) => vec![(scope.clone(), key.clone())],
             MapKey::Static(_) => panic!("use get_static/set_static"),
         };
 
-        match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {
+        // A Var lookup can now resolve to multiple possible places (see
+        // `refs`'s own field doc) - merge every target's own result
+        // rather than assuming there's exactly one. Constraints merge
+        // by appending (disjuncts accumulate, nothing gets discarded);
+        // Store/Static results shouldn't ever arise from resolving
+        // multiple *Var* targets, so keeping the first rather than
+        // trying to merge them is fine - that combination isn't
+        // reachable by construction, not something being silently
+        // papered over.
+        let mut merged: Option<MapValue> = None;
+        for (target_scope, target_key) in targets {
+            let single = self.scoped_get_single(&target_scope, &target_key, is_closure);
+            merged = match (merged, single) {
+                (None, other) => other,
+                (Some(existing), None) => Some(existing),
+                (Some(MapValue::Constraints(mut cs)), Some(MapValue::Constraints(other_cs))) => {
+                    cs.append(other_cs);
+                    Some(MapValue::Constraints(cs))
+                }
+                (Some(existing), Some(_)) => Some(existing),
+            };
+        }
+        merged
+    }
+
+    fn scoped_get_single(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
+        match self.cmap.get(&MapKey::ScopeId(base_scope_id(scope))) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scopes) => {
                     // Is key in inner_cmap? if not:
                     // - Is nested func: return None
                     // - Is closure: follow backptr to enclosing scope
-                    match store.cmap.get(&key) {
+                    match store.cmap.get(key) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
                             if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
                                 let constraints =
-                                    self.get_from_enclosing_scopes(&enclosing_scopes, &key);
+                                    self.get_from_enclosing_scopes(&enclosing_scopes, key);
                                 Some(MapValue::Constraints(constraints))
                             } else {
                                 None
@@ -1463,25 +1554,46 @@ impl ConstraintStore {
         timing: Option<&InterpPass>,
     ) {
         let _resolve_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateResolve, scope));
-        let (scope, key) = match key {
-            MapKey::Var(place) => {
-                let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
-                debug!("scoped_update: local={}", place.local);
-                (scope, MapKey::Var(place))
-            }
-            MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
+        let targets: Vec<(VOID, MapKey)> = match &key {
+            MapKey::Var(place) => self
+                .resolve(place.clone(), scope.clone(), true)
+                .into_iter()
+                .map(|(p, s)| {
+                    debug!("scoped_update: local={}", p.local);
+                    (s, MapKey::Var(p))
+                })
+                .collect(),
+            MapKey::ScopeId(_) | MapKey::Static(_) => vec![(scope.clone(), key.clone())],
         };
         drop(_resolve_guard);
 
-        let _get_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateGetScope, &scope));
-        let mapres = self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope)));
+        // A Var write can now resolve to multiple possible places (see
+        // `refs`'s own field doc) - apply the same write to every one
+        // of them, since which one is "real" isn't known at analysis
+        // time. Each target's own write still merges with whatever's
+        // already there (via scoped_update_single), it just happens
+        // once per target instead of once total.
+        for (target_scope, target_key) in targets {
+            self.scoped_update_single(&target_scope, target_key, value.clone(), timing);
+        }
+    }
+
+    fn scoped_update_single(
+        &mut self,
+        scope: &VOID,
+        key: MapKey,
+        value: Box<MapValue>,
+        timing: Option<&InterpPass>,
+    ) {
+        let _get_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateGetScope, scope));
+        let mapres = self.cmap.get(&MapKey::ScopeId(base_scope_id(scope)));
         drop(_get_guard);
 
         match mapres {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(mut store, enclosing_scope) => {
                     let _g0 =
-                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePre, &scope));
+                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePre, scope));
                     let mut new_val = value.clone();
                     let old_val = store.cmap.get(&key);
                     drop(_g0);
@@ -1489,9 +1601,9 @@ impl ConstraintStore {
                     match old_val {
                         Some(old_val_) => {
                             let _g1 = timing
-                                .map(|p| p.timing_span(TimingCat::ScopedUpdateStoreMerge, &scope));
+                                .map(|p| p.timing_span(TimingCat::ScopedUpdateStoreMerge, scope));
                             let merged =
-                                merge_mapvals(old_val_, &value, timing.map(|p| (p, &scope)));
+                                merge_mapvals(old_val_, &value, timing.map(|p| (p, scope)));
                             drop(_g1);
 
                             match &merged {
@@ -1511,10 +1623,10 @@ impl ConstraintStore {
 
                     // modify scope w new key/val
                     let _g2 =
-                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, &scope));
+                        timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, scope));
                     store.cmap.insert(key, new_val);
                     self.cmap.insert(
-                        MapKey::ScopeId(base_scope_id(&scope)),
+                        MapKey::ScopeId(base_scope_id(scope)),
                         Box::new(MapValue::Store(store, enclosing_scope)),
                     );
                 }
@@ -1524,11 +1636,11 @@ impl ConstraintStore {
             },
             None => {
                 // initialize new scope w key/val
-                let _g = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateInitScope, &scope));
+                let _g = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateInitScope, scope));
                 let mut new_store = ConstraintStore::new();
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(
-                    MapKey::ScopeId(base_scope_id(&scope)),
+                    MapKey::ScopeId(base_scope_id(scope)),
                     Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
                 );
             }
@@ -1542,35 +1654,54 @@ impl ConstraintStore {
     // branching by MIR's own definition, so there's no alternative
     // incoming path the prior value could represent.
     pub fn scoped_replace(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
-        let (scope, key) = match key {
-            MapKey::Var(place) => {
-                let (place, scope) = self.resolve(place.clone(), scope.clone(), true);
-                (scope, MapKey::Var(place))
-            }
-            MapKey::ScopeId(_) | MapKey::Static(_) => (scope.clone(), key.clone()),
+        let targets: Vec<(VOID, MapKey)> = match &key {
+            MapKey::Var(place) => self
+                .resolve(place.clone(), scope.clone(), true)
+                .into_iter()
+                .map(|(p, s)| (s, MapKey::Var(p)))
+                .collect(),
+            MapKey::ScopeId(_) | MapKey::Static(_) => vec![(scope.clone(), key.clone())],
         };
 
-        match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {
-            Some(vartype) => match *vartype.clone() {
-                MapValue::Store(mut store, enclosing_scope) => {
-                    store.cmap.insert(key, value);
+        // The "always overwrites outright" contract only holds when
+        // there's exactly one possible target - the original
+        // rationale (no branching within a BB, so no alternative
+        // incoming path the prior value could represent) doesn't
+        // extend to "and we're certain which of several alias targets
+        // is the real one." With more than one target, resolving to
+        // multiple possible places itself means we're not certain,
+        // so fall back to the same merge-based write scoped_update
+        // uses - overwriting every possible target unconditionally
+        // would risk discarding legitimate, unrelated information for
+        // whichever targets weren't actually the one written to here.
+        if targets.len() == 1 {
+            let (scope, key) = targets.into_iter().next().unwrap();
+            match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {
+                Some(vartype) => match *vartype.clone() {
+                    MapValue::Store(mut store, enclosing_scope) => {
+                        store.cmap.insert(key, value);
+                        self.cmap.insert(
+                            MapKey::ScopeId(base_scope_id(&scope)),
+                            Box::new(MapValue::Store(store, enclosing_scope)),
+                        );
+                    }
+                    MapValue::Constraints(..) => {
+                        panic!("defid is not a scope: {:?}", scope);
+                    }
+                },
+                None => {
+                    // initialize new scope w key/val
+                    let mut new_store = ConstraintStore::new();
+                    new_store.cmap.insert(key, value);
                     self.cmap.insert(
                         MapKey::ScopeId(base_scope_id(&scope)),
-                        Box::new(MapValue::Store(store, enclosing_scope)),
+                        Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
                     );
                 }
-                MapValue::Constraints(..) => {
-                    panic!("defid is not a scope: {:?}", scope);
-                }
-            },
-            None => {
-                // initialize new scope w key/val
-                let mut new_store = ConstraintStore::new();
-                new_store.cmap.insert(key, value);
-                self.cmap.insert(
-                    MapKey::ScopeId(base_scope_id(&scope)),
-                    Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
-                );
+            }
+        } else {
+            for (target_scope, target_key) in targets {
+                self.scoped_update_single(&target_scope, target_key, value.clone(), None);
             }
         }
     }

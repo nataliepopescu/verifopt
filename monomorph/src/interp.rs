@@ -4098,23 +4098,21 @@ impl<'a> InterpPass<'a> {
             // logged immediately here (not just recorded for a later
             // read-side check) since `resolve_ref`/`resolve_mut_ref` can't
             // conveniently check `refs_merge_conflicts` themselves - see
-            // the field doc. This alone answers "how often does a
-            // genuine refs collision happen at all," which is the thing
-            // to look at first before deciding whether the harder,
-            // read-side-consequence check is worth building.
+            // the field doc. Unlike before, this is no longer a
+            // panic-worthy situation: `refs`'s own value is now a *set*
+            // of possible alias targets (see its field doc), so two
+            // disagreeing values from different merge sources just get
+            // unioned together below, retaining both rather than being
+            // forced to discard one. This debug log is purely
+            // diagnostic now - how often genuinely different
+            // alias-target sets get combined - not a correctness signal.
             let refs_conflicts = Self::find_conflicting_keys(&merged.refs, &store.refs);
             if !refs_conflicts.is_empty() {
-                let detailed: Vec<_> = refs_conflicts
-                    .iter()
-                    .map(|k| (k, merged.refs.get(k), store.refs.get(k)))
-                    .collect();
-                panic!(
-                    "REFS MERGE CONFLICT: bb_visit={} {} key(s) had disagreeing alias targets - \
-                     union() would silently discard one side.\n\
-                     (key, existing_value_kept, incoming_value_discarded): {:#?}",
+                debug!(
+                    "REFS MERGE: bb_visit={} {} key(s) had disagreeing alias-target sets \
+                     (both retained via union, not discarded)",
                     *self.bb_visit_count.borrow(),
                     refs_conflicts.len(),
-                    detailed
                 );
             }
             for conflicting_key in refs_conflicts {
@@ -4123,7 +4121,7 @@ impl<'a> InterpPass<'a> {
                     .insert(conflicting_key);
             }
 
-            merged.refs = merged.refs.union(store.refs);
+            merged.refs = merged.refs.union_with(store.refs, |set1, set2| set1.union(set2));
             drop(_timing_guard);
         }
 

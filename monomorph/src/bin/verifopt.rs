@@ -124,7 +124,16 @@ fn main() {
         // happen twice for no reason. This is the only place
         // FsaCallbacks is ever constructed, so this guard alone is
         // sufficient - after_analysis doesn't duplicate the check.
-        if !options.no_rewrite {
+        //
+        // --rewrite-pass is skipped for the same reason: this crate is
+        // being rebuilt specifically to apply edits a prior discovery
+        // pass already found and persisted (see rewrite.rs's
+        // dep_rewrite_store_path), not to re-discover anything - a
+        // dependency crate has no entry point of its own to analyze
+        // from anyway, so re-running FsaCallbacks here would just be
+        // wasted work repeating a failure, not a genuine second
+        // analysis.
+        if !options.no_rewrite && !options.rewrite_pass {
             let mut callbacks = FsaCallbacks {
                 options: options.clone(),
             };

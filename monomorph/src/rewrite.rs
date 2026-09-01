@@ -1,3 +1,4 @@
+extern crate rustc_data_structures;
 extern crate rustc_driver;
 extern crate rustc_hir;
 extern crate rustc_interface;
@@ -6,6 +7,7 @@ extern crate rustc_public;
 extern crate rustc_session;
 extern crate rustc_span;
 
+use rustc_data_structures::fingerprint::Fingerprint;
 use rustc_data_structures::smallvec::SmallVec;
 use rustc_index::IndexVec;
 use rustc_middle::mir::{
@@ -34,6 +36,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
+use serde::{Deserialize, Serialize};
+
 use crate::interp::TagPlan;
 use crate::start_verifopt;
 use crate::util::options::AnalysisOptions;
@@ -54,6 +58,164 @@ pub struct Store {
 }
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
+
+/// A lossless, serializable stand-in for DefPathHash, used only when
+/// persisting `Store` to disk (see `dep_rewrite_store_path` and the
+/// two-pass dependency-rewrite design it supports). DefPathHash wraps
+/// Fingerprint - two u64s, exposed losslessly via `to_le_bytes`/
+/// `from_le_bytes` (confirmed directly against rustc's own
+/// rustc_data_structures::fingerprint source - `as_u128`/`from_u128`,
+/// tried first, don't work: `as_u128` is `pub(crate)`, and
+/// `from_u128` doesn't exist at all) - specifically because
+/// Fingerprint is designed to be stable across *separate compilation
+/// sessions of the same crate*, which is exactly the property this
+/// needs: the discovery pass (the primary crate's own compilation)
+/// and the rewrite pass (a dependency's own, later, separate
+/// compilation) are different OS processes entirely, but a given
+/// function's DefPathHash is the same value in both.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct SerializableDefPathHash([u8; 16]);
+
+impl From<DefPathHash> for SerializableDefPathHash {
+    fn from(dph: DefPathHash) -> Self {
+        SerializableDefPathHash(dph.0.to_le_bytes())
+    }
+}
+
+impl From<SerializableDefPathHash> for DefPathHash {
+    fn from(s: SerializableDefPathHash) -> Self {
+        DefPathHash(Fingerprint::from_le_bytes(s.0))
+    }
+}
+
+/// `Store`'s own on-disk form. A plain Vec of pairs rather than a
+/// HashMap, since JSON object keys must be strings and a
+/// SerializableDefPathHash-keyed map would need extra string-conversion
+/// ceremony for no benefit over just storing pairs directly as a JSON
+/// array - this is written and read back in full each time, never
+/// looked up by key on disk.
+#[derive(Serialize, Deserialize, Default)]
+struct SerializableStore {
+    targets: Vec<(
+        (SerializableDefPathHash, usize),
+        Vec<(SerializableDefPathHash, Option<Vec<SerializableDefPathHash>>)>,
+    )>,
+    tags: Vec<(
+        (SerializableDefPathHash, usize),
+        Vec<(
+            usize,
+            usize,
+            u64,
+            SerializableDefPathHash,
+            Option<Vec<SerializableDefPathHash>>,
+        )>,
+    )>,
+}
+
+impl From<&Store> for SerializableStore {
+    fn from(store: &Store) -> Self {
+        let conv_opt_vec = |opt: &Option<Vec<DefPathHash>>| {
+            opt.as_ref()
+                .map(|v| v.iter().map(|h| SerializableDefPathHash::from(*h)).collect())
+        };
+        SerializableStore {
+            targets: store
+                .targets
+                .iter()
+                .map(|((h, bb), v)| {
+                    (
+                        (SerializableDefPathHash::from(*h), *bb),
+                        v.iter()
+                            .map(|(h2, opt)| (SerializableDefPathHash::from(*h2), conv_opt_vec(opt)))
+                            .collect(),
+                    )
+                })
+                .collect(),
+            tags: store
+                .tags
+                .iter()
+                .map(|((h, bb), v)| {
+                    (
+                        (SerializableDefPathHash::from(*h), *bb),
+                        v.iter()
+                            .map(|(bb2, stmt, tag, h2, opt)| {
+                                (
+                                    *bb2,
+                                    *stmt,
+                                    *tag,
+                                    SerializableDefPathHash::from(*h2),
+                                    conv_opt_vec(opt),
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
+impl From<SerializableStore> for Store {
+    fn from(s: SerializableStore) -> Self {
+        let conv_opt_vec = |opt: Option<Vec<SerializableDefPathHash>>| {
+            opt.map(|v| v.into_iter().map(DefPathHash::from).collect())
+        };
+        Store {
+            targets: s
+                .targets
+                .into_iter()
+                .map(|((h, bb), v)| {
+                    (
+                        (DefPathHash::from(h), bb),
+                        v.into_iter()
+                            .map(|(h2, opt)| (DefPathHash::from(h2), conv_opt_vec(opt)))
+                            .collect(),
+                    )
+                })
+                .collect(),
+            tags: s
+                .tags
+                .into_iter()
+                .map(|((h, bb), v)| {
+                    (
+                        (DefPathHash::from(h), bb),
+                        v.into_iter()
+                            .map(|(bb2, stmt, tag, h2, opt)| {
+                                (bb2, stmt, tag, DefPathHash::from(h2), conv_opt_vec(opt))
+                            })
+                            .collect(),
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Fixed, well-known path for the discovery pass to write its findings
+/// to, and the rewrite pass to read them back from - CWD-relative,
+/// matching the existing `stats`/`mir_dump.txt` convention. Cargo runs
+/// every rustc invocation within one `cargo build` from the same,
+/// workspace-root CWD, so this is stable across the separate processes
+/// involved.
+fn dep_rewrite_store_path() -> &'static str {
+    "verifopt_store.json"
+}
+
+/// Loaded once, lazily, the first time `optimized_mir` needs it during
+/// the rewrite pass. `None` when the file doesn't exist (e.g. this
+/// crate is being built as part of a normal, single-pass run rather
+/// than the two-pass dependency-rewrite flow) or fails to parse -
+/// falls back to the ordinary in-process `store()` in either case, so
+/// existing single-crate test cases that never write this file are
+/// completely unaffected.
+static SHARED_STORE: OnceLock<Option<Store>> = OnceLock::new();
+
+fn load_shared_store() -> Option<Store> {
+    let contents = std::fs::read_to_string(dep_rewrite_store_path()).ok()?;
+    let serializable: SerializableStore = serde_json::from_str(&contents).ok()?;
+    Some(Store::from(serializable))
+}
+
 
 fn store() -> &'static Mutex<Store> {
     STORE.get_or_init(|| Mutex::new(Store::default()))
@@ -183,6 +345,30 @@ impl Callbacks for FsaCallbacks {
 
                 store.tags.insert((hash, bb), entry);
             }
+
+            // Persist the whole-program findings for the two-pass
+            // dependency-rewrite flow (see dep_rewrite_store_path's own
+            // doc). Gated on CARGO_PRIMARY_PACKAGE so only the crate the
+            // user actually asked Cargo to build produces the
+            // authoritative result - every other crate compiled along
+            // the way (including this same primary crate's own
+            // dependencies, transitively analyzed as part of this same
+            // reachability pass) is a transitive dependency from
+            // Cargo's own perspective, and shouldn't overwrite this
+            // with a partial, dependency-local view.
+            if self.options.rewrite_pass {
+                // Discovery only ever runs on the *first* pass; the
+                // second (rewrite) pass skips FsaCallbacks entirely
+                // (see verifopt.rs's own guard), so after_analysis
+                // shouldn't be reachable at all when rewrite_pass is
+                // set - defensive no-op rather than silently
+                // overwriting the file the rewrite pass is trying to
+                // read from.
+            } else if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
+                if let Ok(json) = serde_json::to_string(&SerializableStore::from(&*store)) {
+                    let _ = std::fs::write(dep_rewrite_store_path(), json);
+                }
+            }
         });
 
         Compilation::Stop
@@ -239,41 +425,28 @@ enum Edit {
     Tagged(Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)>),
 }
 
-fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
-    let original = ORIGINAL.get().unwrap();
-    let default = original(tcx, def_id);
+// Edit::Pointers builds a chain of runtime function-pointer-equality
+// checks, one per candidate, all merging into a shared continuation
+// block. Past a handful of candidates this produces a very wide
+// fan-in into that continuation block (and into its shared unwind
+// path) - observed in practice with ~40-80 candidates on a real
+// ripgrep flag-dispatch call site, where it triggered an LLVM
+// "Instruction does not dominate all uses!" codegen failure. Cap it
+// here: past this many candidates, fall back to leaving the original
+// (correct, if unoptimized) virtual call in place rather than risk
+// broken codegen. Edit::Tagged's integer-switch construction is
+// structurally different (no per-candidate pointer-comparison chain,
+// no shared wide-fan-in merge block the same way) and isn't
+// implicated, so it isn't capped here.
+const MAX_POINTERS_CANDIDATES: usize = 7;
 
-    // Control mode (--no-rewrite): skip every rewrite unconditionally,
-    // regardless of what FSA found - the resulting MIR (and therefore
-    // codegen) is identical to a plain, unwrapped build, while still
-    // going through the same two-phase pipeline and RUSTFLAGS. This is
-    // what makes it a valid control for isolating the rewrites'
-    // performance effect from anything the pipeline/flags alone might
-    // change (e.g. -Z always_encode_mir potentially affecting inlining
-    // or other optimization decisions even with zero rewrites applied).
-    if *SKIP_REWRITE.get().unwrap_or(&false) {
-        return default;
-    }
-
-    // Edit::Pointers builds a chain of runtime function-pointer-equality
-    // checks, one per candidate, all merging into a shared continuation
-    // block. Past a handful of candidates this produces a very wide
-    // fan-in into that continuation block (and into its shared unwind
-    // path) - observed in practice with ~40-80 candidates on a real
-    // ripgrep flag-dispatch call site, where it triggered an LLVM
-    // "Instruction does not dominate all uses!" codegen failure. Cap it
-    // here: past this many candidates, fall back to leaving the original
-    // (correct, if unoptimized) virtual call in place rather than risk
-    // broken codegen. Edit::Tagged's integer-switch construction is
-    // structurally different (no per-candidate pointer-comparison chain,
-    // no shared wide-fan-in merge block the same way) and isn't
-    // implicated, so it isn't capped here.
-    const MAX_POINTERS_CANDIDATES: usize = 7;
-
-    let hash = tcx.def_path_hash(def_id.to_def_id());
-    let store = store().lock().unwrap();
-
-    let edits: Vec<(usize, Edit)> = default
+/// Factored out of `optimized_mir` so the same lookup logic can run
+/// against either the shared, on-disk store (deserialized from an
+/// earlier discovery pass - see `dep_rewrite_store_path`'s own doc) or
+/// the ordinary in-process one, without needing to unify a
+/// `MutexGuard<Store>` and a `&'static Store` into one type.
+fn compute_edits(store: &Store, hash: DefPathHash, default: &Body<'_>) -> Vec<(usize, Edit)> {
+    default
         .basic_blocks
         .indices()
         .filter_map(|bb| {
@@ -296,7 +469,39 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
                 None
             }
         })
-        .collect();
+        .collect()
+}
+
+fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
+    let original = ORIGINAL.get().unwrap();
+    let default = original(tcx, def_id);
+
+    // Control mode (--no-rewrite): skip every rewrite unconditionally,
+    // regardless of what FSA found - the resulting MIR (and therefore
+    // codegen) is identical to a plain, unwrapped build, while still
+    // going through the same two-phase pipeline and RUSTFLAGS. This is
+    // what makes it a valid control for isolating the rewrites'
+    // performance effect from anything the pipeline/flags alone might
+    // change (e.g. -Z always_encode_mir potentially affecting inlining
+    // or other optimization decisions even with zero rewrites applied).
+    if *SKIP_REWRITE.get().unwrap_or(&false) {
+        return default;
+    }
+
+    let hash = tcx.def_path_hash(def_id.to_def_id());
+
+    // Prefer the shared, on-disk store from an earlier discovery pass
+    // (see dep_rewrite_store_path's own doc) when it exists - this is
+    // what lets a dependency crate, which has no entry point of its
+    // own and therefore never populates its own in-process store(),
+    // still apply edits the primary crate's whole-program analysis
+    // found inside it. Falls back to the ordinary in-process store()
+    // otherwise, so single-crate test cases that never write this
+    // file are completely unaffected.
+    let edits: Vec<(usize, Edit)> = match SHARED_STORE.get_or_init(load_shared_store) {
+        Some(shared) => compute_edits(shared, hash, &default),
+        None => compute_edits(&store().lock().unwrap(), hash, &default),
+    };
 
     if edits.is_empty() {
         return default;

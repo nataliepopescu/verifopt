@@ -63,6 +63,26 @@ fn make_options_parser() -> Command {
                 ),
         )
         .arg(
+            Arg::new("rewrite-pass")
+                .long("rewrite-pass")
+                .action(clap::ArgAction::SetTrue)
+                .help(
+                    "Second pass of the two-pass dependency-rewrite \
+                     flow: skip FsaCallbacks/analysis entirely (a \
+                     dependency crate has no entry point of its own to \
+                     analyze from anyway) and have RewriteCallbacks \
+                     read edits from the shared, on-disk store a prior \
+                     --no-rewrite=false discovery-pass build of the \
+                     primary crate already wrote, instead of relying \
+                     on this crate's own (necessarily empty) \
+                     in-process store. Requires a full rebuild \
+                     (`cargo clean` first) between the discovery and \
+                     rewrite passes, since Cargo won't otherwise \
+                     recompile crates whose own inputs haven't \
+                     changed.",
+                ),
+        )
+        .arg(
             Arg::new("context-depth")
                 .long("context-depth")
                 .value_parser(clap::value_parser!(usize))
@@ -117,6 +137,7 @@ pub struct AnalysisOptions {
     pub entry_def_id: Option<u32>,
     pub verifopt_type: VerifOptType,
     pub no_rewrite: bool,
+    pub rewrite_pass: bool,
     pub context_depth: usize,
 }
 
@@ -127,6 +148,7 @@ impl Default for AnalysisOptions {
             entry_def_id: None,
             verifopt_type: VerifOptType::FlowSensitive,
             no_rewrite: false,
+            rewrite_pass: false,
             context_depth: 1,
         }
     }
@@ -205,6 +227,7 @@ impl AnalysisOptions {
         // matching every other field's "CLI can add to, but an absent
         // flag doesn't erase what the env var already set" behavior.
         self.no_rewrite = self.no_rewrite || matches.get_flag("no-rewrite");
+        self.rewrite_pass = self.rewrite_pass || matches.get_flag("rewrite-pass");
 
         // Unlike the boolean flags above, --context-depth has a clap
         // default_value, so `matches` always "contains" some value for

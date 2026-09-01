@@ -72,7 +72,7 @@ where T: Clone + Default + Debug
     }
     */
 
-    pub fn new_arbitrary() -> FunctionalList<T> {
+    pub fn _new_arbitrary() -> FunctionalList<T> {
         let mut l = FunctionalList::<T>::new();
 
         if rand::rng().random_range(..2usize) == 1 {
@@ -118,7 +118,7 @@ fn main() {
     let l = FunctionalList::<u32>::new_fixed();
     //let l = FunctionalList::<u32>::new_arbitrary();
     match l.head {
-        Some(box link1) => match link1.next {
+        Some(box ref link1) => match &link1.next {
             Some(box link2) => {
                 noop(1);
                 black_box(link2.field);

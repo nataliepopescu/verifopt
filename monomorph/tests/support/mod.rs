@@ -18,12 +18,19 @@ pub enum Expectation {
 }
 
 /// One call-site's dispatch results, normalized so that volatile internal ids
-/// (DefId numbers, Span ids, GenericArgs debug reprs) don't cause false-positive
-/// diffs across compiler sessions. Only the human-meaningful parts are kept:
-/// the source span text and the sorted set of candidate function names.
+/// (DefId numbers, Span ids, GenericArgs debug reprs) and machine-specific
+/// absolute path prefixes (see `normalize_span_path`) don't cause
+/// false-positive diffs across compiler sessions or machines/checkouts. Only
+/// the human-meaningful parts are kept: the source span text and the sorted
+/// set of candidate function names.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DispatchSite {
-    /// e.g. "src/main.rs:25:5: 25:19"
+    /// e.g. "src/main.rs:25:5: 25:19" for a call site local to the example
+    /// itself, or "dep/src/lib.rs:36:5: 36:19" for one whose dispatch site
+    /// lives in a path-dependency's own code (rustc reports spans for
+    /// external crate source as absolute paths, not relative to the
+    /// compiling crate's own CWD the way local spans are - normalized here
+    /// the same way).
     pub span: String,
     /// true if this call site appeared under "--MAYBE EXAMPLES--" (i.e. FSA
     /// found fewer targets than CHA), false if under "--NOT EXAMPLES--".
@@ -70,8 +77,9 @@ pub fn parse_stats(text: &str) -> ExampleResult {
         } else if line == "--NOT EXAMPLES--" {
             in_maybe_section = false;
         } else if let Some(rest) = line.strip_prefix("Span:") {
-            let span =
-                extract_quoted_field(rest, "repr: \"").unwrap_or_else(|| rest.trim().to_string());
+            let span = extract_quoted_field(rest, "repr: \"")
+                .unwrap_or_else(|| rest.trim().to_string());
+            let span = normalize_span_path(&span);
             let cha_line = lines.next().unwrap_or("");
             let fsa_line = lines.next().unwrap_or("");
             let mut cha = extract_all_quoted_fields(cha_line, "name: \"");
@@ -92,6 +100,24 @@ pub fn parse_stats(text: &str) -> ExampleResult {
         maybe_count,
         not_count,
         sites,
+    }
+}
+
+/// Strips the machine-specific absolute path prefix up through
+/// "testing_examples/" from a span's own file path, leaving only the
+/// portable, relative part (e.g. "dep/src/lib.rs:36:5: 36:19" rather than
+/// "/home/someone/wherever/verifopt/testing_examples/dep/src/lib.rs:36:5:
+/// 36:19"). Spans for source local to the example being compiled are
+/// already CWD-relative and don't need this, but rustc reports spans for
+/// external/dependency crate source (e.g. a path-dependency like `dep`,
+/// referenced from `dep_rewrite`) as absolute paths instead - which
+/// otherwise differ across every machine/checkout (confirmed in practice:
+/// a golden file blessed locally failed in CI with an otherwise-identical
+/// span, differing only in this absolute prefix).
+fn normalize_span_path(span: &str) -> String {
+    match span.find("testing_examples/") {
+        Some(idx) => span[idx + "testing_examples/".len()..].to_string(),
+        None => span.to_string(),
     }
 }
 

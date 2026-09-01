@@ -1,0 +1,144 @@
+
+######### MIR before #########
+fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
+    debug a => _1;
+    let mut _0: usize;
+    let mut _2: &dyn Animal;
+    let mut _3: *const dyn Animal;
+
+    bb0: {
+        StorageLive(_2);
+        _3 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _2 = &(*_3);
+        _0 = <dyn Animal as Animal>::speak(move _2) -> [return: bb1, unwind: bb3];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        drop(_1) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3 (cleanup): {
+        drop(_1) -> [return: bb4, unwind terminate(cleanup)];
+    }
+
+    bb4 (cleanup): {
+        resume;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
+    debug a => _1;
+    let mut _0: usize;
+    let mut _2: &dyn Animal;
+    let mut _3: *const dyn Animal;
+    let mut _4: *const Cat;
+    let mut _5: &Cat;
+
+    bb0: {
+        StorageLive(_2);
+        _3 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _2 = &(*_3);
+        _4 = move _2 as *const Cat (PtrToPtr);
+        _5 = &(*_4);
+        _0 = <Cat as Animal>::speak(move _5) -> [return: bb1, unwind: bb3];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        drop(_1) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3 (cleanup): {
+        drop(_1) -> [return: bb4, unwind terminate(cleanup)];
+    }
+
+    bb4 (cleanup): {
+        resume;
+    }
+}
+######### END after #########
+
+
+######### MIR before #########
+fn second_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
+    debug a => _1;
+    let mut _0: usize;
+    let mut _2: &dyn Animal;
+    let mut _3: *const dyn Animal;
+
+    bb0: {
+        StorageLive(_2);
+        _3 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _2 = &(*_3);
+        _0 = <dyn Animal as Animal>::speak(move _2) -> [return: bb1, unwind: bb3];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        drop(_1) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3 (cleanup): {
+        drop(_1) -> [return: bb4, unwind terminate(cleanup)];
+    }
+
+    bb4 (cleanup): {
+        resume;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn second_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
+    debug a => _1;
+    let mut _0: usize;
+    let mut _2: &dyn Animal;
+    let mut _3: *const dyn Animal;
+    let mut _4: *const Dog;
+    let mut _5: &Dog;
+
+    bb0: {
+        StorageLive(_2);
+        _3 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _2 = &(*_3);
+        _4 = move _2 as *const Dog (PtrToPtr);
+        _5 = &(*_4);
+        _0 = <Dog as Animal>::speak(move _5) -> [return: bb1, unwind: bb3];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        drop(_1) -> [return: bb2, unwind continue];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3 (cleanup): {
+        drop(_1) -> [return: bb4, unwind terminate(cleanup)];
+    }
+
+    bb4 (cleanup): {
+        resume;
+    }
+}
+######### END after #########
+

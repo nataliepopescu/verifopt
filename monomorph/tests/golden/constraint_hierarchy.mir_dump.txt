@@ -1,0 +1,717 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::vec::Vec<std::string::String>;
+    let mut _2: std::env::Args;
+    let mut _3: usize;
+    let _4: ();
+    let mut _5: std::fmt::Arguments<'_>;
+    let mut _7: std::result::Result<u32, std::num::ParseIntError>;
+    let _8: &str;
+    let _9: &std::string::String;
+    let _10: ();
+    let _12: ();
+    let _14: ();
+    let _16: &Cat;
+    let _17: &Dog;
+    let _19: usize;
+    let mut _26: &str;
+    scope 1 {
+        debug args => _1;
+        let _6: u32;
+        scope 2 {
+            debug num => _6;
+            let _11: Cat;
+            scope 3 {
+                debug x => _11;
+                let _13: Dog;
+                scope 4 {
+                    debug y => _13;
+                    let _15: &dyn Animal;
+                    scope 5 {
+                        debug z => _15;
+                        let _18: usize;
+                        scope 6 {
+                            debug res => _18;
+                            scope 60 (inlined std::hint::black_box::<usize>) {
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        scope 23 (inlined std::vec::Vec::<std::string::String>::len) {
+            let mut _20: bool;
+            scope 24 {
+            }
+        }
+        scope 25 (inlined #[track_caller] <std::vec::Vec<std::string::String> as std::ops::Index<usize>>::index) {
+            scope 26 (inlined <std::vec::Vec<std::string::String> as std::ops::Deref>::deref) {
+                scope 27 (inlined std::vec::Vec::<std::string::String>::as_slice) {
+                    let _21: *const [std::string::String];
+                    let mut _22: *const std::string::String;
+                    let mut _23: usize;
+                    scope 28 (inlined std::vec::Vec::<std::string::String>::as_ptr) {
+                        scope 29 (inlined alloc::raw_vec::RawVec::<std::string::String>::ptr) {
+                            scope 30 (inlined alloc::raw_vec::RawVecInner::ptr::<std::string::String>) {
+                                scope 31 (inlined alloc::raw_vec::RawVecInner::non_null::<std::string::String>) {
+                                    let mut _24: std::ptr::NonNull<u8>;
+                                    scope 32 (inlined std::ptr::Unique::<u8>::cast::<std::string::String>) {
+                                        scope 33 (inlined std::ptr::NonNull::<u8>::cast::<std::string::String>) {
+                                            scope 34 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 35 (inlined std::ptr::Unique::<std::string::String>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 36 (inlined std::ptr::NonNull::<std::string::String>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            scope 37 (inlined #[track_caller] core::slice::index::<impl std::ops::Index<usize> for [std::string::String]>::index) {
+                scope 38 (inlined #[track_caller] <usize as std::slice::SliceIndex<[std::string::String]>>::index) {
+                    let mut _25: bool;
+                }
+            }
+        }
+        scope 39 (inlined std::fmt::Arguments::<'_>::from_str) {
+            let mut _27: std::ptr::NonNull<u8>;
+            let mut _28: *const u8;
+            let mut _29: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+            let mut _30: usize;
+            let mut _31: usize;
+            let mut _32: usize;
+            scope 40 (inlined core::str::<impl str>::as_ptr) {
+                let mut _33: *const str;
+            }
+            scope 41 (inlined core::str::<impl str>::len) {
+                let _34: &[u8];
+                scope 42 (inlined core::str::<impl str>::as_bytes) {
+                }
+            }
+        }
+        scope 43 (inlined <std::string::String as std::ops::Deref>::deref) {
+            scope 44 (inlined std::string::String::as_str) {
+                let _35: &[u8];
+                scope 45 (inlined std::vec::Vec::<u8>::as_slice) {
+                    let _36: *const [u8];
+                    let mut _37: *const u8;
+                    let mut _38: usize;
+                    scope 46 (inlined std::vec::Vec::<u8>::as_ptr) {
+                        scope 47 (inlined alloc::raw_vec::RawVec::<u8>::ptr) {
+                            scope 48 (inlined alloc::raw_vec::RawVecInner::ptr::<u8>) {
+                                scope 49 (inlined alloc::raw_vec::RawVecInner::non_null::<u8>) {
+                                    let mut _39: std::ptr::NonNull<u8>;
+                                    scope 50 (inlined std::ptr::Unique::<u8>::cast::<u8>) {
+                                        scope 51 (inlined std::ptr::NonNull::<u8>::cast::<u8>) {
+                                            scope 52 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 53 (inlined std::ptr::Unique::<u8>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 54 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                }
+                scope 55 (inlined std::str::from_utf8_unchecked) {
+                }
+            }
+        }
+        scope 56 (inlined core::str::<impl str>::parse::<u32>) {
+            scope 57 (inlined core::num::<impl std::str::FromStr for u32>::from_str) {
+                scope 58 (inlined core::num::<impl u32>::from_str_radix) {
+                    let _40: &[u8];
+                    scope 59 (inlined core::str::<impl str>::as_bytes) {
+                    }
+                }
+            }
+        }
+    }
+    scope 7 (inlined <std::env::Args as std::iter::Iterator>::collect::<std::vec::Vec<std::string::String>>) {
+        scope 8 {
+            scope 9 {
+                scope 10 {
+                    scope 19 (inlined std::fmt::Arguments::<'_>::new::<23, 1>) {
+                    }
+                }
+                scope 14 (inlined core::fmt::rt::Argument::<'_>::new_debug::<(usize, std::option::Option<usize>)>) {
+                    scope 15 {
+                    }
+                    scope 16 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::from_ref) {
+                    }
+                    scope 17 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::cast::<()>) {
+                        scope 18 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::as_ptr) {
+                        }
+                    }
+                }
+            }
+            scope 11 (inlined std::option::Option::<usize>::is_none_or::<{closure@<std::env::Args as std::iter::Iterator>::collect<std::vec::Vec<std::string::String>>::{closure#0}}>) {
+                scope 12 {
+                    scope 13 (inlined <std::env::Args as std::iter::Iterator>::collect::<std::vec::Vec<std::string::String>>::{closure#0}) {
+                    }
+                }
+            }
+        }
+        scope 20 (inlined <std::vec::Vec<std::string::String> as std::iter::FromIterator<std::string::String>>::from_iter::<std::env::Args>) {
+            scope 21 (inlined <std::env::Args as std::iter::IntoIterator>::into_iter) {
+            }
+            scope 22 (inlined <std::vec::Vec<std::string::String> as std::vec::spec_from_iter::SpecFromIter<std::string::String, std::env::Args>>::from_iter) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        _2 = std::env::args() -> [return: bb16, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_7);
+        StorageLive(_22);
+        StorageLive(_24);
+        _24 = copy ((((_1.0: alloc::raw_vec::RawVec<std::string::String>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _22 = copy _24 as *const std::string::String (Transmute);
+        StorageDead(_24);
+        _23 = copy (_1.1: usize);
+        _21 = *const [std::string::String] from (copy _22, copy _23);
+        StorageDead(_22);
+        StorageLive(_25);
+        _25 = Lt(const 1_usize, copy _23);
+        assert(move _25, "index out of bounds: the length is {} but the index is {}", copy _23, const 1_usize) -> [success: bb18, unwind: bb14];
+    }
+
+    bb2: {
+        StorageLive(_5);
+        StorageLive(_26);
+        _26 = const "Pass in a number and see what happens!\n";
+        StorageLive(_27);
+        StorageLive(_28);
+        StorageLive(_33);
+        _33 = &raw const (*_26);
+        _28 = copy _33 as *const u8 (PtrToPtr);
+        StorageDead(_33);
+        _27 = copy _28 as std::ptr::NonNull<u8> (Transmute);
+        StorageDead(_28);
+        StorageLive(_29);
+        StorageLive(_30);
+        StorageLive(_31);
+        StorageLive(_32);
+        StorageLive(_34);
+        _34 = const "Pass in a number and see what happens!\n" as &[u8] (Transmute);
+        _32 = PtrMetadata(copy _34);
+        StorageDead(_34);
+        _31 = Shl(move _32, const 1_i32);
+        StorageDead(_32);
+        _30 = BitOr(move _31, const 1_usize);
+        StorageDead(_31);
+        _29 = move _30 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        StorageDead(_30);
+        _5 = std::fmt::Arguments::<'_> { template: move _27, args: move _29 };
+        StorageDead(_29);
+        StorageDead(_27);
+        StorageDead(_26);
+        _4 = std::io::_print(move _5) -> [return: bb3, unwind: bb14];
+    }
+
+    bb3: {
+        StorageDead(_5);
+        goto -> bb12;
+    }
+
+    bb4: {
+        StorageDead(_7);
+        _10 = noop(const 1_usize) -> [return: bb5, unwind: bb14];
+    }
+
+    bb5: {
+        StorageLive(_11);
+        _11 = const Cat {{ age: 7_i32 }};
+        _12 = noop(const 2_usize) -> [return: bb6, unwind: bb14];
+    }
+
+    bb6: {
+        StorageLive(_13);
+        _13 = const Dog {{ num_siblings: 2_i32 }};
+        _14 = noop(const 3_usize) -> [return: bb7, unwind: bb14];
+    }
+
+    bb7: {
+        switchInt(move _6) -> [0: bb8, otherwise: bb9];
+    }
+
+    bb8: {
+        _16 = &_11;
+        _15 = copy _16 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb10;
+    }
+
+    bb9: {
+        _17 = &_13;
+        _15 = copy _17 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb10;
+    }
+
+    bb10: {
+        _18 = <dyn Animal as Animal>::speak(move _15) -> [return: bb11, unwind: bb14];
+    }
+
+    bb11: {
+        StorageLive(_19);
+        _19 = std::intrinsics::black_box::<usize>(move _18) -> [return: bb20, unwind unreachable];
+    }
+
+    bb12: {
+        StorageDead(_3);
+        drop(_1) -> [return: bb13, unwind continue];
+    }
+
+    bb13: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb14 (cleanup): {
+        drop(_1) -> [return: bb15, unwind terminate(cleanup)];
+    }
+
+    bb15 (cleanup): {
+        resume;
+    }
+
+    bb16: {
+        _1 = <std::vec::Vec<std::string::String> as std::vec::spec_from_iter_nested::SpecFromIterNested<std::string::String, std::env::Args>>::from_iter(move _2) -> [return: bb17, unwind continue];
+    }
+
+    bb17: {
+        StorageLive(_3);
+        _3 = copy (_1.1: usize);
+        StorageLive(_20);
+        _20 = Le(copy _3, const <std::string::String as std::mem::SizedTypeProperties>::MAX_SLICE_LEN);
+        assume(move _20);
+        StorageDead(_20);
+        switchInt(copy _3) -> [1: bb2, otherwise: bb1];
+    }
+
+    bb18: {
+        _9 = &(*_21)[1 of 2];
+        StorageDead(_25);
+        StorageLive(_35);
+        StorageLive(_36);
+        StorageLive(_37);
+        StorageLive(_39);
+        _39 = copy ((((((*_9).0: std::vec::Vec<u8>).0: alloc::raw_vec::RawVec<u8>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _37 = copy _39 as *const u8 (Transmute);
+        StorageDead(_39);
+        StorageLive(_38);
+        _38 = copy (((*_9).0: std::vec::Vec<u8>).1: usize);
+        _36 = *const [u8] from (copy _37, move _38);
+        StorageDead(_38);
+        StorageDead(_37);
+        _35 = &(*_36);
+        StorageDead(_36);
+        _8 = copy _35 as &str (Transmute);
+        StorageDead(_35);
+        StorageLive(_40);
+        _40 = copy _8 as &[u8] (Transmute);
+        _7 = core::num::<impl u32>::from_ascii_radix(move _40, const 10_u32) -> [return: bb19, unwind: bb14];
+    }
+
+    bb19: {
+        StorageDead(_40);
+        _6 = std::result::Result::<u32, std::num::ParseIntError>::unwrap(move _7) -> [return: bb4, unwind: bb14];
+    }
+
+    bb20: {
+        StorageDead(_19);
+        StorageDead(_13);
+        StorageDead(_11);
+        goto -> bb12;
+    }
+}
+
+alloc1 (size: 39, align: 1) {
+    0x00 │ 50 61 73 73 20 69 6e 20 61 20 6e 75 6d 62 65 72 │ Pass in a number
+    0x10 │ 20 61 6e 64 20 73 65 65 20 77 68 61 74 20 68 61 │  and see what ha
+    0x20 │ 70 70 65 6e 73 21 0a                            │ ppens!.
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: std::vec::Vec<std::string::String>;
+    let mut _2: std::env::Args;
+    let mut _3: usize;
+    let _4: ();
+    let mut _5: std::fmt::Arguments<'_>;
+    let mut _7: std::result::Result<u32, std::num::ParseIntError>;
+    let _8: &str;
+    let _9: &std::string::String;
+    let _10: ();
+    let _12: ();
+    let _14: ();
+    let _16: &Cat;
+    let _17: &Dog;
+    let _19: usize;
+    let mut _26: &str;
+    let mut _41: usize;
+    let mut _42: *const Cat;
+    let mut _43: &Cat;
+    let mut _44: *const Dog;
+    let mut _45: &Dog;
+    scope 1 {
+        debug args => _1;
+        let _6: u32;
+        scope 2 {
+            debug num => _6;
+            let _11: Cat;
+            scope 3 {
+                debug x => _11;
+                let _13: Dog;
+                scope 4 {
+                    debug y => _13;
+                    let _15: &dyn Animal;
+                    scope 5 {
+                        debug z => _15;
+                        let _18: usize;
+                        scope 6 {
+                            debug res => _18;
+                            scope 60 (inlined std::hint::black_box::<usize>) {
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        scope 23 (inlined std::vec::Vec::<std::string::String>::len) {
+            let mut _20: bool;
+            scope 24 {
+            }
+        }
+        scope 25 (inlined #[track_caller] <std::vec::Vec<std::string::String> as std::ops::Index<usize>>::index) {
+            scope 26 (inlined <std::vec::Vec<std::string::String> as std::ops::Deref>::deref) {
+                scope 27 (inlined std::vec::Vec::<std::string::String>::as_slice) {
+                    let _21: *const [std::string::String];
+                    let mut _22: *const std::string::String;
+                    let mut _23: usize;
+                    scope 28 (inlined std::vec::Vec::<std::string::String>::as_ptr) {
+                        scope 29 (inlined alloc::raw_vec::RawVec::<std::string::String>::ptr) {
+                            scope 30 (inlined alloc::raw_vec::RawVecInner::ptr::<std::string::String>) {
+                                scope 31 (inlined alloc::raw_vec::RawVecInner::non_null::<std::string::String>) {
+                                    let mut _24: std::ptr::NonNull<u8>;
+                                    scope 32 (inlined std::ptr::Unique::<u8>::cast::<std::string::String>) {
+                                        scope 33 (inlined std::ptr::NonNull::<u8>::cast::<std::string::String>) {
+                                            scope 34 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 35 (inlined std::ptr::Unique::<std::string::String>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 36 (inlined std::ptr::NonNull::<std::string::String>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            scope 37 (inlined #[track_caller] core::slice::index::<impl std::ops::Index<usize> for [std::string::String]>::index) {
+                scope 38 (inlined #[track_caller] <usize as std::slice::SliceIndex<[std::string::String]>>::index) {
+                    let mut _25: bool;
+                }
+            }
+        }
+        scope 39 (inlined std::fmt::Arguments::<'_>::from_str) {
+            let mut _27: std::ptr::NonNull<u8>;
+            let mut _28: *const u8;
+            let mut _29: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+            let mut _30: usize;
+            let mut _31: usize;
+            let mut _32: usize;
+            scope 40 (inlined core::str::<impl str>::as_ptr) {
+                let mut _33: *const str;
+            }
+            scope 41 (inlined core::str::<impl str>::len) {
+                let _34: &[u8];
+                scope 42 (inlined core::str::<impl str>::as_bytes) {
+                }
+            }
+        }
+        scope 43 (inlined <std::string::String as std::ops::Deref>::deref) {
+            scope 44 (inlined std::string::String::as_str) {
+                let _35: &[u8];
+                scope 45 (inlined std::vec::Vec::<u8>::as_slice) {
+                    let _36: *const [u8];
+                    let mut _37: *const u8;
+                    let mut _38: usize;
+                    scope 46 (inlined std::vec::Vec::<u8>::as_ptr) {
+                        scope 47 (inlined alloc::raw_vec::RawVec::<u8>::ptr) {
+                            scope 48 (inlined alloc::raw_vec::RawVecInner::ptr::<u8>) {
+                                scope 49 (inlined alloc::raw_vec::RawVecInner::non_null::<u8>) {
+                                    let mut _39: std::ptr::NonNull<u8>;
+                                    scope 50 (inlined std::ptr::Unique::<u8>::cast::<u8>) {
+                                        scope 51 (inlined std::ptr::NonNull::<u8>::cast::<u8>) {
+                                            scope 52 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                            }
+                                        }
+                                    }
+                                    scope 53 (inlined std::ptr::Unique::<u8>::as_non_null_ptr) {
+                                    }
+                                }
+                                scope 54 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                }
+                            }
+                        }
+                    }
+                }
+                scope 55 (inlined std::str::from_utf8_unchecked) {
+                }
+            }
+        }
+        scope 56 (inlined core::str::<impl str>::parse::<u32>) {
+            scope 57 (inlined core::num::<impl std::str::FromStr for u32>::from_str) {
+                scope 58 (inlined core::num::<impl u32>::from_str_radix) {
+                    let _40: &[u8];
+                    scope 59 (inlined core::str::<impl str>::as_bytes) {
+                    }
+                }
+            }
+        }
+    }
+    scope 7 (inlined <std::env::Args as std::iter::Iterator>::collect::<std::vec::Vec<std::string::String>>) {
+        scope 8 {
+            scope 9 {
+                scope 10 {
+                    scope 19 (inlined std::fmt::Arguments::<'_>::new::<23, 1>) {
+                    }
+                }
+                scope 14 (inlined core::fmt::rt::Argument::<'_>::new_debug::<(usize, std::option::Option<usize>)>) {
+                    scope 15 {
+                    }
+                    scope 16 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::from_ref) {
+                    }
+                    scope 17 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::cast::<()>) {
+                        scope 18 (inlined std::ptr::NonNull::<(usize, std::option::Option<usize>)>::as_ptr) {
+                        }
+                    }
+                }
+            }
+            scope 11 (inlined std::option::Option::<usize>::is_none_or::<{closure@<std::env::Args as std::iter::Iterator>::collect<std::vec::Vec<std::string::String>>::{closure#0}}>) {
+                scope 12 {
+                    scope 13 (inlined <std::env::Args as std::iter::Iterator>::collect::<std::vec::Vec<std::string::String>>::{closure#0}) {
+                    }
+                }
+            }
+        }
+        scope 20 (inlined <std::vec::Vec<std::string::String> as std::iter::FromIterator<std::string::String>>::from_iter::<std::env::Args>) {
+            scope 21 (inlined <std::env::Args as std::iter::IntoIterator>::into_iter) {
+            }
+            scope 22 (inlined <std::vec::Vec<std::string::String> as std::vec::spec_from_iter::SpecFromIter<std::string::String, std::env::Args>>::from_iter) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        _2 = std::env::args() -> [return: bb16, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_7);
+        StorageLive(_22);
+        StorageLive(_24);
+        _24 = copy ((((_1.0: alloc::raw_vec::RawVec<std::string::String>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _22 = copy _24 as *const std::string::String (Transmute);
+        StorageDead(_24);
+        _23 = copy (_1.1: usize);
+        _21 = *const [std::string::String] from (copy _22, copy _23);
+        StorageDead(_22);
+        StorageLive(_25);
+        _25 = Lt(const 1_usize, copy _23);
+        assert(move _25, "index out of bounds: the length is {} but the index is {}", copy _23, const 1_usize) -> [success: bb18, unwind: bb14];
+    }
+
+    bb2: {
+        StorageLive(_5);
+        StorageLive(_26);
+        _26 = const "Pass in a number and see what happens!\n";
+        StorageLive(_27);
+        StorageLive(_28);
+        StorageLive(_33);
+        _33 = &raw const (*_26);
+        _28 = copy _33 as *const u8 (PtrToPtr);
+        StorageDead(_33);
+        _27 = copy _28 as std::ptr::NonNull<u8> (Transmute);
+        StorageDead(_28);
+        StorageLive(_29);
+        StorageLive(_30);
+        StorageLive(_31);
+        StorageLive(_32);
+        StorageLive(_34);
+        _34 = const "Pass in a number and see what happens!\n" as &[u8] (Transmute);
+        _32 = PtrMetadata(copy _34);
+        StorageDead(_34);
+        _31 = Shl(move _32, const 1_i32);
+        StorageDead(_32);
+        _30 = BitOr(move _31, const 1_usize);
+        StorageDead(_31);
+        _29 = move _30 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        StorageDead(_30);
+        _5 = std::fmt::Arguments::<'_> { template: move _27, args: move _29 };
+        StorageDead(_29);
+        StorageDead(_27);
+        StorageDead(_26);
+        _4 = std::io::_print(move _5) -> [return: bb3, unwind: bb14];
+    }
+
+    bb3: {
+        StorageDead(_5);
+        goto -> bb12;
+    }
+
+    bb4: {
+        StorageDead(_7);
+        _10 = noop(const 1_usize) -> [return: bb5, unwind: bb14];
+    }
+
+    bb5: {
+        StorageLive(_11);
+        _11 = const Cat {{ age: 7_i32 }};
+        _12 = noop(const 2_usize) -> [return: bb6, unwind: bb14];
+    }
+
+    bb6: {
+        StorageLive(_13);
+        _13 = const Dog {{ num_siblings: 2_i32 }};
+        _14 = noop(const 3_usize) -> [return: bb7, unwind: bb14];
+    }
+
+    bb7: {
+        switchInt(move _6) -> [0: bb8, otherwise: bb9];
+    }
+
+    bb8: {
+        _16 = &_11;
+        _15 = copy _16 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _41 = const 0_usize;
+        goto -> bb10;
+    }
+
+    bb9: {
+        _17 = &_13;
+        _15 = copy _17 as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _41 = const 1_usize;
+        goto -> bb10;
+    }
+
+    bb10: {
+        switchInt(copy _41) -> [0: bb22, 1: bb23, otherwise: bb21];
+    }
+
+    bb11: {
+        StorageLive(_19);
+        _19 = std::intrinsics::black_box::<usize>(move _18) -> [return: bb20, unwind unreachable];
+    }
+
+    bb12: {
+        StorageDead(_3);
+        drop(_1) -> [return: bb13, unwind continue];
+    }
+
+    bb13: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb14 (cleanup): {
+        drop(_1) -> [return: bb15, unwind terminate(cleanup)];
+    }
+
+    bb15 (cleanup): {
+        resume;
+    }
+
+    bb16: {
+        _1 = <std::vec::Vec<std::string::String> as std::vec::spec_from_iter_nested::SpecFromIterNested<std::string::String, std::env::Args>>::from_iter(move _2) -> [return: bb17, unwind continue];
+    }
+
+    bb17: {
+        StorageLive(_3);
+        _3 = copy (_1.1: usize);
+        StorageLive(_20);
+        _20 = Le(copy _3, const <std::string::String as std::mem::SizedTypeProperties>::MAX_SLICE_LEN);
+        assume(move _20);
+        StorageDead(_20);
+        switchInt(copy _3) -> [1: bb2, otherwise: bb1];
+    }
+
+    bb18: {
+        _9 = &(*_21)[1 of 2];
+        StorageDead(_25);
+        StorageLive(_35);
+        StorageLive(_36);
+        StorageLive(_37);
+        StorageLive(_39);
+        _39 = copy ((((((*_9).0: std::vec::Vec<u8>).0: alloc::raw_vec::RawVec<u8>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _37 = copy _39 as *const u8 (Transmute);
+        StorageDead(_39);
+        StorageLive(_38);
+        _38 = copy (((*_9).0: std::vec::Vec<u8>).1: usize);
+        _36 = *const [u8] from (copy _37, move _38);
+        StorageDead(_38);
+        StorageDead(_37);
+        _35 = &(*_36);
+        StorageDead(_36);
+        _8 = copy _35 as &str (Transmute);
+        StorageDead(_35);
+        StorageLive(_40);
+        _40 = copy _8 as &[u8] (Transmute);
+        _7 = core::num::<impl u32>::from_ascii_radix(move _40, const 10_u32) -> [return: bb19, unwind: bb14];
+    }
+
+    bb19: {
+        StorageDead(_40);
+        _6 = std::result::Result::<u32, std::num::ParseIntError>::unwrap(move _7) -> [return: bb4, unwind: bb14];
+    }
+
+    bb20: {
+        StorageDead(_19);
+        StorageDead(_13);
+        StorageDead(_11);
+        goto -> bb12;
+    }
+
+    bb21: {
+        _18 = <dyn Animal as Animal>::speak(move _15) -> [return: bb11, unwind: bb14];
+    }
+
+    bb22: {
+        _42 = move _15 as *const Cat (PtrToPtr);
+        _43 = &(*_42);
+        _18 = <Cat as Animal>::speak(move _43) -> [return: bb11, unwind: bb14];
+    }
+
+    bb23: {
+        _44 = move _15 as *const Dog (PtrToPtr);
+        _45 = &(*_44);
+        _18 = <Dog as Animal>::speak(move _45) -> [return: bb11, unwind: bb14];
+    }
+}
+
+alloc1 (size: 39, align: 1) {
+    0x00 │ 50 61 73 73 20 69 6e 20 61 20 6e 75 6d 62 65 72 │ Pass in a number
+    0x10 │ 20 61 6e 64 20 73 65 65 20 77 68 61 74 20 68 61 │  and see what ha
+    0x20 │ 70 70 65 6e 73 21 0a                            │ ppens!.
+}
+######### END after #########
+

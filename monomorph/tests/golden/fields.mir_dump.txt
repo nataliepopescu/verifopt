@@ -1,0 +1,40 @@
+
+######### MIR before #########
+fn dyn_call_on_field(_1: &Wrapper<'_>) -> u32 {
+    debug wrapper => _1;
+    let mut _0: u32;
+    let mut _2: &dyn Thing;
+
+    bb0: {
+        _2 = copy ((*_1).0: &dyn Thing);
+        _0 = <dyn Thing as Thing>::do_thing(move _2) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn dyn_call_on_field(_1: &Wrapper<'_>) -> u32 {
+    debug wrapper => _1;
+    let mut _0: u32;
+    let mut _2: &dyn Thing;
+    let mut _3: *const Inner1;
+    let mut _4: &Inner1;
+
+    bb0: {
+        _2 = copy ((*_1).0: &dyn Thing);
+        _3 = move _2 as *const Inner1 (PtrToPtr);
+        _4 = &(*_3);
+        _0 = <Inner1 as Thing>::do_thing(move _4) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END after #########
+

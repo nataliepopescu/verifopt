@@ -1,0 +1,202 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let mut _6: &dyn Animal;
+    let _7: usize;
+    let mut _8: *const dyn Animal;
+    let mut _9: *const dyn Animal;
+    let mut _10: *const dyn Animal;
+    scope 1 {
+        debug x => const 0_usize;
+        let _1: std::boxed::Box<dyn Animal>;
+        scope 2 {
+            debug animal => _1;
+            let _2: std::boxed::Box<dyn Animal>;
+            scope 3 {
+                debug cat => _2;
+                let _3: std::ptr::DynMetadata<dyn Animal>;
+                scope 4 {
+                    debug _animal_vtable => _3;
+                    let _4: std::ptr::DynMetadata<dyn Animal>;
+                    scope 5 {
+                        debug _cat_vtable => _4;
+                        let _5: usize;
+                        scope 6 {
+                            debug res => _5;
+                            scope 9 (inlined std::hint::black_box::<usize>) {
+                            }
+                        }
+                    }
+                    scope 8 (inlined std::ptr::metadata::<dyn Animal>) {
+                    }
+                }
+                scope 7 (inlined std::ptr::metadata::<dyn Animal>) {
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        _1 = get_animal(const 0_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = get_animal(const 0_usize) -> [return: bb2, unwind: bb7];
+    }
+
+    bb2: {
+        StorageLive(_3);
+        _8 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _3 = PtrMetadata(copy _8);
+        StorageLive(_4);
+        _9 = copy ((_2.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _4 = PtrMetadata(copy _9);
+        StorageLive(_6);
+        _10 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _6 = &(*_10);
+        _5 = <dyn Animal as Animal>::speak(move _6) -> [return: bb3, unwind: bb6];
+    }
+
+    bb3: {
+        StorageDead(_6);
+        StorageLive(_7);
+        _7 = std::intrinsics::black_box::<usize>(move _5) -> [return: bb9, unwind unreachable];
+    }
+
+    bb4: {
+        StorageDead(_2);
+        drop(_1) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb6 (cleanup): {
+        drop(_2) -> [return: bb7, unwind terminate(cleanup)];
+    }
+
+    bb7 (cleanup): {
+        drop(_1) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        resume;
+    }
+
+    bb9: {
+        StorageDead(_7);
+        StorageDead(_4);
+        StorageDead(_3);
+        drop(_2) -> [return: bb4, unwind: bb7];
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let mut _6: &dyn Animal;
+    let _7: usize;
+    let mut _8: *const dyn Animal;
+    let mut _9: *const dyn Animal;
+    let mut _10: *const dyn Animal;
+    let mut _11: *const Cat;
+    let mut _12: &Cat;
+    scope 1 {
+        debug x => const 0_usize;
+        let _1: std::boxed::Box<dyn Animal>;
+        scope 2 {
+            debug animal => _1;
+            let _2: std::boxed::Box<dyn Animal>;
+            scope 3 {
+                debug cat => _2;
+                let _3: std::ptr::DynMetadata<dyn Animal>;
+                scope 4 {
+                    debug _animal_vtable => _3;
+                    let _4: std::ptr::DynMetadata<dyn Animal>;
+                    scope 5 {
+                        debug _cat_vtable => _4;
+                        let _5: usize;
+                        scope 6 {
+                            debug res => _5;
+                            scope 9 (inlined std::hint::black_box::<usize>) {
+                            }
+                        }
+                    }
+                    scope 8 (inlined std::ptr::metadata::<dyn Animal>) {
+                    }
+                }
+                scope 7 (inlined std::ptr::metadata::<dyn Animal>) {
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        _1 = get_animal(const 0_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = get_animal(const 0_usize) -> [return: bb2, unwind: bb7];
+    }
+
+    bb2: {
+        StorageLive(_3);
+        _8 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _3 = PtrMetadata(copy _8);
+        StorageLive(_4);
+        _9 = copy ((_2.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _4 = PtrMetadata(copy _9);
+        StorageLive(_6);
+        _10 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _6 = &(*_10);
+        _11 = move _6 as *const Cat (PtrToPtr);
+        _12 = &(*_11);
+        _5 = <Cat as Animal>::speak(move _12) -> [return: bb3, unwind: bb6];
+    }
+
+    bb3: {
+        StorageDead(_6);
+        StorageLive(_7);
+        _7 = std::intrinsics::black_box::<usize>(move _5) -> [return: bb9, unwind unreachable];
+    }
+
+    bb4: {
+        StorageDead(_2);
+        drop(_1) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb6 (cleanup): {
+        drop(_2) -> [return: bb7, unwind terminate(cleanup)];
+    }
+
+    bb7 (cleanup): {
+        drop(_1) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        resume;
+    }
+
+    bb9: {
+        StorageDead(_7);
+        StorageDead(_4);
+        StorageDead(_3);
+        drop(_2) -> [return: bb4, unwind: bb7];
+    }
+}
+######### END after #########
+

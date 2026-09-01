@@ -1,0 +1,120 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let _2: usize;
+    let mut _3: usize;
+    let mut _4: &dyn Animal;
+    let mut _5: *const dyn Animal;
+    scope 1 {
+        debug x => const 0_usize;
+        let _1: std::boxed::Box<dyn Animal>;
+        scope 2 {
+            debug animal => _1;
+            scope 3 (inlined std::hint::black_box::<usize>) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        _1 = get_animal(const 0_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        StorageLive(_3);
+        StorageLive(_4);
+        _5 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _4 = &(*_5);
+        _3 = <dyn Animal as Animal>::speak(move _4) -> [return: bb2, unwind: bb4];
+    }
+
+    bb2: {
+        StorageDead(_4);
+        _2 = std::intrinsics::black_box::<usize>(move _3) -> [return: bb6, unwind unreachable];
+    }
+
+    bb3: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb4 (cleanup): {
+        drop(_1) -> [return: bb5, unwind terminate(cleanup)];
+    }
+
+    bb5 (cleanup): {
+        resume;
+    }
+
+    bb6: {
+        StorageDead(_3);
+        StorageDead(_2);
+        drop(_1) -> [return: bb3, unwind continue];
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let _2: usize;
+    let mut _3: usize;
+    let mut _4: &dyn Animal;
+    let mut _5: *const dyn Animal;
+    let mut _6: *const Cat;
+    let mut _7: &Cat;
+    scope 1 {
+        debug x => const 0_usize;
+        let _1: std::boxed::Box<dyn Animal>;
+        scope 2 {
+            debug animal => _1;
+            scope 3 (inlined std::hint::black_box::<usize>) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        _1 = get_animal(const 0_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        StorageLive(_3);
+        StorageLive(_4);
+        _5 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
+        _4 = &(*_5);
+        _6 = move _4 as *const Cat (PtrToPtr);
+        _7 = &(*_6);
+        _3 = <Cat as Animal>::speak(move _7) -> [return: bb2, unwind: bb4];
+    }
+
+    bb2: {
+        StorageDead(_4);
+        _2 = std::intrinsics::black_box::<usize>(move _3) -> [return: bb6, unwind unreachable];
+    }
+
+    bb3: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb4 (cleanup): {
+        drop(_1) -> [return: bb5, unwind terminate(cleanup)];
+    }
+
+    bb5 (cleanup): {
+        resume;
+    }
+
+    bb6: {
+        StorageDead(_3);
+        StorageDead(_2);
+        drop(_1) -> [return: bb3, unwind continue];
+    }
+}
+######### END after #########
+

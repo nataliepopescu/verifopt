@@ -132,6 +132,19 @@ fn golden_path(name: &str) -> PathBuf {
         .join(format!("{name}.json"))
 }
 
+/// mir_dump.txt (see rewrite.rs's `dump_body`) is verifopt's own
+/// before/after MIR dump - purely structural (locals, basic blocks,
+/// statements, terminators), with no span/file-path info of its own,
+/// confirmed against a real sample - so it's already portable across
+/// machines/checkouts and can be compared verbatim, unlike `stats`
+/// (which does need normalizing away DefId/Span/GenericArgs debug
+/// reprs - see parse_stats's own doc).
+fn golden_mir_path(name: &str) -> PathBuf {
+    manifest_dir()
+        .join("tests/golden")
+        .join(format!("{name}.mir_dump.txt"))
+}
+
 /// Best-effort sysroot lookup so the child process can find `librustc_driver.so`
 /// (see monomorph/README.md's Troubleshooting section) without every
 /// developer having to export LD_LIBRARY_PATH by hand before running tests.
@@ -158,6 +171,7 @@ struct RunOutcome {
     calls_expected: Option<String>,
     calls_actual: Option<String>,
     stats: Option<String>,
+    mir_dump: Option<String>,
 }
 
 fn run_verifopt(dir: &Path) -> RunOutcome {
@@ -192,6 +206,7 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
         });
 
     let stats = fs::read_to_string(dir.join("stats")).ok();
+    let mir_dump = fs::read_to_string(dir.join("mir_dump.txt")).ok();
 
     let _ = Command::new(Path::new("target/release").join(dir.file_name().unwrap()))
         .current_dir(dir)
@@ -205,6 +220,7 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
         calls_expected,
         calls_actual,
         stats,
+        mir_dump,
     }
 }
 
@@ -262,6 +278,11 @@ pub fn run_example(name: &str, expectation: Expectation) {
                 )
                 .unwrap_or_else(|e| panic!("failed to write {:?}: {e}", golden_file));
                 eprintln!("[{name}] wrote golden file {:?}", golden_file);
+
+                let golden_mir_file = golden_mir_path(name);
+                fs::write(&golden_mir_file, outcome.mir_dump.clone().unwrap_or_default())
+                    .unwrap_or_else(|e| panic!("failed to write {:?}: {e}", golden_mir_file));
+                eprintln!("[{name}] wrote golden mir_dump file {:?}", golden_mir_file);
                 return;
             }
 
@@ -289,6 +310,32 @@ pub fn run_example(name: &str, expectation: Expectation) {
             assert_eq!(
                 actual, expected,
                 "'{name}' dispatch results changed. If this is an intended \
+                 improvement/fix, review the diff above, then re-bless with:\n\n    \
+                 BLESS_GOLDEN=1 cargo test --test dispatch_examples -- {name}"
+            );
+
+            // Confirms the rewrite itself, not just that the analysis
+            // found the right dispatch site - `stats` above only shows
+            // what FSA narrowed down to; this confirms the MIR that
+            // narrowing actually produced matches what's expected,
+            // catching regressions in the rewrite logic itself
+            // (Edit::Single/Pointers/Tagged construction) that a
+            // stats-only check couldn't see. Empty/absent for examples
+            // that never produce a rewrite (see run_verifopt's own
+            // `mir_dump` field) - that's still a meaningful, checkable
+            // state, not something to skip.
+            let golden_mir_file = golden_mir_path(name);
+            let expected_mir = fs::read_to_string(&golden_mir_file).unwrap_or_else(|e| {
+                panic!(
+                    "'{name}' has no golden mir_dump file at {:?} ({e}).\n\
+                     Generate one with:\n\n    BLESS_GOLDEN=1 cargo test --test dispatch_examples -- {name}\n\n\
+                     then review it before committing.",
+                    golden_mir_file
+                )
+            });
+            assert_eq!(
+                outcome.mir_dump.clone().unwrap_or_default(), expected_mir,
+                "'{name}' rewritten MIR changed. If this is an intended \
                  improvement/fix, review the diff above, then re-bless with:\n\n    \
                  BLESS_GOLDEN=1 cargo test --test dispatch_examples -- {name}"
             );

@@ -1,0 +1,36 @@
+
+######### MIR before #########
+fn wrap_dyn_call(_1: &dyn Animal) -> usize {
+    debug animal => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = <dyn Animal as Animal>::speak(move _1) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn wrap_dyn_call(_1: &dyn Animal) -> usize {
+    debug animal => _1;
+    let mut _0: usize;
+    let mut _2: *const Cat;
+    let mut _3: &Cat;
+
+    bb0: {
+        _2 = move _1 as *const Cat (PtrToPtr);
+        _3 = &(*_2);
+        _0 = <Cat as Animal>::speak(move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END after #########
+

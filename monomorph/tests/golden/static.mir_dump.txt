@@ -1,0 +1,72 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: &dyn Animal;
+    let _2: u32;
+    let mut _3: u32;
+    scope 1 {
+        debug a => _1;
+        scope 3 (inlined std::hint::black_box::<u32>) {
+        }
+    }
+    scope 2 (inlined pick) {
+    }
+
+    bb0: {
+        _1 = const pick::promoted[2] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = <dyn Animal as Animal>::speak(move _1) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = std::intrinsics::black_box::<u32>(move _3) -> [return: bb2, unwind unreachable];
+    }
+
+    bb2: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: &dyn Animal;
+    let _2: u32;
+    let mut _3: u32;
+    let mut _4: *const Cat;
+    let mut _5: &Cat;
+    scope 1 {
+        debug a => _1;
+        scope 3 (inlined std::hint::black_box::<u32>) {
+        }
+    }
+    scope 2 (inlined pick) {
+    }
+
+    bb0: {
+        _1 = const pick::promoted[2] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        StorageLive(_2);
+        StorageLive(_3);
+        _4 = move _1 as *const Cat (PtrToPtr);
+        _5 = &(*_4);
+        _3 = <Cat as Animal>::speak(move _5) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _2 = std::intrinsics::black_box::<u32>(move _3) -> [return: bb2, unwind unreachable];
+    }
+
+    bb2: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+}
+######### END after #########
+

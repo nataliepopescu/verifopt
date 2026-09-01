@@ -1,0 +1,295 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: usize;
+    let _2: usize;
+    let _3: &dyn Animal;
+    let _4: usize;
+    let mut _5: usize;
+    scope 1 {
+        debug res => _1;
+        scope 2 {
+            debug x => _3;
+            scope 4 (inlined std::hint::black_box::<usize>) {
+            }
+        }
+        scope 3 (inlined std::hint::black_box::<usize>) {
+        }
+    }
+
+    bb0: {
+        _1 = sum(const 5_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<usize>(copy _1) -> [return: bb6, unwind unreachable];
+    }
+
+    bb2: {
+        _3 = const main::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb3: {
+        _3 = const main::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = <dyn Animal as Animal>::speak(move _3) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        _4 = std::intrinsics::black_box::<usize>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb6: {
+        StorageDead(_2);
+        switchInt(move _1) -> [15: bb2, otherwise: bb3];
+    }
+
+    bb7: {
+        StorageDead(_5);
+        StorageDead(_4);
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: usize;
+    let _2: usize;
+    let _3: &dyn Animal;
+    let _4: usize;
+    let mut _5: usize;
+    let mut _6: *const Cat;
+    let mut _7: &Cat;
+    scope 1 {
+        debug res => _1;
+        scope 2 {
+            debug x => _3;
+            scope 4 (inlined std::hint::black_box::<usize>) {
+            }
+        }
+        scope 3 (inlined std::hint::black_box::<usize>) {
+        }
+    }
+
+    bb0: {
+        _1 = sum(const 5_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<usize>(copy _1) -> [return: bb6, unwind unreachable];
+    }
+
+    bb2: {
+        _3 = const main::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb3: {
+        _3 = const main::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _6 = move _3 as *const Cat (PtrToPtr);
+        _7 = &(*_6);
+        _5 = <Cat as Animal>::speak(move _7) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        _4 = std::intrinsics::black_box::<usize>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb6: {
+        StorageDead(_2);
+        switchInt(move _1) -> [15: bb2, otherwise: bb3];
+    }
+
+    bb7: {
+        StorageDead(_5);
+        StorageDead(_4);
+        return;
+    }
+}
+######### END after #########
+
+
+######### MIR before #########
+fn sum(_1: usize) -> usize {
+    debug n => _1;
+    let mut _0: usize;
+    let _2: &dyn Animal;
+    let _3: usize;
+    let mut _4: usize;
+    let mut _6: usize;
+    scope 1 {
+        debug a => _2;
+        let _5: usize;
+        scope 2 {
+            debug next => _5;
+        }
+        scope 3 (inlined std::hint::black_box::<usize>) {
+        }
+    }
+
+    bb0: {
+        switchInt(move _1) -> [0: bb1, otherwise: bb2];
+    }
+
+    bb1: {
+        _0 = const 0_usize;
+        goto -> bb8;
+    }
+
+    bb2: {
+        switchInt(move _1) -> [1: bb3, otherwise: bb4];
+    }
+
+    bb3: {
+        _2 = const sum::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb4: {
+        _2 = const sum::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb5: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = <dyn Animal as Animal>::speak(move _2) -> [return: bb6, unwind continue];
+    }
+
+    bb6: {
+        _3 = std::intrinsics::black_box::<usize>(move _4) -> [return: bb9, unwind unreachable];
+    }
+
+    bb7: {
+        _0 = Add(copy _1, move _6);
+        StorageDead(_6);
+        goto -> bb8;
+    }
+
+    bb8: {
+        return;
+    }
+
+    bb9: {
+        StorageDead(_4);
+        StorageDead(_3);
+        _5 = Sub(copy _1, const 1_usize);
+        StorageLive(_6);
+        _6 = sum(move _5) -> [return: bb7, unwind continue];
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn sum(_1: usize) -> usize {
+    debug n => _1;
+    let mut _0: usize;
+    let _2: &dyn Animal;
+    let _3: usize;
+    let mut _4: usize;
+    let mut _6: usize;
+    let mut _7: usize;
+    let mut _8: *const Cat;
+    let mut _9: &Cat;
+    let mut _10: *const Fish;
+    let mut _11: &Fish;
+    scope 1 {
+        debug a => _2;
+        let _5: usize;
+        scope 2 {
+            debug next => _5;
+        }
+        scope 3 (inlined std::hint::black_box::<usize>) {
+        }
+    }
+
+    bb0: {
+        switchInt(move _1) -> [0: bb1, otherwise: bb2];
+    }
+
+    bb1: {
+        _0 = const 0_usize;
+        goto -> bb8;
+    }
+
+    bb2: {
+        switchInt(move _1) -> [1: bb3, otherwise: bb4];
+    }
+
+    bb3: {
+        _2 = const sum::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _7 = const 0_usize;
+        goto -> bb5;
+    }
+
+    bb4: {
+        _2 = const sum::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _7 = const 1_usize;
+        goto -> bb5;
+    }
+
+    bb5: {
+        StorageLive(_3);
+        StorageLive(_4);
+        switchInt(copy _7) -> [0: bb11, 1: bb12, otherwise: bb10];
+    }
+
+    bb6: {
+        _3 = std::intrinsics::black_box::<usize>(move _4) -> [return: bb9, unwind unreachable];
+    }
+
+    bb7: {
+        _0 = Add(copy _1, move _6);
+        StorageDead(_6);
+        goto -> bb8;
+    }
+
+    bb8: {
+        return;
+    }
+
+    bb9: {
+        StorageDead(_4);
+        StorageDead(_3);
+        _5 = Sub(copy _1, const 1_usize);
+        StorageLive(_6);
+        _6 = sum(move _5) -> [return: bb7, unwind continue];
+    }
+
+    bb10: {
+        _4 = <dyn Animal as Animal>::speak(move _2) -> [return: bb6, unwind continue];
+    }
+
+    bb11: {
+        _8 = move _2 as *const Cat (PtrToPtr);
+        _9 = &(*_8);
+        _4 = <Cat as Animal>::speak(move _9) -> [return: bb6, unwind continue];
+    }
+
+    bb12: {
+        _10 = move _2 as *const Fish (PtrToPtr);
+        _11 = &(*_10);
+        _4 = <Fish as Animal>::speak(move _11) -> [return: bb6, unwind continue];
+    }
+}
+######### END after #########
+

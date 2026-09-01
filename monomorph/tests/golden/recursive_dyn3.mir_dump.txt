@@ -1,0 +1,128 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: usize;
+    let _2: usize;
+    let _3: &dyn Animal;
+    let _4: usize;
+    let mut _5: usize;
+    scope 1 {
+        debug res => _1;
+        scope 2 {
+            debug x => _3;
+            scope 4 (inlined std::hint::black_box::<usize>) {
+            }
+        }
+        scope 3 (inlined std::hint::black_box::<usize>) {
+        }
+    }
+
+    bb0: {
+        _1 = a(const 10_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<usize>(copy _1) -> [return: bb6, unwind unreachable];
+    }
+
+    bb2: {
+        _3 = const main::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb3: {
+        _3 = const main::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = <dyn Animal as Animal>::speak(move _3) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        _4 = std::intrinsics::black_box::<usize>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb6: {
+        StorageDead(_2);
+        switchInt(move _1) -> [55: bb2, otherwise: bb3];
+    }
+
+    bb7: {
+        StorageDead(_5);
+        StorageDead(_4);
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: usize;
+    let _2: usize;
+    let _3: &dyn Animal;
+    let _4: usize;
+    let mut _5: usize;
+    let mut _6: *const Cat;
+    let mut _7: &Cat;
+    scope 1 {
+        debug res => _1;
+        scope 2 {
+            debug x => _3;
+            scope 4 (inlined std::hint::black_box::<usize>) {
+            }
+        }
+        scope 3 (inlined std::hint::black_box::<usize>) {
+        }
+    }
+
+    bb0: {
+        _1 = a(const 10_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<usize>(copy _1) -> [return: bb6, unwind unreachable];
+    }
+
+    bb2: {
+        _3 = const main::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb3: {
+        _3 = const main::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _6 = move _3 as *const Cat (PtrToPtr);
+        _7 = &(*_6);
+        _5 = <Cat as Animal>::speak(move _7) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        _4 = std::intrinsics::black_box::<usize>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb6: {
+        StorageDead(_2);
+        switchInt(move _1) -> [55: bb2, otherwise: bb3];
+    }
+
+    bb7: {
+        StorageDead(_5);
+        StorageDead(_4);
+        return;
+    }
+}
+######### END after #########
+

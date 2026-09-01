@@ -7,3 +7,4 @@ calls
 *.txt
 *.log
 verifopt_store.json
+verifopt_needs_rewrite_pass

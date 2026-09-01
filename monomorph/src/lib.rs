@@ -51,8 +51,18 @@ pub fn start_verifopt(
     // written during the later RewriteCallbacks compiler session within
     // this same process) both accumulate across runs instead of being
     // overwritten. Clear them here, at the very start of the whole
-    // verifopt pipeline, so each invocation starts from a clean slate.
-    for f in ["stats", "mir_dump.txt"] {
+    // verifopt pipeline, so each invocation starts from a clean slate -
+    // including the two-pass dependency-rewrite flow's own artifacts
+    // (see rewrite.rs's dep_rewrite_store_path/
+    // needs_rewrite_pass_marker_path docs): a stale marker file left
+    // over from an earlier run could otherwise be mistaken for this
+    // run's own signal that a rewrite pass is needed.
+    for f in [
+        "stats",
+        "mir_dump.txt",
+        crate::rewrite::dep_rewrite_store_path(),
+        crate::rewrite::needs_rewrite_pass_marker_path(),
+    ] {
         let _ = fs::remove_file(f);
     }
 

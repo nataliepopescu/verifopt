@@ -11,6 +11,18 @@
 //! 1) It implicitly adds the options "-Z always_encode_mir" to the rustc invocation.
 //! 2) It calls `verifopt` rather than `rustc` for all the targets of the current package.
 //! 3) It runs `cargo test --no-run` for test targets.
+//!
+//! Every build's own whole-program reachability analysis can find
+//! devirtualization opportunities *inside* dependency crates' own code
+//! (which have no entry point of their own to analyze from directly) -
+//! when it does, a second, `cargo clean`-then-rebuild pass runs
+//! automatically to apply what the first pass found, since a
+//! dependency crate's own compilation never sees the primary crate's
+//! whole-program findings otherwise. This costs nothing beyond the
+//! ordinary, single build when nothing was found outside the primary
+//! crate, which is the common case. See rewrite.rs's own
+//! dep_rewrite_store_path/needs_rewrite_pass_marker_path docs for the
+//! underlying mechanism.
 
 #![feature(rustc_private)]
 
@@ -168,6 +180,59 @@ fn pinned_toolchain_bin(name: &str) -> OsString {
 }
 
 fn call_cargo_on_target(target: &String, kind: &TargetKind) {
+    // This first build *is* the ordinary, single-pass build - nothing
+    // extra is paid here regardless of what it finds, since
+    // RewriteCallbacks already rewrites this crate's own code within
+    // this same pass either way. It's also the discovery pass for the
+    // two-pass dependency-rewrite flow: FsaCallbacks's own analysis
+    // (see rewrite.rs's after_analysis) writes a small marker file,
+    // but only when it actually found a dispatch site whose containing
+    // function lives outside this crate - i.e. only when there's
+    // something a second pass would need to act on.
+    run_cargo_build(target, kind, &[]);
+
+    if !std::path::Path::new(monomorph::rewrite::needs_rewrite_pass_marker_path()).exists() {
+        return;
+    }
+
+    info!(
+        "found a dispatch site inside dependency code during the discovery pass - \
+         cleaning and rebuilding once more to apply it (see rewrite.rs's own \
+         dep_rewrite_store_path/needs_rewrite_pass_marker_path docs)"
+    );
+    let mut clean_cmd = Command::new(pinned_toolchain_bin("cargo"));
+    clean_cmd.arg("clean");
+    let clean_status = clean_cmd
+        .spawn()
+        .expect("could not run cargo clean")
+        .wait()
+        .expect("failed to wait for cargo clean");
+    if !clean_status.success() {
+        std::process::exit(clean_status.code().unwrap_or(-1));
+    }
+
+    run_cargo_build(target, kind, &["--rewrite-pass".to_owned()]);
+}
+
+/// Builds and runs the actual `cargo build`/`cargo test` invocation.
+/// Factored out of `call_cargo_on_target` so it can be called either
+/// once (the ordinary case - this is the whole of what
+/// `call_cargo_on_target` used to do directly) or twice, with a
+/// `cargo clean` in between, when the first (discovery) pass's own
+/// analysis found a dispatch site living outside the primary crate: a
+/// dependency crate has no entry point of its own to analyze from, so
+/// devirtualizing dispatch sites *inside* dependency code needs a
+/// separate discovery pass (the primary crate's own whole-program
+/// reachability analysis, run first) whose findings get persisted to
+/// disk and read back by a second, --rewrite-pass build of the whole
+/// graph - see rewrite.rs's own dep_rewrite_store_path doc for the
+/// full mechanism this drives.
+///
+/// `extra_verifopt_flags` is appended into VERIFOPT_FLAGS alongside
+/// whatever the user already passed after `--` - this is how the
+/// second pass's own `--rewrite-pass` gets threaded through without
+/// disturbing the ordinary, single-pass call site.
+fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[String]) {
     // Build a cargo command for target. Always use the cargo binary paired
     // with the toolchain verifopt itself was built against (see
     // `pinned_toolchain_bin`), rather than an ambient `$CARGO`/`$PATH`
@@ -224,7 +289,8 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     }
 
     // Serialize the remaining args into an environment variable.
-    let args_vec: Vec<String> = args.collect();
+    let mut args_vec: Vec<String> = args.collect();
+    args_vec.extend(extra_verifopt_flags.iter().cloned());
     if !args_vec.is_empty() {
         cmd.env(
             "VERIFOPT_FLAGS",

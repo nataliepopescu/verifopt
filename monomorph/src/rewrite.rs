@@ -15,7 +15,7 @@ use rustc_middle::mir::{
     LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, SourceInfo, Statement,
     StatementKind, SwitchTargets, Terminator, TerminatorKind, UnOp,
 };
-use rustc_span::def_id::{DefPathHash, LocalDefId};
+use rustc_span::def_id::{DefPathHash, LOCAL_CRATE, LocalDefId};
 
 use rustc_driver::{Callbacks, Compilation};
 use rustc_hir::Safety;
@@ -197,8 +197,23 @@ impl From<SerializableStore> for Store {
 /// every rustc invocation within one `cargo build` from the same,
 /// workspace-root CWD, so this is stable across the separate processes
 /// involved.
-fn dep_rewrite_store_path() -> &'static str {
+pub fn dep_rewrite_store_path() -> &'static str {
     "verifopt_store.json"
+}
+
+/// A small, otherwise-empty marker file the discovery pass writes only
+/// when it actually found a dispatch site whose containing function
+/// lives outside the primary crate - i.e. only when a rewrite pass
+/// would actually change anything. cargo-verifopt's own top-level
+/// orchestration (see call_cargo_on_target) checks for this file after
+/// the discovery pass completes, and only pays for the extra `cargo
+/// clean` + rebuild when it's actually present - the common case (no
+/// cross-crate dispatch site found) costs nothing beyond the ordinary,
+/// single-pass build that would have happened anyway, since
+/// RewriteCallbacks already rewrites the primary crate's own code
+/// within that same, first pass regardless.
+pub fn needs_rewrite_pass_marker_path() -> &'static str {
+    "verifopt_needs_rewrite_pass"
 }
 
 /// Loaded once, lazily, the first time `optimized_mir` needs it during
@@ -367,6 +382,25 @@ impl Callbacks for FsaCallbacks {
             } else if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
                 if let Ok(json) = serde_json::to_string(&SerializableStore::from(&*store)) {
                     let _ = std::fs::write(dep_rewrite_store_path(), json);
+                }
+
+                // Only worth a second (rewrite) pass at all if some
+                // recorded dispatch site's own containing function
+                // lives outside this crate - RewriteCallbacks already
+                // rewrites everything local to this same, first pass,
+                // so a dependency crate having no dispatch sites
+                // recorded against it here means it genuinely has
+                // nothing to rewrite, not just that we haven't gotten
+                // to it yet.
+                let primary_crate_id = tcx.stable_crate_id(LOCAL_CRATE);
+                let needs_rewrite_pass = store
+                    .targets
+                    .keys()
+                    .chain(store.tags.keys())
+                    .any(|(hash, _bb)| hash.stable_crate_id() != primary_crate_id);
+
+                if needs_rewrite_pass {
+                    let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
                 }
             }
         });

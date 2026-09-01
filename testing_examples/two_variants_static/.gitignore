@@ -8,3 +8,4 @@ calls
 *.log
 *.stderr
 *.ll
+verifopt_store.json

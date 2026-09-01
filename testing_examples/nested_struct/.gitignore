@@ -7,3 +7,4 @@ calls
 *.txt
 *.log
 *.stderr
+verifopt_store.json

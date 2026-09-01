@@ -6,3 +6,4 @@ calls
 *.zst
 *.txt
 *.log
+verifopt_store.json

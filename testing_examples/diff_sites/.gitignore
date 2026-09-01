@@ -9,3 +9,4 @@ calls
 *.stderr
 *.ll
 *.s
+verifopt_store.json

@@ -1,0 +1,17 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "/home/np/hack/verifopt/testing_examples/dep/src/lib.rs:36:5: 36:19",
+      "is_maybe_example": true,
+      "cha": [
+        "<dep::Cat as dep::Animal>::speak",
+        "<dep::Dog as dep::Animal>::speak"
+      ],
+      "fsa": [
+        "<dep::Cat as dep::Animal>::speak"
+      ]
+    }
+  ]
+}

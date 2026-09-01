@@ -1,0 +1,22 @@
+{
+  "maybe_count": 0,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:66:22: 66:39",
+      "is_maybe_example": false,
+      "cha": [
+        "refs_conflict::A",
+        "refs_conflict::B",
+        "refs_conflict::Holder::touch",
+        "refs_conflict::Holder::touch"
+      ],
+      "fsa": [
+        "refs_conflict::A",
+        "refs_conflict::B",
+        "refs_conflict::Holder::touch",
+        "refs_conflict::Holder::touch"
+      ]
+    }
+  ]
+}

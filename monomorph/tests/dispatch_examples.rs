@@ -78,6 +78,7 @@ example_test!(diff_sites, "diff_sites", Passing);
 example_test!(fields, "fields", Passing);
 example_test!(fnptrs, "fnptrs", Passing);
 example_test!(generic, "generic", Passing);
+example_test!(generic_traitobj, "generic_traitobj", Passing);
 example_test!(list_fields, "list_fields", Passing);
 example_test!(nested_struct, "nested_struct", Passing);
 example_test!(recursive, "recursive", Passing);
@@ -95,13 +96,16 @@ example_test!(
 example_test!(recursive_dyn, "recursive_dyn", Passing);
 example_test!(recursive_dyn2, "recursive_dyn2", Passing);
 example_test!(recursive_dyn3, "recursive_dyn3", Passing);
+example_test!(refs_conflict, "refs_conflict", Passing);
 example_test!(mut_refs, "mut_refs", Passing);
 example_test!(mut_refs2, "mut_refs2", Passing);
 example_test!(simple, "simple", Passing);
 example_test!(simple_single, "simple_single", Passing);
 example_test!(r#static, "static", Passing);
+example_test!(sip_repro, "sip_repro", Passing);
+example_test!(vec_growth, "vec_growth", Passing);
+example_test!(wtos_conflict, "wtos_conflict", Passing);
 
 // Not yet characterized at all — run and report, don't assert.
-example_test!(no_vtable_check, "no_vtable_check", Unclassified);
 example_test!(rand_, "rand_", Unclassified);
 example_test!(two_variants_rand, "two_variants_rand", Unclassified);

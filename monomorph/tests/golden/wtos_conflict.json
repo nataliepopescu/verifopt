@@ -1,0 +1,22 @@
+{
+  "maybe_count": 0,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:82:22: 82:30",
+      "is_maybe_example": false,
+      "cha": [
+        "wtos_conflict::Fast",
+        "wtos_conflict::Slow",
+        "wtos_conflict::Worker::run",
+        "wtos_conflict::Worker::run"
+      ],
+      "fsa": [
+        "wtos_conflict::Fast",
+        "wtos_conflict::Slow",
+        "wtos_conflict::Worker::run",
+        "wtos_conflict::Worker::run"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:3:12: 3:17",
+      "is_maybe_example": true,
+      "cha": [],
+      "fsa": [
+        "generic_traitobj::find::{closure#0}"
+      ]
+    }
+  ]
+}

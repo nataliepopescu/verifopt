@@ -1,0 +1,52 @@
+
+######### MIR before #########
+fn dep::wrap_dyn_call(_1: &std::boxed::Box<dyn dep::Animal>) -> usize {
+    debug animal => _1;
+    let mut _0: usize;
+    let mut _2: &dyn dep::Animal;
+    let mut _3: *const dyn dep::Animal;
+    let mut _4: std::ptr::NonNull<dyn dep::Animal>;
+
+    bb0: {
+        StorageLive(_2);
+        _4 = copy (((*_1).0: std::ptr::Unique<dyn dep::Animal>).0: std::ptr::NonNull<dyn dep::Animal>);
+        _3 = copy _4 as *const dyn dep::Animal (Transmute);
+        _2 = &(*_3);
+        _0 = <dyn dep::Animal as dep::Animal>::speak(move _2) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn dep::wrap_dyn_call(_1: &std::boxed::Box<dyn dep::Animal>) -> usize {
+    debug animal => _1;
+    let mut _0: usize;
+    let mut _2: &dyn dep::Animal;
+    let mut _3: *const dyn dep::Animal;
+    let mut _4: std::ptr::NonNull<dyn dep::Animal>;
+    let mut _5: *const dep::Cat;
+    let mut _6: &dep::Cat;
+
+    bb0: {
+        StorageLive(_2);
+        _4 = copy (((*_1).0: std::ptr::Unique<dyn dep::Animal>).0: std::ptr::NonNull<dyn dep::Animal>);
+        _3 = copy _4 as *const dyn dep::Animal (Transmute);
+        _2 = &(*_3);
+        _5 = move _2 as *const dep::Cat (PtrToPtr);
+        _6 = &(*_5);
+        _0 = <dep::Cat as dep::Animal>::speak(move _6) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        return;
+    }
+}
+######### END after #########
+

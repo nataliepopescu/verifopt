@@ -401,6 +401,7 @@ impl Callbacks for FsaCallbacks {
 
                 if needs_rewrite_pass {
                     let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
+                    let _ = SECOND_PASS_NEEDED.set(());
                 }
             }
         });
@@ -412,7 +413,40 @@ impl Callbacks for FsaCallbacks {
 static ORIGINAL: OnceLock<for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>> =
     OnceLock::new();
 
+/// The extern-query counterpart to `ORIGINAL` above - see
+/// `extern_optimized_mir`'s own doc for why this exists at all.
+///
+/// NOTE: `rustc_middle::query::ExternProviders::optimized_mir`'s own
+/// confirmed signature is `fn(TyCtxt<'tcx>, Key<'tcx>) -> ProvidedValue<'tcx>`
+/// where `Key<'tcx> = DefId` and `ProvidedValue<'tcx> = &'tcx Body<'tcx>` -
+/// confirmed directly from rustc's own rendered docs. The exact module
+/// path for this DefId (as opposed to `rustc_public::DefId`, already
+/// imported in this file under the same bare name) is the one thing
+/// here not directly confirmed - `rustc_span::def_id::DefId` is used
+/// below on the strength of `LocalDefId` living there today, since
+/// rustc conventionally defines DefId/LocalDefId together in the same
+/// module - first place to check if this doesn't compile.
+static EXTERN_ORIGINAL: OnceLock<
+    for<'tcx> fn(TyCtxt<'tcx>, rustc_span::def_id::DefId) -> &'tcx Body<'tcx>,
+> = OnceLock::new();
+
 static SKIP_REWRITE: OnceLock<bool> = OnceLock::new();
+
+/// Set (in-process only - never written to disk, unlike
+/// `needs_rewrite_pass_marker_path`'s own file) the moment
+/// `after_analysis` decides a second pass is needed, right alongside
+/// writing that marker file. Checked in `rewrite_body` to skip this
+/// pass's own rewrite attempt entirely once that's known: this pass's
+/// whole build is about to be thrown away by `cargo clean` regardless,
+/// and the second pass - reading the exact same, unchanged
+/// verifopt_store.json this pass just wrote - will always recompute
+/// the identical edit for any dispatch site this pass could have
+/// applied, so there's nothing to lose by skipping it here. Being
+/// in-process, not a file, is what makes this safe across the two
+/// passes' own, separate OS processes: the second pass never sees this
+/// flag at all (starts unset, in its own fresh process), so it always
+/// still applies its own rewrites normally.
+static SECOND_PASS_NEEDED: OnceLock<()> = OnceLock::new();
 
 pub struct RewriteCallbacks {
     pub options: AnalysisOptions,
@@ -424,6 +458,25 @@ impl Callbacks for RewriteCallbacks {
         config.override_queries = Some(|_sess, providers| {
             let _ = ORIGINAL.set(providers.optimized_mir);
             providers.optimized_mir = optimized_mir;
+
+            // Without this, a dependency crate's own function only
+            // ever gets its MIR rewritten if that dependency's own,
+            // separate compilation happens to ask for it locally
+            // (see rewrite_body's own doc) - which, for a plain,
+            // non-generic, non-inline-candidate function that's only
+            // ever called from a downstream crate, it may never do at
+            // all. This handles that case directly: when *this*
+            // crate's own compilation is what asks for a dependency's
+            // function's MIR (e.g. because this crate is the one
+            // that actually codegens/links the call), this override
+            // gets the chance to rewrite it right here, in this same,
+            // single pass - no shared store, no second build needed
+            // for this specific case (see dep_rewrite_store_path's own
+            // doc for the deeper case this still doesn't cover: a
+            // dispatch site entirely internal to a dependency, never
+            // directly queried by anything downstream).
+            let _ = EXTERN_ORIGINAL.set(providers.extern_queries.optimized_mir);
+            providers.extern_queries.optimized_mir = extern_optimized_mir;
         });
     }
 }
@@ -506,10 +559,19 @@ fn compute_edits(store: &Store, hash: DefPathHash, default: &Body<'_>) -> Vec<(u
         .collect()
 }
 
-fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
-    let original = ORIGINAL.get().unwrap();
-    let default = original(tcx, def_id);
-
+/// Applies whatever edits `hash` (the containing function's own
+/// DefPathHash) has recorded against it to `default`. Shared by both
+/// `optimized_mir` (local queries, keyed by LocalDefId) and
+/// `extern_optimized_mir` (queries for a different crate's own items,
+/// keyed by DefId) below - confirmed neither def_id's own type is used
+/// anywhere past computing `default`/`hash` themselves, only tcx, the
+/// body, and the hash used to look edits up, so this same logic can
+/// serve both call sites unchanged.
+fn rewrite_body<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    default: &'tcx Body<'tcx>,
+    hash: DefPathHash,
+) -> &'tcx Body<'tcx> {
     // Control mode (--no-rewrite): skip every rewrite unconditionally,
     // regardless of what FSA found - the resulting MIR (and therefore
     // codegen) is identical to a plain, unwrapped build, while still
@@ -522,7 +584,14 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
         return default;
     }
 
-    let hash = tcx.def_path_hash(def_id.to_def_id());
+    // This pass already knows (via after_analysis, which always runs
+    // before any rewrite attempt within this same process) that a
+    // second pass is coming - see SECOND_PASS_NEEDED's own doc for why
+    // it's always safe to skip this pass's own rewrite attempt once
+    // that's true, for both local and extern-provider queries alike.
+    if SECOND_PASS_NEEDED.get().is_some() {
+        return default;
+    }
 
     // Prefer the shared, on-disk store from an earlier discovery pass
     // (see dep_rewrite_store_path's own doc) when it exists - this is
@@ -928,6 +997,28 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
     dump_body(tcx, &body, "after");
 
     tcx.arena.alloc(body)
+}
+
+fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
+    let original = ORIGINAL.get().unwrap();
+    let default = original(tcx, def_id);
+    let hash = tcx.def_path_hash(def_id.to_def_id());
+    rewrite_body(tcx, default, hash)
+}
+
+/// Handles a dependency crate's own function whose MIR *this* crate's
+/// compilation is the one asking for - see this override's own
+/// registration doc, right where it's set alongside `optimized_mir`
+/// above, for why this exists at all and what it does and doesn't
+/// cover.
+fn extern_optimized_mir<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    def_id: rustc_span::def_id::DefId,
+) -> &'tcx Body<'tcx> {
+    let original = EXTERN_ORIGINAL.get().unwrap();
+    let default = original(tcx, def_id);
+    let hash = tcx.def_path_hash(def_id);
+    rewrite_body(tcx, default, hash)
 }
 
 fn fn_op<'tcx>(

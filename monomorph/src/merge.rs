@@ -2,7 +2,8 @@ use crate::constraints::VOID;
 use crate::constraints::unique_append;
 use crate::constraints::{ConstraintStore, Constraints, EnclosingScopes, MapValue};
 use crate::error::Error;
-use crate::interp::{InterpPass, TimingCat};
+use crate::interp::InterpPass;
+use crate::timing::TimingCat;
 use rustc_public::mir::Place;
 
 use log::debug;

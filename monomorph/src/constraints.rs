@@ -1,4 +1,5 @@
-use crate::interp::{InterpPass, TimingCat};
+use crate::interp::InterpPass;
+use crate::timing::TimingCat;
 use crate::rustc_public::CrateDef;
 use rustc_public::mir::mono::Instance;
 

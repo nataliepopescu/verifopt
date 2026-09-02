@@ -17,7 +17,8 @@ use crate::constraints::{
     TraitObjTy, VOID,
 };
 use crate::constraints::{hash_val, memoize_by_rc};
-use crate::interp::{InterpPass, TimingCat};
+use crate::interp::InterpPass;
+use crate::timing::TimingCat;
 use crate::sig_collect::SigVal;
 
 use indexmap::IndexSet;

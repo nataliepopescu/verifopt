@@ -42,7 +42,15 @@ use monomorph::util;
 /// The help message for `cargo-verifopt`
 const CARGO_VERIFOPT_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
 Usage:
-    cargo verifopt
+    cargo verifopt [--rewrite-only]
+
+    --rewrite-only  Skip analysis and the automatic discovery-then-decide
+                     flow entirely - just re-run the rewrite pass against
+                     whatever verifopt_store.json already exists on disk
+                     from an earlier, successful run. No cargo clean, so
+                     cargo's own caching applies as normal. For iterating
+                     on the rewrite logic itself without re-paying for
+                     analysis or a full dependency rebuild each time.
 "#;
 
 /// Set the environment variable `VERIFOPT_BUILD_STD` to enable the building of std library when running verifopt.
@@ -180,6 +188,23 @@ fn pinned_toolchain_bin(name: &str) -> OsString {
 }
 
 fn call_cargo_on_target(target: &String, kind: &TargetKind) {
+    // Debugging escape hatch: re-run just the rewrite pass against
+    // whatever verifopt_store.json already exists on disk (from an
+    // earlier, successful discovery run), skipping analysis
+    // (--rewrite-pass) and skipping this function's own automatic
+    // discovery-then-decide flow entirely - no cargo clean, so cargo's
+    // own caching does whatever it would normally do (e.g. leaving
+    // already-successfully-built dependencies alone, retrying only
+    // whatever previously failed). Useful for iterating on the rewrite
+    // logic itself without re-paying for analysis or a full dependency
+    // rebuild each time. Stripped here, before anything else looks at
+    // the arg list, matching how --lib is already skipped in
+    // run_cargo_build for the same reason.
+    if has_arg_flag("--rewrite-only") {
+        run_cargo_build(target, kind, &["--rewrite-pass".to_owned()]);
+        return;
+    }
+
     // This first build *is* the ordinary, single-pass build - nothing
     // extra is paid here regardless of what it finds, since
     // RewriteCallbacks already rewrites this crate's own code within
@@ -272,7 +297,7 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
         if arg == "--" {
             break;
         }
-        if arg == "--lib" {
+        if arg == "--lib" || arg == "--rewrite-only" {
             continue;
         }
         cmd.arg(arg);

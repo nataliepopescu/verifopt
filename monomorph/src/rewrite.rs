@@ -694,7 +694,7 @@ fn rewrite_body<'tcx>(
                         let principal = preds.principal().unwrap();
                         principal.with_self_ty(tcx, pointee_ty).skip_binder()
                     }
-                    _ => panic!(),
+                    other_kind @ _ => panic!("pointee_ty.kind() = {:?}, for span {:?}", other_kind, span),
                 };
 
                 let pointee_trait = tcx.require_lang_item(rustc_hir::LangItem::PointeeTrait, span);

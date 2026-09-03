@@ -20,7 +20,7 @@ use log::*;
 use std::env;
 use std::io::Write;
 
-use monomorph::rewrite::{FsaCallbacks, RewriteCallbacks};
+use monomorph::rewrite::{FsaCallbacks, RewriteCallbacks, write_rewrite_stats};
 use monomorph::util;
 use monomorph::util::options::AnalysisOptions;
 
@@ -160,6 +160,8 @@ fn main() {
                 );
             }
         }
+
+        write_rewrite_stats();
     });
 
     let exit_code = match result {

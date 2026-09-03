@@ -35,6 +35,7 @@ use std::io::Write;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -448,6 +449,91 @@ static SKIP_REWRITE: OnceLock<bool> = OnceLock::new();
 /// still applies its own rewrites normally.
 static SECOND_PASS_NEEDED: OnceLock<()> = OnceLock::new();
 
+/// How many `Edit::Pointers` attempts hit each branch of the
+/// `pointee_ty.kind()` match in `rewrite_body` - `DYNAMIC_HITS` for the
+/// expected `TyKind::Dynamic` case (a genuine, concrete `dyn Trait`
+/// receiver, safely rewritable), `GENERIC_SKIPS` for every other case
+/// (the receiver's own type is still a generic parameter at this
+/// point, e.g. `FilterMap<I, F>::next`'s own `self.iter: I` - not
+/// safely rewritable, since `optimized_mir` only ever returns one,
+/// shared body per def_id, reused by every instantiation of `I`/`F` -
+/// see the discussion this was built to quantify). Lock-free counters
+/// since codegen can run multiple codegen units in parallel.
+static GENERIC_SKIPS: AtomicUsize = AtomicUsize::new(0);
+static DYNAMIC_HITS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many `fn_op` calls hit each outcome of the args-count check
+/// right before `Instance::try_resolve` - `FN_OP_ARGS_OK` when the
+/// reconstructed `args` matches what the devirtualization target's own
+/// generics expect (safely resolvable), `FN_OP_ARGS_MISMATCH` when it
+/// doesn't (this function's own doc, right above the `None =>` fallback
+/// that produces the offending `args`, already anticipated this
+/// exact failure - confirmed hit in practice: `regex_automata`'s
+/// `search_half`, "has parameters, but no args were provided in
+/// instantiate", identical to the message that comment describes).
+/// Structurally different from GENERIC_SKIPS/DYNAMIC_HITS above -
+/// that's about the *receiver's* own type still being a generic
+/// parameter; this is about the *devirtualization target's* own
+/// generics not being fully resolvable - kept as a separate pair so
+/// the two failure modes can be told apart in the stats output.
+static FN_OP_ARGS_MISMATCH: AtomicUsize = AtomicUsize::new(0);
+static FN_OP_ARGS_OK: AtomicUsize = AtomicUsize::new(0);
+
+/// Captured once, the first time `rewrite_body` runs with a real
+/// `tcx` in hand - kept so `write_rewrite_stats` (called after
+/// codegen, once `tcx` is no longer available at all - see
+/// verifopt.rs's own main()) can still label its output by crate.
+static CRATE_NAME: OnceLock<String> = OnceLock::new();
+
+pub fn rewrite_stats_path() -> &'static str {
+    "rewrite_pointers_stats.txt"
+}
+
+/// Appends this process's own, final `Edit::Pointers` generic/dynamic
+/// counts to a shared, append-mode file - one line per crate compiled
+/// across the whole build, the same accumulation pattern as
+/// `mir_dump.txt`. Call once, after codegen for this crate has fully
+/// finished (see verifopt.rs's own main()).
+pub fn write_rewrite_stats() {
+    let generic = GENERIC_SKIPS.load(Ordering::Relaxed);
+    let dynamic = DYNAMIC_HITS.load(Ordering::Relaxed);
+    let args_mismatch = FN_OP_ARGS_MISMATCH.load(Ordering::Relaxed);
+    let args_ok = FN_OP_ARGS_OK.load(Ordering::Relaxed);
+
+    if generic == 0 && dynamic == 0 && args_mismatch == 0 && args_ok == 0 {
+        // Nothing worth reporting went through either counted path in
+        // this crate at all - skip the line(s) entirely rather than
+        // clutter the file with an all-zero entry for every crate
+        // compiled.
+        return;
+    }
+
+    let crate_name = CRATE_NAME.get().map(String::as_str).unwrap_or("<unknown>");
+    let mut lines = String::new();
+    if generic != 0 || dynamic != 0 {
+        lines.push_str(&format!(
+            "{crate_name}: {} Edit::Pointers attempt(s) - {dynamic} dynamic (rewritten), \
+             {generic} generic (skipped)\n",
+            generic + dynamic,
+        ));
+    }
+    if args_mismatch != 0 || args_ok != 0 {
+        lines.push_str(&format!(
+            "{crate_name}: {} fn_op call(s) - {args_ok} args resolved (rewritten), \
+             {args_mismatch} args mismatch (skipped)\n",
+            args_ok + args_mismatch,
+        ));
+    }
+
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(rewrite_stats_path())
+    {
+        let _ = f.write_all(lines.as_bytes());
+    }
+}
+
 pub struct RewriteCallbacks {
     pub options: AnalysisOptions,
 }
@@ -683,6 +769,8 @@ fn rewrite_body<'tcx>(
             }
 
             Edit::Pointers(hashes) => {
+                let _ = CRATE_NAME.get_or_init(|| tcx.crate_name(LOCAL_CRATE).to_string());
+
                 let op = args[0].node.clone();
 
                 let recv_ty = op.ty(&local_decls, tcx); // &dyn X
@@ -691,10 +779,24 @@ fn rewrite_body<'tcx>(
                 // <dyn X as X>
                 let trait_ref = match pointee_ty.kind() {
                     TyKind::Dynamic(preds, _) => {
+                        DYNAMIC_HITS.fetch_add(1, Ordering::Relaxed);
                         let principal = preds.principal().unwrap();
                         principal.with_self_ty(tcx, pointee_ty).skip_binder()
                     }
-                    other_kind @ _ => panic!("pointee_ty.kind() = {:?}, for span {:?}", other_kind, span),
+                    _ => {
+                        // Receiver's own type is still a generic
+                        // parameter here (e.g. FilterMap<I, F>::next's
+                        // own self.iter: I) - see GENERIC_SKIPS's own
+                        // doc for why this can't be safely rewritten
+                        // through this mechanism. Skip just this one
+                        // dispatch site's edit, not this function's
+                        // whole rewrite attempt - matching the same
+                        // continue pattern already used a few lines
+                        // below for a different, unrelated failure
+                        // mode in this same loop.
+                        GENERIC_SKIPS.fetch_add(1, Ordering::Relaxed);
+                        continue;
+                    }
                 };
 
                 let pointee_trait = tcx.require_lang_item(rustc_hir::LangItem::PointeeTrait, span);
@@ -1066,6 +1168,26 @@ fn fn_op<'tcx>(
         // fall back to the previous behavior unchanged.
         None => tcx.mk_args_from_iter(gen_args.iter().skip(1)),
     };
+
+    // Validate before handing `args` to rustc's own generic-args
+    // instantiation machinery, rather than letting it panic: confirmed
+    // hit in practice (regex_automata's own search_half, "has
+    // parameters, but no args were provided in instantiate") - exactly
+    // the failure mode the comment above already anticipated for the
+    // `None` fallback path. `generics_of(target_did).count()` (not
+    // directly source-verified, best-informed guess at the right
+    // rustc_middle API for "total expected generic param count,
+    // including any parent/impl-level ones") is the target's own
+    // expectation; a mismatch here means this specific candidate can't
+    // be safely resolved through this mechanism, the same category of
+    // gap GENERIC_SKIPS/DYNAMIC_HITS track for Edit::Pointers, just a
+    // different structural cause.
+    let _ = CRATE_NAME.get_or_init(|| tcx.crate_name(LOCAL_CRATE).to_string());
+    if args.len() != tcx.generics_of(target_did).count() {
+        FN_OP_ARGS_MISMATCH.fetch_add(1, Ordering::Relaxed);
+        return Err(());
+    }
+    FN_OP_ARGS_OK.fetch_add(1, Ordering::Relaxed);
 
     let instance =
         match Instance::try_resolve(tcx, TypingEnv::fully_monomorphized(), target_did, args) {

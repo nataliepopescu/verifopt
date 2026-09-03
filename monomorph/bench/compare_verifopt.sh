@@ -33,6 +33,14 @@
 #   -t SECS     Per-run timeout in seconds, applies to warmup and timed runs (default: 60)
 #   -o FILE     Timing CSV output path (default: bench_results.csv)
 #   -z FILE     Binary size CSV output path (default: bench_sizes.csv)
+#   -j FILE     Also save the raw, per-run JSONL data to this path (default:
+#               not saved - it's written to a temp file and deleted on exit
+#               otherwise). Needed for any later analysis beyond what
+#               bench_stats.py's own summary/significance test already
+#               computes - e.g. re-running bench_stats.py itself against a
+#               different SIGNIFICANCE_THRESHOLD, or a different test
+#               entirely - since the summary CSV alone has no way back to
+#               the individual run times a test like that needs.
 #   -e NAMES    Comma-separated list of example dir names to run (default: all)
 #   -h          Show this help and exit
 #
@@ -95,13 +103,14 @@ NUM_WARMUP=2
 RUN_TIMEOUT=60
 OUTPUT_CSV="bench_results.csv"
 OUTPUT_SIZES_CSV="bench_sizes.csv"
+SAVE_JSONL=""
 ONLY_EXAMPLES=""
 
 usage() {
     sed -n '2,86p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
-while getopts "d:n:w:t:o:z:e:h" opt; do
+while getopts "d:n:w:t:o:z:j:e:h" opt; do
     case "$opt" in
         d) EXAMPLES_DIR="$OPTARG" ;;
         n) NUM_RUNS="$OPTARG" ;;
@@ -109,6 +118,7 @@ while getopts "d:n:w:t:o:z:e:h" opt; do
         t) RUN_TIMEOUT="$OPTARG" ;;
         o) OUTPUT_CSV="$OPTARG" ;;
         z) OUTPUT_SIZES_CSV="$OPTARG" ;;
+        j) SAVE_JSONL="$OPTARG" ;;
         e) ONLY_EXAMPLES="$OPTARG" ;;
         h) usage; exit 0 ;;
         *) usage; exit 1 ;;
@@ -594,6 +604,17 @@ echo "=== Summary ==="
 python3 "$STATS_PY" "$RESULTS_JSONL" --csv "$OUTPUT_CSV"
 echo
 echo "Full per-run data written to: $OUTPUT_CSV"
+
+if [ -n "$SAVE_JSONL" ]; then
+    # $RESULTS_JSONL itself is a mktemp file, deleted by this script's
+    # own trap on exit - this copy is what actually survives afterward.
+    # It's the raw, individual run times bench_stats.py's own summary
+    # (mean/median/stddev/p-value) gets computed from, not reconstructable
+    # from that summary alone - anyone wanting a different downstream
+    # analysis later needs this file, not just the CSV.
+    cp "$RESULTS_JSONL" "$SAVE_JSONL"
+    echo "Raw per-run JSONL saved to: $SAVE_JSONL"
+fi
 
 if [ "$HAVE_SIZE_CMD" -eq 1 ]; then
     echo

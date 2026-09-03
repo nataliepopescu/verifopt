@@ -7,9 +7,14 @@ Usage:
 
 Produces a two-panel chart:
   - top: wall time per (example, scenario), log-scale. Solid bars are
-    the mean (with stddev error bars); a black diamond marks the
-    median on each bar, so you can see at a glance whether a handful
-    of slow/fast runs are pulling the mean away from the typical case.
+    the mean; a black diamond marks the median on each bar, so you can
+    see at a glance whether a handful of slow/fast runs are pulling the
+    mean away from the typical case. Both the mean bars and the median
+    diamonds carry the same stddev as error bars - there's only one
+    stddev per dataset (how spread out the individual runs actually
+    are), not a separate one per central-tendency measure; showing it
+    on both just lets you gauge spread relative to whichever one you're
+    looking at.
   - bottom: % change (verifopt vs plain) per (example, scenario), one
     pair of bars per entry - solid for % change by mean, hatched for
     % change by median. The two bars diverging noticeably is itself
@@ -143,11 +148,46 @@ def main():
     ax_time.bar(
         verifopt_x, verifopt_means, width, yerr=verifopt_stddevs, capsize=3, label="verifopt (mean)", color="#dd8452"
     )
-    ax_time.scatter(plain_x, plain_medians, marker="D", s=28, color="black", zorder=3, label="median")
-    ax_time.scatter(verifopt_x, verifopt_medians, marker="D", s=28, color="black", zorder=3)
+    # Same stddev used for the mean's own error bars above - there's
+    # only one stddev per dataset (how spread out the individual runs
+    # are), not a separate one for mean vs median; showing it here too
+    # just lets the reader gauge spread relative to whichever central
+    # tendency they're actually looking at. errorbar (not scatter, which
+    # has no yerr) with fmt="D" keeps the same diamond marker as before.
+    # Offset toward each bar's own outer edge (still well within the
+    # bar's own width) rather than sitting at the bar's exact center,
+    # so these error bars land at a genuinely different x-position from
+    # the mean bars' own centered ones - distinguishable regardless of
+    # color perception or a grayscale printout, unlike relying on color
+    # alone would be.
+    median_offset = width / 4
+    ax_time.errorbar(
+        [px - median_offset for px in plain_x],
+        plain_medians,
+        yerr=plain_stddevs,
+        fmt="D",
+        markersize=5,
+        color="black",
+        capsize=3,
+        zorder=3,
+        label="median",
+    )
+    ax_time.errorbar(
+        [vx + median_offset for vx in verifopt_x],
+        verifopt_medians,
+        yerr=verifopt_stddevs,
+        fmt="D",
+        markersize=5,
+        color="black",
+        capsize=3,
+        zorder=3,
+    )
     ax_time.set_yscale("log")
     ax_time.set_ylabel("wall time, seconds (log scale)")
-    ax_time.set_title("Plain vs verifopt: run time per example/scenario (bars: mean, diamonds: median)")
+    ax_time.set_title(
+        "Plain vs verifopt: run time per example/scenario (bars: mean, diamonds: median, "
+        "error bars: stddev on both)"
+    )
     ax_time.set_xticks(x)
     ax_time.set_xticklabels(names, rotation=30, ha="right")
     ax_time.legend()

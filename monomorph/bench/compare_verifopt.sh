@@ -512,16 +512,6 @@ for example_dir in "${example_dirs[@]}"; do
     fi
     echo "  [plain]    binary: $plain_binary"
     record_binary_size "plain" "$example" "$plain_binary"
-    for scenario_line in "${scenario_lines[@]}"; do
-        IFS=$'\t' read -r s_label s_args_str <<< "$scenario_line"
-        read -ra s_args <<< "$s_args_str"
-        if [ "$NUM_WARMUP" -gt 0 ]; then
-            echo "  [plain]    [$s_label] warming up ($NUM_WARMUP run(s), untimed) ..."
-            warmup_runs "plain" "$example" "$s_label" "$plain_binary" "$example_abs_dir" "${s_args[@]}"
-        fi
-        echo "  [plain]    [$s_label] running $NUM_RUNS times ..."
-        time_runs "plain" "$example" "$s_label" "$plain_binary" "$example_abs_dir" "${s_args[@]}"
-    done
 
     # --- verifopt build ---
     prebuilt_verifopt_binary="$(read_prebuilt_verifopt_binary "$example_abs_dir")"
@@ -568,9 +558,26 @@ for example_dir in "${example_dirs[@]}"; do
     fi
     echo "  [verifopt] binary: $verifopt_binary"
     record_binary_size "verifopt" "$example" "$verifopt_binary"
+
+    # Both binaries are already built above - only the *timed* runs are
+    # interleaved here (plain then verifopt, scenario by scenario),
+    # rather than every scenario's plain runs finishing before any
+    # verifopt run starts. This keeps any systematic drift over the
+    # course of the run (thermal throttling, background load changing
+    # over time, etc.) from landing disproportionately on one leg - a
+    # long, uninterrupted block of one leg's runs would otherwise let
+    # that drift bias its own mean more than the other leg's.
     for scenario_line in "${scenario_lines[@]}"; do
         IFS=$'\t' read -r s_label s_args_str <<< "$scenario_line"
         read -ra s_args <<< "$s_args_str"
+
+        if [ "$NUM_WARMUP" -gt 0 ]; then
+            echo "  [plain]    [$s_label] warming up ($NUM_WARMUP run(s), untimed) ..."
+            warmup_runs "plain" "$example" "$s_label" "$plain_binary" "$example_abs_dir" "${s_args[@]}"
+        fi
+        echo "  [plain]    [$s_label] running $NUM_RUNS times ..."
+        time_runs "plain" "$example" "$s_label" "$plain_binary" "$example_abs_dir" "${s_args[@]}"
+
         if [ "$NUM_WARMUP" -gt 0 ]; then
             echo "  [verifopt] [$s_label] warming up ($NUM_WARMUP run(s), untimed) ..."
             warmup_runs "verifopt" "$example" "$s_label" "$verifopt_binary" "$example_abs_dir" "${s_args[@]}"

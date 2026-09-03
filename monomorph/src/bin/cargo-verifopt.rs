@@ -330,6 +330,7 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
         rustflags.push(' ');
     }
     rustflags.push_str("-Z always_encode_mir");
+    //rustflags.push_str(" -C save-temps");
     cmd.env("RUSTFLAGS", rustflags);
 
     // Replace the rustc executable through RUSTC_WRAPPER environment variable so that rustc

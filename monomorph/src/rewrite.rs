@@ -611,7 +611,7 @@ enum Edit {
 // structurally different (no per-candidate pointer-comparison chain,
 // no shared wide-fan-in merge block the same way) and isn't
 // implicated, so it isn't capped here.
-const MAX_POINTERS_CANDIDATES: usize = 7;
+const MAX_POINTERS_CANDIDATES: usize = 4;
 
 /// Factored out of `optimized_mir` so the same lookup logic can run
 /// against either the shared, on-disk store (deserialized from an

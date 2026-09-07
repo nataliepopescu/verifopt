@@ -276,7 +276,7 @@ impl Callbacks for FsaCallbacks {
             }
         });
 
-        Compilation::Stop
+        Compilation::Continue
     }
 }
 

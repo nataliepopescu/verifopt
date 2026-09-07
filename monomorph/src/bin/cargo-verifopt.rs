@@ -140,9 +140,18 @@ fn call_cargo_on_each_package_target(package: &Package) {
     }
 }
 
-/// Resolves a binary (`cargo`, `rustc`, ...) belonging to the exact
-/// toolchain that this build of `verifopt` was compiled against, via
-/// `rustup which`.
+/// Resolves `name` (e.g. "rustc"/"cargo") from the same, pinned toolchain
+/// this binary was itself built under, via `rustup which`. Returns `None`
+/// if that toolchain doesn't have `name` at all - some toolchains (e.g. a
+/// custom, locally-linked `./x.py build` output, which only ever contains
+/// `rustc` itself, never a paired `cargo`) genuinely don't. Callers decide
+/// what to do about that: `rustc` should still hard-panic (see
+/// `pinned_toolchain_rustc`), since falling back there would silently
+/// drive the build with a compiler that doesn't have the rewrite hook at
+/// all; `cargo` falls back to the ambient one instead (see
+/// `pinned_toolchain_cargo`), since cargo itself never compiles
+/// anything - it just orchestrates whatever `RUSTC` explicitly points at,
+/// which stays pinned regardless of which `cargo` binary drives it.
 ///
 /// `verifopt` links `rustc_driver` directly (`#![feature(rustc_private)]`),
 /// which has no stable ABI across nightlies. Trusting an ambient `$CARGO`/
@@ -161,7 +170,7 @@ fn call_cargo_on_each_package_target(package: &Package) {
 /// and `rustc` must additionally be threaded through as the `RUSTC` env
 /// var on the child `cargo build` invocation (see `call_cargo_on_target`)
 /// so cargo doesn't fall back to a bare, PATH-resolved "rustc" itself.
-fn pinned_toolchain_bin(name: &str) -> OsString {
+fn pinned_toolchain_bin(name: &str) -> Option<OsString> {
     let toolchain = option_env!("RUSTUP_TOOLCHAIN").expect(
         "verifopt must be built under rustup with a pinned toolchain \
          (RUSTUP_TOOLCHAIN was not set at compile time)",
@@ -173,10 +182,7 @@ fn pinned_toolchain_bin(name: &str) -> OsString {
         .unwrap_or_else(|e| panic!("could not invoke `rustup which` to resolve {name}: {e}"));
 
     if !output.status.success() {
-        panic!(
-            "`rustup which --toolchain {toolchain} {name}` failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        return None;
     }
 
     let path = String::from_utf8(output.stdout)
@@ -184,7 +190,29 @@ fn pinned_toolchain_bin(name: &str) -> OsString {
         .trim()
         .to_owned();
 
-    OsString::from(path)
+    Some(OsString::from(path))
+}
+
+/// `rustc` must come from the pinned toolchain specifically - falling
+/// back to some other, ambient rustc would silently drop the whole
+/// rewrite (the modified compiler's own codegen_mir hook only exists on
+/// this one, specific toolchain).
+fn pinned_toolchain_rustc() -> OsString {
+    pinned_toolchain_bin("rustc")
+        .unwrap_or_else(|| panic!("pinned toolchain has no `rustc` at all - this should be impossible"))
+}
+
+/// `cargo` itself never compiles anything - it only orchestrates
+/// whatever `RUSTC` is pointed at (see `pinned_toolchain_rustc`, always
+/// threaded through explicitly wherever this is used), so which `cargo`
+/// binary actually runs doesn't affect which compiler does the work.
+/// Prefers the pinned toolchain's own `cargo` when it has one (matching
+/// `pinned_toolchain_bin`'s own reasoning above, for toolchains where
+/// that's available and avoids any flag-mismatch risk) - but falls back
+/// to the ambient `cargo` when it doesn't, e.g. a custom, locally-linked
+/// `./x.py build` output, which only ever contains `rustc` itself.
+fn pinned_toolchain_cargo() -> OsString {
+    pinned_toolchain_bin("cargo").unwrap_or_else(|| OsString::from("cargo"))
 }
 
 fn call_cargo_on_target(target: &String, kind: &TargetKind) {
@@ -225,7 +253,7 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
          cleaning and rebuilding once more to apply it (see rewrite.rs's own \
          dep_rewrite_store_path/needs_rewrite_pass_marker_path docs)"
     );
-    let mut clean_cmd = Command::new(pinned_toolchain_bin("cargo"));
+    let mut clean_cmd = Command::new(pinned_toolchain_cargo());
     clean_cmd.arg("clean");
     let clean_status = clean_cmd
         .spawn()
@@ -257,18 +285,20 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
 /// `extra_verifopt_flags` is appended into VERIFOPT_FLAGS alongside
 /// whatever the user already passed after `--`.
 fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[String]) {
-    // Build a cargo command for target. Always use the cargo binary paired
-    // with the toolchain verifopt itself was built against (see
-    // `pinned_toolchain_bin`), rather than an ambient `$CARGO`/`$PATH`
-    // cargo that may belong to a different, incompatible nightly.
-    let mut cmd = Command::new(pinned_toolchain_bin("cargo"));
+    // Build a cargo command for target. Prefers the cargo binary paired
+    // with the toolchain verifopt itself was built against, falling back
+    // to the ambient one if that toolchain has none (see
+    // `pinned_toolchain_cargo`) - safe either way, since cargo itself
+    // never compiles anything.
+    let mut cmd = Command::new(pinned_toolchain_cargo());
     // Cargo's own default rustc resolution is just the bare string
     // "rustc" via $PATH — it does not hand RUSTC_WRAPPER an absolute
     // path unless told to. Set RUSTC explicitly so cargo (and, in turn,
     // whatever it passes to our own RUSTC_WRAPPER dispatch) stays pinned
-    // to the same toolchain as the cargo binary above, regardless of
-    // what else is first on the caller's $PATH.
-    cmd.env("RUSTC", pinned_toolchain_bin("rustc"));
+    // to the toolchain verifopt itself was built against, regardless of
+    // which cargo binary is actually driving this build or what's first
+    // on the caller's $PATH.
+    cmd.env("RUSTC", pinned_toolchain_rustc());
     match kind {
         TargetKind::Bin => {
             cmd.arg("build");
@@ -422,7 +452,7 @@ fn call_rustc() {
     // as the original `$RUSTC`/`$PATH` fallback it replaced. Resolve the
     // pinned toolchain's rustc explicitly instead, exactly as
     // `call_cargo_on_target` resolves cargo.
-    let mut cmd = Command::new(pinned_toolchain_bin("rustc"));
+    let mut cmd = Command::new(pinned_toolchain_rustc());
     cmd.args(std::env::args().skip(2));
     let exit_status = cmd
         .spawn()

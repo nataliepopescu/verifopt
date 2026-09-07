@@ -8,31 +8,19 @@ extern crate rustc_session;
 extern crate rustc_span;
 
 use rustc_data_structures::fingerprint::Fingerprint;
-use rustc_data_structures::smallvec::SmallVec;
-use rustc_index::IndexVec;
-use rustc_middle::mir::{
-    BasicBlock, BasicBlockData, BinOp, Body, CastKind, CoercionSource, Const, ConstOperand, Local,
-    LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, SourceInfo, Statement,
-    StatementKind, SwitchTargets, Terminator, TerminatorKind, UnOp,
-};
+use rustc_middle::mir::Body;
 use rustc_span::def_id::{DefPathHash, LOCAL_CRATE, LocalDefId};
 
 use rustc_driver::{Callbacks, Compilation};
-use rustc_hir::Safety;
-use rustc_hir::def::DefKind;
-use rustc_interface::interface::{Compiler, Config};
+use rustc_interface::interface::Compiler;
 use rustc_middle::mir::pretty::MirWriter;
-use rustc_middle::ty::adjustment::PointerCoercion;
-use rustc_middle::ty::{
-    AssocKind, FnDef, GenericArg, Instance, List, Ty, TyCtxt, TyKind, TypingEnv, VtblEntry,
-};
+use rustc_middle::ty::TyCtxt;
 use rustc_public::{DefId, rustc_internal};
-use rustc_span::Span;
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap; // FIXME FxHashMap for consistency?
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -368,23 +356,6 @@ pub fn write_rewrite_stats() {
     }
 }
 
-pub struct RewriteCallbacks {
-    pub options: AnalysisOptions,
-}
-
-impl Callbacks for RewriteCallbacks {
-    fn config(&mut self, config: &mut Config) {
-        let _ = SKIP_REWRITE.set(self.options.no_rewrite);
-        config.override_queries = Some(|_sess, providers| {
-            let _ = ORIGINAL.set(providers.optimized_mir);
-            providers.optimized_mir = optimized_mir;
-
-            let _ = EXTERN_ORIGINAL.set(providers.extern_queries.optimized_mir);
-            providers.extern_queries.optimized_mir = extern_optimized_mir;
-        });
-    }
-}
-
 static MIR_DUMP_FILE: OnceLock<Mutex<File>> = OnceLock::new();
 
 fn mir_dump_file() -> &'static Mutex<File> {
@@ -465,175 +436,3 @@ fn rewrite_body<'tcx>(
     tcx.arena.alloc(apply_edits(tcx, default.clone(), edits))
 }
 
-fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
-    let original = ORIGINAL.get().unwrap();
-    let default = original(tcx, def_id);
-    let hash = tcx.def_path_hash(def_id.to_def_id());
-    rewrite_body(tcx, default, hash)
-}
-
-fn extern_optimized_mir<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    def_id: rustc_span::def_id::DefId,
-) -> &'tcx Body<'tcx> {
-    let original = EXTERN_ORIGINAL.get().unwrap();
-    let default = original(tcx, def_id);
-    let hash = tcx.def_path_hash(def_id);
-    rewrite_body(tcx, default, hash)
-}
-
-fn fn_op<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    hash: DefPathHash,
-    self_hashes: Option<Vec<DefPathHash>>,
-    gen_args: &'tcx List<GenericArg<'tcx>>,
-    span: Span,
-) -> Result<(Operand<'tcx>, Ty<'tcx>), ()> {
-    let target_did = tcx.def_path_hash_to_def_id(hash).unwrap();
-
-    let args = match &self_hashes {
-        Some(hashes) => {
-            let tys: Vec<Ty<'tcx>> = hashes
-                .iter()
-                .map(|h| {
-                    let did = tcx.def_path_hash_to_def_id(*h).ok_or(())?;
-                    Ok(tcx.type_of(did).instantiate_identity())
-                })
-                .collect::<Result<Vec<_>, ()>>()?;
-            let arg_list: Vec<GenericArg<'tcx>> = tys.into_iter().map(|t| t.into()).collect();
-            tcx.mk_args(&arg_list)
-        }
-        None => tcx.mk_args_from_iter(gen_args.iter().skip(1)),
-    };
-
-    let _ = CRATE_NAME.get_or_init(|| tcx.crate_name(LOCAL_CRATE).to_string());
-    if args.len() != tcx.generics_of(target_did).count() {
-        FN_OP_ARGS_MISMATCH.fetch_add(1, Ordering::Relaxed);
-        return Err(());
-    }
-    FN_OP_ARGS_OK.fetch_add(1, Ordering::Relaxed);
-
-    let instance =
-        match Instance::try_resolve(tcx, TypingEnv::fully_monomorphized(), target_did, args) {
-            Ok(Some(inst)) => inst,
-            _ => return Err(()),
-        };
-
-    let fn_ty = instance.ty(tcx, TypingEnv::fully_monomorphized());
-    let new_const = Const::zero_sized(fn_ty);
-
-    let op = Operand::Constant(Box::new(ConstOperand {
-        span: span,
-        user_ty: None,
-        const_: new_const,
-    }));
-
-    let parent_did = tcx.parent(target_did);
-    let raw_self_ty = if tcx.def_kind(parent_did) == DefKind::Trait {
-        match &self_hashes {
-            Some(hashes) if !hashes.is_empty() => {
-                let self_did = tcx.def_path_hash_to_def_id(hashes[0]).ok_or(())?;
-                tcx.type_of(self_did).instantiate_identity()
-            }
-            _ => return Err(()),
-        }
-    } else {
-        tcx.type_of(parent_did).instantiate(tcx, instance.args)
-    };
-    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), raw_self_ty)
-    {
-        Ok(ty) => ty,
-        Err(_) => return Err(()),
-    };
-
-    Ok((op, self_ty))
-}
-
-fn narrow_dyn<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    body: &mut Body<'tcx>,
-    si: SourceInfo,
-    recv: Operand<'tcx>,
-    self_ty: Ty<'tcx>,
-    span: Span,
-) -> (Place<'tcx>, Vec<Statement<'tcx>>) {
-    let ptr_ty = Ty::new_ptr(tcx, self_ty, Mutability::Not);
-    let ref_ty = Ty::new_ref(tcx, tcx.lifetimes.re_erased, self_ty, Mutability::Not);
-
-    let mut stmts = Vec::new();
-
-    let thin = Place::from(body.local_decls.push(LocalDecl::new(ptr_ty, span)));
-    stmts.push(Statement::new(
-        si,
-        StatementKind::Assign(Box::new((
-            thin,
-            Rvalue::Cast(CastKind::PtrToPtr, recv, ptr_ty),
-        ))),
-    ));
-
-    let deref = Place {
-        local: thin.local,
-        projection: tcx.mk_place_elems(&[ProjectionElem::Deref]),
-    };
-
-    let out = Place::from(body.local_decls.push(LocalDecl::new(ref_ty, span)));
-    stmts.push(Statement::new(
-        si,
-        StatementKind::Assign(Box::new((
-            out,
-            Rvalue::Ref(
-                tcx.lifetimes.re_erased,
-                rustc_middle::mir::BorrowKind::Shared,
-                deref,
-            ),
-        ))),
-    ));
-
-    (out, stmts)
-}
-
-fn find_casts<'tcx>(
-    bbs: &IndexVec<BasicBlock, BasicBlockData<'tcx>>,
-    preds: &IndexVec<BasicBlock, SmallVec<[BasicBlock; 4]>>,
-    bb_idx: usize,
-    local: Local,
-    seen: &mut HashSet<(usize, Local)>,
-) -> Option<HashSet<(usize, usize)>> {
-    if !seen.insert((bb_idx, local)) {
-        return Some(HashSet::new());
-    }
-
-    let bb = BasicBlock::from_usize(bb_idx);
-
-    for (i, stmt) in bbs[bb].statements.iter().enumerate().rev() {
-        let StatementKind::Assign(b) = &stmt.kind else {
-            continue;
-        };
-        let (p, rv) = *b.clone();
-        if p.local != local || !p.projection.is_empty() {
-            continue;
-        }
-
-        return match rv {
-            Rvalue::Cast(CastKind::PointerCoercion(PointerCoercion::Unsize, ..), ..) => {
-                Some([(bb_idx, i)].into_iter().collect())
-            }
-            Rvalue::Use(Operand::Copy(q) | Operand::Move(q)) if q.projection.is_empty() => {
-                find_casts(bbs, preds, bb_idx, q.local, seen)
-            }
-            _ => None,
-        };
-    }
-
-    let ps = &preds[bb];
-    if ps.is_empty() {
-        return None;
-    }
-
-    let mut out = HashSet::new();
-    for p in ps {
-        out.extend(find_casts(bbs, preds, p.index(), local, seen)?);
-    }
-
-    Some(out)
-}

@@ -2,8 +2,6 @@
 #![feature(maybe_uninit_fill)]
 #![feature(box_patterns)]
 
-//extern crate rustc_hir;
-//extern crate rustc_middle;
 extern crate rustc_data_structures;
 extern crate rustc_index;
 extern crate rustc_public;
@@ -63,7 +61,6 @@ pub fn start_verifopt(
         "mir_dump.txt",
         crate::rewrite::dep_rewrite_store_path(),
         crate::rewrite::needs_rewrite_pass_marker_path(),
-        crate::rewrite::rewrite_stats_path(),
     ] {
         let _ = fs::remove_file(f);
     }

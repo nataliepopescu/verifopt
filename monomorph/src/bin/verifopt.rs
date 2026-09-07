@@ -20,7 +20,7 @@ use log::*;
 use std::env;
 use std::io::Write;
 
-use monomorph::rewrite::{FsaCallbacks, RewriteCallbacks, write_rewrite_stats};
+use monomorph::rewrite::FsaCallbacks;
 use monomorph::util;
 use monomorph::util::options::AnalysisOptions;
 
@@ -149,6 +149,7 @@ fn main() {
             }
         }
 
+        /*
         let mut callbacks = RewriteCallbacks { options };
         match rustc_driver::catch_fatal_errors(|| {
             rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
@@ -162,6 +163,7 @@ fn main() {
         }
 
         write_rewrite_stats();
+        */
     });
 
     let exit_code = match result {

@@ -8,22 +8,16 @@ extern crate rustc_session;
 extern crate rustc_span;
 
 use rustc_data_structures::fingerprint::Fingerprint;
-use rustc_middle::mir::Body;
-use rustc_span::def_id::{DefPathHash, LOCAL_CRATE, LocalDefId};
+use rustc_span::def_id::{DefPathHash, LOCAL_CRATE};
 
 use rustc_driver::{Callbacks, Compilation};
 use rustc_interface::interface::Compiler;
-use rustc_middle::mir::pretty::MirWriter;
 use rustc_middle::ty::TyCtxt;
 use rustc_public::{DefId, rustc_internal};
-
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 
 use std::collections::HashMap; // FIXME FxHashMap for consistency?
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -160,6 +154,8 @@ impl From<SerializableStore> for Store {
     }
 }
 
+static SECOND_PASS_NEEDED: OnceLock<()> = OnceLock::new();
+
 pub fn dep_rewrite_store_path() -> &'static str {
     "verifopt_store.json"
 }
@@ -167,15 +163,6 @@ pub fn dep_rewrite_store_path() -> &'static str {
 pub fn needs_rewrite_pass_marker_path() -> &'static str {
     "verifopt_needs_rewrite_pass"
 }
-
-static SHARED_STORE: OnceLock<Option<Store>> = OnceLock::new();
-
-fn load_shared_store() -> Option<Store> {
-    let contents = std::fs::read_to_string(dep_rewrite_store_path()).ok()?;
-    let serializable: SerializableStore = serde_json::from_str(&contents).ok()?;
-    Some(Store::from(serializable))
-}
-
 
 fn store() -> &'static Mutex<Store> {
     STORE.get_or_init(|| Mutex::new(Store::default()))
@@ -295,144 +282,5 @@ impl Callbacks for FsaCallbacks {
 
         Compilation::Stop
     }
-}
-
-static ORIGINAL: OnceLock<for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>> =
-    OnceLock::new();
-
-static EXTERN_ORIGINAL: OnceLock<
-    for<'tcx> fn(TyCtxt<'tcx>, rustc_span::def_id::DefId) -> &'tcx Body<'tcx>,
-> = OnceLock::new();
-
-static SKIP_REWRITE: OnceLock<bool> = OnceLock::new();
-
-static SECOND_PASS_NEEDED: OnceLock<()> = OnceLock::new();
-
-static GENERIC_SKIPS: AtomicUsize = AtomicUsize::new(0);
-static DYNAMIC_HITS: AtomicUsize = AtomicUsize::new(0);
-
-static FN_OP_ARGS_MISMATCH: AtomicUsize = AtomicUsize::new(0);
-static FN_OP_ARGS_OK: AtomicUsize = AtomicUsize::new(0);
-
-static CRATE_NAME: OnceLock<String> = OnceLock::new();
-
-pub fn rewrite_stats_path() -> &'static str {
-    "rewrite_pointers_stats.txt"
-}
-
-pub fn write_rewrite_stats() {
-    let generic = GENERIC_SKIPS.load(Ordering::Relaxed);
-    let dynamic = DYNAMIC_HITS.load(Ordering::Relaxed);
-    let args_mismatch = FN_OP_ARGS_MISMATCH.load(Ordering::Relaxed);
-    let args_ok = FN_OP_ARGS_OK.load(Ordering::Relaxed);
-
-    if generic == 0 && dynamic == 0 && args_mismatch == 0 && args_ok == 0 {
-        return;
-    }
-
-    let crate_name = CRATE_NAME.get().map(String::as_str).unwrap_or("<unknown>");
-    let mut lines = String::new();
-    if generic != 0 || dynamic != 0 {
-        lines.push_str(&format!(
-            "{crate_name}: {} Edit::Pointers attempt(s) - {dynamic} dynamic (rewritten), \
-             {generic} generic (skipped)\n",
-            generic + dynamic,
-        ));
-    }
-    if args_mismatch != 0 || args_ok != 0 {
-        lines.push_str(&format!(
-            "{crate_name}: {} fn_op call(s) - {args_ok} args resolved (rewritten), \
-             {args_mismatch} args mismatch (skipped)\n",
-            args_ok + args_mismatch,
-        ));
-    }
-
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(rewrite_stats_path())
-    {
-        let _ = f.write_all(lines.as_bytes());
-    }
-}
-
-static MIR_DUMP_FILE: OnceLock<Mutex<File>> = OnceLock::new();
-
-fn mir_dump_file() -> &'static Mutex<File> {
-    MIR_DUMP_FILE.get_or_init(|| {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("mir_dump.txt")
-            .expect("failed to open mir_dump.txt for writing");
-        Mutex::new(file)
-    })
-}
-
-fn dump_body<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, label: &str) {
-    let mut buf = Vec::new();
-
-    let writer = MirWriter::new(tcx);
-    let _ = writer.write_mir_fn(body, &mut buf);
-
-    let mut file = mir_dump_file().lock().unwrap();
-    let _ = writeln!(file, "\n######### MIR {label} #########");
-    let _ = file.write_all(&buf);
-    let _ = writeln!(file, "######### END {label} #########\n");
-}
-
-enum Edit {
-    Single(DefPathHash, Option<Vec<DefPathHash>>),
-    Pointers(Vec<(DefPathHash, Option<Vec<DefPathHash>>)>),
-    Tagged(Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)>),
-}
-
-const MAX_POINTERS_CANDIDATES: usize = 4;
-
-fn compute_edits(store: &Store, hash: DefPathHash, default: &Body<'_>) -> Vec<(usize, Edit)> {
-    default
-        .basic_blocks
-        .indices()
-        .filter_map(|bb| {
-            let key = &(hash, bb.as_usize());
-
-            let tags = store.tags.get(key);
-            let targets = store.targets.get(key)?;
-
-            if targets.len() == 1 {
-                // directly swap terminator
-                Some((bb.as_usize(), Edit::Single(targets[0].0, targets[0].1.clone())))
-            } else if let Some(tags) = tags {
-                // tag dyn casts and switchint
-                Some((bb.as_usize(), Edit::Tagged(tags.to_vec())))
-            } else if targets.len() > 1 && targets.len() <= MAX_POINTERS_CANDIDATES {
-                // direct conditionals on pointers
-                Some((bb.as_usize(), Edit::Pointers(targets.to_vec())))
-            } else {
-                // leave vtable dyn call
-                None
-            }
-        })
-        .collect()
-}
-
-fn rewrite_body<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    default: &'tcx Body<'tcx>,
-    hash: DefPathHash,
-) -> &'tcx Body<'tcx> {
-    if *SKIP_REWRITE.get().unwrap_or(&false) {
-        return default;
-    }
-
-    if SECOND_PASS_NEEDED.get().is_some() {
-        return default;
-    }
-
-    let edits: Vec<(usize, Edit)> = match SHARED_STORE.get_or_init(load_shared_store) {
-        Some(shared) => compute_edits(shared, hash, default),
-        None => compute_edits(&store().lock().unwrap(), hash, default),
-    };
-    tcx.arena.alloc(apply_edits(tcx, default.clone(), edits))
 }
 

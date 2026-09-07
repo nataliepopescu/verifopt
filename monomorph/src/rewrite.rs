@@ -154,8 +154,6 @@ impl From<SerializableStore> for Store {
     }
 }
 
-static SECOND_PASS_NEEDED: OnceLock<()> = OnceLock::new();
-
 pub fn dep_rewrite_store_path() -> &'static str {
     "verifopt_store.json"
 }
@@ -260,8 +258,7 @@ impl Callbacks for FsaCallbacks {
                 store.tags.insert((hash, bb), entry);
             }
 
-            if self.options.rewrite_pass {
-            } else if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
+            if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
                 if let Ok(json) = serde_json::to_string(&SerializableStore::from(&*store)) {
                     let _ = std::fs::write(dep_rewrite_store_path(), json);
                 }
@@ -275,7 +272,6 @@ impl Callbacks for FsaCallbacks {
 
                 if needs_rewrite_pass {
                     let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
-                    let _ = SECOND_PASS_NEEDED.set(());
                 }
             }
         });

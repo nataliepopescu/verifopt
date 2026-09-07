@@ -188,32 +188,32 @@ fn pinned_toolchain_bin(name: &str) -> OsString {
 }
 
 fn call_cargo_on_target(target: &String, kind: &TargetKind) {
-    // Debugging escape hatch: re-run just the rewrite pass against
+    // Debugging escape hatch: re-run a single, plain build against
     // whatever verifopt_store.json already exists on disk (from an
-    // earlier, successful discovery run), skipping analysis
-    // (--rewrite-pass) and skipping this function's own automatic
-    // discovery-then-decide flow entirely - no cargo clean, so cargo's
-    // own caching does whatever it would normally do (e.g. leaving
-    // already-successfully-built dependencies alone, retrying only
-    // whatever previously failed). Useful for iterating on the rewrite
-    // logic itself without re-paying for analysis or a full dependency
-    // rebuild each time. Stripped here, before anything else looks at
-    // the arg list, matching how --lib is already skipped in
-    // run_cargo_build for the same reason.
+    // earlier, successful discovery run), skipping this function's own
+    // automatic discovery-then-decide flow entirely - no cargo clean,
+    // so cargo's own caching does whatever it would normally do (e.g.
+    // leaving already-successfully-built dependencies alone, retrying
+    // only whatever previously failed). Useful for iterating without
+    // re-paying for analysis or a full dependency rebuild each time.
+    // Stripped here, before anything else looks at the arg list,
+    // matching how --lib is already skipped in run_cargo_build for the
+    // same reason.
     if has_arg_flag("--rewrite-only") {
-        run_cargo_build(target, kind, &["--rewrite-pass".to_owned()]);
+        run_cargo_build(target, kind, &[]);
         return;
     }
 
     // This first build *is* the ordinary, single-pass build - nothing
-    // extra is paid here regardless of what it finds, since
-    // RewriteCallbacks already rewrites this crate's own code within
-    // this same pass either way. It's also the discovery pass for the
-    // two-pass dependency-rewrite flow: FsaCallbacks's own analysis
-    // (see rewrite.rs's after_analysis) writes a small marker file,
-    // but only when it actually found a dispatch site whose containing
-    // function lives outside this crate - i.e. only when there's
-    // something a second pass would need to act on.
+    // extra is paid here regardless of what it finds, since the
+    // modified compiler's own codegen_mir hook already rewrites this
+    // crate's own code within this same pass either way. It's also the
+    // discovery pass for the two-pass dependency-rewrite flow:
+    // FsaCallbacks's own analysis (see rewrite.rs's after_analysis)
+    // writes a small marker file, but only when it actually found a
+    // dispatch site whose containing function lives outside this
+    // crate - i.e. only when there's something a second pass would
+    // need to act on.
     run_cargo_build(target, kind, &[]);
 
     if !std::path::Path::new(monomorph::rewrite::needs_rewrite_pass_marker_path()).exists() {
@@ -236,7 +236,7 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
         std::process::exit(clean_status.code().unwrap_or(-1));
     }
 
-    run_cargo_build(target, kind, &["--rewrite-pass".to_owned()]);
+    run_cargo_build(target, kind, &[]);
 }
 
 /// Builds and runs the actual `cargo build`/`cargo test` invocation.
@@ -249,14 +249,13 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
 /// devirtualizing dispatch sites *inside* dependency code needs a
 /// separate discovery pass (the primary crate's own whole-program
 /// reachability analysis, run first) whose findings get persisted to
-/// disk and read back by a second, --rewrite-pass build of the whole
-/// graph - see rewrite.rs's own dep_rewrite_store_path doc for the
-/// full mechanism this drives.
+/// disk and picked up automatically by the modified compiler's own
+/// codegen_mir hook on a second, plain rebuild of the whole graph -
+/// see rewrite.rs's own dep_rewrite_store_path doc for the full
+/// mechanism this drives.
 ///
 /// `extra_verifopt_flags` is appended into VERIFOPT_FLAGS alongside
-/// whatever the user already passed after `--` - this is how the
-/// second pass's own `--rewrite-pass` gets threaded through without
-/// disturbing the ordinary, single-pass call site.
+/// whatever the user already passed after `--`.
 fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[String]) {
     // Build a cargo command for target. Always use the cargo binary paired
     // with the toolchain verifopt itself was built against (see

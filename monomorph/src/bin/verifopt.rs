@@ -110,60 +110,26 @@ fn main() {
             rustc_command_line_arguments
         );
 
-        //let mut callbacks = VerifOptCallbacks::new(options);
-        //let compiler = rustc_driver::RunCompiler::new(&rustc_command_line_arguments, &mut callbacks);
-        //compiler.run()
-        //
-        // In --no-rewrite (control) mode, nothing downstream will ever
-        // read this invocation's output - RewriteCallbacks's
-        // optimized_mir override bypasses the Store entirely regardless
-        // of what's in it (see SKIP_REWRITE). Skipping the whole
-        // invocation here, not just the interpretation inside
-        // FsaCallbacks::after_analysis, avoids paying for a full
-        // parse/type-check/borrow-check pass that would otherwise
-        // happen twice for no reason. This is the only place
-        // FsaCallbacks is ever constructed, so this guard alone is
-        // sufficient - after_analysis doesn't duplicate the check.
-        //
-        // --rewrite-pass is skipped for the same reason: this crate is
-        // being rebuilt specifically to apply edits a prior discovery
-        // pass already found and persisted (see rewrite.rs's
-        // dep_rewrite_store_path), not to re-discover anything - a
-        // dependency crate has no entry point of its own to analyze
-        // from anyway, so re-running FsaCallbacks here would just be
-        // wasted work repeating a failure, not a genuine second
-        // analysis.
-        if !options.no_rewrite && !options.rewrite_pass {
-            let mut callbacks = FsaCallbacks {
-                options: options.clone(),
-            };
-            match rustc_driver::catch_fatal_errors(|| {
-                rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
-            }) {
-                Ok(()) => {}
-                Err(_) => {
-                    debug!(
-                        "FsaCallbacks phase returned FatalError - continuing anyway to reach the rewrite/codegen stage"
-                    );
-                }
-            }
-        }
-
-        /*
-        let mut callbacks = RewriteCallbacks { options };
+        // The modified compiler this binary is built against applies
+        // the rewrite automatically, as part of its own, ordinary
+        // codegen (see the rust fork's own codegen_mir hook) - so this
+        // single run_compiler call now covers both the analysis
+        // (FsaCallbacks::after_analysis) and the rewrite itself, within
+        // the same compilation session. No separate, second
+        // Callbacks-driven pass is needed within this process anymore.
+        let mut callbacks = FsaCallbacks {
+            options: options.clone(),
+        };
         match rustc_driver::catch_fatal_errors(|| {
             rustc_driver::run_compiler(&rustc_command_line_arguments, &mut callbacks);
         }) {
             Ok(()) => {}
             Err(_) => {
                 debug!(
-                    "RewriteCallbacks phase returned FatalError - continuing anyway to reach the codegen stage"
+                    "FsaCallbacks phase returned FatalError - continuing anyway to reach the rewrite/codegen stage"
                 );
             }
         }
-
-        write_rewrite_stats();
-        */
     });
 
     let exit_code = match result {

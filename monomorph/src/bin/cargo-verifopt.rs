@@ -322,11 +322,22 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
 
     let mut args = std::env::args().skip(2);
     // Add cargo args to cmd until first `--`.
+    // --skip-analysis needs to redirect into VERIFOPT_FLAGS rather than
+    // being silently dropped like --lib/--rewrite-only/--skip-rewrite:
+    // unlike those, it's actually read by verifopt's own AnalysisOptions
+    // (see rewrite.rs's after_analysis), which only ever sees args
+    // collected after `--`, not whatever cargo-verifopt forwards to
+    // cargo directly here.
+    let mut redirect_to_verifopt_flags: Vec<String> = Vec::new();
     for arg in args.by_ref() {
         if arg == "--" {
             break;
         }
-        if arg == "--lib" || arg == "--rewrite-only" {
+        if arg == "--lib" || arg == "--rewrite-only" || arg == "--skip-rewrite" {
+            continue;
+        }
+        if arg == "--skip-analysis" {
+            redirect_to_verifopt_flags.push(arg);
             continue;
         }
         cmd.arg(arg);
@@ -343,7 +354,14 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
     }
 
     // Serialize the remaining args into an environment variable.
-    let mut args_vec: Vec<String> = args.collect();
+    // redirect_to_verifopt_flags must come first: anything collected
+    // from `args` here comes from after the caller's own `--`, which
+    // parse_from_args treats as "pass straight through to rustc, never
+    // even attempt to parse it" - putting a redirected flag after that
+    // point would defeat the whole reason it was redirected in the
+    // first place.
+    let mut args_vec: Vec<String> = redirect_to_verifopt_flags;
+    args_vec.extend(args);
     args_vec.extend(extra_verifopt_flags.iter().cloned());
     if !args_vec.is_empty() {
         cmd.env(
@@ -374,6 +392,21 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
     // Communicate the target kind of the root crate to the calls to cargo-verifopt that are invoked via
     // the RUSTC_WRAPPER setting.
     cmd.env("VERIFOPT_TARGET_KIND", kind.to_string());
+
+    // --skip-rewrite needs to reach every crate's compilation, not just
+    // the primary crate's own verifopt-driven pass: dependency crates
+    // are compiled via a plain, direct rustc subprocess (call_rustc(),
+    // no verifopt/FsaCallbacks involved at all) - but that's still the
+    // same, modified rustc binary, so the rewrite hook fires there too
+    // unless told not to. Setting this on the top-level cargo command
+    // here means every downstream process it spawns inherits it,
+    // regardless of which dispatch path (verifopt or plain call_rustc())
+    // ends up handling any given crate. The modified compiler's own
+    // codegen_mir hook reads this directly - see the rust fork's own
+    // verifopt_rewrite.rs.
+    if has_arg_flag("--skip-rewrite") {
+        cmd.env("VERIFOPT_SKIP_REWRITE", "1");
+    }
 
     // Belt-and-suspenders: `pinned_cargo_path()` above already invokes the
     // exact toolchain binary directly (not a rustup shim), so this env var

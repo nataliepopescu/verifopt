@@ -172,6 +172,10 @@ pub struct FsaCallbacks {
 
 impl Callbacks for FsaCallbacks {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
+        if self.options.skip_analysis {
+            return Compilation::Continue;
+        }
+
         let _ = rustc_internal::run(tcx, || {
             let (targets, tags) = start_verifopt(self.options.clone());
 

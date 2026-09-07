@@ -60,20 +60,6 @@ pub struct Store {
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
 
-/// A lossless, serializable stand-in for DefPathHash, used only when
-/// persisting `Store` to disk (see `dep_rewrite_store_path` and the
-/// two-pass dependency-rewrite design it supports). DefPathHash wraps
-/// Fingerprint - two u64s, exposed losslessly via `to_le_bytes`/
-/// `from_le_bytes` (confirmed directly against rustc's own
-/// rustc_data_structures::fingerprint source - `as_u128`/`from_u128`,
-/// tried first, don't work: `as_u128` is `pub(crate)`, and
-/// `from_u128` doesn't exist at all) - specifically because
-/// Fingerprint is designed to be stable across *separate compilation
-/// sessions of the same crate*, which is exactly the property this
-/// needs: the discovery pass (the primary crate's own compilation)
-/// and the rewrite pass (a dependency's own, later, separate
-/// compilation) are different OS processes entirely, but a given
-/// function's DefPathHash is the same value in both.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct SerializableDefPathHash([u8; 16]);
 
@@ -89,12 +75,6 @@ impl From<SerializableDefPathHash> for DefPathHash {
     }
 }
 
-/// `Store`'s own on-disk form. A plain Vec of pairs rather than a
-/// HashMap, since JSON object keys must be strings and a
-/// SerializableDefPathHash-keyed map would need extra string-conversion
-/// ceremony for no benefit over just storing pairs directly as a JSON
-/// array - this is written and read back in full each time, never
-/// looked up by key on disk.
 #[derive(Serialize, Deserialize, Default)]
 struct SerializableStore {
     targets: Vec<(
@@ -192,38 +172,14 @@ impl From<SerializableStore> for Store {
     }
 }
 
-/// Fixed, well-known path for the discovery pass to write its findings
-/// to, and the rewrite pass to read them back from - CWD-relative,
-/// matching the existing `stats`/`mir_dump.txt` convention. Cargo runs
-/// every rustc invocation within one `cargo build` from the same,
-/// workspace-root CWD, so this is stable across the separate processes
-/// involved.
 pub fn dep_rewrite_store_path() -> &'static str {
     "verifopt_store.json"
 }
 
-/// A small, otherwise-empty marker file the discovery pass writes only
-/// when it actually found a dispatch site whose containing function
-/// lives outside the primary crate - i.e. only when a rewrite pass
-/// would actually change anything. cargo-verifopt's own top-level
-/// orchestration (see call_cargo_on_target) checks for this file after
-/// the discovery pass completes, and only pays for the extra `cargo
-/// clean` + rebuild when it's actually present - the common case (no
-/// cross-crate dispatch site found) costs nothing beyond the ordinary,
-/// single-pass build that would have happened anyway, since
-/// RewriteCallbacks already rewrites the primary crate's own code
-/// within that same, first pass regardless.
 pub fn needs_rewrite_pass_marker_path() -> &'static str {
     "verifopt_needs_rewrite_pass"
 }
 
-/// Loaded once, lazily, the first time `optimized_mir` needs it during
-/// the rewrite pass. `None` when the file doesn't exist (e.g. this
-/// crate is being built as part of a normal, single-pass run rather
-/// than the two-pass dependency-rewrite flow) or fails to parse -
-/// falls back to the ordinary in-process `store()` in either case, so
-/// existing single-crate test cases that never write this file are
-/// completely unaffected.
 static SHARED_STORE: OnceLock<Option<Store>> = OnceLock::new();
 
 fn load_shared_store() -> Option<Store> {
@@ -256,34 +212,6 @@ impl Callbacks for FsaCallbacks {
                 .ok()
             };
 
-            // FSA already resolved the concrete generic args each
-            // candidate needs (e.g. `Self=Fast` for an inherited
-            // `Worker::run` call dispatched to `Fast`, or `[I, A]` for a
-            // blanket impl like `impl<I, A> Iterator for Box<I, A>`) -
-            // but `Ty`/`GenericArgs`/`Instance` are all tied to *this*
-            // compiler session's arena and can't be carried into the
-            // rewrite phase's separate session. A `DefPathHash` can
-            // (that's its whole purpose), so extract each arg's own
-            // concrete type's DefId and hash *that*, for the common case
-            // where every arg is a plain, non-generic concrete ADT.
-            //
-            // Three possible outcomes, not two - the middle one matters:
-            //   - `None` (outer): FSA had no genargs for this candidate
-            //     at all - a real per-impl override needs no further
-            //     substitution, so the rewrite phase's previous
-            //     call-site-genargs-based fallback is *correct* here.
-            //   - `Some(None)`: same as above, spelled out explicitly.
-            //   - `Some(Some(hashes))`: every arg was a plain concrete
-            //     ADT and got hashed successfully - reconstruct from
-            //     these.
-            //   - Dropped entirely (the caller's `?` skips this
-            //     candidate): FSA *did* resolve genargs, but at least
-            //     one arg isn't a plain concrete ADT (a nested generic
-            //     type, a lifetime, a const) - we can't safely
-            //     reconstruct it from a hash without risking a subtly
-            //     wrong partial substitution, so this candidate just
-            //     doesn't get devirtualized at all, leaving the original
-            //     (correct, if unoptimized) virtual call in place.
             let to_genargs_hashes = |genargs: &Option<rustc_public::ty::GenericArgs>|
              -> Option<Option<Vec<DefPathHash>>> {
                 let Some(genargs) = genargs.as_ref() else {
@@ -302,11 +230,6 @@ impl Callbacks for FsaCallbacks {
                         return None;
                     };
                     if !sub_genargs.0.is_empty() {
-                        // Has its own nested generics (e.g. Vec<T> rather
-                        // than a bare struct) - reconstructing this
-                        // correctly would need to recurse, which risks
-                        // getting it subtly wrong without a compiler to
-                        // check against. Drop the candidate instead.
                         return None;
                     }
                     hashes.push(to_hash(adtdef.0)?);
@@ -362,37 +285,12 @@ impl Callbacks for FsaCallbacks {
                 store.tags.insert((hash, bb), entry);
             }
 
-            // Persist the whole-program findings for the two-pass
-            // dependency-rewrite flow (see dep_rewrite_store_path's own
-            // doc). Gated on CARGO_PRIMARY_PACKAGE so only the crate the
-            // user actually asked Cargo to build produces the
-            // authoritative result - every other crate compiled along
-            // the way (including this same primary crate's own
-            // dependencies, transitively analyzed as part of this same
-            // reachability pass) is a transitive dependency from
-            // Cargo's own perspective, and shouldn't overwrite this
-            // with a partial, dependency-local view.
             if self.options.rewrite_pass {
-                // Discovery only ever runs on the *first* pass; the
-                // second (rewrite) pass skips FsaCallbacks entirely
-                // (see verifopt.rs's own guard), so after_analysis
-                // shouldn't be reachable at all when rewrite_pass is
-                // set - defensive no-op rather than silently
-                // overwriting the file the rewrite pass is trying to
-                // read from.
             } else if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
                 if let Ok(json) = serde_json::to_string(&SerializableStore::from(&*store)) {
                     let _ = std::fs::write(dep_rewrite_store_path(), json);
                 }
 
-                // Only worth a second (rewrite) pass at all if some
-                // recorded dispatch site's own containing function
-                // lives outside this crate - RewriteCallbacks already
-                // rewrites everything local to this same, first pass,
-                // so a dependency crate having no dispatch sites
-                // recorded against it here means it genuinely has
-                // nothing to rewrite, not just that we haven't gotten
-                // to it yet.
                 let primary_crate_id = tcx.stable_crate_id(LOCAL_CRATE);
                 let needs_rewrite_pass = store
                     .targets
@@ -414,86 +312,26 @@ impl Callbacks for FsaCallbacks {
 static ORIGINAL: OnceLock<for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>> =
     OnceLock::new();
 
-/// The extern-query counterpart to `ORIGINAL` above - see
-/// `extern_optimized_mir`'s own doc for why this exists at all.
-///
-/// NOTE: `rustc_middle::query::ExternProviders::optimized_mir`'s own
-/// confirmed signature is `fn(TyCtxt<'tcx>, Key<'tcx>) -> ProvidedValue<'tcx>`
-/// where `Key<'tcx> = DefId` and `ProvidedValue<'tcx> = &'tcx Body<'tcx>` -
-/// confirmed directly from rustc's own rendered docs. The exact module
-/// path for this DefId (as opposed to `rustc_public::DefId`, already
-/// imported in this file under the same bare name) is the one thing
-/// here not directly confirmed - `rustc_span::def_id::DefId` is used
-/// below on the strength of `LocalDefId` living there today, since
-/// rustc conventionally defines DefId/LocalDefId together in the same
-/// module - first place to check if this doesn't compile.
 static EXTERN_ORIGINAL: OnceLock<
     for<'tcx> fn(TyCtxt<'tcx>, rustc_span::def_id::DefId) -> &'tcx Body<'tcx>,
 > = OnceLock::new();
 
 static SKIP_REWRITE: OnceLock<bool> = OnceLock::new();
 
-/// Set (in-process only - never written to disk, unlike
-/// `needs_rewrite_pass_marker_path`'s own file) the moment
-/// `after_analysis` decides a second pass is needed, right alongside
-/// writing that marker file. Checked in `rewrite_body` to skip this
-/// pass's own rewrite attempt entirely once that's known: this pass's
-/// whole build is about to be thrown away by `cargo clean` regardless,
-/// and the second pass - reading the exact same, unchanged
-/// verifopt_store.json this pass just wrote - will always recompute
-/// the identical edit for any dispatch site this pass could have
-/// applied, so there's nothing to lose by skipping it here. Being
-/// in-process, not a file, is what makes this safe across the two
-/// passes' own, separate OS processes: the second pass never sees this
-/// flag at all (starts unset, in its own fresh process), so it always
-/// still applies its own rewrites normally.
 static SECOND_PASS_NEEDED: OnceLock<()> = OnceLock::new();
 
-/// How many `Edit::Pointers` attempts hit each branch of the
-/// `pointee_ty.kind()` match in `rewrite_body` - `DYNAMIC_HITS` for the
-/// expected `TyKind::Dynamic` case (a genuine, concrete `dyn Trait`
-/// receiver, safely rewritable), `GENERIC_SKIPS` for every other case
-/// (the receiver's own type is still a generic parameter at this
-/// point, e.g. `FilterMap<I, F>::next`'s own `self.iter: I` - not
-/// safely rewritable, since `optimized_mir` only ever returns one,
-/// shared body per def_id, reused by every instantiation of `I`/`F` -
-/// see the discussion this was built to quantify). Lock-free counters
-/// since codegen can run multiple codegen units in parallel.
 static GENERIC_SKIPS: AtomicUsize = AtomicUsize::new(0);
 static DYNAMIC_HITS: AtomicUsize = AtomicUsize::new(0);
 
-/// How many `fn_op` calls hit each outcome of the args-count check
-/// right before `Instance::try_resolve` - `FN_OP_ARGS_OK` when the
-/// reconstructed `args` matches what the devirtualization target's own
-/// generics expect (safely resolvable), `FN_OP_ARGS_MISMATCH` when it
-/// doesn't (this function's own doc, right above the `None =>` fallback
-/// that produces the offending `args`, already anticipated this
-/// exact failure - confirmed hit in practice: `regex_automata`'s
-/// `search_half`, "has parameters, but no args were provided in
-/// instantiate", identical to the message that comment describes).
-/// Structurally different from GENERIC_SKIPS/DYNAMIC_HITS above -
-/// that's about the *receiver's* own type still being a generic
-/// parameter; this is about the *devirtualization target's* own
-/// generics not being fully resolvable - kept as a separate pair so
-/// the two failure modes can be told apart in the stats output.
 static FN_OP_ARGS_MISMATCH: AtomicUsize = AtomicUsize::new(0);
 static FN_OP_ARGS_OK: AtomicUsize = AtomicUsize::new(0);
 
-/// Captured once, the first time `rewrite_body` runs with a real
-/// `tcx` in hand - kept so `write_rewrite_stats` (called after
-/// codegen, once `tcx` is no longer available at all - see
-/// verifopt.rs's own main()) can still label its output by crate.
 static CRATE_NAME: OnceLock<String> = OnceLock::new();
 
 pub fn rewrite_stats_path() -> &'static str {
     "rewrite_pointers_stats.txt"
 }
 
-/// Appends this process's own, final `Edit::Pointers` generic/dynamic
-/// counts to a shared, append-mode file - one line per crate compiled
-/// across the whole build, the same accumulation pattern as
-/// `mir_dump.txt`. Call once, after codegen for this crate has fully
-/// finished (see verifopt.rs's own main()).
 pub fn write_rewrite_stats() {
     let generic = GENERIC_SKIPS.load(Ordering::Relaxed);
     let dynamic = DYNAMIC_HITS.load(Ordering::Relaxed);
@@ -501,10 +339,6 @@ pub fn write_rewrite_stats() {
     let args_ok = FN_OP_ARGS_OK.load(Ordering::Relaxed);
 
     if generic == 0 && dynamic == 0 && args_mismatch == 0 && args_ok == 0 {
-        // Nothing worth reporting went through either counted path in
-        // this crate at all - skip the line(s) entirely rather than
-        // clutter the file with an all-zero entry for every crate
-        // compiled.
         return;
     }
 
@@ -545,22 +379,6 @@ impl Callbacks for RewriteCallbacks {
             let _ = ORIGINAL.set(providers.optimized_mir);
             providers.optimized_mir = optimized_mir;
 
-            // Without this, a dependency crate's own function only
-            // ever gets its MIR rewritten if that dependency's own,
-            // separate compilation happens to ask for it locally
-            // (see rewrite_body's own doc) - which, for a plain,
-            // non-generic, non-inline-candidate function that's only
-            // ever called from a downstream crate, it may never do at
-            // all. This handles that case directly: when *this*
-            // crate's own compilation is what asks for a dependency's
-            // function's MIR (e.g. because this crate is the one
-            // that actually codegens/links the call), this override
-            // gets the chance to rewrite it right here, in this same,
-            // single pass - no shared store, no second build needed
-            // for this specific case (see dep_rewrite_store_path's own
-            // doc for the deeper case this still doesn't cover: a
-            // dispatch site entirely internal to a dependency, never
-            // directly queried by anything downstream).
             let _ = EXTERN_ORIGINAL.set(providers.extern_queries.optimized_mir);
             providers.extern_queries.optimized_mir = extern_optimized_mir;
         });
@@ -598,26 +416,8 @@ enum Edit {
     Tagged(Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)>),
 }
 
-// Edit::Pointers builds a chain of runtime function-pointer-equality
-// checks, one per candidate, all merging into a shared continuation
-// block. Past a handful of candidates this produces a very wide
-// fan-in into that continuation block (and into its shared unwind
-// path) - observed in practice with ~40-80 candidates on a real
-// ripgrep flag-dispatch call site, where it triggered an LLVM
-// "Instruction does not dominate all uses!" codegen failure. Cap it
-// here: past this many candidates, fall back to leaving the original
-// (correct, if unoptimized) virtual call in place rather than risk
-// broken codegen. Edit::Tagged's integer-switch construction is
-// structurally different (no per-candidate pointer-comparison chain,
-// no shared wide-fan-in merge block the same way) and isn't
-// implicated, so it isn't capped here.
 const MAX_POINTERS_CANDIDATES: usize = 4;
 
-/// Factored out of `optimized_mir` so the same lookup logic can run
-/// against either the shared, on-disk store (deserialized from an
-/// earlier discovery pass - see `dep_rewrite_store_path`'s own doc) or
-/// the ordinary in-process one, without needing to unify a
-/// `MutexGuard<Store>` and a `&'static Store` into one type.
 fn compute_edits(store: &Store, hash: DefPathHash, default: &Body<'_>) -> Vec<(usize, Edit)> {
     default
         .basic_blocks
@@ -645,48 +445,19 @@ fn compute_edits(store: &Store, hash: DefPathHash, default: &Body<'_>) -> Vec<(u
         .collect()
 }
 
-/// Applies whatever edits `hash` (the containing function's own
-/// DefPathHash) has recorded against it to `default`. Shared by both
-/// `optimized_mir` (local queries, keyed by LocalDefId) and
-/// `extern_optimized_mir` (queries for a different crate's own items,
-/// keyed by DefId) below - confirmed neither def_id's own type is used
-/// anywhere past computing `default`/`hash` themselves, only tcx, the
-/// body, and the hash used to look edits up, so this same logic can
-/// serve both call sites unchanged.
 fn rewrite_body<'tcx>(
     tcx: TyCtxt<'tcx>,
     default: &'tcx Body<'tcx>,
     hash: DefPathHash,
 ) -> &'tcx Body<'tcx> {
-    // Control mode (--no-rewrite): skip every rewrite unconditionally,
-    // regardless of what FSA found - the resulting MIR (and therefore
-    // codegen) is identical to a plain, unwrapped build, while still
-    // going through the same two-phase pipeline and RUSTFLAGS. This is
-    // what makes it a valid control for isolating the rewrites'
-    // performance effect from anything the pipeline/flags alone might
-    // change (e.g. -Z always_encode_mir potentially affecting inlining
-    // or other optimization decisions even with zero rewrites applied).
     if *SKIP_REWRITE.get().unwrap_or(&false) {
         return default;
     }
 
-    // This pass already knows (via after_analysis, which always runs
-    // before any rewrite attempt within this same process) that a
-    // second pass is coming - see SECOND_PASS_NEEDED's own doc for why
-    // it's always safe to skip this pass's own rewrite attempt once
-    // that's true, for both local and extern-provider queries alike.
     if SECOND_PASS_NEEDED.get().is_some() {
         return default;
     }
 
-    // Prefer the shared, on-disk store from an earlier discovery pass
-    // (see dep_rewrite_store_path's own doc) when it exists - this is
-    // what lets a dependency crate, which has no entry point of its
-    // own and therefore never populates its own in-process store(),
-    // still apply edits the primary crate's whole-program analysis
-    // found inside it. Falls back to the ordinary in-process store()
-    // otherwise, so single-crate test cases that never write this
-    // file are completely unaffected.
     let edits: Vec<(usize, Edit)> = match SHARED_STORE.get_or_init(load_shared_store) {
         Some(shared) => compute_edits(shared, hash, &default),
         None => compute_edits(&store().lock().unwrap(), hash, &default),
@@ -784,16 +555,6 @@ fn rewrite_body<'tcx>(
                         principal.with_self_ty(tcx, pointee_ty).skip_binder()
                     }
                     _ => {
-                        // Receiver's own type is still a generic
-                        // parameter here (e.g. FilterMap<I, F>::next's
-                        // own self.iter: I) - see GENERIC_SKIPS's own
-                        // doc for why this can't be safely rewritten
-                        // through this mechanism. Skip just this one
-                        // dispatch site's edit, not this function's
-                        // whole rewrite attempt - matching the same
-                        // continue pattern already used a few lines
-                        // below for a different, unrelated failure
-                        // mode in this same loop.
                         GENERIC_SKIPS.fetch_add(1, Ordering::Relaxed);
                         continue;
                     }
@@ -1108,11 +869,6 @@ fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx
     rewrite_body(tcx, default, hash)
 }
 
-/// Handles a dependency crate's own function whose MIR *this* crate's
-/// compilation is the one asking for - see this override's own
-/// registration doc, right where it's set alongside `optimized_mir`
-/// above, for why this exists at all and what it does and doesn't
-/// cover.
 fn extern_optimized_mir<'tcx>(
     tcx: TyCtxt<'tcx>,
     def_id: rustc_span::def_id::DefId,
@@ -1134,25 +890,6 @@ fn fn_op<'tcx>(
 
     let args = match &self_hashes {
         Some(hashes) => {
-            // FSA already resolved the full set of concrete generic args
-            // this candidate needs (e.g. `Self=Fast` for an inherited
-            // default trait method, or `[I, A]` for a blanket impl like
-            // `impl<I, A> Iterator for Box<I, A>`) - a true virtual call
-            // site's own `gen_args` carries no monomorphization info at
-            // all, so `gen_args.iter().skip(1)` below is empty here, and
-            // handing an incomplete/empty args list to a target that
-            // needs more is exactly what panics deep inside rustc's own
-            // generic-args instantiation code (either an out-of-bounds
-            // index, or "has parameters, but no args were provided").
-            // Reconstruct every arg from its own DefPathHash instead -
-            // unlike a GenericArgs or Instance, that's safe to carry
-            // across the two separate compiler sessions FSA and rewrite
-            // each run in. Each hash is only usable here if it names a
-            // plain, non-generic concrete type (see `to_genargs_hashes`
-            // in FsaCallbacks::after_analysis) - anything more complex
-            // (a nested-generic type, a lifetime, a const) was already
-            // filtered out at that point rather than risking a wrong
-            // partial reconstruction here.
             let tys: Vec<Ty<'tcx>> = hashes
                 .iter()
                 .map(|h| {
@@ -1163,25 +900,9 @@ fn fn_op<'tcx>(
             let arg_list: Vec<GenericArg<'tcx>> = tys.into_iter().map(|t| t.into()).collect();
             tcx.mk_args(&arg_list)
         }
-        // No resolved args available (e.g. a real per-impl override,
-        // where the target's own DefId needs no further substitution) -
-        // fall back to the previous behavior unchanged.
         None => tcx.mk_args_from_iter(gen_args.iter().skip(1)),
     };
 
-    // Validate before handing `args` to rustc's own generic-args
-    // instantiation machinery, rather than letting it panic: confirmed
-    // hit in practice (regex_automata's own search_half, "has
-    // parameters, but no args were provided in instantiate") - exactly
-    // the failure mode the comment above already anticipated for the
-    // `None` fallback path. `generics_of(target_did).count()` (not
-    // directly source-verified, best-informed guess at the right
-    // rustc_middle API for "total expected generic param count,
-    // including any parent/impl-level ones") is the target's own
-    // expectation; a mismatch here means this specific candidate can't
-    // be safely resolved through this mechanism, the same category of
-    // gap GENERIC_SKIPS/DYNAMIC_HITS track for Edit::Pointers, just a
-    // different structural cause.
     let _ = CRATE_NAME.get_or_init(|| tcx.crate_name(LOCAL_CRATE).to_string());
     if args.len() != tcx.generics_of(target_did).count() {
         FN_OP_ARGS_MISMATCH.fetch_add(1, Ordering::Relaxed);
@@ -1206,13 +927,6 @@ fn fn_op<'tcx>(
 
     let parent_did = tcx.parent(target_did);
     let raw_self_ty = if tcx.def_kind(parent_did) == DefKind::Trait {
-        // Inherited default trait method - target_did's own parent is
-        // the *trait* itself (e.g. `Worker`), not an impl block. Calling
-        // `tcx.type_of` on a bare trait DefId is invalid and ICEs rustc
-        // directly ("compute_type_of_item: unexpected item type:
-        // Trait(...)"). There's no impl block to derive Self from here -
-        // it's exactly the one resolved arg we already have (a trait
-        // default method's only extra generic parameter is Self itself).
         match &self_hashes {
             Some(hashes) if !hashes.is_empty() => {
                 let self_did = tcx.def_path_hash_to_def_id(hashes[0]).ok_or(())?;
@@ -1221,21 +935,11 @@ fn fn_op<'tcx>(
             _ => return Err(()),
         }
     } else {
-        // A real impl block - either a per-impl override (args is empty,
-        // matching the target's own already-concrete DefId) or a
-        // blanket impl like `impl<I, A> Iterator for Box<I, A>` (args is
-        // our reconstructed [I, A]) - `type_of` on the impl block,
-        // applied to those args, gives the correct Self either way (a
-        // concrete struct, or `Box<I, A>`).
         tcx.type_of(parent_did).instantiate(tcx, instance.args)
     };
     let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), raw_self_ty)
     {
         Ok(ty) => ty,
-        // Can genuinely fail to normalize here (e.g. an unresolved
-        // Iterator::Item projection through a closure chain) rather than
-        // it being a bug on our end - rustc's own ICE message for the
-        // panicking variant says to use this fallible one instead.
         Err(_) => return Err(()),
     };
 

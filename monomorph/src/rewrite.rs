@@ -8,7 +8,7 @@ extern crate rustc_session;
 extern crate rustc_span;
 
 use rustc_data_structures::fingerprint::Fingerprint;
-use rustc_span::def_id::DefPathHash;
+use rustc_span::def_id::{DefPathHash, LOCAL_CRATE};
 
 use rustc_driver::{Callbacks, Compilation};
 use rustc_interface::interface::Compiler;
@@ -158,6 +158,10 @@ pub fn dep_rewrite_store_path() -> &'static str {
     "verifopt_store.json"
 }
 
+pub fn needs_rewrite_pass_marker_path() -> &'static str {
+    "verifopt_needs_rewrite_pass"
+}
+
 fn store() -> &'static Mutex<Store> {
     STORE.get_or_init(|| Mutex::new(Store::default()))
 }
@@ -173,7 +177,14 @@ impl Callbacks for FsaCallbacks {
         }
 
         let _ = rustc_internal::run(tcx, || {
-            let (targets, tags) = start_verifopt(self.options.clone());
+            let Ok((targets, tags)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                start_verifopt(self.options.clone())
+            })) else {
+                eprintln!(
+                    "[verifopt debug] start_verifopt itself panicked - no store written this run"
+                );
+                return;
+            };
 
             let mut store = store().lock().unwrap();
 
@@ -256,6 +267,23 @@ impl Callbacks for FsaCallbacks {
                     .collect();
 
                 store.tags.insert((hash, bb), entry);
+            }
+
+            if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
+                if let Ok(json) = serde_json::to_string(&SerializableStore::from(&*store)) {
+                    let _ = std::fs::write(dep_rewrite_store_path(), json);
+                }
+
+                let primary_crate_id = tcx.stable_crate_id(LOCAL_CRATE);
+                let needs_rewrite_pass = store
+                    .targets
+                    .keys()
+                    .chain(store.tags.keys())
+                    .any(|(hash, _bb)| hash.stable_crate_id() != primary_crate_id);
+
+                if needs_rewrite_pass {
+                    let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
+                }
             }
         });
 

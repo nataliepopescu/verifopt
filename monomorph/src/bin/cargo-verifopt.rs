@@ -244,6 +244,10 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     // need to act on.
     run_cargo_build(target, kind, &[]);
 
+    if !std::path::Path::new(monomorph::rewrite::needs_rewrite_pass_marker_path()).exists() {
+        return;
+    }
+
     info!(
         "found a dispatch site inside dependency code during the discovery pass - \
          cleaning and rebuilding once more to apply it (see rewrite.rs's own \

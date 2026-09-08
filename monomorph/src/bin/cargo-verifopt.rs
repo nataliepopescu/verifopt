@@ -244,10 +244,6 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     // need to act on.
     run_cargo_build(target, kind, &[]);
 
-    if !std::path::Path::new(monomorph::rewrite::needs_rewrite_pass_marker_path()).exists() {
-        return;
-    }
-
     info!(
         "found a dispatch site inside dependency code during the discovery pass - \
          cleaning and rebuilding once more to apply it (see rewrite.rs's own \
@@ -255,6 +251,18 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     );
     let mut clean_cmd = Command::new(pinned_toolchain_cargo());
     clean_cmd.arg("clean");
+    // Without this, clean_cmd always cleans the default target/
+    // directory - completely unrelated to whatever --target-dir the
+    // caller actually passed to run_cargo_build's own cargo build
+    // invocation. That leaves the *real* target dir untouched, so
+    // cargo's own caching (correctly, from its own perspective - source
+    // and flags genuinely didn't change) reports everything "Fresh" on
+    // the second pass below, never actually re-invoking rustc for
+    // anything - silently defeating the entire reason this second pass
+    // exists at all.
+    if let Some(target_dir) = get_arg_flag_value("--target-dir") {
+        clean_cmd.arg("--target-dir").arg(target_dir);
+    }
     let clean_status = clean_cmd
         .spawn()
         .expect("could not run cargo clean")
@@ -264,7 +272,20 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
         std::process::exit(clean_status.code().unwrap_or(-1));
     }
 
-    run_cargo_build(target, kind, &[]);
+    // --skip-analysis here is load-bearing, not optional: this second
+    // pass exists only so dependency crates - compiled before
+    // verifopt_store.json existed during the discovery pass above -
+    // get rebuilt and pick it up via the modified compiler's own
+    // codegen_mir hook. The primary crate's own analysis already ran,
+    // once, during the discovery pass; re-running it here would just
+    // reproduce the same result (assuming determinism) at the same,
+    // full analysis cost a second time, for nothing.
+    let second_pass_flags: Vec<String> = if has_arg_flag("--skip-analysis") {
+        Vec::new()
+    } else {
+        vec!["--skip-analysis".to_owned()]
+    };
+    run_cargo_build(target, kind, &second_pass_flags);
 }
 
 /// Builds and runs the actual `cargo build`/`cargo test` invocation.

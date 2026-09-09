@@ -16,6 +16,7 @@ use rustc_middle::ty::TyCtxt;
 use rustc_public::{DefId, rustc_internal};
 
 use std::collections::HashMap; // FIXME FxHashMap for consistency?
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
@@ -154,12 +155,35 @@ impl From<SerializableStore> for Store {
     }
 }
 
-pub fn dep_rewrite_store_path() -> &'static str {
-    "verifopt_store.json"
+/// Returns the absolute path to verifopt_store.json - resolved via
+/// VERIFOPT_STORE_DIR (set by cargo-verifopt's own run_cargo_build, on
+/// the top-level cargo command it spawns, so every downstream process
+/// it transitively spawns inherits it) when present, falling back to a
+/// plain, CWD-relative path otherwise (e.g. a standalone, single-crate
+/// test case that never goes through cargo-verifopt at all).
+///
+/// This matters because cargo itself runs each crate's own rustc
+/// invocation with its CWD set to *that crate's own manifest
+/// directory* - not necessarily the same directory cargo-verifopt
+/// itself was invoked from. For a dependency crate that isn't a formal
+/// workspace member of the primary crate (which includes essentially
+/// every ordinary, crates.io-sourced dependency), a plain, CWD-relative
+/// "verifopt_store.json" would never be found at all - not because it
+/// doesn't exist, but because that specific rustc invocation is running
+/// from an entirely different directory than the one it was written to.
+pub fn dep_rewrite_store_path() -> PathBuf {
+    resolve_store_path("verifopt_store.json")
 }
 
-pub fn needs_rewrite_pass_marker_path() -> &'static str {
-    "verifopt_needs_rewrite_pass"
+pub fn needs_rewrite_pass_marker_path() -> PathBuf {
+    resolve_store_path("verifopt_needs_rewrite_pass")
+}
+
+fn resolve_store_path(filename: &str) -> PathBuf {
+    match std::env::var_os("VERIFOPT_STORE_DIR") {
+        Some(dir) => PathBuf::from(dir).join(filename),
+        None => PathBuf::from(filename),
+    }
 }
 
 fn store() -> &'static Mutex<Store> {

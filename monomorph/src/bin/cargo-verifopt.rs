@@ -244,7 +244,7 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     // need to act on.
     run_cargo_build(target, kind, &[]);
 
-    if !std::path::Path::new(monomorph::rewrite::needs_rewrite_pass_marker_path()).exists() {
+    if !monomorph::rewrite::needs_rewrite_pass_marker_path().exists() {
         return;
     }
 
@@ -432,6 +432,29 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
     if has_arg_flag("--skip-rewrite") {
         cmd.env("VERIFOPT_SKIP_REWRITE", "1");
     }
+
+    // Same propagation reasoning as VERIFOPT_SKIP_REWRITE above: needs
+    // to reach every crate's compilation, not just the primary crate's
+    // own verifopt-driven pass, so it's set here, on the top-level
+    // cargo command, rather than anywhere more narrowly scoped.
+    //
+    // This one exists because cargo runs each crate's own rustc
+    // invocation with its CWD set to *that crate's own manifest
+    // directory* - not necessarily the same directory cargo-verifopt
+    // itself was invoked from. A dependency crate that isn't a formal
+    // workspace member of the primary crate (which includes
+    // essentially every ordinary, crates.io-sourced dependency) would
+    // otherwise never find a plain, CWD-relative "verifopt_store.json"
+    // at all - not because it's missing, but because that crate's own
+    // rustc invocation runs from an entirely different directory than
+    // the one it was actually written to. Read on the other side by
+    // rewrite.rs's own dep_rewrite_store_path/
+    // needs_rewrite_pass_marker_path (and their counterparts in the
+    // rust fork's own verifopt_rewrite.rs).
+    cmd.env(
+        "VERIFOPT_STORE_DIR",
+        std::env::current_dir().expect("could not determine current directory"),
+    );
 
     // Belt-and-suspenders: `pinned_cargo_path()` above already invokes the
     // exact toolchain binary directly (not a rustup shim), so this env var

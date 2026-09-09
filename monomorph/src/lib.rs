@@ -56,13 +56,9 @@ pub fn start_verifopt(
     // needs_rewrite_pass_marker_path docs): a stale marker file left
     // over from an earlier run could otherwise be mistaken for this
     // run's own signal that a rewrite pass is needed.
-    for f in [
-        "stats",
-        "mir_dump.txt",
-        crate::rewrite::dep_rewrite_store_path(),
-    ] {
-        let _ = fs::remove_file(f);
-    }
+    let _ = fs::remove_file("stats");
+    let _ = fs::remove_file("mir_dump.txt");
+    let _ = fs::remove_file(crate::rewrite::dep_rewrite_store_path());
 
     // TODO make log filename a cmdline option
     let mut logger = VOLogger::new();

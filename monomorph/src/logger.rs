@@ -22,8 +22,8 @@ impl VOLogger {
 
     pub fn log_stats(
         &mut self,
-        dispatch_targets: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
-        dispatch_cha: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+        dispatch_targets: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+        dispatch_cha: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     ) -> Result<(), Error> {
         let mut diff = Vec::new();
         let mut same = Vec::new();

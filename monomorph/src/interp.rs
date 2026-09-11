@@ -49,7 +49,7 @@ const MAX_DEPTH: u32 = 50;
 /// DefId + basic block, same pair already used for `dispatch_cha`) plus
 /// an `ArgSet` fingerprint of the call's operands as seen from the
 /// caller's side. See `virtual_call_memo`'s field doc for the rationale.
-type VirtualCallKey = ((DefId, usize), ArgSet);
+type VirtualCallKey = ((DefId, usize, GenericArgs), ArgSet);
 
 #[derive(Debug, Clone)]
 pub enum ParamSummary {
@@ -135,9 +135,10 @@ pub struct InterpPass<'a> {
     pub call_context_k: usize,
 
     pub dispatch_targets:
-        RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
-    pub dispatch_cha: RefCell<ImHashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
-    pub dispatch_tags: RefCell<ImHashMap<(DefId, usize), TagPlan>>,
+        RefCell<ImHashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    pub dispatch_cha:
+        RefCell<ImHashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    pub dispatch_tags: RefCell<ImHashMap<(DefId, usize, GenericArgs), TagPlan>>,
 
     pub summaries: RefCell<HashMap<MemoKey, Constraints>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
@@ -2396,7 +2397,7 @@ impl<'a> InterpPass<'a> {
         let trait_defid = self.get_trait_defid(&fndef.0);
         debug!("trait_defid: {:?}", trait_defid);
 
-        let key = (caller_scope.0.def.def_id(), bb);
+        let key = (caller_scope.0.def.def_id(), bb, caller_scope.1.clone());
 
         let _timing_guard = self.timing_span(TimingCat::TermVirtualMemo, caller_scope);
         let resolved_args: Vec<Constraints> = args
@@ -2405,7 +2406,7 @@ impl<'a> InterpPass<'a> {
                 self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, op, false)
             })
             .collect();
-        let virtual_key: VirtualCallKey = (key, ArgSet::new(&resolved_args));
+        let virtual_key: VirtualCallKey = (key.clone(), ArgSet::new(&resolved_args));
         match self.virtual_call_memo.borrow().get(&virtual_key) {
             Some((cached, recorded_scopes)) => {
                 let stale: Vec<(DefId, u64, u64)> = recorded_scopes
@@ -2524,13 +2525,13 @@ impl<'a> InterpPass<'a> {
 
         self.dispatch_cha
             .borrow_mut()
-            .entry(key)
+            .entry(key.clone())
             .or_insert((*term_span, assoc_fn_impls_cha));
 
         {
             // collect possible calls (mostly for recursion)
             let mut dt = self.dispatch_targets.borrow_mut();
-            let entry = dt.entry(key).or_insert((*term_span, Vec::new()));
+            let entry = dt.entry(key.clone()).or_insert((*term_span, Vec::new()));
             for f in &assoc_fn_impls_fsa {
                 if !entry.1.contains(f) {
                     entry.1.push(f.clone());

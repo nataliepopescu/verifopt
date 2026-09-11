@@ -42,8 +42,8 @@ use crate::util::options::AnalysisOptions;
 pub fn start_verifopt(
     options: AnalysisOptions,
 ) -> (
-    HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
-    HashMap<(DefId, usize), TagPlan>,
+    HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+    HashMap<(DefId, usize, GenericArgs), TagPlan>,
 ) {
     // `stats` (opened in append mode by VOLogger::new below) and
     // `mir_dump.txt` (opened in append mode by the modified compiler's
@@ -169,26 +169,27 @@ pub fn start_verifopt(
         .dispatch_targets
         .borrow()
         .iter()
-        .filter_map(|(&key, (span, impls))| {
-            if *confirmed.get(&span).unwrap_or(&false) {
-                Some((key, (span.clone(), impls.clone())))
+        .filter_map(|(key, (span, impls))| {
+            if *confirmed.get(span).unwrap_or(&false) {
+                Some((key.clone(), (span.clone(), impls.clone())))
             } else {
-                cha.get(&key).map(|c| (key, (span.clone(), c.clone().1)))
+                cha.get(key)
+                    .map(|c| (key.clone(), (span.clone(), c.clone().1)))
             }
         })
         .collect();
 
-    let tags: HashMap<(DefId, usize), TagPlan> = interp
+    let tags: HashMap<(DefId, usize, GenericArgs), TagPlan> = interp
         .dispatch_tags
         .borrow()
         .iter()
-        .map(|(&k, p)| {
+        .map(|(k, p)| {
             let ok = interp
                 .dispatch_targets
                 .borrow()
-                .get(&k)
+                .get(k)
                 .map_or(false, |(s, _)| *confirmed.get(s).unwrap_or(&false));
-            (k, if ok { p.clone() } else { TagPlan::Poisoned })
+            (k.clone(), if ok { p.clone() } else { TagPlan::Poisoned })
         })
         .collect();
 
@@ -200,8 +201,8 @@ pub fn start_verifopt(
     // O(program size so far) - this one conversion back to std::HashMap
     // happens exactly once for the whole run, not per summary-build
     // attempt, so it isn't the cost that migration was about avoiding.
-    let cha_std: HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
-        cha.iter().map(|(k, v)| (*k, v.clone())).collect();
+    let cha_std: HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
+        cha.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let _ = logger.log_stats(&fsa, &cha_std);
 
     (fsa, tags)

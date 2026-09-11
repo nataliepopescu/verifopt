@@ -28,9 +28,10 @@ use crate::util::options::AnalysisOptions;
 
 #[derive(Default)]
 pub struct Store {
-    pub targets: HashMap<(DefPathHash, usize), Vec<(DefPathHash, Option<Vec<DefPathHash>>)>>,
+    pub targets:
+        HashMap<(DefPathHash, usize, Vec<DefPathHash>), Vec<(DefPathHash, Option<Vec<DefPathHash>>)>>,
     pub tags: HashMap<
-        (DefPathHash, usize),
+        (DefPathHash, usize, Vec<DefPathHash>),
         Vec<(
             usize,                     /* bb */
             usize,                     /* stmt */
@@ -61,11 +62,11 @@ impl From<SerializableDefPathHash> for DefPathHash {
 #[derive(Serialize, Deserialize, Default)]
 struct SerializableStore {
     targets: Vec<(
-        (SerializableDefPathHash, usize),
+        (SerializableDefPathHash, usize, Vec<SerializableDefPathHash>),
         Vec<(SerializableDefPathHash, Option<Vec<SerializableDefPathHash>>)>,
     )>,
     tags: Vec<(
-        (SerializableDefPathHash, usize),
+        (SerializableDefPathHash, usize, Vec<SerializableDefPathHash>),
         Vec<(
             usize,
             usize,
@@ -82,13 +83,16 @@ impl From<&Store> for SerializableStore {
             opt.as_ref()
                 .map(|v| v.iter().map(|h| SerializableDefPathHash::from(*h)).collect())
         };
+        let conv_vec = |v: &Vec<DefPathHash>| -> Vec<SerializableDefPathHash> {
+            v.iter().map(|h| SerializableDefPathHash::from(*h)).collect()
+        };
         SerializableStore {
             targets: store
                 .targets
                 .iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (SerializableDefPathHash::from(*h), *bb),
+                        (SerializableDefPathHash::from(*h), *bb, conv_vec(caller_genargs)),
                         v.iter()
                             .map(|(h2, opt)| (SerializableDefPathHash::from(*h2), conv_opt_vec(opt)))
                             .collect(),
@@ -98,9 +102,9 @@ impl From<&Store> for SerializableStore {
             tags: store
                 .tags
                 .iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (SerializableDefPathHash::from(*h), *bb),
+                        (SerializableDefPathHash::from(*h), *bb, conv_vec(caller_genargs)),
                         v.iter()
                             .map(|(bb2, stmt, tag, h2, opt)| {
                                 (
@@ -124,13 +128,17 @@ impl From<SerializableStore> for Store {
         let conv_opt_vec = |opt: Option<Vec<SerializableDefPathHash>>| {
             opt.map(|v| v.into_iter().map(DefPathHash::from).collect())
         };
+        let conv_vec =
+            |v: Vec<SerializableDefPathHash>| -> Vec<DefPathHash> {
+                v.into_iter().map(DefPathHash::from).collect()
+            };
         Store {
             targets: s
                 .targets
                 .into_iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (DefPathHash::from(h), bb),
+                        (DefPathHash::from(h), bb, conv_vec(caller_genargs)),
                         v.into_iter()
                             .map(|(h2, opt)| (DefPathHash::from(h2), conv_opt_vec(opt)))
                             .collect(),
@@ -140,9 +148,9 @@ impl From<SerializableStore> for Store {
             tags: s
                 .tags
                 .into_iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (DefPathHash::from(h), bb),
+                        (DefPathHash::from(h), bb, conv_vec(caller_genargs)),
                         v.into_iter()
                             .map(|(bb2, stmt, tag, h2, opt)| {
                                 (bb2, stmt, tag, DefPathHash::from(h2), conv_opt_vec(opt))
@@ -190,6 +198,43 @@ fn store() -> &'static Mutex<Store> {
     STORE.get_or_init(|| Mutex::new(Store::default()))
 }
 
+/// Produces a small, fixed, deterministic DefPathHash for a primitive
+/// type - not a real DefId hash at all (primitives have no DefId), just
+/// a stand-in that lets the existing Vec<DefPathHash> key-component slot
+/// also represent primitive generic args (bool, char, ints, floats)
+/// without introducing a whole new key-component type and re-touching
+/// the serialization layer again.
+///
+/// Implemented identically on this side and the rust fork's own
+/// verifopt_rewrite.rs (see that file's own copy of this same
+/// function) - both sides must compute the same sentinel for the same
+/// primitive, on the same pinned rustc build, for the store's own keys
+/// to ever line up across the two, separate processes at all. A real
+/// DefPathHash coinciding with one of these specific, small sentinel
+/// values is astronomically unlikely, for the same reason DefPathHash
+/// collisions in general are treated as negligible risk elsewhere in
+/// this codebase - not a new, additional risk being introduced here.
+///
+/// FNV-1a, not anything cryptographic or rustc-internal - deliberately
+/// simple and self-contained so it's trivial to keep byte-for-byte
+/// identical between the two, separate copies of this function.
+fn primitive_ty_sentinel(tag: &str) -> DefPathHash {
+    fn fnv1a_64(bytes: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &b in bytes {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+    let h1 = fnv1a_64(tag.as_bytes());
+    // Different input for the second half (not just re-hashing h1's own
+    // bytes) so a short tag's own two halves don't trivially collide
+    // with each other.
+    let h2 = fnv1a_64(format!("{tag}#verifopt-sentinel").as_bytes());
+    DefPathHash(Fingerprint::new(h1, h2))
+}
+
 pub struct FsaCallbacks {
     pub options: AnalysisOptions,
 }
@@ -230,25 +275,79 @@ impl Callbacks for FsaCallbacks {
                     let rustc_public::ty::GenericArgKind::Type(ty) = arg else {
                         return None;
                     };
-                    let rustc_public::ty::TyKind::RigidTy(rustc_public::ty::RigidTy::Adt(
-                        adtdef,
-                        sub_genargs,
-                    )) = ty.kind()
-                    else {
+                    let rustc_public::ty::TyKind::RigidTy(rigid_ty) = ty.kind() else {
                         return None;
                     };
-                    if !sub_genargs.0.is_empty() {
-                        return None;
-                    }
-                    hashes.push(to_hash(adtdef.0)?);
+                    let hash = match rigid_ty {
+                        rustc_public::ty::RigidTy::Adt(adtdef, sub_genargs) => {
+                            if !sub_genargs.0.is_empty() {
+                                return None;
+                            }
+                            to_hash(adtdef.0)?
+                        }
+                        rustc_public::ty::RigidTy::Bool => primitive_ty_sentinel("prim:bool"),
+                        rustc_public::ty::RigidTy::Char => primitive_ty_sentinel("prim:char"),
+                        rustc_public::ty::RigidTy::Int(int_ty) => {
+                            let tag = match int_ty {
+                                rustc_public::ty::IntTy::Isize => "prim:isize",
+                                rustc_public::ty::IntTy::I8 => "prim:i8",
+                                rustc_public::ty::IntTy::I16 => "prim:i16",
+                                rustc_public::ty::IntTy::I32 => "prim:i32",
+                                rustc_public::ty::IntTy::I64 => "prim:i64",
+                                rustc_public::ty::IntTy::I128 => "prim:i128",
+                            };
+                            primitive_ty_sentinel(tag)
+                        }
+                        rustc_public::ty::RigidTy::Uint(uint_ty) => {
+                            let tag = match uint_ty {
+                                rustc_public::ty::UintTy::Usize => "prim:usize",
+                                rustc_public::ty::UintTy::U8 => "prim:u8",
+                                rustc_public::ty::UintTy::U16 => "prim:u16",
+                                rustc_public::ty::UintTy::U32 => "prim:u32",
+                                rustc_public::ty::UintTy::U64 => "prim:u64",
+                                rustc_public::ty::UintTy::U128 => "prim:u128",
+                            };
+                            primitive_ty_sentinel(tag)
+                        }
+                        rustc_public::ty::RigidTy::Float(float_ty) => {
+                            let tag = match float_ty {
+                                rustc_public::ty::FloatTy::F16 => "prim:f16",
+                                rustc_public::ty::FloatTy::F32 => "prim:f32",
+                                rustc_public::ty::FloatTy::F64 => "prim:f64",
+                                rustc_public::ty::FloatTy::F128 => "prim:f128",
+                            };
+                            primitive_ty_sentinel(tag)
+                        }
+                        // References, tuples, closures, dyn types, etc. -
+                        // not yet handled; returning None here means the
+                        // caller-genargs use of this closure panics
+                        // rather than silently collapsing distinct
+                        // instantiations onto the same key.
+                        _ => return None,
+                    };
+                    hashes.push(hash);
                 }
                 Some(Some(hashes))
             };
 
-            for ((defid, bb), (_, ts)) in targets {
+            for ((defid, bb, caller_genargs), (_, ts)) in targets {
                 let Some(hash) = to_hash(defid) else {
                     continue;
                 };
+
+                let Some(caller_genargs_hash) = to_genargs_hashes(&Some(caller_genargs.clone()))
+                else {
+                    panic!(
+                        "could not hash caller's own generic args for {:?} at bb{} - \
+                         genargs: {:?} - without this, this dispatch site's own key \
+                         would collapse different monomorphized instantiations of the \
+                         same generic function onto the same store entry, silently \
+                         merging what may be genuinely different rewrites",
+                        defid, bb, caller_genargs
+                    );
+                };
+                let caller_genargs_hash = caller_genargs_hash
+                    .expect("caller_genargs was wrapped in Some(...) above, so to_genargs_hashes' own \"was the input None\" case cannot fire here");
 
                 let t_hashes: Vec<(DefPathHash, Option<Vec<DefPathHash>>)> = ts
                     .iter()
@@ -259,10 +358,10 @@ impl Callbacks for FsaCallbacks {
                     })
                     .collect();
 
-                store.targets.insert((hash, bb), t_hashes);
+                store.targets.insert((hash, bb, caller_genargs_hash), t_hashes);
             }
 
-            for ((defid, bb), plan) in tags {
+            for ((defid, bb, caller_genargs), plan) in tags {
                 let TagPlan::Tagged(sites) = plan else {
                     continue;
                 };
@@ -273,6 +372,20 @@ impl Callbacks for FsaCallbacks {
                 let Some(hash) = to_hash(defid) else {
                     continue;
                 };
+
+                let Some(caller_genargs_hash) = to_genargs_hashes(&Some(caller_genargs.clone()))
+                else {
+                    panic!(
+                        "could not hash caller's own generic args for {:?} at bb{} - \
+                         genargs: {:?} - without this, this dispatch site's own key \
+                         would collapse different monomorphized instantiations of the \
+                         same generic function onto the same store entry, silently \
+                         merging what may be genuinely different rewrites",
+                        defid, bb, caller_genargs
+                    );
+                };
+                let caller_genargs_hash = caller_genargs_hash
+                    .expect("caller_genargs was wrapped in Some(...) above, so to_genargs_hashes' own \"was the input None\" case cannot fire here");
 
                 let mut next: u64 = 0;
                 let mut assigned: HashMap<DefId, u64> = HashMap::default();
@@ -290,7 +403,7 @@ impl Callbacks for FsaCallbacks {
                     })
                     .collect();
 
-                store.tags.insert((hash, bb), entry);
+                store.tags.insert((hash, bb, caller_genargs_hash), entry);
             }
 
             if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
@@ -303,7 +416,7 @@ impl Callbacks for FsaCallbacks {
                     .targets
                     .keys()
                     .chain(store.tags.keys())
-                    .any(|(hash, _bb)| hash.stable_crate_id() != primary_crate_id);
+                    .any(|(hash, _bb, _caller_genargs)| hash.stable_crate_id() != primary_crate_id);
 
                 if needs_rewrite_pass {
                     let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");

@@ -235,6 +235,121 @@ fn primitive_ty_sentinel(tag: &str) -> DefPathHash {
     DefPathHash(Fingerprint::new(h1, h2))
 }
 
+/// Combines a tag with an ordered list of nested hashes into a single,
+/// deterministic sentinel - used for compound types (currently just
+/// tuples) whose own identity depends on an ordered set of nested
+/// types, each of which may itself already be hashed via to_hash/
+/// hash_ty/primitive_ty_sentinel. Relies on DefPathHash's own Debug
+/// output being identical on both this side and the rust fork's own
+/// copy of this same function, since both operate on the exact same,
+/// single rustc-internal DefPathHash type (not a rustc_public-specific
+/// one) - not something particular to this side alone.
+fn combine_hashes(tag: &str, hashes: &[DefPathHash]) -> DefPathHash {
+    let joined = hashes.iter().map(|h| format!("{h:?}")).collect::<Vec<_>>().join(",");
+    primitive_ty_sentinel(&format!("{tag}:[{joined}]"))
+}
+
+/// Recursively hashes a single rustc_public::ty::Ty into a stable,
+/// cross-process-comparable DefPathHash, or None if this particular
+/// type shape isn't handled yet (see the match arms below for exactly
+/// which shapes are covered so far). A top-level function rather than
+/// a closure specifically so it can call itself for tuple elements -
+/// closures can't recurse by name in Rust.
+fn hash_ty(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<DefPathHash> {
+    let rustc_public::ty::TyKind::RigidTy(rigid_ty) = ty.kind() else {
+        return None;
+    };
+    Some(match rigid_ty {
+        rustc_public::ty::RigidTy::Adt(adtdef, sub_genargs) => {
+            if !sub_genargs.0.is_empty() {
+                return None;
+            }
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tcx.def_path_hash(rustc_internal::internal(tcx, adtdef.0))
+            }))
+            .inspect_err(|_| eprintln!("to_hash panicked on {:?}, skipping", adtdef.0))
+            .ok()?
+        }
+        rustc_public::ty::RigidTy::Bool => primitive_ty_sentinel("prim:bool"),
+        rustc_public::ty::RigidTy::Char => primitive_ty_sentinel("prim:char"),
+        rustc_public::ty::RigidTy::Int(int_ty) => {
+            let tag = match int_ty {
+                rustc_public::ty::IntTy::Isize => "prim:isize",
+                rustc_public::ty::IntTy::I8 => "prim:i8",
+                rustc_public::ty::IntTy::I16 => "prim:i16",
+                rustc_public::ty::IntTy::I32 => "prim:i32",
+                rustc_public::ty::IntTy::I64 => "prim:i64",
+                rustc_public::ty::IntTy::I128 => "prim:i128",
+            };
+            primitive_ty_sentinel(tag)
+        }
+        rustc_public::ty::RigidTy::Uint(uint_ty) => {
+            let tag = match uint_ty {
+                rustc_public::ty::UintTy::Usize => "prim:usize",
+                rustc_public::ty::UintTy::U8 => "prim:u8",
+                rustc_public::ty::UintTy::U16 => "prim:u16",
+                rustc_public::ty::UintTy::U32 => "prim:u32",
+                rustc_public::ty::UintTy::U64 => "prim:u64",
+                rustc_public::ty::UintTy::U128 => "prim:u128",
+            };
+            primitive_ty_sentinel(tag)
+        }
+        rustc_public::ty::RigidTy::Float(float_ty) => {
+            let tag = match float_ty {
+                rustc_public::ty::FloatTy::F16 => "prim:f16",
+                rustc_public::ty::FloatTy::F32 => "prim:f32",
+                rustc_public::ty::FloatTy::F64 => "prim:f64",
+                rustc_public::ty::FloatTy::F128 => "prim:f128",
+            };
+            primitive_ty_sentinel(tag)
+        }
+        rustc_public::ty::RigidTy::Tuple(elems) => {
+            let elem_hashes: Option<Vec<DefPathHash>> =
+                elems.iter().map(|t| hash_ty(tcx, t)).collect();
+            combine_hashes("prim:tuple", &elem_hashes?)
+        }
+        // Regions/lifetimes are deliberately ignored here (not part of
+        // the tag, not hashed) - they're already erased throughout this
+        // whole pipeline (see instantiate_mir_and_normalize_erasing_
+        // regions elsewhere in this codebase), and don't affect which
+        // concrete devirtualization target applies.
+        rustc_public::ty::RigidTy::Ref(_region, inner_ty, mutability) => {
+            let tag = match mutability {
+                rustc_public::mir::Mutability::Not => "prim:ref:not",
+                rustc_public::mir::Mutability::Mut => "prim:ref:mut",
+            };
+            combine_hashes(tag, &[hash_ty(tcx, &inner_ty)?])
+        }
+        rustc_public::ty::RigidTy::RawPtr(inner_ty, mutability) => {
+            let tag = match mutability {
+                rustc_public::mir::Mutability::Not => "prim:rawptr:not",
+                rustc_public::mir::Mutability::Mut => "prim:rawptr:mut",
+            };
+            combine_hashes(tag, &[hash_ty(tcx, &inner_ty)?])
+        }
+        rustc_public::ty::RigidTy::Slice(inner_ty) => {
+            combine_hashes("prim:slice", &[hash_ty(tcx, &inner_ty)?])
+        }
+        rustc_public::ty::RigidTy::FnPtr(poly_fn_sig) => {
+            let fn_sig = poly_fn_sig.value;
+            let elem_hashes: Option<Vec<DefPathHash>> =
+                fn_sig.inputs_and_output.iter().map(|t| hash_ty(tcx, t)).collect();
+            combine_hashes("prim:fnptr", &elem_hashes?)
+        }
+        // Arrays are deliberately not handled yet - unlike everything
+        // above, an array's own type also depends on a const-generic
+        // length (the "5" in [u32; 5]), which isn't just another Ty to
+        // recurse into - extracting a stable, cross-process-comparable
+        // hash for an arbitrary const expression is a genuinely
+        // different, harder problem than anything handled so far.
+        // Closures, dyn types, coroutines, etc. - also not yet handled;
+        // returning None here means the caller-genargs use of this
+        // function panics rather than silently collapsing distinct
+        // instantiations onto the same key.
+        _ => return None,
+    })
+}
+
 pub struct FsaCallbacks {
     pub options: AnalysisOptions,
 }
@@ -275,57 +390,7 @@ impl Callbacks for FsaCallbacks {
                     let rustc_public::ty::GenericArgKind::Type(ty) = arg else {
                         return None;
                     };
-                    let rustc_public::ty::TyKind::RigidTy(rigid_ty) = ty.kind() else {
-                        return None;
-                    };
-                    let hash = match rigid_ty {
-                        rustc_public::ty::RigidTy::Adt(adtdef, sub_genargs) => {
-                            if !sub_genargs.0.is_empty() {
-                                return None;
-                            }
-                            to_hash(adtdef.0)?
-                        }
-                        rustc_public::ty::RigidTy::Bool => primitive_ty_sentinel("prim:bool"),
-                        rustc_public::ty::RigidTy::Char => primitive_ty_sentinel("prim:char"),
-                        rustc_public::ty::RigidTy::Int(int_ty) => {
-                            let tag = match int_ty {
-                                rustc_public::ty::IntTy::Isize => "prim:isize",
-                                rustc_public::ty::IntTy::I8 => "prim:i8",
-                                rustc_public::ty::IntTy::I16 => "prim:i16",
-                                rustc_public::ty::IntTy::I32 => "prim:i32",
-                                rustc_public::ty::IntTy::I64 => "prim:i64",
-                                rustc_public::ty::IntTy::I128 => "prim:i128",
-                            };
-                            primitive_ty_sentinel(tag)
-                        }
-                        rustc_public::ty::RigidTy::Uint(uint_ty) => {
-                            let tag = match uint_ty {
-                                rustc_public::ty::UintTy::Usize => "prim:usize",
-                                rustc_public::ty::UintTy::U8 => "prim:u8",
-                                rustc_public::ty::UintTy::U16 => "prim:u16",
-                                rustc_public::ty::UintTy::U32 => "prim:u32",
-                                rustc_public::ty::UintTy::U64 => "prim:u64",
-                                rustc_public::ty::UintTy::U128 => "prim:u128",
-                            };
-                            primitive_ty_sentinel(tag)
-                        }
-                        rustc_public::ty::RigidTy::Float(float_ty) => {
-                            let tag = match float_ty {
-                                rustc_public::ty::FloatTy::F16 => "prim:f16",
-                                rustc_public::ty::FloatTy::F32 => "prim:f32",
-                                rustc_public::ty::FloatTy::F64 => "prim:f64",
-                                rustc_public::ty::FloatTy::F128 => "prim:f128",
-                            };
-                            primitive_ty_sentinel(tag)
-                        }
-                        // References, tuples, closures, dyn types, etc. -
-                        // not yet handled; returning None here means the
-                        // caller-genargs use of this closure panics
-                        // rather than silently collapsing distinct
-                        // instantiations onto the same key.
-                        _ => return None,
-                    };
-                    hashes.push(hash);
+                    hashes.push(hash_ty(tcx, ty)?);
                 }
                 Some(Some(hashes))
             };

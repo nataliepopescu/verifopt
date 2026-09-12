@@ -379,15 +379,22 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
     }
 
     // Serialize the remaining args into an environment variable.
-    // redirect_to_verifopt_flags must come first: anything collected
-    // from `args` here comes from after the caller's own `--`, which
-    // parse_from_args treats as "pass straight through to rustc, never
-    // even attempt to parse it" - putting a redirected flag after that
-    // point would defeat the whole reason it was redirected in the
-    // first place.
+    // redirect_to_verifopt_flags and extra_verifopt_flags must both
+    // come before args: anything collected from `args` here comes from
+    // after the caller's own `--`, which parse_from_args treats as
+    // "pass straight through to rustc, never even attempt to parse it"
+    // - putting either of these after that point would defeat the
+    // whole reason they were added in the first place. This matters
+    // even when the caller never passes their own `--` at all, but
+    // becomes load-bearing the moment they do (e.g. their own
+    // `-- -- --emit=asm`, forwarding a flag to rustc itself) - without
+    // this ordering, extra_verifopt_flags (like the second pass's own
+    // --skip-analysis) would fall on the far side of the caller's `--`
+    // too, and leak straight through to rustc as an unrecognized
+    // option instead of ever being parsed as a verifopt flag at all.
     let mut args_vec: Vec<String> = redirect_to_verifopt_flags;
-    args_vec.extend(args);
     args_vec.extend(extra_verifopt_flags.iter().cloned());
+    args_vec.extend(args);
     if !args_vec.is_empty() {
         cmd.env(
             "VERIFOPT_FLAGS",

@@ -1,4 +1,4 @@
-use visitor_decl::{Animal, AnimalVisitor};
+use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
 
 pub struct SpeakBetterDogs;
 pub struct SpeakBetterCats;
@@ -21,12 +21,12 @@ impl AnimalVisitor for SpeakBetterCats {
     }
 }
 
-/*
 fn main() {
-    use rand::Rng;
+    //use rand::Rng;
+    //let num: u32 = rand::rng().random_range(..2);
+    let num: u32 = 4;
 
     let a: &dyn Animal;
-    let num: u32 = rand::rng().random_range(..2);
     let dc = &SpeakBetterDogs {};
 
     if num == 0 {
@@ -37,4 +37,3 @@ fn main() {
 
     a.visit(dc);
 }
-*/

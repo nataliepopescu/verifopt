@@ -336,6 +336,41 @@ fn hash_ty(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<DefPathHash> {
                 fn_sig.inputs_and_output.iter().map(|t| hash_ty(tcx, t)).collect();
             combine_hashes("prim:fnptr", &elem_hashes?)
         }
+        // Only the common case is handled: exactly one predicate, and
+        // that predicate is a plain trait bound (Send/Sync-style
+        // auto-traits, or an associated-type binding like
+        // `dyn Iterator<Item = u32>`, both return None here - not yet
+        // handled, same as everything else this comment block already
+        // covers).
+        rustc_public::ty::RigidTy::Dynamic(predicates, _region) => {
+            let [binder] = predicates.as_slice() else {
+                return None;
+            };
+            let rustc_public::ty::ExistentialPredicate::Trait(trait_ref) = &binder.value else {
+                return None;
+            };
+            let trait_hash = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tcx.def_path_hash(rustc_internal::internal(tcx, trait_ref.def_id.0))
+            }))
+            .inspect_err(|_| {
+                eprintln!("to_hash panicked on {:?}, skipping", trait_ref.def_id.0)
+            })
+            .ok()?;
+            let genarg_hashes: Option<Vec<DefPathHash>> = trait_ref
+                .generic_args
+                .0
+                .iter()
+                .map(|arg| {
+                    let rustc_public::ty::GenericArgKind::Type(t) = arg else {
+                        return None;
+                    };
+                    hash_ty(tcx, t)
+                })
+                .collect();
+            let mut all_hashes = vec![trait_hash];
+            all_hashes.extend(genarg_hashes?);
+            combine_hashes("prim:dyn", &all_hashes)
+        }
         // Arrays are deliberately not handled yet - unlike everything
         // above, an array's own type also depends on a const-generic
         // length (the "5" in [u32; 5]), which isn't just another Ty to

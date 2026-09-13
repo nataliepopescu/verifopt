@@ -22,9 +22,9 @@ impl AnimalVisitor for SpeakBetterCats {
 }
 
 fn main() {
-    //use rand::Rng;
-    //let num: u32 = rand::rng().random_range(..2);
-    let num: u32 = 4;
+    use rand::Rng;
+    let num: u32 = rand::rng().random_range(..2);
+    //let num: u32 = 4;
 
     let a: &dyn Animal;
     let dc = &SpeakBetterDogs {};

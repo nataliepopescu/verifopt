@@ -1,7 +1,7 @@
 { pkgs ? import <nixpkgs> {} }:
 
 pkgs.mkShell {
-  buildInputs = [ pkgs.rustup pkgs.python3 pkgs.python3Packages.matplotlib ];
+  buildInputs = [ pkgs.rustup pkgs.python3 pkgs.python3Packages.matplotlib pkgs.python3Packages.scipy ];
 
   shellHook = ''
     # Make sure the nightly toolchain is present (no-op if already installed)

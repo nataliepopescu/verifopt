@@ -2,17 +2,17 @@
 #
 # compare_verifopt.sh - for each example project under a testing_examples
 # directory, build it two ways - a control build (`cargo verifopt
-# --release -- --no-rewrite`, going through the exact same pipeline and
+# --release --skip-rewrite`, going through the exact same pipeline and
 # RUSTFLAGS as a real verifopt build, but with every rewrite skipped)
 # and a real rewritten build (`cargo verifopt --release`) - run each
 # resulting binary N times, and report summary timing stats comparing
 # the two.
 #
-# Using --no-rewrite for the "plain" leg (rather than a bare `cargo
+# Using --skip-rewrite for the "plain" leg (rather than a bare `cargo
 # build --release`) isolates the effect of the rewrites themselves from
 # any effect of the pipeline/flags alone (e.g. -Z always_encode_mir
 # potentially changing inlining or other codegen decisions even with
-# zero rewrites applied) - see --no-rewrite's own documentation in
+# zero rewrites applied) - see --skip-rewrite's own documentation in
 # monomorph/src/util/options.rs for the full rationale.
 #
 # Not wired up as `cargo bench` on purpose: this orchestrates two entirely
@@ -161,7 +161,7 @@ fi
 RESULTS_JSONL="$(mktemp)"
 SIZES_JSONL="$(mktemp)"
 # Both legs now go through `cargo verifopt` (control build via
-# --no-rewrite, or the real thing), so both get their own isolated
+# --skip-rewrite, or the real thing), so both get their own isolated
 # --target-dir - without this, running this script against an example
 # whose real target/ is also being used by something else (e.g. a
 # separate, long-running `cargo verifopt` invocation you're not routing
@@ -495,8 +495,8 @@ for example_dir in "${example_dirs[@]}"; do
         echo "  warning: could not uniquely determine a --bin target via cargo metadata - cargo verifopt may also compile test harnesses, which could be mistaken for the real binary. Add a bin_target_name.txt to this example to specify it directly." >&2
     fi
 
-    # --- plain (control) build: cargo verifopt --no-rewrite ---
-    echo "  [plain]    cargo clean + cargo verifopt --release -- --no-rewrite (isolated target-dir, control build) ..."
+    # --- plain (control) build: cargo verifopt --skip-rewrite ---
+    echo "  [plain]    cargo clean + cargo verifopt --release --skip-rewrite (isolated target-dir, control build) ..."
     if ! clean_isolated_target_dir "$example_dir" "$PLAIN_TARGET_DIR" "$plain_clean_log"; then
         echo "  skipping: cargo clean failed (plain)"
         echo "  --- last 30 lines of output ---"
@@ -506,9 +506,9 @@ for example_dir in "${example_dirs[@]}"; do
         continue
     fi
     rm -f "$plain_clean_log"
-    plain_build_output="$(cd "$example_dir" && cargo verifopt --release --target-dir "$PLAIN_TARGET_DIR" "${bin_flag[@]}" --message-format=json -- --no-rewrite 2>"$plain_build_stderr")"
+    plain_build_output="$(cd "$example_dir" && cargo verifopt --release --target-dir "$PLAIN_TARGET_DIR" "${bin_flag[@]}" --message-format=json --skip-rewrite 2>"$plain_build_stderr")"
     if [ -z "$plain_build_output" ]; then
-        echo "  skipping: cargo verifopt --release -- --no-rewrite produced no output (plain/control build likely failed)"
+        echo "  skipping: cargo verifopt --release --skip-rewrite produced no output (plain/control build likely failed)"
         echo "  --- last 30 lines of stderr ---"
         tail -n 30 "$plain_build_stderr" 2>/dev/null | sed 's/^/    /'
         echo

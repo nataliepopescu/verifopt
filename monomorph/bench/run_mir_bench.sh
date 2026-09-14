@@ -135,12 +135,18 @@ if not candidates:
 
 # Prefer an artifact whose own target kind matches what was asked for -
 # matters once more than one compiler-artifact message shows up in the
-# same build. Falls back to "whichever came last" if that field is
-# missing for some reason.
+# same build. Only falls back to "the one candidate" when there is
+# exactly one - genuinely unambiguous, e.g. if that field happened to
+# be missing. With more than one candidate and none matching the
+# requested kind, that is a real failure (the intended target never
+# produced an artifact at all, even though something else in the same
+# build - a dependency, unrelated to what was actually asked for - did)
+# and should be reported as such, not silently papered over by
+# returning the artifact of some other target instead.
 matching = [msg["executable"] for msg in candidates if want_kind in ((msg.get("target") or {}).get("kind") or [])]
 if matching:
     print(matching[-1])
-else:
+elif len(candidates) == 1:
     print(candidates[-1]["executable"])
 ' "$want_kind" <<< "$build_output"
 }
@@ -180,7 +186,7 @@ if [ "$SKIP_DISCOVERY" -eq 1 ]; then
 else
     echo "=== discovery pass: cargo verifopt --release --bin $BIN_NAME (main binary) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean "${extra_args[@]}") >&2
-    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --message-format=json "${extra_args[@]}")"
+    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --message-format=json "${extra_args[@]}")" || true
     if [ -z "$discovery_output" ]; then
         echo "error: discovery pass (cargo verifopt --release --bin $BIN_NAME) produced no output - build likely failed" >&2
         exit 1
@@ -188,7 +194,7 @@ else
 fi
 
 echo "=== baseline build: cargo verifopt --bench $NOT_RW_NAME --skip-analysis --skip-rewrite ===" >&2
-not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$NOT_RW_NAME" --skip-analysis --skip-rewrite --message-format=json "${extra_args[@]}")"
+not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$NOT_RW_NAME" --skip-analysis --skip-rewrite --message-format=json "${extra_args[@]}")" || true
 if [ -z "$not_rw_output" ]; then
     echo "error: baseline build (cargo verifopt --bench $NOT_RW_NAME --skip-analysis --skip-rewrite) produced no output - build likely failed" >&2
     exit 1
@@ -201,7 +207,7 @@ if [ -z "$not_rw_bin" ] || [ ! -x "$not_rw_bin" ]; then
 fi
 
 echo "=== rewritten build: cargo verifopt --bench $MIR_RW_NAME --skip-analysis ===" >&2
-mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$MIR_RW_NAME" --skip-analysis --message-format=json "${extra_args[@]}")"
+mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$MIR_RW_NAME" --skip-analysis --message-format=json "${extra_args[@]}")" || true
 if [ -z "$mir_rw_output" ]; then
     echo "error: rewritten build (cargo verifopt --bench $MIR_RW_NAME --skip-analysis) produced no output - build likely failed" >&2
     exit 1

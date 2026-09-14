@@ -114,6 +114,16 @@ fn call_cargo() {
         return;
     }
 
+    // If a bench is specified, build this bench only - mirrors --bin
+    // above. Without this, --bench <name> would fall through to
+    // call_cargo_on_each_package_target below, which builds every
+    // target in the package (including the primary --bin target),
+    // defeating the point of a targeted, --skip-analysis bench build.
+    if let Some(target) = get_arg_flag_value("--bench") {
+        call_cargo_on_target(&target, &TargetKind::Bench);
+        return;
+    }
+
     if let Some(root) = metadata.root_package() {
         call_cargo_on_each_package_target(root);
         return;
@@ -337,6 +347,10 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
         }
         TargetKind::Test => {
             cmd.arg("test");
+            cmd.arg("--no-run");
+        }
+        TargetKind::Bench => {
+            cmd.arg("bench");
             cmd.arg("--no-run");
         }
         _ => {

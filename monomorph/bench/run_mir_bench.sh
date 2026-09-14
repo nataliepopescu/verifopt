@@ -68,8 +68,18 @@
 # it's safe to source directly, e.g.:
 #   eval "$(./run_mir_bench.sh -d ../../benching_examples/visitor-ex/visitor-use \
 #       -b visitor-use -n visitor_not_rw -m visitor_mir_rw)"
-#   "$not_rw_bin" --bench
-#   "$mir_rw_bin" --bench
+#
+# Running either binary directly (as below) - rather than through
+# cargo bench itself - means nothing tells criterion which --target-dir
+# it was originally built with, so it falls back to `cargo metadata`'s
+# own default (target/) rather than the target-not-rw//target-mir-rw/
+# actually used here; set CARGO_TARGET_DIR explicitly (each binary's
+# own target dir is always three directories up from the binary
+# itself) so criterion's own reports land where they're expected:
+#   CARGO_TARGET_DIR="$(dirname "$(dirname "$(dirname "$not_rw_bin")")")" \
+#       "$not_rw_bin" --bench
+#   CARGO_TARGET_DIR="$(dirname "$(dirname "$(dirname "$mir_rw_bin")")")" \
+#       "$mir_rw_bin" --bench
 
 set -euo pipefail
 
@@ -87,7 +97,7 @@ while getopts "d:b:n:m:sh" opt; do
         m) MIR_RW_NAME="$OPTARG" ;;
         s) SKIP_DISCOVERY=1 ;;
         h)
-            sed -n '2,72p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,82p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)

@@ -10,8 +10,9 @@
 // rewrite mechanism actually gets to run.
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
+use rand::Rng;
 
-struct SpeakBetterDogs;
+pub struct SpeakBetterDogs;
 
 impl AnimalVisitor for SpeakBetterDogs {
     fn receive_dog(&self, _a: &dyn Animal) -> usize {

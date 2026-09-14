@@ -52,9 +52,17 @@
 #                    verifopt_store.json already exists on disk. The
 #                    explicit opt-out mentioned above - the default,
 #                    with this flag absent, always re-runs discovery.
-#   -- EXTRA_ARGS    Forwarded as-is to every cargo verifopt invocation
-#                    (e.g. --target-dir, if the example's own default
-#                    target/ shouldn't be used).
+#   -- EXTRA_ARGS    Forwarded as-is to every cargo verifopt invocation.
+#                    Each of the three builds (discovery, baseline,
+#                    rewritten) already defaults to its own, separate
+#                    --target-dir (target-discovery/target-not-rw/
+#                    target-mir-rw) - so cargo can never clean up one
+#                    build's own artifact as part of a later,
+#                    unrelated build sharing the same directory. Pass
+#                    your own --target-dir here to override this
+#                    default (it comes after this script's own, so it
+#                    wins) - but note doing so reintroduces the
+#                    original risk this default exists to avoid.
 #
 # On success, prints exactly two lines on stdout - nothing else - so
 # it's safe to source directly, e.g.:
@@ -79,7 +87,7 @@ while getopts "d:b:n:m:sh" opt; do
         m) MIR_RW_NAME="$OPTARG" ;;
         s) SKIP_DISCOVERY=1 ;;
         h)
-            sed -n '2,64p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,72p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -133,21 +141,19 @@ for line in sys.stdin:
 if not candidates:
     sys.exit(0)
 
-# Prefer an artifact whose own target kind matches what was asked for -
-# matters once more than one compiler-artifact message shows up in the
-# same build. Only falls back to "the one candidate" when there is
-# exactly one - genuinely unambiguous, e.g. if that field happened to
-# be missing. With more than one candidate and none matching the
-# requested kind, that is a real failure (the intended target never
-# produced an artifact at all, even though something else in the same
-# build - a dependency, unrelated to what was actually asked for - did)
-# and should be reported as such, not silently papered over by
-# returning the artifact of some other target instead.
+# Require an exact kind match - no fallback at all. cargo always
+# includes a "kind" field on every compiler-artifact message, so there
+# is no genuine "field missing" case to fall back for. A fallback here
+# is never actually safe: even when there is only one candidate, it can
+# still be the wrong one if its own kind does not match what was asked
+# for - e.g. the primary --bin target, still sitting in the same build
+# graph from an earlier pass, re-reported here even though the actual,
+# requested target (a --bench) never produced an artifact at all. If
+# nothing matches the requested kind, that is a real failure and should
+# be reported as such, not silently papered over by guessing.
 matching = [msg["executable"] for msg in candidates if want_kind in ((msg.get("target") or {}).get("kind") or [])]
 if matching:
     print(matching[-1])
-elif len(candidates) == 1:
-    print(candidates[-1]["executable"])
 ' "$want_kind" <<< "$build_output"
 }
 
@@ -185,8 +191,8 @@ if [ "$SKIP_DISCOVERY" -eq 1 ]; then
     echo "=== -s passed: skipping discovery pass, reusing existing verifopt_store.json ===" >&2
 else
     echo "=== discovery pass: cargo verifopt --release --bin $BIN_NAME (main binary) ===" >&2
-    (cd "$EXAMPLE_DIR" && cargo clean "${extra_args[@]}") >&2
-    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --message-format=json "${extra_args[@]}")" || true
+    (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
+    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
     if [ -z "$discovery_output" ]; then
         echo "error: discovery pass (cargo verifopt --release --bin $BIN_NAME) produced no output - build likely failed" >&2
         exit 1
@@ -194,12 +200,12 @@ else
 fi
 
 echo "=== baseline build: cargo verifopt --bench $NOT_RW_NAME --skip-analysis --skip-rewrite ===" >&2
-not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$NOT_RW_NAME" --skip-analysis --skip-rewrite --message-format=json "${extra_args[@]}")" || true
+not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$NOT_RW_NAME" --skip-analysis --skip-rewrite --target-dir target-not-rw --message-format=json "${extra_args[@]}")" || true
 if [ -z "$not_rw_output" ]; then
     echo "error: baseline build (cargo verifopt --bench $NOT_RW_NAME --skip-analysis --skip-rewrite) produced no output - build likely failed" >&2
     exit 1
 fi
-not_rw_bin="$(discover_binary "$not_rw_output" "bench")"
+not_rw_bin="$(discover_binary "$not_rw_output" "bench")" || true
 if [ -z "$not_rw_bin" ] || [ ! -x "$not_rw_bin" ]; then
     echo "error: could not discover a built, executable baseline bench binary - compiler diagnostics follow:" >&2
     print_compiler_errors "$not_rw_output"
@@ -207,12 +213,12 @@ if [ -z "$not_rw_bin" ] || [ ! -x "$not_rw_bin" ]; then
 fi
 
 echo "=== rewritten build: cargo verifopt --bench $MIR_RW_NAME --skip-analysis ===" >&2
-mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$MIR_RW_NAME" --skip-analysis --message-format=json "${extra_args[@]}")" || true
+mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$MIR_RW_NAME" --skip-analysis --target-dir target-mir-rw --message-format=json "${extra_args[@]}")" || true
 if [ -z "$mir_rw_output" ]; then
     echo "error: rewritten build (cargo verifopt --bench $MIR_RW_NAME --skip-analysis) produced no output - build likely failed" >&2
     exit 1
 fi
-mir_rw_bin="$(discover_binary "$mir_rw_output" "bench")"
+mir_rw_bin="$(discover_binary "$mir_rw_output" "bench")" || true
 if [ -z "$mir_rw_bin" ] || [ ! -x "$mir_rw_bin" ]; then
     echo "error: could not discover a built, executable rewritten bench binary - compiler diagnostics follow:" >&2
     print_compiler_errors "$mir_rw_output"

@@ -1,6 +1,5 @@
 pub trait Animal {
     fn speak(&self) -> usize;
-    fn walk(&self) -> usize;
 }
 
 #[inline(never)]
@@ -19,17 +18,16 @@ impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
     }
-    fn walk(&self) -> usize {
-        33333
-    }
 }
 
 impl Animal for Dog {
     fn speak(&self) -> usize {
         22222
     }
-    fn walk(&self) -> usize {
-        44444
-    }
+}
+
+#[inline(never)]
+pub fn wrap_dyn_call(a: Box<dyn Animal>) -> usize {
+    a.speak()
 }
 

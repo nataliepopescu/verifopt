@@ -7,30 +7,12 @@
 // in verifopt_store.json actually get applied by the modified
 // compiler's own codegen_mir hook during this build.
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
+use visitor_decl::Animal;
+use visitor_use::{SpeakBetterDogs, get_animal, wrap_dyn_call};
 use rand::Rng;
 
-pub struct SpeakBetterDogs;
-
-impl AnimalVisitor for SpeakBetterDogs {
-    fn receive_dog(&self, _a: &dyn Animal) -> usize {
-        44444
-    }
-    fn receive_cat(&self, a: &dyn Animal) -> usize {
-        a.speak()
-    }
-}
-
-fn get_animal(num: usize) -> Box<dyn Animal> {
-    if num == 0 {
-        Box::new(Cat {})
-    } else {
-        Box::new(Dog {})
-    }
-}
-
 pub fn run(a: Box<dyn Animal>, dc: &SpeakBetterDogs) -> usize {
-    a.visit(dc)
+    wrap_dyn_call(a, dc)
 }
 
 fn bench_visitor(c: &mut Criterion) {

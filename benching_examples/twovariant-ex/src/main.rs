@@ -1,7 +1,7 @@
 #![feature(ptr_metadata)]
 #![allow(dead_code)]
 
-use negative_ex::{inner_main, get_animal, wrap_dyn_call_from_outer};
+use twovariant_ex::{inner_main, get_animal, wrap_dyn_call_from_outer};
 
 fn main() {
     inner_main();

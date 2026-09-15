@@ -1,5 +1,5 @@
 [package]
-name = "negative-ex"
+name = "twovariant-ex"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,5 +7,5 @@ edition = "2024"
 criterion = { version = "0.7.0", features = ["html_reports"] }
 
 [[bench]]
-name = "negative_bench"
+name = "twovariant_bench"
 harness = false

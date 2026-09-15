@@ -60,9 +60,8 @@ def load_estimates(path):
         data = json.load(f)
     return {
         "mean": data["mean"]["point_estimate"],
-        "mean_stddev": data["mean"]["standard_error"],
         "median": data["median"]["point_estimate"],
-        "median_stddev": data["median"]["standard_error"],
+        "std_dev": data["std_dev"]["point_estimate"],
     }
 
 
@@ -136,7 +135,7 @@ def main():
 
     labels = [args.label1, args.label2]
     means = [e1["mean"] / unit_div, e2["mean"] / unit_div]
-    mean_errs = [e1["mean_stddev"] / unit_div, e2["mean_stddev"] / unit_div]
+    mean_errs = [e1["std_dev"] / unit_div, e2["std_dev"] / unit_div]
     medians = [e1["median"] / unit_div, e2["median"] / unit_div]
 
     mean_pct = pct_change(e1["mean"], e2["mean"])

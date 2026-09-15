@@ -76,10 +76,8 @@
 # actually used here; set CARGO_TARGET_DIR explicitly (each binary's
 # own target dir is always three directories up from the binary
 # itself) so criterion's own reports land where they're expected:
-#   CARGO_TARGET_DIR="$(dirname "$(dirname "$(dirname "$not_rw_bin")")")" \
-#       "$not_rw_bin" --bench
-#   CARGO_TARGET_DIR="$(dirname "$(dirname "$(dirname "$mir_rw_bin")")")" \
-#       "$mir_rw_bin" --bench
+#   CARGO_TARGET_DIR="$(dirname "$(dirname "$(dirname "$not_rw_bin")")")" "$not_rw_bin" --bench
+#   CARGO_TARGET_DIR="$(dirname "$(dirname "$(dirname "$mir_rw_bin")")")" "$mir_rw_bin" --bench
 
 set -euo pipefail
 

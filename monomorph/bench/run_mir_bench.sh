@@ -8,7 +8,13 @@
 # run, possibly against different source) never silently gets reused
 # without the caller explicitly asking for that via -s, and the two
 # bench targets can never end up built from two different discovery
-# runs against each other.
+# runs against each other. Discovery also deletes any leftover
+# verifopt_needs_rewrite_pass marker for the same reason - left over
+# from an earlier run, its mere presence (regardless of this
+# invocation's own flags) makes cargo-verifopt's own
+# call_cargo_on_target always trigger a second, clean-and-rebuild pass,
+# since that decision is based purely on the marker file's own
+# existence on disk, not on what flags actually got passed this time.
 #
 # The discovery pass explicitly targets --bin BIN_NAME rather than
 # omitting --bin entirely - without an explicit target, cargo-verifopt
@@ -97,7 +103,7 @@ while getopts "d:b:n:m:sh" opt; do
         n) BENCH_NAME="$OPTARG" ;;
         s) SKIP_DISCOVERY=1 ;;
         h)
-            sed -n '2,82p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,86p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -207,6 +213,7 @@ else
     echo "=== discovery pass: cargo verifopt --release --bin $BIN_NAME (main binary) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
     rm -f "$EXAMPLE_DIR/verifopt_store.json"
+    rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
     discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
     if [ -z "$discovery_output" ]; then
         echo "error: discovery pass (cargo verifopt --release --bin $BIN_NAME) produced no output - build likely failed" >&2

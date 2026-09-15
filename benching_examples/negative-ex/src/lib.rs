@@ -27,7 +27,18 @@ impl Animal for Dog {
 }
 
 #[inline(never)]
-pub fn wrap_dyn_call(a: &dyn Animal) -> usize {
+pub fn wrap_dyn_call1(a: &dyn Animal) -> usize {
     a.speak()
+}
+
+#[inline(never)]
+pub fn wrap_dyn_call2(a: &dyn Animal) -> usize {
+    a.speak()
+}
+
+pub fn inner_main() {
+    let x = 0;
+    let animal = get_animal(x);
+    std::hint::black_box(wrap_dyn_call2(&*animal));
 }
 

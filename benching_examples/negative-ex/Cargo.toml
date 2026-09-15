@@ -7,9 +7,5 @@ edition = "2024"
 criterion = { version = "0.7.0", features = ["html_reports"] }
 
 [[bench]]
-name = "negative_not_rw"
-harness = false
-
-[[bench]]
-name = "negative_mir_rw"
+name = "negative_bench"
 harness = false

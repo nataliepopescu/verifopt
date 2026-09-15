@@ -83,16 +83,18 @@ set -euo pipefail
 
 EXAMPLE_DIR=""
 BIN_NAME=""
-NOT_RW_NAME=""
-MIR_RW_NAME=""
+#NOT_RW_NAME=""
+#MIR_RW_NAME=""
+BENCH_NAME=""
 SKIP_DISCOVERY=0
 
 while getopts "d:b:n:m:sh" opt; do
     case "$opt" in
         d) EXAMPLE_DIR="$OPTARG" ;;
         b) BIN_NAME="$OPTARG" ;;
-        n) NOT_RW_NAME="$OPTARG" ;;
-        m) MIR_RW_NAME="$OPTARG" ;;
+        #n) NOT_RW_NAME="$OPTARG" ;;
+        #m) MIR_RW_NAME="$OPTARG" ;;
+        n) BENCH_NAME="$OPTARG" ;;
         s) SKIP_DISCOVERY=1 ;;
         h)
             sed -n '2,82p' "$0" | sed 's/^# \{0,1\}//'
@@ -119,12 +121,16 @@ if [ -z "$BIN_NAME" ]; then
     echo "error: -b BIN_NAME is required" >&2
     exit 1
 fi
-if [ -z "$NOT_RW_NAME" ]; then
-    echo "error: -n NOT_REWRITTEN_BENCH is required" >&2
-    exit 1
-fi
-if [ -z "$MIR_RW_NAME" ]; then
-    echo "error: -m MIR_REWRITTEN_BENCH is required" >&2
+#if [ -z "$NOT_RW_NAME" ]; then
+#    echo "error: -n NOT_REWRITTEN_BENCH is required" >&2
+#    exit 1
+#fi
+#if [ -z "$MIR_RW_NAME" ]; then
+#    echo "error: -m MIR_REWRITTEN_BENCH is required" >&2
+#    exit 1
+#fi
+if [ -z "$BENCH_NAME" ]; then
+    echo "error: -n BENCH_NAME is required" >&2
     exit 1
 fi
 
@@ -208,10 +214,10 @@ else
     fi
 fi
 
-echo "=== baseline build: cargo verifopt --bench $NOT_RW_NAME --skip-analysis --skip-rewrite ===" >&2
-not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$NOT_RW_NAME" --skip-analysis --skip-rewrite --target-dir target-not-rw --message-format=json "${extra_args[@]}")" || true
+echo "=== baseline build: cargo verifopt --bench $BENCH_NAME --skip-analysis --skip-rewrite ===" >&2
+not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --skip-analysis --skip-rewrite --target-dir target-not-rw --message-format=json "${extra_args[@]}")" || true
 if [ -z "$not_rw_output" ]; then
-    echo "error: baseline build (cargo verifopt --bench $NOT_RW_NAME --skip-analysis --skip-rewrite) produced no output - build likely failed" >&2
+    echo "error: baseline build (cargo verifopt --bench $BENCH_NAME --skip-analysis --skip-rewrite) produced no output - build likely failed" >&2
     exit 1
 fi
 not_rw_bin="$(discover_binary "$not_rw_output" "bench")" || true
@@ -221,10 +227,10 @@ if [ -z "$not_rw_bin" ] || [ ! -x "$not_rw_bin" ]; then
     exit 1
 fi
 
-echo "=== rewritten build: cargo verifopt --bench $MIR_RW_NAME --skip-analysis ===" >&2
-mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$MIR_RW_NAME" --skip-analysis --target-dir target-mir-rw --message-format=json "${extra_args[@]}")" || true
+echo "=== rewritten build: cargo verifopt --bench $BENCH_NAME --skip-analysis ===" >&2
+mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --skip-analysis --target-dir target-mir-rw --message-format=json "${extra_args[@]}")" || true
 if [ -z "$mir_rw_output" ]; then
-    echo "error: rewritten build (cargo verifopt --bench $MIR_RW_NAME --skip-analysis) produced no output - build likely failed" >&2
+    echo "error: rewritten build (cargo verifopt --bench $BENCH_NAME --skip-analysis) produced no output - build likely failed" >&2
     exit 1
 fi
 mir_rw_bin="$(discover_binary "$mir_rw_output" "bench")" || true

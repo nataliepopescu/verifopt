@@ -27,7 +27,7 @@ impl Animal for Dog {
 }
 
 #[inline(never)]
-pub fn wrap_dyn_call(a: Box<dyn Animal>) -> usize {
+pub fn wrap_dyn_call(a: &dyn Animal) -> usize {
     a.speak()
 }
 

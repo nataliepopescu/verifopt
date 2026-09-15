@@ -202,6 +202,7 @@ if [ "$SKIP_DISCOVERY" -eq 1 ]; then
 else
     echo "=== discovery pass: cargo verifopt --release --bin $BIN_NAME (main binary) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
+    rm -f "$EXAMPLE_DIR/verifopt_store.json"
     discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
     if [ -z "$discovery_output" ]; then
         echo "error: discovery pass (cargo verifopt --release --bin $BIN_NAME) produced no output - build likely failed" >&2

@@ -1,7 +1,7 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use negative_ex::{Animal, get_animal, wrap_dyn_call};
 
-pub fn run(a: Box<dyn Animal>) -> usize {
+pub fn run(a: &dyn Animal) -> usize {
     wrap_dyn_call(a)
 }
 
@@ -11,7 +11,7 @@ fn bench_negative(c: &mut Criterion) {
     group.bench_function("negative_not_rw", |b| {
         b.iter_batched(
             || get_animal(x),
-            |animal| std::hint::black_box(run(animal)),
+            |animal| std::hint::black_box(run(&*animal)),
             BatchSize::SmallInput,
         )
     });

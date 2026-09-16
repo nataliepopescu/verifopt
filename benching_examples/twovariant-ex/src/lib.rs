@@ -2,19 +2,19 @@ pub trait Animal {
     fn speak(&self) -> usize;
 }
 
-#[inline(never)]
-pub fn get_cat() -> Cat {
-    Cat {}
-}
-
-#[inline(never)]
-pub fn get_animal(num: usize) -> Box<dyn Animal> {
-    if num == 0 {
-        Box::new(Cat {})
-    } else {
-        Box::new(Dog {})
-    }
-}
+//#[inline(never)]
+//pub fn get_cat() -> Cat {
+//    Cat {}
+//}
+//
+//#[inline(never)]
+//pub fn get_animal(num: usize) -> Box<dyn Animal> {
+//    if num == 0 {
+//        Box::new(Cat {})
+//    } else {
+//        Box::new(Dog {})
+//    }
+//}
 
 pub struct Cat;
 pub struct Dog;
@@ -52,8 +52,8 @@ pub fn wrap_cat_call(c: &Cat) -> usize {
 }
 
 pub fn inner_main() {
-    let x = 0;
-    let animal = get_animal(x);
+    //let x = 0;
+    let animal: Box<dyn Animal> = Box::new(Cat {}); //get_animal(x);
     std::hint::black_box(wrap_dyn_call_from_inner(&*animal));
 }
 

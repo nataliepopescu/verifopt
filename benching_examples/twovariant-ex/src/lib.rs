@@ -41,10 +41,10 @@ pub fn wrap_dyn_call_from_outer(a: &dyn Animal) -> usize {
     a.speak()
 }
 
-#[inline(never)]
-pub fn wrap_dyn_call(a: &dyn Animal) -> usize {
-    a.speak()
-}
+//#[inline(never)]
+//pub fn wrap_dyn_call(a: &dyn Animal) -> usize {
+//    a.speak()
+//}
 
 #[inline(never)]
 pub fn wrap_cat_call(c: &Cat) -> usize {

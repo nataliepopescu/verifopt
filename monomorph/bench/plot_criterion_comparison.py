@@ -81,6 +81,7 @@ target-not-rw and target-mir-rw):
 import argparse
 import json
 import os
+import re
 import sys
 
 import matplotlib
@@ -159,6 +160,26 @@ def classify_target_dir(target_dir_name):
     return None
 
 
+def extract_bench_order(bench_file_path):
+    """Reads an actual criterion benchmark .rs file directly and returns
+    the list of benchmark names in the order their own bench_function(...)
+    calls appear in the source - the only reliable way to know this
+    order, since estimates.json itself carries no such information at
+    all. Skips commented-out (//) lines, so a benchmark temporarily
+    disabled in source doesn't still influence ordering.
+    """
+    order = []
+    pattern = re.compile(r'bench_function\(\s*"([^"]+)"')
+    with open(bench_file_path) as f:
+        for line in f:
+            if line.strip().startswith("//"):
+                continue
+            match = pattern.search(line)
+            if match:
+                order.append(match.group(1))
+    return order
+
+
 def discover_paired_groups(roots):
     """Recursively finds every criterion estimates.json under the given
     root directories, grouping them by
@@ -226,6 +247,12 @@ def main():
         default=[],
         help="recursively find every estimates.json under the given root director(y/ies), auto-grouping and auto-pairing baseline/rewritten by --target-dir name",
     )
+    ap.add_argument(
+        "--order-from",
+        metavar="BENCH_RS_FILE",
+        default=None,
+        help="order results the way their bench_function(...) calls appear in this actual benchmark .rs source file, rather than alphabetically by discovered path; groups whose benchmark name isn't found in the file keep their own, original relative order, appended after the ones that are",
+    )
     ap.add_argument("-o", "--output", default="criterion_comparison.png", help="output image path")
     args = ap.parse_args()
 
@@ -273,6 +300,23 @@ def main():
             file=sys.stderr,
         )
         sys.exit(1)
+
+    if args.order_from:
+        bench_order = extract_bench_order(args.order_from)
+        if not bench_order:
+            print(f"note: --order-from '{args.order_from}' matched no bench_function(...) calls - order left unchanged", file=sys.stderr)
+        else:
+            def sort_key(indexed_group):
+                original_index, (label, _, _) = indexed_group
+                benchmark_name = label.split("/")[-1]
+                try:
+                    return (bench_order.index(benchmark_name), 0)
+                except ValueError:
+                    return (len(bench_order), original_index)
+
+            complete_groups = [
+                group for _, group in sorted(enumerate(complete_groups), key=sort_key)
+            ]
 
     data = []
     for label, baseline_path, rewritten_path in complete_groups:

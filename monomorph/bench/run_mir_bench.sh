@@ -88,7 +88,7 @@
 set -euo pipefail
 
 EXAMPLE_DIR=""
-BIN_NAME=""
+#BIN_NAME=""
 #NOT_RW_NAME=""
 #MIR_RW_NAME=""
 BENCH_NAME=""
@@ -97,7 +97,7 @@ SKIP_DISCOVERY=0
 while getopts "d:b:n:m:sh" opt; do
     case "$opt" in
         d) EXAMPLE_DIR="$OPTARG" ;;
-        b) BIN_NAME="$OPTARG" ;;
+        #b) BIN_NAME="$OPTARG" ;;
         #n) NOT_RW_NAME="$OPTARG" ;;
         #m) MIR_RW_NAME="$OPTARG" ;;
         n) BENCH_NAME="$OPTARG" ;;
@@ -123,10 +123,10 @@ if [ ! -f "$EXAMPLE_DIR/Cargo.toml" ]; then
     echo "error: no Cargo.toml found under $EXAMPLE_DIR" >&2
     exit 1
 fi
-if [ -z "$BIN_NAME" ]; then
-    echo "error: -b BIN_NAME is required" >&2
-    exit 1
-fi
+#if [ -z "$BIN_NAME" ]; then
+#    echo "error: -b BIN_NAME is required" >&2
+#    exit 1
+#fi
 #if [ -z "$NOT_RW_NAME" ]; then
 #    echo "error: -n NOT_REWRITTEN_BENCH is required" >&2
 #    exit 1
@@ -210,13 +210,15 @@ for line in sys.stdin:
 if [ "$SKIP_DISCOVERY" -eq 1 ]; then
     echo "=== -s passed: skipping discovery pass, reusing existing verifopt_store.json ===" >&2
 else
-    echo "=== discovery pass: cargo verifopt --release --bin $BIN_NAME (main binary) ===" >&2
+    echo "=== discovery pass: cargo verifopt --bench $BENCH_NAME (main binary) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
+    rm -f "$EXAMPLE_DIR/mir_dump.txt"
     rm -f "$EXAMPLE_DIR/verifopt_store.json"
     rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
-    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
+    rm -f "$EXAMPLE_DIR/verifopt_edit_kind_stats.txt"
+    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
     if [ -z "$discovery_output" ]; then
-        echo "error: discovery pass (cargo verifopt --release --bin $BIN_NAME) produced no output - build likely failed" >&2
+        echo "error: discovery pass (cargo verifopt --bench $BENCH_NAME) produced no output - build likely failed" >&2
         exit 1
     fi
 fi

@@ -1732,6 +1732,14 @@ impl<'a> InterpPass<'a> {
                 r
             }
             InstanceKind::Virtual { .. } => {
+                eprintln!(
+                    "[verifopt debug][dispatch_call Virtual] fndef={:?} cur_scope_def={:?} cur_scope_genargs={:?} new_scope_def={:?} new_scope_genargs={:?}",
+                    fndef,
+                    cur_scope.0.def.def_id(),
+                    cur_scope.1,
+                    new_scope.0.def.def_id(),
+                    new_scope.1,
+                );
                 let _timing_guard = self.timing_span(TimingCat::TermInterpVirtualCall, cur_scope);
                 let r = self.interp_virtual_call(
                     term_span,
@@ -2398,6 +2406,13 @@ impl<'a> InterpPass<'a> {
         debug!("trait_defid: {:?}", trait_defid);
 
         let key = (caller_scope.0.def.def_id(), bb, caller_scope.1.clone());
+        eprintln!(
+            "[verifopt debug][interp_virtual_call key] fndef={:?} caller_def={:?} bb={:?} caller_genargs={:?}",
+            fndef,
+            key.0,
+            key.1,
+            key.2,
+        );
 
         let _timing_guard = self.timing_span(TimingCat::TermVirtualMemo, caller_scope);
         let resolved_args: Vec<Constraints> = args
@@ -3198,6 +3213,14 @@ impl<'a> InterpPass<'a> {
                                 push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
                             )
                         });
+                    eprintln!(
+                        "[verifopt debug][simulate_static_calls] assoc_fn_impl={:?} is_virtual={:?} genargs={:?} callee_scope_def={:?} callee_scope_genargs={:?}",
+                        assoc_fn_impl,
+                        is_virtual,
+                        genargs,
+                        callee_scope.0.def.def_id(),
+                        callee_scope.1,
+                    );
                     drop(_timing_guard);
 
                     // the `if` and `else if` blocks might be creating a soundness error...
@@ -3253,6 +3276,7 @@ impl<'a> InterpPass<'a> {
 
                             let body = if is_virtual {
                                 // FIXME not monomorphized
+                                eprintln!("BODY NOT MONOMORPHIZED");
                                 fndef.body().unwrap()
                             } else {
                                 self.get_body(&callee_scope)

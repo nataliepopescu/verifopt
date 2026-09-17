@@ -16,11 +16,11 @@ use visitor_use::{
     wrap_visit_dynanimal,
     //wrap_visit_dynanimal2,
     //wrap_visit_dynanimal3,
-    //wrap_visit_dynvisitor_direct_sbd,
+    wrap_visit_dynvisitor_direct_sbd,
     //wrap_visit_dynvisitor_funcret_sbd,
     //wrap_visit_dynvisitor_direct_sbc,
     //wrap_visit_dynvisitor_funcret_sbc,
-    //wrap_visit_dynboth,
+    wrap_visit_dynboth,
     //wrap_visit_dynboth2,
     //wrap_visit_dynboth3,
     //wrap_visit_dynboth4,
@@ -52,6 +52,7 @@ fn bench_visitor(c: &mut Criterion) {
     let sbd = SpeakBetterDogs;
     let d = Dog;
     let mut group = c.benchmark_group("visitor");
+
     //group.bench_function("visitor_speak", |b| {
     //    b.iter_batched(
     //        || {},

@@ -3139,8 +3139,8 @@ impl<'a> InterpPass<'a> {
                                 .cloned()
                                 .collect(),
                         )
-                    } else if !is_closure && adt_genargs.is_some() {
-                        adt_genargs.clone().unwrap()
+                    } else if !is_closure {
+                        adt_genargs.clone().unwrap_or_else(|| GenericArgs(Vec::new()))
                     } else {
                         method_genargs.clone()
                     };

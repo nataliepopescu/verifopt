@@ -1,15 +1,15 @@
 use visitor_decl::{Animal, AnimalVisitor, Dog, Cat};
 use visitor_use::{
     SpeakBetterDogs, SpeakBetterCats,
-    //wrap_speak, wrap_receive_dog,
+    wrap_speak, wrap_receive_dog,
     wrap_visit_dynanimal,
     //wrap_visit_dynanimal2,
     //wrap_visit_dynanimal3,
-    //wrap_visit_dynvisitor_direct_sbd,
+    wrap_visit_dynvisitor_direct_sbd,
     //wrap_visit_dynvisitor_funcret_sbd,
     //wrap_visit_dynvisitor_direct_sbc,
     //wrap_visit_dynvisitor_funcret_sbc,
-    //wrap_visit_dynboth,
+    wrap_visit_dynboth,
     //wrap_visit_dynboth2,
     //wrap_visit_dynboth3,
     //wrap_visit_dynboth4,

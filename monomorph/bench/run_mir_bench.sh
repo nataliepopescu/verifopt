@@ -15,6 +15,16 @@
 # call_cargo_on_target always trigger a second, clean-and-rebuild pass,
 # since that decision is based purely on the marker file's own
 # existence on disk, not on what flags actually got passed this time.
+# Each of the three builds also cleans its own --target-dir immediately
+# before running - discovery's own target-discovery was already always
+# cleaned this way; target-not-rw/target-mir-rw now are too, since
+# rustc's own incremental compilation only ever fingerprints
+# source-level inputs, with no visibility into the store's own,
+# external state changing between runs - so a function whose own
+# rewrite already, genuinely succeeded once can otherwise have that
+# same, cached codegen result silently reused on a later run, without
+# the rewrite hook ever genuinely re-running for it at all, even after
+# the store itself changed.
 #
 # The discovery pass explicitly targets --bin BIN_NAME rather than
 # omitting --bin entirely - without an explicit target, cargo-verifopt
@@ -103,7 +113,7 @@ while getopts "d:b:n:m:sh" opt; do
         n) BENCH_NAME="$OPTARG" ;;
         s) SKIP_DISCOVERY=1 ;;
         h)
-            sed -n '2,86p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,96p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -224,6 +234,7 @@ else
 fi
 
 echo "=== baseline build: cargo verifopt --bench $BENCH_NAME --skip-analysis --skip-rewrite ===" >&2
+(cd "$EXAMPLE_DIR" && cargo clean --target-dir target-not-rw "${extra_args[@]}") >&2
 not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --skip-analysis --skip-rewrite --target-dir target-not-rw --message-format=json "${extra_args[@]}")" || true
 if [ -z "$not_rw_output" ]; then
     echo "error: baseline build (cargo verifopt --bench $BENCH_NAME --skip-analysis --skip-rewrite) produced no output - build likely failed" >&2
@@ -237,6 +248,7 @@ if [ -z "$not_rw_bin" ] || [ ! -x "$not_rw_bin" ]; then
 fi
 
 echo "=== rewritten build: cargo verifopt --bench $BENCH_NAME --skip-analysis ===" >&2
+(cd "$EXAMPLE_DIR" && cargo clean --target-dir target-mir-rw "${extra_args[@]}") >&2
 mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --skip-analysis --target-dir target-mir-rw --message-format=json "${extra_args[@]}")" || true
 if [ -z "$mir_rw_output" ]; then
     echo "error: rewritten build (cargo verifopt --bench $BENCH_NAME --skip-analysis) produced no output - build likely failed" >&2

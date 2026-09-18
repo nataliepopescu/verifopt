@@ -15,6 +15,19 @@
 # call_cargo_on_target always trigger a second, clean-and-rebuild pass,
 # since that decision is based purely on the marker file's own
 # existence on disk, not on what flags actually got passed this time.
+# Deleted again, right after discovery's own flow genuinely completes
+# (only inside its own branch below - not when -s skips discovery
+# entirely, since a reused store might still genuinely need the
+# baseline/rewritten builds to see a marker left from an earlier run) -
+# without this second deletion, discovery's own, already-completed
+# second pass (if it ran one) leaves the marker sitting on disk, and
+# the baseline/rewritten builds' own, separate call_cargo_on_target
+# calls each see it too, redundantly re-triggering their own copy of a
+# pass the store no longer needs by that point - which is exactly how
+# a single edit could end up applied three times instead of once: one
+# genuine application during discovery's own second pass, plus two
+# redundant, duplicate ones from the rewritten build's own two
+# internal passes.
 # Each of the three builds also cleans its own --target-dir immediately
 # before running - discovery's own target-discovery was already always
 # cleaned this way; target-not-rw/target-mir-rw now are too, since
@@ -127,6 +140,54 @@
 
 set -euo pipefail
 
+SPINNER_PID=""
+
+# start_spinner/stop_spinner: a simple progress indicator for each of
+# the three, long-running builds below, written directly to /dev/tty -
+# the controlling terminal device itself, a genuinely separate target
+# from both stdout (fd 1, captured by the caller's own $(...) command
+# substitution, per this script's own "prints exactly two lines on
+# stdout" contract above) and stderr (fd 2, typically redirected by the
+# caller to its own log file, e.g. `... 2> err.log`). Writing here
+# instead means the spinner shows up on-screen without polluting
+# either. The actual write attempt below is wrapped in a subshell so
+# its own stderr redirection catches a shell-level "no such device"
+# setup error too, not just a command-level one - a simpler
+# `[ ! -w /dev/tty ]` file test isn't reliable enough on its own, since
+# /dev/tty can exist as a device node and pass that test even without
+# a genuine, usable controlling terminal attached (e.g. running
+# non-interactively, in CI) - in which case the actual write still
+# fails, and its own error message would otherwise leak straight to
+# stderr regardless of any redirection on the write itself.
+
+start_spinner() {
+    if ! ( : > /dev/tty ) 2>/dev/null; then
+        return
+    fi
+    (
+        chars='|/-\'
+        i=0
+        while true; do
+            printf '\r%s %s' "${chars:i%${#chars}:1}" "$1" > /dev/tty 2>/dev/null || exit
+            i=$((i + 1))
+            sleep 0.1
+        done
+    ) &
+    SPINNER_PID=$!
+    disown
+}
+
+stop_spinner() {
+    if [ -n "$SPINNER_PID" ]; then
+        kill "$SPINNER_PID" 2>/dev/null || true
+        wait "$SPINNER_PID" 2>/dev/null || true
+        SPINNER_PID=""
+        ( printf '\r%*s\r' 60 "" > /dev/tty ) 2>/dev/null || true
+    fi
+}
+
+trap stop_spinner EXIT
+
 EXAMPLE_DIR=""
 BIN_NAME=""
 #NOT_RW_NAME=""
@@ -145,7 +206,7 @@ while getopts "d:b:n:m:svh" opt; do
         s) SKIP_DISCOVERY=1 ;;
         v) VERBOSE=1 ;;
         h)
-            sed -n '2,102p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,139p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -262,16 +323,21 @@ else
     rm -f "$EXAMPLE_DIR/verifopt_store.json"
     rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
     rm -f "$EXAMPLE_DIR/verifopt_edit_kind_stats.txt"
+    start_spinner "discovery pass running..."
     discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
+    stop_spinner
     if [ -z "$discovery_output" ]; then
         echo "error: discovery pass (cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME) produced no output - build likely failed" >&2
         exit 1
     fi
+    rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
 fi
 
 echo "=== baseline build: cargo verifopt --bench $BENCH_NAME --skip-analysis --skip-rewrite ===" >&2
 (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-not-rw "${extra_args[@]}") >&2
+start_spinner "baseline build running..."
 not_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --skip-analysis --skip-rewrite --target-dir target-not-rw --message-format=json "${extra_args[@]}")" || true
+stop_spinner
 if [ -z "$not_rw_output" ]; then
     echo "error: baseline build (cargo verifopt --bench $BENCH_NAME --skip-analysis --skip-rewrite) produced no output - build likely failed" >&2
     exit 1
@@ -285,7 +351,9 @@ fi
 
 echo "=== rewritten build: cargo verifopt --bench $BENCH_NAME --skip-analysis ===" >&2
 (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-mir-rw "${extra_args[@]}") >&2
+start_spinner "rewritten build running..."
 mir_rw_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --skip-analysis --target-dir target-mir-rw --message-format=json "${extra_args[@]}")" || true
+stop_spinner
 if [ -z "$mir_rw_output" ]; then
     echo "error: rewritten build (cargo verifopt --bench $BENCH_NAME --skip-analysis) produced no output - build likely failed" >&2
     exit 1

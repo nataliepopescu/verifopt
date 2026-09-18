@@ -116,17 +116,34 @@ fn call_cargo() {
     // separate --bench-only build already uses on its own. Must be
     // checked before the plain --bin-only branch below, since that one
     // would otherwise claim this case first.
+    //
+    // Pass bin_target here, not bench_target - target only ever affects
+    // $VERIFOPT_CRATE (see below), never the underlying cargo command
+    // itself for TargetKind::Bench, whose own arm in run_cargo_build
+    // relies entirely on the original, forwarded --bin/--bench
+    // arguments. call_rustc_or_verifopt only routes a given crate's own
+    // compilation through FsaCallbacks at all when that crate's own
+    // --crate-name matches $VERIFOPT_CRATE - passing bench_target here
+    // would make that bench_target, so visitor_use's own compilation
+    // (--crate-name visitor_use) would never match it, and would
+    // silently, permanently fall through to plain call_rustc() instead,
+    // never running the analysis on it at all. Worse, on any case where
+    // it still incidentally matched, the whole-program analysis would
+    // then start tracing from criterion's own generated entry point
+    // rather than the directly-traceable --bin target - reintroducing
+    // the exact call-path-obscuring problem this --bin+--bench
+    // combination exists to avoid in the first place.
     if let (Some(bin_target), Some(bench_target)) =
         (get_arg_flag_value("--bin"), get_arg_flag_value("--bench"))
     {
-        let _ = bin_target;
-        call_cargo_on_target(&bench_target, &TargetKind::Bench);
+        let _ = bench_target;
+        call_cargo_on_target(&bin_target, &TargetKind::Bench, Some("bin"));
         return;
     }
 
     // If a binary is specified, analyze this binary only.
     if let Some(target) = get_arg_flag_value("--bin") {
-        call_cargo_on_target(&target, &TargetKind::Bin);
+        call_cargo_on_target(&target, &TargetKind::Bin, None);
         return;
     }
 
@@ -136,7 +153,7 @@ fn call_cargo() {
     // target in the package (including the primary --bin target),
     // defeating the point of a targeted, --skip-analysis bench build.
     if let Some(target) = get_arg_flag_value("--bench") {
-        call_cargo_on_target(&target, &TargetKind::Bench);
+        call_cargo_on_target(&target, &TargetKind::Bench, None);
         return;
     }
 
@@ -162,7 +179,7 @@ fn call_cargo_on_each_package_target(package: &Package) {
         if lib_only && *kind != TargetKind::Lib {
             continue;
         }
-        call_cargo_on_target(&target.name, kind);
+        call_cargo_on_target(&target.name, kind, None);
     }
 }
 
@@ -241,7 +258,7 @@ fn pinned_toolchain_cargo() -> OsString {
     pinned_toolchain_bin("cargo").unwrap_or_else(|| OsString::from("cargo"))
 }
 
-fn call_cargo_on_target(target: &String, kind: &TargetKind) {
+fn call_cargo_on_target(target: &String, kind: &TargetKind, verifopt_kind_override: Option<&str>) {
     // Debugging escape hatch: re-run a single, plain build against
     // whatever verifopt_store.json already exists on disk (from an
     // earlier, successful discovery run), skipping this function's own
@@ -254,7 +271,7 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     // matching how --lib is already skipped in run_cargo_build for the
     // same reason.
     if has_arg_flag("--rewrite-only") {
-        run_cargo_build(target, kind, &[]);
+        run_cargo_build(target, kind, &[], verifopt_kind_override);
         return;
     }
 
@@ -268,7 +285,7 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     // dispatch site whose containing function lives outside this
     // crate - i.e. only when there's something a second pass would
     // need to act on.
-    run_cargo_build(target, kind, &[]);
+    run_cargo_build(target, kind, &[], verifopt_kind_override);
 
     if !monomorph::rewrite::needs_rewrite_pass_marker_path().exists() {
         return;
@@ -315,7 +332,7 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
     } else {
         vec!["--skip-analysis".to_owned()]
     };
-    run_cargo_build(target, kind, &second_pass_flags);
+    run_cargo_build(target, kind, &second_pass_flags, verifopt_kind_override);
 }
 
 /// Builds and runs the actual `cargo build`/`cargo test` invocation.
@@ -335,7 +352,12 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
 ///
 /// `extra_verifopt_flags` is appended into VERIFOPT_FLAGS alongside
 /// whatever the user already passed after `--`.
-fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[String]) {
+fn run_cargo_build(
+    target: &String,
+    kind: &TargetKind,
+    extra_verifopt_flags: &[String],
+    verifopt_kind_override: Option<&str>,
+) {
     // Build a cargo command for target. Prefers the cargo binary paired
     // with the toolchain verifopt itself was built against, falling back
     // to the ambient one if that toolchain has none (see
@@ -453,7 +475,10 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
 
     // Communicate the target kind of the root crate to the calls to cargo-verifopt that are invoked via
     // the RUSTC_WRAPPER setting.
-    cmd.env("VERIFOPT_TARGET_KIND", kind.to_string());
+    let verifopt_target_kind = verifopt_kind_override
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| kind.to_string());
+    cmd.env("VERIFOPT_TARGET_KIND", verifopt_target_kind);
 
     // --skip-rewrite needs to reach every crate's compilation, not just
     // the primary crate's own verifopt-driven pass: dependency crates
@@ -516,6 +541,13 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
 }
 
 fn call_rustc_or_verifopt() {
+    eprintln!(
+        "[verifopt debug][call_rustc_or_verifopt] crate_name={:?} VERIFOPT_CRATE={:?} VERIFOPT_TARGET_KIND={:?} crate_type={:?}",
+        get_arg_flag_value("--crate-name"),
+        std::env::var("VERIFOPT_CRATE"),
+        std::env::var("VERIFOPT_TARGET_KIND"),
+        get_arg_flag_value("--crate-type"),
+    );
     if let Some(crate_name) = get_arg_flag_value("--crate-name") {
         if let Ok(verifopt_crate) = std::env::var("VERIFOPT_CRATE") {
             if crate_name.eq(&verifopt_crate) {

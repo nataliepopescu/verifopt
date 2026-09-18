@@ -49,6 +49,16 @@
 # that would fail with "unexpected argument '--release' found" before
 # this script ever reaches its own, later, explicit --bench builds.
 #
+# Discovery also passes --skip-rewrite - its own job is only ever to
+# find edits and write them to the store, never to actually apply any
+# of them to its own, throwaway target-discovery build (nothing ever
+# benchmarks against that build's own output at all). Without this,
+# the modified compiler's own codegen_mir hook still applies any
+# matching rewrite it finds unconditionally, purely as an unintended
+# side effect - which is also what let a single edit end up looking
+# like it applied twice in mir_dump.txt, once genuinely in the
+# rewritten build and once, redundantly, here.
+#
 # Discovery also explicitly passes --bench BENCH_NAME alongside --bin
 # BIN_NAME, in the same invocation, rather than discovering against
 # --bin alone - confirmed directly, empirically necessary: cargo's own
@@ -206,7 +216,7 @@ while getopts "d:b:n:m:svh" opt; do
         s) SKIP_DISCOVERY=1 ;;
         v) VERBOSE=1 ;;
         h)
-            sed -n '2,139p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,149p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -317,17 +327,17 @@ for line in sys.stdin:
 if [ "$SKIP_DISCOVERY" -eq 1 ]; then
     echo "=== -s passed: skipping discovery pass, reusing existing verifopt_store.json ===" >&2
 else
-    echo "=== discovery pass: cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME (combined unit graph) ===" >&2
+    echo "=== discovery pass: cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME --skip-rewrite (combined unit graph) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
     rm -f "$EXAMPLE_DIR/mir_dump.txt"
     rm -f "$EXAMPLE_DIR/verifopt_store.json"
     rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
     rm -f "$EXAMPLE_DIR/verifopt_edit_kind_stats.txt"
     start_spinner "discovery pass running..."
-    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
+    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --bin "$BIN_NAME" --skip-rewrite --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
     stop_spinner
     if [ -z "$discovery_output" ]; then
-        echo "error: discovery pass (cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME) produced no output - build likely failed" >&2
+        echo "error: discovery pass (cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME --skip-rewrite) produced no output - build likely failed" >&2
         exit 1
     fi
     rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"

@@ -391,6 +391,11 @@ pub struct FsaCallbacks {
 
 impl Callbacks for FsaCallbacks {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
+        eprintln!(
+            "[verifopt debug][after_analysis entry] crate={:?} skip_analysis={:?}",
+            tcx.crate_name(LOCAL_CRATE),
+            self.options.skip_analysis,
+        );
         if self.options.skip_analysis {
             return Compilation::Continue;
         }
@@ -506,9 +511,28 @@ impl Callbacks for FsaCallbacks {
                 store.tags.insert((hash, bb, caller_genargs_hash), entry);
             }
 
+            eprintln!(
+                "[verifopt debug][store write check] CARGO_PRIMARY_PACKAGE={:?} store.targets.len()={} store.tags.len()={} crate={:?} path={:?}",
+                std::env::var("CARGO_PRIMARY_PACKAGE"),
+                store.targets.len(),
+                store.tags.len(),
+                tcx.crate_name(LOCAL_CRATE),
+                dep_rewrite_store_path(),
+            );
             if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
-                if let Ok(json) = serde_json::to_string(&SerializableStore::from(&*store)) {
-                    let _ = std::fs::write(dep_rewrite_store_path(), json);
+                match serde_json::to_string(&SerializableStore::from(&*store)) {
+                    Ok(json) => {
+                        eprintln!(
+                            "[verifopt debug][store write] serialized ok, {} bytes, writing to {:?}",
+                            json.len(),
+                            dep_rewrite_store_path(),
+                        );
+                        match std::fs::write(dep_rewrite_store_path(), json) {
+                            Ok(()) => eprintln!("[verifopt debug][store write] fs::write succeeded"),
+                            Err(e) => eprintln!("[verifopt debug][store write] fs::write FAILED: {:?}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("[verifopt debug][store write] serde_json::to_string FAILED: {:?}", e),
                 }
 
                 let primary_crate_id = tcx.stable_crate_id(LOCAL_CRATE);

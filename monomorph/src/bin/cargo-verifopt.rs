@@ -108,6 +108,22 @@ fn call_cargo() {
         std::process::exit(1);
     };
 
+
+    // If both --bin and --bench are given together, build via
+    // TargetKind::Bench (cargo bench, not cargo build) so the shared
+    // library crate they both depend on lands in the same unit graph -
+    // and hence gets the same -C metadata/DefPathHash - a later,
+    // separate --bench-only build already uses on its own. Must be
+    // checked before the plain --bin-only branch below, since that one
+    // would otherwise claim this case first.
+    if let (Some(bin_target), Some(bench_target)) =
+        (get_arg_flag_value("--bin"), get_arg_flag_value("--bench"))
+    {
+        let _ = bin_target;
+        call_cargo_on_target(&bench_target, &TargetKind::Bench);
+        return;
+    }
+
     // If a binary is specified, analyze this binary only.
     if let Some(target) = get_arg_flag_value("--bin") {
         call_cargo_on_target(&target, &TargetKind::Bin);

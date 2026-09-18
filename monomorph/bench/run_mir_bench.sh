@@ -36,6 +36,30 @@
 # that would fail with "unexpected argument '--release' found" before
 # this script ever reaches its own, later, explicit --bench builds.
 #
+# Discovery also explicitly passes --bench BENCH_NAME alongside --bin
+# BIN_NAME, in the same invocation, rather than discovering against
+# --bin alone - confirmed directly, empirically necessary: cargo's own
+# -C metadata (its crate-disambiguation hash, which feeds directly into
+# rustc's stable crate id, and hence every DefPathHash computed for
+# anything inside that crate) depends on the *whole unit graph* a given
+# cargo invocation builds - not just the specific target passed to
+# --bin/--bench - since building alongside a dev-dependency-requiring
+# bench target also pulls in --test-enabled variants of the same
+# package that a plain --bin build alone never needs. A --bin-only
+# discovery build therefore gives the shared library crate a genuinely
+# different -C metadata (and so a different DefPathHash) than the
+# --bench build later, separately, recompiles it with - so any edit
+# discovery finds for a function defined in that shared crate can never
+# match the store's own lookup during the later --bench build at all,
+# silently, permanently, regardless of how correct the edit itself is.
+# Passing both together puts --bin's own target into the *same* unit
+# graph the --bench build already builds on its own, giving the shared
+# crate the same metadata hash either way - while --bin itself still
+# gives discovery a directly-traceable, static entry point to analyze,
+# entirely independent of the --bench target's own, separate entry
+# point (criterion's own harness obscures the call path enough that
+# discovering through it directly, alone, doesn't work at all).
+#
 # Both bench targets pass --skip-analysis, so neither one's own codegen
 # ever triggers a *second*, redundant discovery pass over its own call
 # graph - each only ever picks up whatever the discovery step already
@@ -68,6 +92,12 @@
 #                    verifopt_store.json already exists on disk. The
 #                    explicit opt-out mentioned above - the default,
 #                    with this flag absent, always re-runs discovery.
+#   -v               Verbose: sets RUSTC_LOG=rustc_codegen_ssa::mir::
+#                    verifopt_rewrite=debug for all three builds, so the
+#                    rewrite mechanism's own debug!(...) tracing (store
+#                    load/hit messages, fn_op's own per-call failure
+#                    points, rewrite_monomorphized's own entry log)
+#                    prints to stderr. Off (silent) by default.
 #   -- EXTRA_ARGS    Forwarded as-is to every cargo verifopt invocation.
 #                    Each of the three builds (discovery, baseline,
 #                    rewritten) already defaults to its own, separate
@@ -103,8 +133,9 @@ BIN_NAME=""
 #MIR_RW_NAME=""
 BENCH_NAME=""
 SKIP_DISCOVERY=0
+VERBOSE=0
 
-while getopts "d:b:n:m:sh" opt; do
+while getopts "d:b:n:m:svh" opt; do
     case "$opt" in
         d) EXAMPLE_DIR="$OPTARG" ;;
         b) BIN_NAME="$OPTARG" ;;
@@ -112,8 +143,9 @@ while getopts "d:b:n:m:sh" opt; do
         #m) MIR_RW_NAME="$OPTARG" ;;
         n) BENCH_NAME="$OPTARG" ;;
         s) SKIP_DISCOVERY=1 ;;
+        v) VERBOSE=1 ;;
         h)
-            sed -n '2,96p' "$0" | sed 's/^# \{0,1\}//'
+            sed -n '2,102p' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
@@ -124,6 +156,10 @@ while getopts "d:b:n:m:sh" opt; do
 done
 shift $((OPTIND - 1))
 extra_args=("$@")
+
+if [ "$VERBOSE" -eq 1 ]; then
+    export RUSTC_LOG="rustc_codegen_ssa::mir::verifopt_rewrite=debug"
+fi
 
 if [ -z "$EXAMPLE_DIR" ]; then
     echo "error: -d EXAMPLE_DIR is required" >&2
@@ -220,15 +256,15 @@ for line in sys.stdin:
 if [ "$SKIP_DISCOVERY" -eq 1 ]; then
     echo "=== -s passed: skipping discovery pass, reusing existing verifopt_store.json ===" >&2
 else
-    echo "=== discovery pass: cargo verifopt --release --bin $BIN_NAME (main binary) ===" >&2
+    echo "=== discovery pass: cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME (combined unit graph) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
     rm -f "$EXAMPLE_DIR/mir_dump.txt"
     rm -f "$EXAMPLE_DIR/verifopt_store.json"
     rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
     rm -f "$EXAMPLE_DIR/verifopt_edit_kind_stats.txt"
-    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --release --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
+    discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --bin "$BIN_NAME" --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
     if [ -z "$discovery_output" ]; then
-        echo "error: discovery pass (cargo verifopt --release --bin $BIN_NAME) produced no output - build likely failed" >&2
+        echo "error: discovery pass (cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME) produced no output - build likely failed" >&2
         exit 1
     fi
 fi

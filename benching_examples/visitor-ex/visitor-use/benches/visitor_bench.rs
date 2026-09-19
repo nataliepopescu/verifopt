@@ -12,6 +12,7 @@ use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
 use visitor_use::{
     SpeakBetterCats, SpeakBetterDogs,
+    get_animal, get_visitor,
     wrap_speak, wrap_receive_dog,
 
     wrap_visit_dynanimal,
@@ -35,6 +36,7 @@ use visitor_use::{
 //use rand::Rng;
 use std::hint::black_box;
 
+/*
 fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
         return Box::new(Cat {});
@@ -50,6 +52,7 @@ fn get_visitor(num: usize) -> Box<dyn AnimalVisitor> {
         return Box::new(SpeakBetterDogs {});
     }
 }
+*/
 
 fn bench_visitor(c: &mut Criterion) {
     let sbc = SpeakBetterCats;

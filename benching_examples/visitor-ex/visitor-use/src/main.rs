@@ -1,6 +1,7 @@
 use visitor_decl::{Animal, AnimalVisitor, Dog, Cat};
 use visitor_use::{
     SpeakBetterDogs, SpeakBetterCats,
+    get_animal, get_visitor,
     wrap_speak, wrap_receive_dog,
 
     wrap_visit_dynanimal,
@@ -24,6 +25,7 @@ use visitor_use::{
 use std::hint::black_box;
 //use rand::Rng;
 
+/*
 fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
         return Box::new(Cat {});
@@ -39,6 +41,7 @@ fn get_visitor(num: usize) -> Box<dyn AnimalVisitor> {
         return Box::new(SpeakBetterDogs {});
     }
 }
+*/
 
 fn main() {
     let sbc = SpeakBetterCats;

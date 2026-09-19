@@ -68,13 +68,13 @@ fn bench_visitor(c: &mut Criterion) {
     //    )
     //});
 
-    group.bench_function("visitor_visit_dynanimal", |b| {
-        b.iter_batched(
-            || {},
-            |_| black_box(wrap_visit_dynanimal(&d, &sbd)),
-            BatchSize::SmallInput,
-        )
-    });
+    //group.bench_function("visitor_visit_dynanimal", |b| {
+    //    b.iter_batched(
+    //        || {},
+    //        |_| black_box(wrap_visit_dynanimal(&d, &sbd)),
+    //        BatchSize::SmallInput,
+    //    )
+    //});
     //group.bench_function("visitor_visit_dynanimal2", |b| {
     //    b.iter_batched(
     //        || get_animal(1),
@@ -90,13 +90,13 @@ fn bench_visitor(c: &mut Criterion) {
     //    )
     //});
 
-    //group.bench_function("visitor_visit_dynvisitor_direct_sbd", |b| {
-    //    b.iter_batched(
-    //        || {},
-    //        |_| black_box(wrap_visit_dynvisitor_direct_sbd(&d, &sbd)),
-    //        BatchSize::SmallInput,
-    //    )
-    //});
+    group.bench_function("visitor_visit_dynvisitor_direct_sbd", |b| {
+        b.iter_batched(
+            || {},
+            |_| black_box(wrap_visit_dynvisitor_direct_sbd(&d, &sbd)),
+            BatchSize::SmallInput,
+        )
+    });
     //group.bench_function("visitor_visit_dynvisitor_funcret_sbd", |b| {
     //    b.iter_batched(
     //        || get_visitor(1), 

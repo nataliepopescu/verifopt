@@ -47,14 +47,14 @@ fn main() {
     //black_box(wrap_receive_dog(&d, &sbd));
 
     // visit dyn animal
-    black_box(wrap_visit_dynanimal(&d, &sbd));
+    //black_box(wrap_visit_dynanimal(&d, &sbd));
     //let a = get_animal(1);
     //black_box(wrap_visit_dynanimal2(&*a, &sbd));
     //let a = get_animal(0);
     //black_box(wrap_visit_dynanimal3(&*a, &sbd));
 
     // visit dyn visitor
-    //black_box(wrap_visit_dynvisitor_direct_sbd(&d, &sbd));
+    black_box(wrap_visit_dynvisitor_direct_sbd(&d, &sbd));
     //let v = get_visitor(1);
     //black_box(wrap_visit_dynvisitor_funcret_sbd(&d, &*v));
     //let sbc = SpeakBetterCats;

@@ -41,8 +41,9 @@ fn get_visitor(num: usize) -> Box<dyn AnimalVisitor> {
 }
 
 fn main() {
-    let d = Dog;
+    let sbc = SpeakBetterCats;
     let sbd = SpeakBetterDogs;
+    let d = Dog;
 
     // wrap_speak
     black_box(wrap_speak(&d, &sbd));

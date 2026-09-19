@@ -55,6 +55,9 @@ fn bench_visitor(c: &mut Criterion) {
     let sbc = SpeakBetterCats;
     let sbd = SpeakBetterDogs;
     let d = Dog;
+    let a = get_animal(0);
+    let v = get_visitor(1);
+
     let mut group = c.benchmark_group("visitor");
 
     group.bench_function("visitor_speak", |b| {
@@ -74,21 +77,21 @@ fn bench_visitor(c: &mut Criterion) {
     group.bench_function("visitor_dynanimal", |b| {
         b.iter_batched(
             || {},
-            |_| black_box(wrap_visit_dynanimal(&d, &sbd)),
+            |_| black_box(wrap_visit_dynanimal(&*a, &sbd)),
             BatchSize::SmallInput,
         )
     });
     group.bench_function("visitor_dynvisitor", |b| {
         b.iter_batched(
             || {},
-            |_| black_box(wrap_visit_dynvisitor(&d, &sbd)),
+            |_| black_box(wrap_visit_dynvisitor(&d, &*v)),
             BatchSize::SmallInput,
         )
     });
     group.bench_function("visitor_dynboth", |b| {
         b.iter_batched(
             || {},
-            |_| black_box(wrap_visit_dynboth(&d, &sbd)),
+            |_| black_box(wrap_visit_dynboth(&*a, &*v)),
             BatchSize::SmallInput,
         )
     });

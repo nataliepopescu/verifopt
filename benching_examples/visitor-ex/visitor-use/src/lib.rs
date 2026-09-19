@@ -1,4 +1,4 @@
-use visitor_decl::{Animal, AnimalVisitor, Dog};
+use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
 
 pub struct SpeakBetterDogs;
 pub struct SpeakBetterCats;
@@ -29,9 +29,21 @@ pub fn wrap_receive_dog(d: &Dog, dc: &SpeakBetterDogs) -> usize {
     dc.receive_dog(d)
 }
 
+pub fn wrap_visit_dynanimal(a: &dyn Animal, v: &SpeakBetterDogs) -> usize {
+    a.visit(v)
+}
+
+pub fn wrap_visit_dynvisitor(a: &Dog, v: &dyn AnimalVisitor) -> usize {
+    a.visit(v)
+}
+
+pub fn wrap_visit_dynboth(a: &dyn Animal, v: &dyn AnimalVisitor) -> usize {
+    a.visit(v)
+}
+
 // 
 
-pub fn wrap_visit_dynanimal(a: &dyn Animal, sbd: &SpeakBetterDogs) -> usize {
+pub fn wrap_visit_dynanimal1(a: &dyn Animal, sbd: &SpeakBetterDogs) -> usize {
     a.visit(sbd)
 }
 pub fn wrap_visit_dynanimal2(a: &dyn Animal, sbd: &SpeakBetterDogs) -> usize {
@@ -58,7 +70,7 @@ pub fn wrap_visit_dynvisitor_funcret_sbc(d: &Dog, v: &dyn AnimalVisitor) -> usiz
 
 // 
 
-pub fn wrap_visit_dynboth(a: &dyn Animal, v: &dyn AnimalVisitor) -> usize {
+pub fn wrap_visit_dynboth1(a: &dyn Animal, v: &dyn AnimalVisitor) -> usize {
     a.visit(v)
 }
 pub fn wrap_visit_dynboth2(a: &dyn Animal, v: &dyn AnimalVisitor) -> usize {

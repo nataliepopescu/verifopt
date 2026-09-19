@@ -13,14 +13,20 @@ use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
 use visitor_use::{
     SpeakBetterCats, SpeakBetterDogs,
     wrap_speak, wrap_receive_dog,
+
     wrap_visit_dynanimal,
+    wrap_visit_dynanimal1,
     wrap_visit_dynanimal2,
     wrap_visit_dynanimal3,
+
+    wrap_visit_dynvisitor,
     wrap_visit_dynvisitor_direct_sbd,
     wrap_visit_dynvisitor_funcret_sbd,
     wrap_visit_dynvisitor_direct_sbc,
     wrap_visit_dynvisitor_funcret_sbc,
+
     wrap_visit_dynboth,
+    wrap_visit_dynboth1,
     wrap_visit_dynboth2,
     wrap_visit_dynboth3,
     wrap_visit_dynboth4,
@@ -51,20 +57,41 @@ fn bench_visitor(c: &mut Criterion) {
     let d = Dog;
     let mut group = c.benchmark_group("visitor");
 
-    //group.bench_function("visitor_speak", |b| {
-    //    b.iter_batched(
-    //        || {},
-    //        |_| black_box(wrap_speak(&d, &sbd)),
-    //        BatchSize::SmallInput,
-    //    )
-    //});
-    //group.bench_function("visitor_receive_dog", |b| {
-    //    b.iter_batched(
-    //        || {},
-    //        |_| black_box(wrap_receive_dog(&d, &sbd)),
-    //        BatchSize::SmallInput,
-    //    )
-    //});
+    group.bench_function("visitor_speak", |b| {
+        b.iter_batched(
+            || {},
+            |_| black_box(wrap_speak(&d, &sbd)),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_receive_dog", |b| {
+        b.iter_batched(
+            || {},
+            |_| black_box(wrap_receive_dog(&d, &sbd)),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_dynanimal", |b| {
+        b.iter_batched(
+            || {},
+            |_| black_box(wrap_visit_dynanimal(&d, &sbd)),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_dynvisitor", |b| {
+        b.iter_batched(
+            || {},
+            |_| black_box(wrap_visit_dynvisitor(&d, &sbd)),
+            BatchSize::SmallInput,
+        )
+    });
+    group.bench_function("visitor_dynboth", |b| {
+        b.iter_batched(
+            || {},
+            |_| black_box(wrap_visit_dynboth(&d, &sbd)),
+            BatchSize::SmallInput,
+        )
+    });
 
     //group.bench_function("visitor_visit_dynanimal", |b| {
     //    b.iter_batched(
@@ -144,16 +171,16 @@ fn bench_visitor(c: &mut Criterion) {
     //        BatchSize::SmallInput,
     //    )
     //});
-    group.bench_function("visitor_visit_dynboth4", |b| {
-        b.iter_batched(
-            || (
-                get_animal(1),
-                get_visitor(1),
-            ),
-            |(a, v)| black_box(wrap_visit_dynboth4(&*a, &*v)),
-            BatchSize::SmallInput,
-        )
-    });
+    //group.bench_function("visitor_visit_dynboth4", |b| {
+    //    b.iter_batched(
+    //        || (
+    //            get_animal(1),
+    //            get_visitor(1),
+    //        ),
+    //        |(a, v)| black_box(wrap_visit_dynboth4(&*a, &*v)),
+    //        BatchSize::SmallInput,
+    //    )
+    //});
     //group.bench_function("visitor_visit_dynboth5", |b| {
     //    b.iter_batched(
     //        || (

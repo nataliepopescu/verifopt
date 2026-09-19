@@ -2,14 +2,20 @@ use visitor_decl::{Animal, AnimalVisitor, Dog, Cat};
 use visitor_use::{
     SpeakBetterDogs, SpeakBetterCats,
     wrap_speak, wrap_receive_dog,
+
     wrap_visit_dynanimal,
+    wrap_visit_dynanimal1,
     wrap_visit_dynanimal2,
     wrap_visit_dynanimal3,
+
+    wrap_visit_dynvisitor,
     wrap_visit_dynvisitor_direct_sbd,
     wrap_visit_dynvisitor_funcret_sbd,
     wrap_visit_dynvisitor_direct_sbc,
     wrap_visit_dynvisitor_funcret_sbc,
+
     wrap_visit_dynboth,
+    wrap_visit_dynboth1,
     wrap_visit_dynboth2,
     wrap_visit_dynboth3,
     wrap_visit_dynboth4,
@@ -39,10 +45,16 @@ fn main() {
     let sbd = SpeakBetterDogs;
 
     // wrap_speak
-    //black_box(wrap_speak(&d, &sbd));
+    black_box(wrap_speak(&d, &sbd));
 
     // wrap_receive_dog
-    //black_box(wrap_receive_dog(&d, &sbd));
+    black_box(wrap_receive_dog(&d, &sbd));
+
+    let a = get_animal(0);
+    let v = get_visitor(1);
+    black_box(wrap_visit_dynanimal(&*a, &sbd));
+    black_box(wrap_visit_dynvisitor(&d, &*v));
+    black_box(wrap_visit_dynboth(&*a, &*v));
 
     // visit dyn animal
     //black_box(wrap_visit_dynanimal(&d, &sbd));
@@ -65,10 +77,10 @@ fn main() {
     //let a = get_animal(0);
     //let v = get_visitor(0);
     //black_box(wrap_visit_dynboth2(&*a, &*v));
-    let v = get_visitor(1);
+    //let v = get_visitor(1);
     //black_box(wrap_visit_dynboth3(&*a, &*v));
-    let a = get_animal(1);
-    black_box(wrap_visit_dynboth4(&*a, &*v));
+    //let a = get_animal(1);
+    //black_box(wrap_visit_dynboth4(&*a, &*v));
     //let v = get_visitor(0);
     //black_box(wrap_visit_dynboth5(&*a, &*v));
 }

@@ -3,6 +3,22 @@ use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
 pub struct SpeakBetterDogs;
 pub struct SpeakBetterCats;
 
+fn get_animal(num: usize) -> Box<dyn Animal> {
+    if num == 0 {
+        return Box::new(Cat {});
+    } else {
+        return Box::new(Dog {});
+    }
+}
+
+fn get_visitor(num: usize) -> Box<dyn AnimalVisitor> {
+    if num == 0 {
+        return Box::new(SpeakBetterCats {});
+    } else {
+        return Box::new(SpeakBetterDogs {});
+    }
+}
+
 impl AnimalVisitor for SpeakBetterDogs {
     fn receive_dog(&self, _a: &dyn Animal) -> usize {
         44444

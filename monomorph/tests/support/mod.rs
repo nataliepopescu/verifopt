@@ -152,6 +152,38 @@ fn example_dir(name: &str) -> PathBuf {
     manifest_dir().join("../testing_examples").join(name)
 }
 
+/// Every local, path-based dependency's own source directory for the
+/// example at `dir` - e.g. for `dep_rewrite` (which depends on `dep` via
+/// `path = "../dep"` in its own Cargo.toml), this returns
+/// `testing_examples/dep`. Used because a dispatch site whose rewrite
+/// applies inside such a dependency's own, separate compilation session
+/// can leave its own `mir_dump.txt` there rather than in the primary
+/// example's own directory - mir_dump.txt uses a plain relative path
+/// (see rewrite.rs's `mir_dump_file`), so it always lands wherever that
+/// specific rustc invocation's own working directory happens to be, not
+/// necessarily `dir` itself. Best-effort: silently returns an empty Vec
+/// on any cargo_metadata failure, since not being able to enumerate
+/// dependencies here shouldn't itself fail the whole test - the primary
+/// directory is still always checked regardless.
+fn path_dependency_dirs(dir: &Path) -> Vec<PathBuf> {
+    let Ok(metadata) = cargo_metadata::MetadataCommand::new()
+        .manifest_path(dir.join("Cargo.toml"))
+        .no_deps()
+        .exec()
+    else {
+        return Vec::new();
+    };
+    let Some(root_pkg) = metadata.root_package() else {
+        return Vec::new();
+    };
+    root_pkg
+        .dependencies
+        .iter()
+        .filter_map(|d| d.path.as_ref())
+        .map(|p| PathBuf::from(p.as_str()))
+        .collect()
+}
+
 fn golden_path(name: &str) -> PathBuf {
     manifest_dir()
         .join("tests/golden")
@@ -201,13 +233,21 @@ struct RunOutcome {
 }
 
 fn run_verifopt(dir: &Path) -> RunOutcome {
+    let dep_dirs = path_dependency_dirs(dir);
+
     // `stats` is opened in append mode by VOLogger,
     // and `mir_dump.txt` is opened in append mode by rewrite.rs's
     // `dump_body`, so stale files from a previous run would silently
     // corrupt this run's parsed output (or, for mir_dump.txt, just pile up
-    // duplicate before/after blocks). Clear them all first.
-    for f in ["stats", "mir_dump.txt"] {
-        let _ = fs::remove_file(dir.join(f));
+    // duplicate before/after blocks). Clear them all first - mir_dump.txt
+    // specifically in every path-dependency's own directory too, since a
+    // dispatch site whose rewrite applies inside a dependency's own,
+    // separate compilation session (e.g. dep_rewrite's own dep) writes
+    // its dump there, using a plain relative path that lands wherever
+    // that session's own CWD happens to be - not necessarily here.
+    let _ = fs::remove_file(dir.join("stats"));
+    for d in std::iter::once(dir.to_path_buf()).chain(dep_dirs.iter().map(|p| dir.join(p))) {
+        let _ = fs::remove_file(d.join("mir_dump.txt"));
     }
     let _ = Command::new("cargo").arg("clean").current_dir(dir).output();
 
@@ -232,7 +272,11 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
         });
 
     let stats = fs::read_to_string(dir.join("stats")).ok();
-    let mir_dump = fs::read_to_string(dir.join("mir_dump.txt")).ok();
+    let mir_dump: String = std::iter::once(dir.to_path_buf())
+        .chain(dep_dirs.iter().map(|p| dir.join(p)))
+        .filter_map(|d| fs::read_to_string(d.join("mir_dump.txt")).ok())
+        .collect();
+    let mir_dump = if mir_dump.is_empty() { None } else { Some(mir_dump) };
 
     let _ = Command::new(Path::new("target/release").join(dir.file_name().unwrap()))
         .current_dir(dir)

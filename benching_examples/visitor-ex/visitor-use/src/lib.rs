@@ -19,6 +19,24 @@ pub fn get_visitor(num: usize) -> Box<dyn AnimalVisitor> {
     }
 }
 
+/*
+pub fn get_cat() -> Box<Cat> {
+    Box::new(Cat {})
+}
+
+pub fn get_dog() -> Box<Dog> {
+    Box::new(Dog {})
+}
+
+pub fn get_sbc() -> Box<SpeakBetterCats> {
+    Box::new(SpeakBetterCats {})
+}
+
+pub fn get_sbd() -> Box<SpeakBetterDogs> {
+    Box::new(SpeakBetterDogs {})
+}
+*/
+
 impl AnimalVisitor for SpeakBetterDogs {
     fn receive_dog(&self, _a: &dyn Animal) -> usize {
         44444

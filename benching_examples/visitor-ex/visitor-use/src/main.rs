@@ -2,6 +2,7 @@ use visitor_decl::{Animal, AnimalVisitor, Dog, Cat};
 use visitor_use::{
     SpeakBetterDogs, SpeakBetterCats,
     get_animal, get_visitor,
+    //get_cat, get_dog, get_sbc, get_sbd,
     wrap_speak, wrap_receive_dog,
 
     wrap_visit_dynanimal,
@@ -28,17 +29,17 @@ use std::hint::black_box;
 /*
 fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        return Box::new(Cat {});
+        return get_cat();
     } else {
-        return Box::new(Dog {});
+        return get_dog();
     }
 }
 
 fn get_visitor(num: usize) -> Box<dyn AnimalVisitor> {
     if num == 0 {
-        return Box::new(SpeakBetterCats {});
+        return get_sbc();
     } else {
-        return Box::new(SpeakBetterDogs {});
+        return get_sbd();
     }
 }
 */

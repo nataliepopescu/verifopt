@@ -13,6 +13,7 @@ use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
 use visitor_use::{
     SpeakBetterCats, SpeakBetterDogs,
     get_animal, get_visitor,
+    //get_cat, get_dog, get_sbc, get_sbd,
     wrap_speak, wrap_receive_dog,
 
     wrap_visit_dynanimal,
@@ -39,17 +40,17 @@ use std::hint::black_box;
 /*
 fn get_animal(num: usize) -> Box<dyn Animal> {
     if num == 0 {
-        return Box::new(Cat {});
+        return get_cat();
     } else {
-        return Box::new(Dog {});
+        return get_dog();
     }
 }
 
 fn get_visitor(num: usize) -> Box<dyn AnimalVisitor> {
     if num == 0 {
-        return Box::new(SpeakBetterCats {});
+        return get_sbc();
     } else {
-        return Box::new(SpeakBetterDogs {});
+        return get_sbd();
     }
 }
 */
@@ -58,7 +59,7 @@ fn bench_visitor(c: &mut Criterion) {
     let sbc = SpeakBetterCats;
     let sbd = SpeakBetterDogs;
     let d = Dog;
-    let a = get_animal(0);
+    let a = get_animal(1);
     let v = get_visitor(1);
 
     let mut group = c.benchmark_group("visitor");

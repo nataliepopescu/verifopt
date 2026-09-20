@@ -108,9 +108,52 @@ fn call_cargo() {
         std::process::exit(1);
     };
 
+
+    // If both --bin and --bench are given together, build via
+    // TargetKind::Bench (cargo bench, not cargo build) so the shared
+    // library crate they both depend on lands in the same unit graph -
+    // and hence gets the same -C metadata/DefPathHash - a later,
+    // separate --bench-only build already uses on its own. Must be
+    // checked before the plain --bin-only branch below, since that one
+    // would otherwise claim this case first.
+    //
+    // Pass bin_target here, not bench_target - target only ever affects
+    // $VERIFOPT_CRATE (see below), never the underlying cargo command
+    // itself for TargetKind::Bench, whose own arm in run_cargo_build
+    // relies entirely on the original, forwarded --bin/--bench
+    // arguments. call_rustc_or_verifopt only routes a given crate's own
+    // compilation through FsaCallbacks at all when that crate's own
+    // --crate-name matches $VERIFOPT_CRATE - passing bench_target here
+    // would make that bench_target, so visitor_use's own compilation
+    // (--crate-name visitor_use) would never match it, and would
+    // silently, permanently fall through to plain call_rustc() instead,
+    // never running the analysis on it at all. Worse, on any case where
+    // it still incidentally matched, the whole-program analysis would
+    // then start tracing from criterion's own generated entry point
+    // rather than the directly-traceable --bin target - reintroducing
+    // the exact call-path-obscuring problem this --bin+--bench
+    // combination exists to avoid in the first place.
+    if let (Some(bin_target), Some(bench_target)) =
+        (get_arg_flag_value("--bin"), get_arg_flag_value("--bench"))
+    {
+        let _ = bench_target;
+        call_cargo_on_target(&bin_target, &TargetKind::Bench, Some("bin"));
+        return;
+    }
+
     // If a binary is specified, analyze this binary only.
     if let Some(target) = get_arg_flag_value("--bin") {
-        call_cargo_on_target(&target, &TargetKind::Bin);
+        call_cargo_on_target(&target, &TargetKind::Bin, None);
+        return;
+    }
+
+    // If a bench is specified, build this bench only - mirrors --bin
+    // above. Without this, --bench <name> would fall through to
+    // call_cargo_on_each_package_target below, which builds every
+    // target in the package (including the primary --bin target),
+    // defeating the point of a targeted, --skip-analysis bench build.
+    if let Some(target) = get_arg_flag_value("--bench") {
+        call_cargo_on_target(&target, &TargetKind::Bench, None);
         return;
     }
 
@@ -136,13 +179,22 @@ fn call_cargo_on_each_package_target(package: &Package) {
         if lib_only && *kind != TargetKind::Lib {
             continue;
         }
-        call_cargo_on_target(&target.name, kind);
+        call_cargo_on_target(&target.name, kind, None);
     }
 }
 
-/// Resolves a binary (`cargo`, `rustc`, ...) belonging to the exact
-/// toolchain that this build of `verifopt` was compiled against, via
-/// `rustup which`.
+/// Resolves `name` (e.g. "rustc"/"cargo") from the same, pinned toolchain
+/// this binary was itself built under, via `rustup which`. Returns `None`
+/// if that toolchain doesn't have `name` at all - some toolchains (e.g. a
+/// custom, locally-linked `./x.py build` output, which only ever contains
+/// `rustc` itself, never a paired `cargo`) genuinely don't. Callers decide
+/// what to do about that: `rustc` should still hard-panic (see
+/// `pinned_toolchain_rustc`), since falling back there would silently
+/// drive the build with a compiler that doesn't have the rewrite hook at
+/// all; `cargo` falls back to the ambient one instead (see
+/// `pinned_toolchain_cargo`), since cargo itself never compiles
+/// anything - it just orchestrates whatever `RUSTC` explicitly points at,
+/// which stays pinned regardless of which `cargo` binary drives it.
 ///
 /// `verifopt` links `rustc_driver` directly (`#![feature(rustc_private)]`),
 /// which has no stable ABI across nightlies. Trusting an ambient `$CARGO`/
@@ -161,7 +213,7 @@ fn call_cargo_on_each_package_target(package: &Package) {
 /// and `rustc` must additionally be threaded through as the `RUSTC` env
 /// var on the child `cargo build` invocation (see `call_cargo_on_target`)
 /// so cargo doesn't fall back to a bare, PATH-resolved "rustc" itself.
-fn pinned_toolchain_bin(name: &str) -> OsString {
+fn pinned_toolchain_bin(name: &str) -> Option<OsString> {
     let toolchain = option_env!("RUSTUP_TOOLCHAIN").expect(
         "verifopt must be built under rustup with a pinned toolchain \
          (RUSTUP_TOOLCHAIN was not set at compile time)",
@@ -173,10 +225,7 @@ fn pinned_toolchain_bin(name: &str) -> OsString {
         .unwrap_or_else(|e| panic!("could not invoke `rustup which` to resolve {name}: {e}"));
 
     if !output.status.success() {
-        panic!(
-            "`rustup which --toolchain {toolchain} {name}` failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        return None;
     }
 
     let path = String::from_utf8(output.stdout)
@@ -184,39 +233,61 @@ fn pinned_toolchain_bin(name: &str) -> OsString {
         .trim()
         .to_owned();
 
-    OsString::from(path)
+    Some(OsString::from(path))
 }
 
-fn call_cargo_on_target(target: &String, kind: &TargetKind) {
-    // Debugging escape hatch: re-run just the rewrite pass against
+/// `rustc` must come from the pinned toolchain specifically - falling
+/// back to some other, ambient rustc would silently drop the whole
+/// rewrite (the modified compiler's own codegen_mir hook only exists on
+/// this one, specific toolchain).
+fn pinned_toolchain_rustc() -> OsString {
+    pinned_toolchain_bin("rustc")
+        .unwrap_or_else(|| panic!("pinned toolchain has no `rustc` at all - this should be impossible"))
+}
+
+/// `cargo` itself never compiles anything - it only orchestrates
+/// whatever `RUSTC` is pointed at (see `pinned_toolchain_rustc`, always
+/// threaded through explicitly wherever this is used), so which `cargo`
+/// binary actually runs doesn't affect which compiler does the work.
+/// Prefers the pinned toolchain's own `cargo` when it has one (matching
+/// `pinned_toolchain_bin`'s own reasoning above, for toolchains where
+/// that's available and avoids any flag-mismatch risk) - but falls back
+/// to the ambient `cargo` when it doesn't, e.g. a custom, locally-linked
+/// `./x.py build` output, which only ever contains `rustc` itself.
+fn pinned_toolchain_cargo() -> OsString {
+    pinned_toolchain_bin("cargo").unwrap_or_else(|| OsString::from("cargo"))
+}
+
+fn call_cargo_on_target(target: &String, kind: &TargetKind, verifopt_kind_override: Option<&str>) {
+    // Debugging escape hatch: re-run a single, plain build against
     // whatever verifopt_store.json already exists on disk (from an
-    // earlier, successful discovery run), skipping analysis
-    // (--rewrite-pass) and skipping this function's own automatic
-    // discovery-then-decide flow entirely - no cargo clean, so cargo's
-    // own caching does whatever it would normally do (e.g. leaving
-    // already-successfully-built dependencies alone, retrying only
-    // whatever previously failed). Useful for iterating on the rewrite
-    // logic itself without re-paying for analysis or a full dependency
-    // rebuild each time. Stripped here, before anything else looks at
-    // the arg list, matching how --lib is already skipped in
-    // run_cargo_build for the same reason.
+    // earlier, successful discovery run), skipping this function's own
+    // automatic discovery-then-decide flow entirely - no cargo clean,
+    // so cargo's own caching does whatever it would normally do (e.g.
+    // leaving already-successfully-built dependencies alone, retrying
+    // only whatever previously failed). Useful for iterating without
+    // re-paying for analysis or a full dependency rebuild each time.
+    // Stripped here, before anything else looks at the arg list,
+    // matching how --lib is already skipped in run_cargo_build for the
+    // same reason.
     if has_arg_flag("--rewrite-only") {
-        run_cargo_build(target, kind, &["--rewrite-pass".to_owned()]);
+        run_cargo_build(target, kind, &[], verifopt_kind_override);
         return;
     }
 
     // This first build *is* the ordinary, single-pass build - nothing
-    // extra is paid here regardless of what it finds, since
-    // RewriteCallbacks already rewrites this crate's own code within
-    // this same pass either way. It's also the discovery pass for the
-    // two-pass dependency-rewrite flow: FsaCallbacks's own analysis
-    // (see rewrite.rs's after_analysis) writes a small marker file,
-    // but only when it actually found a dispatch site whose containing
-    // function lives outside this crate - i.e. only when there's
-    // something a second pass would need to act on.
-    run_cargo_build(target, kind, &[]);
+    // extra is paid here regardless of what it finds, since the
+    // modified compiler's own codegen_mir hook already rewrites this
+    // crate's own code within this same pass either way. It's also the
+    // discovery pass for the two-pass dependency-rewrite flow:
+    // FsaCallbacks's own analysis (see rewrite.rs's after_analysis)
+    // writes a small marker file, but only when it actually found a
+    // dispatch site whose containing function lives outside this
+    // crate - i.e. only when there's something a second pass would
+    // need to act on.
+    run_cargo_build(target, kind, &[], verifopt_kind_override);
 
-    if !std::path::Path::new(monomorph::rewrite::needs_rewrite_pass_marker_path()).exists() {
+    if !monomorph::rewrite::needs_rewrite_pass_marker_path().exists() {
         return;
     }
 
@@ -225,8 +296,20 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
          cleaning and rebuilding once more to apply it (see rewrite.rs's own \
          dep_rewrite_store_path/needs_rewrite_pass_marker_path docs)"
     );
-    let mut clean_cmd = Command::new(pinned_toolchain_bin("cargo"));
+    let mut clean_cmd = Command::new(pinned_toolchain_cargo());
     clean_cmd.arg("clean");
+    // Without this, clean_cmd always cleans the default target/
+    // directory - completely unrelated to whatever --target-dir the
+    // caller actually passed to run_cargo_build's own cargo build
+    // invocation. That leaves the *real* target dir untouched, so
+    // cargo's own caching (correctly, from its own perspective - source
+    // and flags genuinely didn't change) reports everything "Fresh" on
+    // the second pass below, never actually re-invoking rustc for
+    // anything - silently defeating the entire reason this second pass
+    // exists at all.
+    if let Some(target_dir) = get_arg_flag_value("--target-dir") {
+        clean_cmd.arg("--target-dir").arg(target_dir);
+    }
     let clean_status = clean_cmd
         .spawn()
         .expect("could not run cargo clean")
@@ -236,7 +319,20 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
         std::process::exit(clean_status.code().unwrap_or(-1));
     }
 
-    run_cargo_build(target, kind, &["--rewrite-pass".to_owned()]);
+    // --skip-analysis here is load-bearing, not optional: this second
+    // pass exists only so dependency crates - compiled before
+    // verifopt_store.json existed during the discovery pass above -
+    // get rebuilt and pick it up via the modified compiler's own
+    // codegen_mir hook. The primary crate's own analysis already ran,
+    // once, during the discovery pass; re-running it here would just
+    // reproduce the same result (assuming determinism) at the same,
+    // full analysis cost a second time, for nothing.
+    let second_pass_flags: Vec<String> = if has_arg_flag("--skip-analysis") {
+        Vec::new()
+    } else {
+        vec!["--skip-analysis".to_owned()]
+    };
+    run_cargo_build(target, kind, &second_pass_flags, verifopt_kind_override);
 }
 
 /// Builds and runs the actual `cargo build`/`cargo test` invocation.
@@ -249,27 +345,33 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind) {
 /// devirtualizing dispatch sites *inside* dependency code needs a
 /// separate discovery pass (the primary crate's own whole-program
 /// reachability analysis, run first) whose findings get persisted to
-/// disk and read back by a second, --rewrite-pass build of the whole
-/// graph - see rewrite.rs's own dep_rewrite_store_path doc for the
-/// full mechanism this drives.
+/// disk and picked up automatically by the modified compiler's own
+/// codegen_mir hook on a second, plain rebuild of the whole graph -
+/// see rewrite.rs's own dep_rewrite_store_path doc for the full
+/// mechanism this drives.
 ///
 /// `extra_verifopt_flags` is appended into VERIFOPT_FLAGS alongside
-/// whatever the user already passed after `--` - this is how the
-/// second pass's own `--rewrite-pass` gets threaded through without
-/// disturbing the ordinary, single-pass call site.
-fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[String]) {
-    // Build a cargo command for target. Always use the cargo binary paired
-    // with the toolchain verifopt itself was built against (see
-    // `pinned_toolchain_bin`), rather than an ambient `$CARGO`/`$PATH`
-    // cargo that may belong to a different, incompatible nightly.
-    let mut cmd = Command::new(pinned_toolchain_bin("cargo"));
+/// whatever the user already passed after `--`.
+fn run_cargo_build(
+    target: &String,
+    kind: &TargetKind,
+    extra_verifopt_flags: &[String],
+    verifopt_kind_override: Option<&str>,
+) {
+    // Build a cargo command for target. Prefers the cargo binary paired
+    // with the toolchain verifopt itself was built against, falling back
+    // to the ambient one if that toolchain has none (see
+    // `pinned_toolchain_cargo`) - safe either way, since cargo itself
+    // never compiles anything.
+    let mut cmd = Command::new(pinned_toolchain_cargo());
     // Cargo's own default rustc resolution is just the bare string
     // "rustc" via $PATH — it does not hand RUSTC_WRAPPER an absolute
     // path unless told to. Set RUSTC explicitly so cargo (and, in turn,
     // whatever it passes to our own RUSTC_WRAPPER dispatch) stays pinned
-    // to the same toolchain as the cargo binary above, regardless of
-    // what else is first on the caller's $PATH.
-    cmd.env("RUSTC", pinned_toolchain_bin("rustc"));
+    // to the toolchain verifopt itself was built against, regardless of
+    // which cargo binary is actually driving this build or what's first
+    // on the caller's $PATH.
+    cmd.env("RUSTC", pinned_toolchain_rustc());
     match kind {
         TargetKind::Bin => {
             cmd.arg("build");
@@ -285,6 +387,10 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
             cmd.arg("test");
             cmd.arg("--no-run");
         }
+        TargetKind::Bench => {
+            cmd.arg("bench");
+            cmd.arg("--no-run");
+        }
         _ => {
             return;
         }
@@ -293,11 +399,22 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
 
     let mut args = std::env::args().skip(2);
     // Add cargo args to cmd until first `--`.
+    // --skip-analysis needs to redirect into VERIFOPT_FLAGS rather than
+    // being silently dropped like --lib/--rewrite-only/--skip-rewrite:
+    // unlike those, it's actually read by verifopt's own AnalysisOptions
+    // (see rewrite.rs's after_analysis), which only ever sees args
+    // collected after `--`, not whatever cargo-verifopt forwards to
+    // cargo directly here.
+    let mut redirect_to_verifopt_flags: Vec<String> = Vec::new();
     for arg in args.by_ref() {
         if arg == "--" {
             break;
         }
-        if arg == "--lib" || arg == "--rewrite-only" {
+        if arg == "--lib" || arg == "--rewrite-only" || arg == "--skip-rewrite" {
+            continue;
+        }
+        if arg == "--skip-analysis" {
+            redirect_to_verifopt_flags.push(arg);
             continue;
         }
         cmd.arg(arg);
@@ -314,8 +431,22 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
     }
 
     // Serialize the remaining args into an environment variable.
-    let mut args_vec: Vec<String> = args.collect();
+    // redirect_to_verifopt_flags and extra_verifopt_flags must both
+    // come before args: anything collected from `args` here comes from
+    // after the caller's own `--`, which parse_from_args treats as
+    // "pass straight through to rustc, never even attempt to parse it"
+    // - putting either of these after that point would defeat the
+    // whole reason they were added in the first place. This matters
+    // even when the caller never passes their own `--` at all, but
+    // becomes load-bearing the moment they do (e.g. their own
+    // `-- -- --emit=asm`, forwarding a flag to rustc itself) - without
+    // this ordering, extra_verifopt_flags (like the second pass's own
+    // --skip-analysis) would fall on the far side of the caller's `--`
+    // too, and leak straight through to rustc as an unrecognized
+    // option instead of ever being parsed as a verifopt flag at all.
+    let mut args_vec: Vec<String> = redirect_to_verifopt_flags;
     args_vec.extend(extra_verifopt_flags.iter().cloned());
+    args_vec.extend(args);
     if !args_vec.is_empty() {
         cmd.env(
             "VERIFOPT_FLAGS",
@@ -344,7 +475,48 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
 
     // Communicate the target kind of the root crate to the calls to cargo-verifopt that are invoked via
     // the RUSTC_WRAPPER setting.
-    cmd.env("VERIFOPT_TARGET_KIND", kind.to_string());
+    let verifopt_target_kind = verifopt_kind_override
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| kind.to_string());
+    cmd.env("VERIFOPT_TARGET_KIND", verifopt_target_kind);
+
+    // --skip-rewrite needs to reach every crate's compilation, not just
+    // the primary crate's own verifopt-driven pass: dependency crates
+    // are compiled via a plain, direct rustc subprocess (call_rustc(),
+    // no verifopt/FsaCallbacks involved at all) - but that's still the
+    // same, modified rustc binary, so the rewrite hook fires there too
+    // unless told not to. Setting this on the top-level cargo command
+    // here means every downstream process it spawns inherits it,
+    // regardless of which dispatch path (verifopt or plain call_rustc())
+    // ends up handling any given crate. The modified compiler's own
+    // codegen_mir hook reads this directly - see the rust fork's own
+    // verifopt_rewrite.rs.
+    if has_arg_flag("--skip-rewrite") {
+        cmd.env("VERIFOPT_SKIP_REWRITE", "1");
+    }
+
+    // Same propagation reasoning as VERIFOPT_SKIP_REWRITE above: needs
+    // to reach every crate's compilation, not just the primary crate's
+    // own verifopt-driven pass, so it's set here, on the top-level
+    // cargo command, rather than anywhere more narrowly scoped.
+    //
+    // This one exists because cargo runs each crate's own rustc
+    // invocation with its CWD set to *that crate's own manifest
+    // directory* - not necessarily the same directory cargo-verifopt
+    // itself was invoked from. A dependency crate that isn't a formal
+    // workspace member of the primary crate (which includes
+    // essentially every ordinary, crates.io-sourced dependency) would
+    // otherwise never find a plain, CWD-relative "verifopt_store.json"
+    // at all - not because it's missing, but because that crate's own
+    // rustc invocation runs from an entirely different directory than
+    // the one it was actually written to. Read on the other side by
+    // rewrite.rs's own dep_rewrite_store_path/
+    // needs_rewrite_pass_marker_path (and their counterparts in the
+    // rust fork's own verifopt_rewrite.rs).
+    cmd.env(
+        "VERIFOPT_STORE_DIR",
+        std::env::current_dir().expect("could not determine current directory"),
+    );
 
     // Belt-and-suspenders: `pinned_cargo_path()` above already invokes the
     // exact toolchain binary directly (not a rustup shim), so this env var
@@ -369,6 +541,13 @@ fn run_cargo_build(target: &String, kind: &TargetKind, extra_verifopt_flags: &[S
 }
 
 fn call_rustc_or_verifopt() {
+    eprintln!(
+        "[verifopt debug][call_rustc_or_verifopt] crate_name={:?} VERIFOPT_CRATE={:?} VERIFOPT_TARGET_KIND={:?} crate_type={:?}",
+        get_arg_flag_value("--crate-name"),
+        std::env::var("VERIFOPT_CRATE"),
+        std::env::var("VERIFOPT_TARGET_KIND"),
+        get_arg_flag_value("--crate-type"),
+    );
     if let Some(crate_name) = get_arg_flag_value("--crate-name") {
         if let Ok(verifopt_crate) = std::env::var("VERIFOPT_CRATE") {
             if crate_name.eq(&verifopt_crate) {
@@ -423,7 +602,7 @@ fn call_rustc() {
     // as the original `$RUSTC`/`$PATH` fallback it replaced. Resolve the
     // pinned toolchain's rustc explicitly instead, exactly as
     // `call_cargo_on_target` resolves cargo.
-    let mut cmd = Command::new(pinned_toolchain_bin("rustc"));
+    let mut cmd = Command::new(pinned_toolchain_rustc());
     cmd.args(std::env::args().skip(2));
     let exit_status = cmd
         .spawn()

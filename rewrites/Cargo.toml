@@ -5,8 +5,8 @@ edition = "2024"
 
 [dependencies]
 rand = "0.9.2"
-visitor-decl = { path = "../visitor-ex/visitor-decl" }
-visitor-use = { path = "../visitor-ex/visitor-use" }
+visitor-decl = { path = "../benching_examples/visitor-ex/visitor-decl" }
+visitor-use = { path = "../benching_examples/visitor-ex/visitor-use" }
 
 # from https://doc.rust-lang.org/cargo/reference/profiles.html#lto : 
 # "No LTO is performed if codegen units is 1 or opt-level is 0."
@@ -21,8 +21,8 @@ codegen-units = 1
 
 [dev-dependencies]
 criterion = "0.7.0"
-visitor-decl = { path = "../visitor-ex/visitor-decl" }
-visitor-use = { path = "../visitor-ex/visitor-use" }
+visitor-decl = { path = "../benching_examples/visitor-ex/visitor-decl" }
+visitor-use = { path = "../benching_examples/visitor-ex/visitor-use" }
 
 [[bench]]
 name = "criterion"

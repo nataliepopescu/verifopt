@@ -22,8 +22,8 @@ impl VOLogger {
 
     pub fn log_stats(
         &mut self,
-        dispatch_targets: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
-        dispatch_cha: &HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+        dispatch_targets: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+        dispatch_cha: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     ) -> Result<(), Error> {
         let mut diff = Vec::new();
         let mut same = Vec::new();
@@ -32,9 +32,9 @@ impl VOLogger {
             let cha = dispatch_cha.get(key).cloned().unwrap().1;
 
             if cha.len() == fsa.len() {
-                same.push((*span, cha, fsa.clone()));
+                same.push((key.clone(), *span, cha, fsa.clone()));
             } else {
-                diff.push((*span, cha, fsa.clone()));
+                diff.push((key.clone(), *span, cha, fsa.clone()));
             }
         }
 
@@ -46,10 +46,14 @@ impl VOLogger {
         )?;
 
         write!(&mut self.stats_file, "--MAYBE EXAMPLES--\n")?;
-        for (span, cha, fsa) in &diff {
+        for (key, span, cha, fsa) in &diff {
+            let (caller_def_id, bb_index, caller_genargs) = key;
             write!(
                 &mut self.stats_file,
-                "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n\n",
+                "Caller: {:?} (bb {}), caller genargs: {:?}\nSpan: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n\n",
+                caller_def_id,
+                bb_index,
+                caller_genargs,
                 span,
                 cha.len(),
                 cha,
@@ -59,10 +63,14 @@ impl VOLogger {
         }
 
         write!(&mut self.stats_file, "--NOT EXAMPLES--\n")?;
-        for (span, cha, fsa) in &same {
+        for (key, span, cha, fsa) in &same {
+            let (caller_def_id, bb_index, caller_genargs) = key;
             write!(
                 &mut self.stats_file,
-                "Span: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n",
+                "Caller: {:?} (bb {}), caller genargs: {:?}\nSpan: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n",
+                caller_def_id,
+                bb_index,
+                caller_genargs,
                 span,
                 cha.len(),
                 cha,

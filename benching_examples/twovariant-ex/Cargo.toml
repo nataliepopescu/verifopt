@@ -1,0 +1,11 @@
+[package]
+name = "twovariant-ex"
+version = "0.1.0"
+edition = "2024"
+
+[dev-dependencies]
+criterion = { version = "0.7.0", features = ["html_reports"] }
+
+[[bench]]
+name = "twovariant_bench"
+harness = false

@@ -8,5 +8,7 @@ calls
 *.log
 *.stderr
 *.ll
+*.s
 verifopt_store.json
 verifopt_needs_rewrite_pass
+*out

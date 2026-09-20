@@ -49,37 +49,36 @@ fn make_options_parser() -> Command {
                 .long_help("Flow-sensitive analyses is supported now."),
         )
         .arg(
-            Arg::new("no-rewrite")
-                .long("no-rewrite")
+            Arg::new("skip-analysis")
+                .long("skip-analysis")
                 .action(clap::ArgAction::SetTrue)
                 .help(
-                    "Skip all verifopt-specific analysis and rewriting, \
-                     building through the same pipeline (RUSTFLAGS, \
-                     two-phase compiler invocation) unchanged - useful \
-                     as a like-for-like control build when comparing \
-                     against a rewritten binary, isolating the effect \
-                     of the rewrites themselves from any effect of the \
-                     pipeline/flags alone.",
+                    "Skip FsaCallbacks's own analysis entirely (no store \
+                     written, no marker file, no dependency-crate \
+                     discovery) - compilation still proceeds normally \
+                     through codegen either way, so whatever \
+                     verifopt_store.json already exists on disk (from an \
+                     earlier run) still gets applied by the modified \
+                     compiler's own codegen_mir hook. Useful for timing \
+                     analysis in isolation, or re-running just the \
+                     rewrite against an already-computed store without \
+                     re-analyzing.",
                 ),
         )
         .arg(
-            Arg::new("rewrite-pass")
-                .long("rewrite-pass")
+            Arg::new("skip-rewrite")
+                .long("skip-rewrite")
                 .action(clap::ArgAction::SetTrue)
                 .help(
-                    "Second pass of the two-pass dependency-rewrite \
-                     flow: skip FsaCallbacks/analysis entirely (a \
-                     dependency crate has no entry point of its own to \
-                     analyze from anyway) and have RewriteCallbacks \
-                     read edits from the shared, on-disk store a prior \
-                     --no-rewrite=false discovery-pass build of the \
-                     primary crate already wrote, instead of relying \
-                     on this crate's own (necessarily empty) \
-                     in-process store. Requires a full rebuild \
-                     (`cargo clean` first) between the discovery and \
-                     rewrite passes, since Cargo won't otherwise \
-                     recompile crates whose own inputs haven't \
-                     changed.",
+                    "Skip the rewrite entirely, in the modified \
+                     compiler's own codegen_mir hook - every crate \
+                     compiles as an ordinary, unmodified build, \
+                     regardless of what verifopt_store.json contains. \
+                     Useful as a like-for-like control build when \
+                     comparing against a rewritten binary, isolating the \
+                     effect of the rewrite itself from any effect of the \
+                     pipeline/flags alone. Combine with --skip-analysis \
+                     to skip both.",
                 ),
         )
         .arg(
@@ -136,8 +135,8 @@ pub struct AnalysisOptions {
     pub entry_func: String,
     pub entry_def_id: Option<u32>,
     pub verifopt_type: VerifOptType,
-    pub no_rewrite: bool,
-    pub rewrite_pass: bool,
+    pub skip_analysis: bool,
+    pub skip_rewrite: bool,
     pub context_depth: usize,
 }
 
@@ -147,8 +146,8 @@ impl Default for AnalysisOptions {
             entry_func: String::new(),
             entry_def_id: None,
             verifopt_type: VerifOptType::FlowSensitive,
-            no_rewrite: false,
-            rewrite_pass: false,
+            skip_analysis: false,
+            skip_rewrite: false,
             context_depth: 1,
         }
     }
@@ -226,8 +225,8 @@ impl AnalysisOptions {
         // by the other call - so once either sets it, it stays set,
         // matching every other field's "CLI can add to, but an absent
         // flag doesn't erase what the env var already set" behavior.
-        self.no_rewrite = self.no_rewrite || matches.get_flag("no-rewrite");
-        self.rewrite_pass = self.rewrite_pass || matches.get_flag("rewrite-pass");
+        self.skip_analysis = self.skip_analysis || matches.get_flag("skip-analysis");
+        self.skip_rewrite = self.skip_rewrite || matches.get_flag("skip-rewrite");
 
         // Unlike the boolean flags above, --context-depth has a clap
         // default_value, so `matches` always "contains" some value for

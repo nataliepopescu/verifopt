@@ -8,34 +8,17 @@ extern crate rustc_session;
 extern crate rustc_span;
 
 use rustc_data_structures::fingerprint::Fingerprint;
-use rustc_data_structures::smallvec::SmallVec;
-use rustc_index::IndexVec;
-use rustc_middle::mir::{
-    BasicBlock, BasicBlockData, BinOp, Body, CastKind, CoercionSource, Const, ConstOperand, Local,
-    LocalDecl, Mutability, Operand, Place, ProjectionElem, Rvalue, SourceInfo, Statement,
-    StatementKind, SwitchTargets, Terminator, TerminatorKind, UnOp,
-};
-use rustc_span::def_id::{DefPathHash, LOCAL_CRATE, LocalDefId};
+use rustc_span::def_id::{DefPathHash, LOCAL_CRATE};
 
 use rustc_driver::{Callbacks, Compilation};
-use rustc_hir::Safety;
-use rustc_hir::def::DefKind;
-use rustc_interface::interface::{Compiler, Config};
-use rustc_middle::mir::pretty::MirWriter;
-use rustc_middle::ty::adjustment::PointerCoercion;
-use rustc_middle::ty::{
-    AssocKind, FnDef, GenericArg, Instance, List, Ty, TyCtxt, TyKind, TypingEnv, VtblEntry,
-};
+use rustc_interface::interface::Compiler;
+use rustc_middle::ty::TyCtxt;
 use rustc_public::{DefId, rustc_internal};
-use rustc_span::Span;
 
-use std::fs::{File, OpenOptions};
-use std::io::Write;
-
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap; // FIXME FxHashMap for consistency?
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -45,9 +28,10 @@ use crate::util::options::AnalysisOptions;
 
 #[derive(Default)]
 pub struct Store {
-    pub targets: HashMap<(DefPathHash, usize), Vec<(DefPathHash, Option<Vec<DefPathHash>>)>>,
+    pub targets:
+        HashMap<(DefPathHash, usize, Vec<DefPathHash>), Vec<(DefPathHash, Option<Vec<DefPathHash>>)>>,
     pub tags: HashMap<
-        (DefPathHash, usize),
+        (DefPathHash, usize, Vec<DefPathHash>),
         Vec<(
             usize,                     /* bb */
             usize,                     /* stmt */
@@ -78,11 +62,11 @@ impl From<SerializableDefPathHash> for DefPathHash {
 #[derive(Serialize, Deserialize, Default)]
 struct SerializableStore {
     targets: Vec<(
-        (SerializableDefPathHash, usize),
+        (SerializableDefPathHash, usize, Vec<SerializableDefPathHash>),
         Vec<(SerializableDefPathHash, Option<Vec<SerializableDefPathHash>>)>,
     )>,
     tags: Vec<(
-        (SerializableDefPathHash, usize),
+        (SerializableDefPathHash, usize, Vec<SerializableDefPathHash>),
         Vec<(
             usize,
             usize,
@@ -99,13 +83,16 @@ impl From<&Store> for SerializableStore {
             opt.as_ref()
                 .map(|v| v.iter().map(|h| SerializableDefPathHash::from(*h)).collect())
         };
+        let conv_vec = |v: &Vec<DefPathHash>| -> Vec<SerializableDefPathHash> {
+            v.iter().map(|h| SerializableDefPathHash::from(*h)).collect()
+        };
         SerializableStore {
             targets: store
                 .targets
                 .iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (SerializableDefPathHash::from(*h), *bb),
+                        (SerializableDefPathHash::from(*h), *bb, conv_vec(caller_genargs)),
                         v.iter()
                             .map(|(h2, opt)| (SerializableDefPathHash::from(*h2), conv_opt_vec(opt)))
                             .collect(),
@@ -115,9 +102,9 @@ impl From<&Store> for SerializableStore {
             tags: store
                 .tags
                 .iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (SerializableDefPathHash::from(*h), *bb),
+                        (SerializableDefPathHash::from(*h), *bb, conv_vec(caller_genargs)),
                         v.iter()
                             .map(|(bb2, stmt, tag, h2, opt)| {
                                 (
@@ -141,13 +128,17 @@ impl From<SerializableStore> for Store {
         let conv_opt_vec = |opt: Option<Vec<SerializableDefPathHash>>| {
             opt.map(|v| v.into_iter().map(DefPathHash::from).collect())
         };
+        let conv_vec =
+            |v: Vec<SerializableDefPathHash>| -> Vec<DefPathHash> {
+                v.into_iter().map(DefPathHash::from).collect()
+            };
         Store {
             targets: s
                 .targets
                 .into_iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (DefPathHash::from(h), bb),
+                        (DefPathHash::from(h), bb, conv_vec(caller_genargs)),
                         v.into_iter()
                             .map(|(h2, opt)| (DefPathHash::from(h2), conv_opt_vec(opt)))
                             .collect(),
@@ -157,9 +148,9 @@ impl From<SerializableStore> for Store {
             tags: s
                 .tags
                 .into_iter()
-                .map(|((h, bb), v)| {
+                .map(|((h, bb, caller_genargs), v)| {
                     (
-                        (DefPathHash::from(h), bb),
+                        (DefPathHash::from(h), bb, conv_vec(caller_genargs)),
                         v.into_iter()
                             .map(|(bb2, stmt, tag, h2, opt)| {
                                 (bb2, stmt, tag, DefPathHash::from(h2), conv_opt_vec(opt))
@@ -172,25 +163,226 @@ impl From<SerializableStore> for Store {
     }
 }
 
-pub fn dep_rewrite_store_path() -> &'static str {
-    "verifopt_store.json"
+/// Returns the absolute path to verifopt_store.json - resolved via
+/// VERIFOPT_STORE_DIR (set by cargo-verifopt's own run_cargo_build, on
+/// the top-level cargo command it spawns, so every downstream process
+/// it transitively spawns inherits it) when present, falling back to a
+/// plain, CWD-relative path otherwise (e.g. a standalone, single-crate
+/// test case that never goes through cargo-verifopt at all).
+///
+/// This matters because cargo itself runs each crate's own rustc
+/// invocation with its CWD set to *that crate's own manifest
+/// directory* - not necessarily the same directory cargo-verifopt
+/// itself was invoked from. For a dependency crate that isn't a formal
+/// workspace member of the primary crate (which includes essentially
+/// every ordinary, crates.io-sourced dependency), a plain, CWD-relative
+/// "verifopt_store.json" would never be found at all - not because it
+/// doesn't exist, but because that specific rustc invocation is running
+/// from an entirely different directory than the one it was written to.
+pub fn dep_rewrite_store_path() -> PathBuf {
+    resolve_store_path("verifopt_store.json")
 }
 
-pub fn needs_rewrite_pass_marker_path() -> &'static str {
-    "verifopt_needs_rewrite_pass"
+pub fn needs_rewrite_pass_marker_path() -> PathBuf {
+    resolve_store_path("verifopt_needs_rewrite_pass")
 }
 
-static SHARED_STORE: OnceLock<Option<Store>> = OnceLock::new();
-
-fn load_shared_store() -> Option<Store> {
-    let contents = std::fs::read_to_string(dep_rewrite_store_path()).ok()?;
-    let serializable: SerializableStore = serde_json::from_str(&contents).ok()?;
-    Some(Store::from(serializable))
+fn resolve_store_path(filename: &str) -> PathBuf {
+    match std::env::var_os("VERIFOPT_STORE_DIR") {
+        Some(dir) => PathBuf::from(dir).join(filename),
+        None => PathBuf::from(filename),
+    }
 }
-
 
 fn store() -> &'static Mutex<Store> {
     STORE.get_or_init(|| Mutex::new(Store::default()))
+}
+
+/// Produces a small, fixed, deterministic DefPathHash for a primitive
+/// type - not a real DefId hash at all (primitives have no DefId), just
+/// a stand-in that lets the existing Vec<DefPathHash> key-component slot
+/// also represent primitive generic args (bool, char, ints, floats)
+/// without introducing a whole new key-component type and re-touching
+/// the serialization layer again.
+///
+/// Implemented identically on this side and the rust fork's own
+/// verifopt_rewrite.rs (see that file's own copy of this same
+/// function) - both sides must compute the same sentinel for the same
+/// primitive, on the same pinned rustc build, for the store's own keys
+/// to ever line up across the two, separate processes at all. A real
+/// DefPathHash coinciding with one of these specific, small sentinel
+/// values is astronomically unlikely, for the same reason DefPathHash
+/// collisions in general are treated as negligible risk elsewhere in
+/// this codebase - not a new, additional risk being introduced here.
+///
+/// FNV-1a, not anything cryptographic or rustc-internal - deliberately
+/// simple and self-contained so it's trivial to keep byte-for-byte
+/// identical between the two, separate copies of this function.
+fn primitive_ty_sentinel(tag: &str) -> DefPathHash {
+    fn fnv1a_64(bytes: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for &b in bytes {
+            hash ^= b as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+    let h1 = fnv1a_64(tag.as_bytes());
+    // Different input for the second half (not just re-hashing h1's own
+    // bytes) so a short tag's own two halves don't trivially collide
+    // with each other.
+    let h2 = fnv1a_64(format!("{tag}#verifopt-sentinel").as_bytes());
+    DefPathHash(Fingerprint::new(h1, h2))
+}
+
+/// Combines a tag with an ordered list of nested hashes into a single,
+/// deterministic sentinel - used for compound types (currently just
+/// tuples) whose own identity depends on an ordered set of nested
+/// types, each of which may itself already be hashed via to_hash/
+/// hash_ty/primitive_ty_sentinel. Relies on DefPathHash's own Debug
+/// output being identical on both this side and the rust fork's own
+/// copy of this same function, since both operate on the exact same,
+/// single rustc-internal DefPathHash type (not a rustc_public-specific
+/// one) - not something particular to this side alone.
+fn combine_hashes(tag: &str, hashes: &[DefPathHash]) -> DefPathHash {
+    let joined = hashes.iter().map(|h| format!("{h:?}")).collect::<Vec<_>>().join(",");
+    primitive_ty_sentinel(&format!("{tag}:[{joined}]"))
+}
+
+/// Recursively hashes a single rustc_public::ty::Ty into a stable,
+/// cross-process-comparable DefPathHash, or None if this particular
+/// type shape isn't handled yet (see the match arms below for exactly
+/// which shapes are covered so far). A top-level function rather than
+/// a closure specifically so it can call itself for tuple elements -
+/// closures can't recurse by name in Rust.
+fn hash_ty(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<DefPathHash> {
+    let rustc_public::ty::TyKind::RigidTy(rigid_ty) = ty.kind() else {
+        return None;
+    };
+    Some(match rigid_ty {
+        rustc_public::ty::RigidTy::Adt(adtdef, sub_genargs) => {
+            if !sub_genargs.0.is_empty() {
+                return None;
+            }
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tcx.def_path_hash(rustc_internal::internal(tcx, adtdef.0))
+            }))
+            .inspect_err(|_| eprintln!("to_hash panicked on {:?}, skipping", adtdef.0))
+            .ok()?
+        }
+        rustc_public::ty::RigidTy::Bool => primitive_ty_sentinel("prim:bool"),
+        rustc_public::ty::RigidTy::Char => primitive_ty_sentinel("prim:char"),
+        rustc_public::ty::RigidTy::Int(int_ty) => {
+            let tag = match int_ty {
+                rustc_public::ty::IntTy::Isize => "prim:isize",
+                rustc_public::ty::IntTy::I8 => "prim:i8",
+                rustc_public::ty::IntTy::I16 => "prim:i16",
+                rustc_public::ty::IntTy::I32 => "prim:i32",
+                rustc_public::ty::IntTy::I64 => "prim:i64",
+                rustc_public::ty::IntTy::I128 => "prim:i128",
+            };
+            primitive_ty_sentinel(tag)
+        }
+        rustc_public::ty::RigidTy::Uint(uint_ty) => {
+            let tag = match uint_ty {
+                rustc_public::ty::UintTy::Usize => "prim:usize",
+                rustc_public::ty::UintTy::U8 => "prim:u8",
+                rustc_public::ty::UintTy::U16 => "prim:u16",
+                rustc_public::ty::UintTy::U32 => "prim:u32",
+                rustc_public::ty::UintTy::U64 => "prim:u64",
+                rustc_public::ty::UintTy::U128 => "prim:u128",
+            };
+            primitive_ty_sentinel(tag)
+        }
+        rustc_public::ty::RigidTy::Float(float_ty) => {
+            let tag = match float_ty {
+                rustc_public::ty::FloatTy::F16 => "prim:f16",
+                rustc_public::ty::FloatTy::F32 => "prim:f32",
+                rustc_public::ty::FloatTy::F64 => "prim:f64",
+                rustc_public::ty::FloatTy::F128 => "prim:f128",
+            };
+            primitive_ty_sentinel(tag)
+        }
+        rustc_public::ty::RigidTy::Tuple(elems) => {
+            let elem_hashes: Option<Vec<DefPathHash>> =
+                elems.iter().map(|t| hash_ty(tcx, t)).collect();
+            combine_hashes("prim:tuple", &elem_hashes?)
+        }
+        // Regions/lifetimes are deliberately ignored here (not part of
+        // the tag, not hashed) - they're already erased throughout this
+        // whole pipeline (see instantiate_mir_and_normalize_erasing_
+        // regions elsewhere in this codebase), and don't affect which
+        // concrete devirtualization target applies.
+        rustc_public::ty::RigidTy::Ref(_region, inner_ty, mutability) => {
+            let tag = match mutability {
+                rustc_public::mir::Mutability::Not => "prim:ref:not",
+                rustc_public::mir::Mutability::Mut => "prim:ref:mut",
+            };
+            combine_hashes(tag, &[hash_ty(tcx, &inner_ty)?])
+        }
+        rustc_public::ty::RigidTy::RawPtr(inner_ty, mutability) => {
+            let tag = match mutability {
+                rustc_public::mir::Mutability::Not => "prim:rawptr:not",
+                rustc_public::mir::Mutability::Mut => "prim:rawptr:mut",
+            };
+            combine_hashes(tag, &[hash_ty(tcx, &inner_ty)?])
+        }
+        rustc_public::ty::RigidTy::Slice(inner_ty) => {
+            combine_hashes("prim:slice", &[hash_ty(tcx, &inner_ty)?])
+        }
+        rustc_public::ty::RigidTy::FnPtr(poly_fn_sig) => {
+            let fn_sig = poly_fn_sig.value;
+            let elem_hashes: Option<Vec<DefPathHash>> =
+                fn_sig.inputs_and_output.iter().map(|t| hash_ty(tcx, t)).collect();
+            combine_hashes("prim:fnptr", &elem_hashes?)
+        }
+        // Only the common case is handled: exactly one predicate, and
+        // that predicate is a plain trait bound (Send/Sync-style
+        // auto-traits, or an associated-type binding like
+        // `dyn Iterator<Item = u32>`, both return None here - not yet
+        // handled, same as everything else this comment block already
+        // covers).
+        rustc_public::ty::RigidTy::Dynamic(predicates, _region) => {
+            let [binder] = predicates.as_slice() else {
+                return None;
+            };
+            let rustc_public::ty::ExistentialPredicate::Trait(trait_ref) = &binder.value else {
+                return None;
+            };
+            let trait_hash = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tcx.def_path_hash(rustc_internal::internal(tcx, trait_ref.def_id.0))
+            }))
+            .inspect_err(|_| {
+                eprintln!("to_hash panicked on {:?}, skipping", trait_ref.def_id.0)
+            })
+            .ok()?;
+            let genarg_hashes: Option<Vec<DefPathHash>> = trait_ref
+                .generic_args
+                .0
+                .iter()
+                .map(|arg| {
+                    let rustc_public::ty::GenericArgKind::Type(t) = arg else {
+                        return None;
+                    };
+                    hash_ty(tcx, t)
+                })
+                .collect();
+            let mut all_hashes = vec![trait_hash];
+            all_hashes.extend(genarg_hashes?);
+            combine_hashes("prim:dyn", &all_hashes)
+        }
+        // Arrays are deliberately not handled yet - unlike everything
+        // above, an array's own type also depends on a const-generic
+        // length (the "5" in [u32; 5]), which isn't just another Ty to
+        // recurse into - extracting a stable, cross-process-comparable
+        // hash for an arbitrary const expression is a genuinely
+        // different, harder problem than anything handled so far.
+        // Closures, dyn types, coroutines, etc. - also not yet handled;
+        // returning None here means the caller-genargs use of this
+        // function panics rather than silently collapsing distinct
+        // instantiations onto the same key.
+        _ => return None,
+    })
 }
 
 pub struct FsaCallbacks {
@@ -199,8 +391,24 @@ pub struct FsaCallbacks {
 
 impl Callbacks for FsaCallbacks {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
+        eprintln!(
+            "[verifopt debug][after_analysis entry] crate={:?} skip_analysis={:?}",
+            tcx.crate_name(LOCAL_CRATE),
+            self.options.skip_analysis,
+        );
+        if self.options.skip_analysis {
+            return Compilation::Continue;
+        }
+
         let _ = rustc_internal::run(tcx, || {
-            let (targets, tags) = start_verifopt(self.options.clone());
+            let Ok((targets, tags)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                start_verifopt(self.options.clone())
+            })) else {
+                eprintln!(
+                    "[verifopt debug] start_verifopt itself panicked - no store written this run"
+                );
+                return;
+            };
 
             let mut store = store().lock().unwrap();
 
@@ -222,25 +430,29 @@ impl Callbacks for FsaCallbacks {
                     let rustc_public::ty::GenericArgKind::Type(ty) = arg else {
                         return None;
                     };
-                    let rustc_public::ty::TyKind::RigidTy(rustc_public::ty::RigidTy::Adt(
-                        adtdef,
-                        sub_genargs,
-                    )) = ty.kind()
-                    else {
-                        return None;
-                    };
-                    if !sub_genargs.0.is_empty() {
-                        return None;
-                    }
-                    hashes.push(to_hash(adtdef.0)?);
+                    hashes.push(hash_ty(tcx, ty)?);
                 }
                 Some(Some(hashes))
             };
 
-            for ((defid, bb), (_, ts)) in targets {
+            for ((defid, bb, caller_genargs), (_, ts)) in targets {
                 let Some(hash) = to_hash(defid) else {
                     continue;
                 };
+
+                let Some(caller_genargs_hash) = to_genargs_hashes(&Some(caller_genargs.clone()))
+                else {
+                    panic!(
+                        "could not hash caller's own generic args for {:?} at bb{} - \
+                         genargs: {:?} - without this, this dispatch site's own key \
+                         would collapse different monomorphized instantiations of the \
+                         same generic function onto the same store entry, silently \
+                         merging what may be genuinely different rewrites",
+                        defid, bb, caller_genargs
+                    );
+                };
+                let caller_genargs_hash = caller_genargs_hash
+                    .expect("caller_genargs was wrapped in Some(...) above, so to_genargs_hashes' own \"was the input None\" case cannot fire here");
 
                 let t_hashes: Vec<(DefPathHash, Option<Vec<DefPathHash>>)> = ts
                     .iter()
@@ -251,10 +463,10 @@ impl Callbacks for FsaCallbacks {
                     })
                     .collect();
 
-                store.targets.insert((hash, bb), t_hashes);
+                store.targets.insert((hash, bb, caller_genargs_hash), t_hashes);
             }
 
-            for ((defid, bb), plan) in tags {
+            for ((defid, bb, caller_genargs), plan) in tags {
                 let TagPlan::Tagged(sites) = plan else {
                     continue;
                 };
@@ -265,6 +477,20 @@ impl Callbacks for FsaCallbacks {
                 let Some(hash) = to_hash(defid) else {
                     continue;
                 };
+
+                let Some(caller_genargs_hash) = to_genargs_hashes(&Some(caller_genargs.clone()))
+                else {
+                    panic!(
+                        "could not hash caller's own generic args for {:?} at bb{} - \
+                         genargs: {:?} - without this, this dispatch site's own key \
+                         would collapse different monomorphized instantiations of the \
+                         same generic function onto the same store entry, silently \
+                         merging what may be genuinely different rewrites",
+                        defid, bb, caller_genargs
+                    );
+                };
+                let caller_genargs_hash = caller_genargs_hash
+                    .expect("caller_genargs was wrapped in Some(...) above, so to_genargs_hashes' own \"was the input None\" case cannot fire here");
 
                 let mut next: u64 = 0;
                 let mut assigned: HashMap<DefId, u64> = HashMap::default();
@@ -282,13 +508,31 @@ impl Callbacks for FsaCallbacks {
                     })
                     .collect();
 
-                store.tags.insert((hash, bb), entry);
+                store.tags.insert((hash, bb, caller_genargs_hash), entry);
             }
 
-            if self.options.rewrite_pass {
-            } else if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
-                if let Ok(json) = serde_json::to_string(&SerializableStore::from(&*store)) {
-                    let _ = std::fs::write(dep_rewrite_store_path(), json);
+            eprintln!(
+                "[verifopt debug][store write check] CARGO_PRIMARY_PACKAGE={:?} store.targets.len()={} store.tags.len()={} crate={:?} path={:?}",
+                std::env::var("CARGO_PRIMARY_PACKAGE"),
+                store.targets.len(),
+                store.tags.len(),
+                tcx.crate_name(LOCAL_CRATE),
+                dep_rewrite_store_path(),
+            );
+            if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
+                match serde_json::to_string(&SerializableStore::from(&*store)) {
+                    Ok(json) => {
+                        eprintln!(
+                            "[verifopt debug][store write] serialized ok, {} bytes, writing to {:?}",
+                            json.len(),
+                            dep_rewrite_store_path(),
+                        );
+                        match std::fs::write(dep_rewrite_store_path(), json) {
+                            Ok(()) => eprintln!("[verifopt debug][store write] fs::write succeeded"),
+                            Err(e) => eprintln!("[verifopt debug][store write] fs::write FAILED: {:?}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("[verifopt debug][store write] serde_json::to_string FAILED: {:?}", e),
                 }
 
                 let primary_crate_id = tcx.stable_crate_id(LOCAL_CRATE);
@@ -296,741 +540,15 @@ impl Callbacks for FsaCallbacks {
                     .targets
                     .keys()
                     .chain(store.tags.keys())
-                    .any(|(hash, _bb)| hash.stable_crate_id() != primary_crate_id);
+                    .any(|(hash, _bb, _caller_genargs)| hash.stable_crate_id() != primary_crate_id);
 
                 if needs_rewrite_pass {
                     let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
-                    let _ = SECOND_PASS_NEEDED.set(());
                 }
             }
         });
 
-        Compilation::Stop
+        Compilation::Continue
     }
 }
 
-static ORIGINAL: OnceLock<for<'tcx> fn(TyCtxt<'tcx>, LocalDefId) -> &'tcx Body<'tcx>> =
-    OnceLock::new();
-
-static EXTERN_ORIGINAL: OnceLock<
-    for<'tcx> fn(TyCtxt<'tcx>, rustc_span::def_id::DefId) -> &'tcx Body<'tcx>,
-> = OnceLock::new();
-
-static SKIP_REWRITE: OnceLock<bool> = OnceLock::new();
-
-static SECOND_PASS_NEEDED: OnceLock<()> = OnceLock::new();
-
-static GENERIC_SKIPS: AtomicUsize = AtomicUsize::new(0);
-static DYNAMIC_HITS: AtomicUsize = AtomicUsize::new(0);
-
-static FN_OP_ARGS_MISMATCH: AtomicUsize = AtomicUsize::new(0);
-static FN_OP_ARGS_OK: AtomicUsize = AtomicUsize::new(0);
-
-static CRATE_NAME: OnceLock<String> = OnceLock::new();
-
-pub fn rewrite_stats_path() -> &'static str {
-    "rewrite_pointers_stats.txt"
-}
-
-pub fn write_rewrite_stats() {
-    let generic = GENERIC_SKIPS.load(Ordering::Relaxed);
-    let dynamic = DYNAMIC_HITS.load(Ordering::Relaxed);
-    let args_mismatch = FN_OP_ARGS_MISMATCH.load(Ordering::Relaxed);
-    let args_ok = FN_OP_ARGS_OK.load(Ordering::Relaxed);
-
-    if generic == 0 && dynamic == 0 && args_mismatch == 0 && args_ok == 0 {
-        return;
-    }
-
-    let crate_name = CRATE_NAME.get().map(String::as_str).unwrap_or("<unknown>");
-    let mut lines = String::new();
-    if generic != 0 || dynamic != 0 {
-        lines.push_str(&format!(
-            "{crate_name}: {} Edit::Pointers attempt(s) - {dynamic} dynamic (rewritten), \
-             {generic} generic (skipped)\n",
-            generic + dynamic,
-        ));
-    }
-    if args_mismatch != 0 || args_ok != 0 {
-        lines.push_str(&format!(
-            "{crate_name}: {} fn_op call(s) - {args_ok} args resolved (rewritten), \
-             {args_mismatch} args mismatch (skipped)\n",
-            args_ok + args_mismatch,
-        ));
-    }
-
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(rewrite_stats_path())
-    {
-        let _ = f.write_all(lines.as_bytes());
-    }
-}
-
-pub struct RewriteCallbacks {
-    pub options: AnalysisOptions,
-}
-
-impl Callbacks for RewriteCallbacks {
-    fn config(&mut self, config: &mut Config) {
-        let _ = SKIP_REWRITE.set(self.options.no_rewrite);
-        config.override_queries = Some(|_sess, providers| {
-            let _ = ORIGINAL.set(providers.optimized_mir);
-            providers.optimized_mir = optimized_mir;
-
-            let _ = EXTERN_ORIGINAL.set(providers.extern_queries.optimized_mir);
-            providers.extern_queries.optimized_mir = extern_optimized_mir;
-        });
-    }
-}
-
-static MIR_DUMP_FILE: OnceLock<Mutex<File>> = OnceLock::new();
-
-fn mir_dump_file() -> &'static Mutex<File> {
-    MIR_DUMP_FILE.get_or_init(|| {
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("mir_dump.txt")
-            .expect("failed to open mir_dump.txt for writing");
-        Mutex::new(file)
-    })
-}
-
-fn dump_body<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, label: &str) {
-    let mut buf = Vec::new();
-
-    let writer = MirWriter::new(tcx);
-    let _ = writer.write_mir_fn(body, &mut buf);
-
-    let mut file = mir_dump_file().lock().unwrap();
-    let _ = writeln!(file, "\n######### MIR {label} #########");
-    let _ = file.write_all(&buf);
-    let _ = writeln!(file, "######### END {label} #########\n");
-}
-
-enum Edit {
-    Single(DefPathHash, Option<Vec<DefPathHash>>),
-    Pointers(Vec<(DefPathHash, Option<Vec<DefPathHash>>)>),
-    Tagged(Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)>),
-}
-
-const MAX_POINTERS_CANDIDATES: usize = 4;
-
-fn compute_edits(store: &Store, hash: DefPathHash, default: &Body<'_>) -> Vec<(usize, Edit)> {
-    default
-        .basic_blocks
-        .indices()
-        .filter_map(|bb| {
-            let key = &(hash, bb.as_usize());
-
-            let tags = store.tags.get(key);
-            let targets = store.targets.get(key)?;
-
-            if targets.len() == 1 {
-                // directly swap terminator
-                Some((bb.as_usize(), Edit::Single(targets[0].0, targets[0].1.clone())))
-            } else if let Some(tags) = tags {
-                // tag dyn casts and switchint
-                Some((bb.as_usize(), Edit::Tagged(tags.to_vec())))
-            } else if targets.len() > 1 && targets.len() <= MAX_POINTERS_CANDIDATES {
-                // direct conditionals on pointers
-                Some((bb.as_usize(), Edit::Pointers(targets.to_vec())))
-            } else {
-                // leave vtable dyn call
-                None
-            }
-        })
-        .collect()
-}
-
-fn rewrite_body<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    default: &'tcx Body<'tcx>,
-    hash: DefPathHash,
-) -> &'tcx Body<'tcx> {
-    if *SKIP_REWRITE.get().unwrap_or(&false) {
-        return default;
-    }
-
-    if SECOND_PASS_NEEDED.get().is_some() {
-        return default;
-    }
-
-    let edits: Vec<(usize, Edit)> = match SHARED_STORE.get_or_init(load_shared_store) {
-        Some(shared) => compute_edits(shared, hash, &default),
-        None => compute_edits(&store().lock().unwrap(), hash, &default),
-    };
-
-    if edits.is_empty() {
-        return default;
-    }
-
-    let mut body = default.clone();
-
-    dump_body(tcx, &body, "before");
-
-    let local_decls = body.local_decls.clone();
-    let mut bbs = body.basic_blocks_mut().to_owned();
-
-    for (bb_idx, edit) in edits {
-        let bb = BasicBlock::from_usize(bb_idx);
-
-        let (defid, gen_args, args, dest, target, unwind, call_source, source_info, span) = {
-            let term = bbs[bb].terminator();
-            let TerminatorKind::Call {
-                func,
-                args,
-                destination,
-                target,
-                unwind,
-                call_source,
-                ..
-            } = &term.kind
-            else {
-                continue;
-            };
-            let (defid, gen_args) = match func {
-                Operand::Constant(c) => match c.const_.ty().kind() {
-                    FnDef(defid, a) => (*defid, *a), // *a: &'tcx List is Copy
-                    _ => continue,
-                },
-                _ => continue,
-            };
-            (
-                defid,
-                gen_args,
-                args.clone(),
-                *destination,
-                *target,
-                *unwind,
-                *call_source,
-                term.source_info,
-                term.source_info.span,
-            )
-        };
-
-        match edit {
-            Edit::Single(hash, self_hash) => {
-                let (fnc, self_ty) = match fn_op(tcx, hash, self_hash, gen_args, span) {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-
-                let (recv, new_stmts) = narrow_dyn(
-                    tcx,
-                    &mut body,
-                    source_info,
-                    args[0].node.clone(),
-                    self_ty,
-                    span,
-                );
-                bbs[bb].statements.extend(new_stmts);
-
-                let mut new_args = args.clone();
-                new_args[0].node = Operand::Move(recv);
-
-                if let TerminatorKind::Call { func, args: a, .. } =
-                    &mut bbs[bb].terminator_mut().kind
-                {
-                    *func = fnc;
-                    *a = new_args;
-                }
-            }
-
-            Edit::Pointers(hashes) => {
-                let _ = CRATE_NAME.get_or_init(|| tcx.crate_name(LOCAL_CRATE).to_string());
-
-                let op = args[0].node.clone();
-
-                let recv_ty = op.ty(&local_decls, tcx); // &dyn X
-                let pointee_ty = recv_ty.builtin_deref(true).unwrap(); // dyn X
-
-                // <dyn X as X>
-                let trait_ref = match pointee_ty.kind() {
-                    TyKind::Dynamic(preds, _) => {
-                        DYNAMIC_HITS.fetch_add(1, Ordering::Relaxed);
-                        let principal = preds.principal().unwrap();
-                        principal.with_self_ty(tcx, pointee_ty).skip_binder()
-                    }
-                    _ => {
-                        GENERIC_SKIPS.fetch_add(1, Ordering::Relaxed);
-                        continue;
-                    }
-                };
-
-                let pointee_trait = tcx.require_lang_item(rustc_hir::LangItem::PointeeTrait, span);
-                let metadata_assoc = tcx
-                    .associated_items(pointee_trait)
-                    .in_definition_order()
-                    .find(|it| matches!(it.kind, AssocKind::Type { .. }))
-                    .unwrap()
-                    .def_id;
-
-                // <dyn X as Pointee>::Metadata
-                let proj =
-                    Ty::new_projection(tcx, metadata_assoc, tcx.mk_args(&[pointee_ty.into()]));
-
-                let meta_ty = match tcx
-                    .try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), proj)
-                {
-                    Ok(ty) => ty, // DynMetadata<dyn X>
-                    Err(_) => continue,
-                };
-                let raw_ptr_ty = Ty::new_ptr(tcx, tcx.types.unit, Mutability::Not); // *const ()
-
-                // DynMetadata<dyn X>
-                let meta_place = Place::from(body.local_decls.push(LocalDecl::new(meta_ty, span)));
-                bbs[bb].statements.push(Statement::new(
-                    source_info,
-                    StatementKind::Assign(Box::new((
-                        meta_place,
-                        Rvalue::UnaryOp(UnOp::PtrMetadata, op),
-                    ))),
-                ));
-
-                // raw *const ()
-                let vt_ptr_place =
-                    Place::from(body.local_decls.push(LocalDecl::new(raw_ptr_ty, span)));
-                bbs[bb].statements.push(Statement::new(
-                    source_info,
-                    StatementKind::Assign(Box::new((
-                        vt_ptr_place,
-                        Rvalue::Cast(CastKind::Transmute, Operand::Move(meta_place), raw_ptr_ty),
-                    ))),
-                ));
-
-                let entries = tcx.vtable_entries(trait_ref);
-                let slot_idx = entries
-                    .iter()
-                    .position(|e| {
-                        matches!(
-                            e, VtblEntry::Method(inst) if inst.def_id() == defid
-                        )
-                    })
-                    .unwrap();
-
-                let VtblEntry::Method(vtable_instance) = &entries[slot_idx] else {
-                    continue;
-                };
-
-                let fn_abi_ty = vtable_instance.ty(tcx, TypingEnv::fully_monomorphized());
-                let fn_sig = fn_abi_ty.fn_sig(tcx);
-                let fn_ptr_ty = Ty::new_fn_ptr(tcx, fn_sig);
-
-                let vt_typed_ty = Ty::new_ptr(tcx, fn_ptr_ty, Mutability::Not);
-
-                // *const (fn ptr)
-                let vt_slots_place =
-                    Place::from(body.local_decls.push(LocalDecl::new(vt_typed_ty, span)));
-                bbs[bb].statements.push(Statement::new(
-                    source_info,
-                    StatementKind::Assign(Box::new((
-                        vt_slots_place,
-                        Rvalue::Cast(CastKind::PtrToPtr, Operand::Copy(vt_ptr_place), vt_typed_ty),
-                    ))),
-                ));
-
-                let op = Box::new(ConstOperand {
-                    span: span,
-                    user_ty: None,
-                    const_: Const::from_usize(tcx, slot_idx.try_into().unwrap()),
-                });
-
-                // vtable as slots + slot idx
-                let slot_ptr_loc = body.local_decls.push(LocalDecl::new(vt_typed_ty, span));
-                let slot_ptr_place = Place::from(slot_ptr_loc);
-
-                bbs[bb].statements.push(Statement::new(
-                    source_info,
-                    StatementKind::Assign(Box::new((
-                        slot_ptr_place,
-                        Rvalue::BinaryOp(
-                            BinOp::Offset,
-                            Box::new((Operand::Copy(vt_slots_place), Operand::Constant(op))),
-                        ),
-                    ))),
-                ));
-
-                let deref_place = Place {
-                    local: slot_ptr_loc,
-                    projection: tcx.mk_place_elems(&[ProjectionElem::Deref]),
-                };
-
-                // loaded fn
-                let slot_fn_place =
-                    Place::from(body.local_decls.push(LocalDecl::new(fn_ptr_ty, span)));
-                bbs[bb].statements.push(Statement::new(
-                    source_info,
-                    StatementKind::Assign(Box::new((
-                        slot_fn_place,
-                        Rvalue::Use(Operand::Copy(deref_place)),
-                    ))),
-                ));
-
-                let orig = bbs[bb].terminator().clone();
-                let mut fallback = bbs.push(BasicBlockData::new_stmts(vec![], Some(orig), false));
-                let n = hashes.len();
-
-                for (i, (hash, self_hash)) in hashes.iter().enumerate() {
-                    let (fnc, self_ty) = match fn_op(tcx, *hash, self_hash.clone(), gen_args, span)
-                    {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
-
-                    let (recv, new_stmts) = narrow_dyn(
-                        tcx,
-                        &mut body,
-                        source_info,
-                        args[0].node.clone(),
-                        self_ty,
-                        span,
-                    );
-                    let mut new_args = args.clone();
-                    new_args[0].node = Operand::Move(recv);
-
-                    let call_bb = bbs.push(BasicBlockData::new_stmts(
-                        new_stmts,
-                        Some(Terminator {
-                            source_info,
-                            kind: TerminatorKind::Call {
-                                func: fnc.clone(),
-                                args: new_args,
-                                destination: dest,
-                                target: target,
-                                unwind: unwind,
-                                call_source: call_source,
-                                fn_span: span,
-                            },
-                        }),
-                        false,
-                    ));
-
-                    let cand_ptr_place =
-                        Place::from(body.local_decls.push(LocalDecl::new(fn_ptr_ty, span)));
-                    bbs[bb].statements.push(Statement::new(
-                        source_info,
-                        StatementKind::Assign(Box::new((
-                            cand_ptr_place,
-                            Rvalue::Cast(
-                                CastKind::PointerCoercion(
-                                    PointerCoercion::ReifyFnPointer(Safety::Unsafe),
-                                    CoercionSource::AsCast,
-                                ),
-                                fnc.clone(),
-                                fn_ptr_ty,
-                            ),
-                        ))),
-                    ));
-
-                    let eq_place =
-                        Place::from(body.local_decls.push(LocalDecl::new(tcx.types.bool, span)));
-
-                    let eq_stmt = Statement::new(
-                        source_info,
-                        StatementKind::Assign(Box::new((
-                            eq_place,
-                            Rvalue::BinaryOp(
-                                BinOp::Eq,
-                                Box::new((
-                                    Operand::Copy(slot_fn_place),
-                                    Operand::Copy(cand_ptr_place),
-                                )),
-                            ),
-                        ))),
-                    );
-
-                    let new_term = Terminator {
-                        source_info,
-                        kind: TerminatorKind::SwitchInt {
-                            discr: Operand::Copy(eq_place),
-                            targets: SwitchTargets::static_if(1, call_bb, fallback),
-                        },
-                    };
-
-                    if i == n - 1 {
-                        bbs[bb].statements.push(eq_stmt);
-                        bbs[bb].terminator = Some(new_term);
-                    } else {
-                        fallback = bbs.push(BasicBlockData::new_stmts(
-                            vec![eq_stmt],
-                            Some(new_term),
-                            false,
-                        ));
-                    }
-                }
-            }
-
-            Edit::Tagged(sites) => {
-                let recv_local = match &args[0].node {
-                    Operand::Copy(p) | Operand::Move(p) if p.projection.is_empty() => p.local,
-                    _ => continue,
-                };
-
-                let preds = default.basic_blocks.predecessors();
-
-                let found = find_casts(&bbs, preds, bb_idx, recv_local, &mut HashSet::new());
-
-                let planned: HashSet<(usize, usize)> = sites
-                    .iter()
-                    .map(|(bb, stmt, _, _, _)| (*bb, *stmt))
-                    .collect();
-                if found != Some(planned) {
-                    continue;
-                }
-
-                let tag_local = body.local_decls.push(LocalDecl::new(tcx.types.usize, span));
-
-                for (bb_idx, stmt_idx, tag, _, _) in &sites {
-                    let cb = BasicBlock::from_usize(*bb_idx);
-
-                    bbs[cb].statements.insert(
-                        stmt_idx + 1,
-                        Statement::new(
-                            source_info,
-                            StatementKind::Assign(Box::new((
-                                Place::from(tag_local),
-                                Rvalue::Use(Operand::Constant(Box::new(ConstOperand {
-                                    span,
-                                    user_ty: None,
-                                    const_: Const::from_usize(tcx, *tag),
-                                }))),
-                            ))),
-                        ),
-                    );
-                }
-
-                let orig = bbs[bb].terminator().clone();
-                let fallback = bbs.push(BasicBlockData::new_stmts(vec![], Some(orig), false));
-
-                let mut arms = Vec::new();
-
-                for (_, _, tag, impl_hash, self_hash) in &sites {
-                    let (fnc, self_ty) =
-                        match fn_op(tcx, *impl_hash, self_hash.clone(), gen_args, span) {
-                            Ok(v) => v,
-                            Err(_) => continue,
-                        };
-                    let (recv, stmts) = narrow_dyn(
-                        tcx,
-                        &mut body,
-                        source_info,
-                        args[0].node.clone(),
-                        self_ty,
-                        span,
-                    );
-
-                    let mut new_args = args.clone();
-                    new_args[0].node = Operand::Move(recv);
-
-                    let cb = bbs.push(BasicBlockData::new_stmts(
-                        stmts,
-                        Some(Terminator {
-                            source_info,
-                            kind: TerminatorKind::Call {
-                                func: fnc,
-                                args: new_args,
-                                destination: dest,
-                                target,
-                                unwind,
-                                call_source,
-                                fn_span: span,
-                            },
-                        }),
-                        false,
-                    ));
-                    arms.push((*tag as u128, cb));
-                }
-
-                bbs[bb].terminator = Some(Terminator {
-                    source_info,
-                    kind: TerminatorKind::SwitchInt {
-                        discr: Operand::Copy(Place::from(tag_local)),
-                        targets: SwitchTargets::new(arms.into_iter(), fallback),
-                    },
-                });
-            }
-        }
-    }
-
-    *body.basic_blocks_mut() = bbs;
-
-    dump_body(tcx, &body, "after");
-
-    tcx.arena.alloc(body)
-}
-
-fn optimized_mir<'tcx>(tcx: TyCtxt<'tcx>, def_id: LocalDefId) -> &'tcx Body<'tcx> {
-    let original = ORIGINAL.get().unwrap();
-    let default = original(tcx, def_id);
-    let hash = tcx.def_path_hash(def_id.to_def_id());
-    rewrite_body(tcx, default, hash)
-}
-
-fn extern_optimized_mir<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    def_id: rustc_span::def_id::DefId,
-) -> &'tcx Body<'tcx> {
-    let original = EXTERN_ORIGINAL.get().unwrap();
-    let default = original(tcx, def_id);
-    let hash = tcx.def_path_hash(def_id);
-    rewrite_body(tcx, default, hash)
-}
-
-fn fn_op<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    hash: DefPathHash,
-    self_hashes: Option<Vec<DefPathHash>>,
-    gen_args: &'tcx List<GenericArg<'tcx>>,
-    span: Span,
-) -> Result<(Operand<'tcx>, Ty<'tcx>), ()> {
-    let target_did = tcx.def_path_hash_to_def_id(hash).unwrap();
-
-    let args = match &self_hashes {
-        Some(hashes) => {
-            let tys: Vec<Ty<'tcx>> = hashes
-                .iter()
-                .map(|h| {
-                    let did = tcx.def_path_hash_to_def_id(*h).ok_or(())?;
-                    Ok(tcx.type_of(did).instantiate_identity())
-                })
-                .collect::<Result<Vec<_>, ()>>()?;
-            let arg_list: Vec<GenericArg<'tcx>> = tys.into_iter().map(|t| t.into()).collect();
-            tcx.mk_args(&arg_list)
-        }
-        None => tcx.mk_args_from_iter(gen_args.iter().skip(1)),
-    };
-
-    let _ = CRATE_NAME.get_or_init(|| tcx.crate_name(LOCAL_CRATE).to_string());
-    if args.len() != tcx.generics_of(target_did).count() {
-        FN_OP_ARGS_MISMATCH.fetch_add(1, Ordering::Relaxed);
-        return Err(());
-    }
-    FN_OP_ARGS_OK.fetch_add(1, Ordering::Relaxed);
-
-    let instance =
-        match Instance::try_resolve(tcx, TypingEnv::fully_monomorphized(), target_did, args) {
-            Ok(Some(inst)) => inst,
-            _ => return Err(()),
-        };
-
-    let fn_ty = instance.ty(tcx, TypingEnv::fully_monomorphized());
-    let new_const = Const::zero_sized(fn_ty);
-
-    let op = Operand::Constant(Box::new(ConstOperand {
-        span: span,
-        user_ty: None,
-        const_: new_const,
-    }));
-
-    let parent_did = tcx.parent(target_did);
-    let raw_self_ty = if tcx.def_kind(parent_did) == DefKind::Trait {
-        match &self_hashes {
-            Some(hashes) if !hashes.is_empty() => {
-                let self_did = tcx.def_path_hash_to_def_id(hashes[0]).ok_or(())?;
-                tcx.type_of(self_did).instantiate_identity()
-            }
-            _ => return Err(()),
-        }
-    } else {
-        tcx.type_of(parent_did).instantiate(tcx, instance.args)
-    };
-    let self_ty = match tcx.try_normalize_erasing_regions(TypingEnv::fully_monomorphized(), raw_self_ty)
-    {
-        Ok(ty) => ty,
-        Err(_) => return Err(()),
-    };
-
-    Ok((op, self_ty))
-}
-
-fn narrow_dyn<'tcx>(
-    tcx: TyCtxt<'tcx>,
-    body: &mut Body<'tcx>,
-    si: SourceInfo,
-    recv: Operand<'tcx>,
-    self_ty: Ty<'tcx>,
-    span: Span,
-) -> (Place<'tcx>, Vec<Statement<'tcx>>) {
-    let ptr_ty = Ty::new_ptr(tcx, self_ty, Mutability::Not);
-    let ref_ty = Ty::new_ref(tcx, tcx.lifetimes.re_erased, self_ty, Mutability::Not);
-
-    let mut stmts = Vec::new();
-
-    let thin = Place::from(body.local_decls.push(LocalDecl::new(ptr_ty, span)));
-    stmts.push(Statement::new(
-        si,
-        StatementKind::Assign(Box::new((
-            thin,
-            Rvalue::Cast(CastKind::PtrToPtr, recv, ptr_ty),
-        ))),
-    ));
-
-    let deref = Place {
-        local: thin.local,
-        projection: tcx.mk_place_elems(&[ProjectionElem::Deref]),
-    };
-
-    let out = Place::from(body.local_decls.push(LocalDecl::new(ref_ty, span)));
-    stmts.push(Statement::new(
-        si,
-        StatementKind::Assign(Box::new((
-            out,
-            Rvalue::Ref(
-                tcx.lifetimes.re_erased,
-                rustc_middle::mir::BorrowKind::Shared,
-                deref,
-            ),
-        ))),
-    ));
-
-    (out, stmts)
-}
-
-fn find_casts<'tcx>(
-    bbs: &IndexVec<BasicBlock, BasicBlockData<'tcx>>,
-    preds: &IndexVec<BasicBlock, SmallVec<[BasicBlock; 4]>>,
-    bb_idx: usize,
-    local: Local,
-    seen: &mut HashSet<(usize, Local)>,
-) -> Option<HashSet<(usize, usize)>> {
-    if !seen.insert((bb_idx, local)) {
-        return Some(HashSet::new());
-    }
-
-    let bb = BasicBlock::from_usize(bb_idx);
-
-    for (i, stmt) in bbs[bb].statements.iter().enumerate().rev() {
-        let StatementKind::Assign(b) = &stmt.kind else {
-            continue;
-        };
-        let (p, rv) = *b.clone();
-        if p.local != local || !p.projection.is_empty() {
-            continue;
-        }
-
-        return match rv {
-            Rvalue::Cast(CastKind::PointerCoercion(PointerCoercion::Unsize, ..), ..) => {
-                Some([(bb_idx, i)].into_iter().collect())
-            }
-            Rvalue::Use(Operand::Copy(q) | Operand::Move(q)) if q.projection.is_empty() => {
-                find_casts(bbs, preds, bb_idx, q.local, seen)
-            }
-            _ => None,
-        };
-    }
-
-    let ps = &preds[bb];
-    if ps.is_empty() {
-        return None;
-    }
-
-    let mut out = HashSet::new();
-    for p in ps {
-        out.extend(find_casts(bbs, preds, p.index(), local, seen)?);
-    }
-
-    Some(out)
-}

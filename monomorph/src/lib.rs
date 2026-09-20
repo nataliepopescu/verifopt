@@ -2,8 +2,6 @@
 #![feature(maybe_uninit_fill)]
 #![feature(box_patterns)]
 
-//extern crate rustc_hir;
-//extern crate rustc_middle;
 extern crate rustc_data_structures;
 extern crate rustc_index;
 extern crate rustc_public;
@@ -44,29 +42,23 @@ use crate::util::options::AnalysisOptions;
 pub fn start_verifopt(
     options: AnalysisOptions,
 ) -> (
-    HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
-    HashMap<(DefId, usize), TagPlan>,
+    HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+    HashMap<(DefId, usize, GenericArgs), TagPlan>,
 ) {
     // `stats` (opened in append mode by VOLogger::new below) and
-    // `mir_dump.txt` (opened in append mode by rewrite.rs's `dump_body`,
-    // written during the later RewriteCallbacks compiler session within
-    // this same process) both accumulate across runs instead of being
-    // overwritten. Clear them here, at the very start of the whole
-    // verifopt pipeline, so each invocation starts from a clean slate -
-    // including the two-pass dependency-rewrite flow's own artifacts
-    // (see rewrite.rs's dep_rewrite_store_path/
+    // `mir_dump.txt` (opened in append mode by the modified compiler's
+    // own codegen_mir hook - see the rust fork's own
+    // verifopt_rewrite.rs, not this crate) both accumulate across runs
+    // instead of being overwritten. Clear them here, at the very start
+    // of the whole verifopt pipeline, so each invocation starts from a
+    // clean slate - including the two-pass dependency-rewrite flow's
+    // own artifacts (see rewrite.rs's dep_rewrite_store_path/
     // needs_rewrite_pass_marker_path docs): a stale marker file left
     // over from an earlier run could otherwise be mistaken for this
     // run's own signal that a rewrite pass is needed.
-    for f in [
-        "stats",
-        "mir_dump.txt",
-        crate::rewrite::dep_rewrite_store_path(),
-        crate::rewrite::needs_rewrite_pass_marker_path(),
-        crate::rewrite::rewrite_stats_path(),
-    ] {
-        let _ = fs::remove_file(f);
-    }
+    let _ = fs::remove_file("stats");
+    let _ = fs::remove_file("mir_dump.txt");
+    let _ = fs::remove_file(crate::rewrite::dep_rewrite_store_path());
 
     // TODO make log filename a cmdline option
     let mut logger = VOLogger::new();
@@ -177,26 +169,27 @@ pub fn start_verifopt(
         .dispatch_targets
         .borrow()
         .iter()
-        .filter_map(|(&key, (span, impls))| {
-            if *confirmed.get(&span).unwrap_or(&false) {
-                Some((key, (span.clone(), impls.clone())))
+        .filter_map(|(key, (span, impls))| {
+            if *confirmed.get(span).unwrap_or(&false) {
+                Some((key.clone(), (span.clone(), impls.clone())))
             } else {
-                cha.get(&key).map(|c| (key, (span.clone(), c.clone().1)))
+                cha.get(key)
+                    .map(|c| (key.clone(), (span.clone(), c.clone().1)))
             }
         })
         .collect();
 
-    let tags: HashMap<(DefId, usize), TagPlan> = interp
+    let tags: HashMap<(DefId, usize, GenericArgs), TagPlan> = interp
         .dispatch_tags
         .borrow()
         .iter()
-        .map(|(&k, p)| {
+        .map(|(k, p)| {
             let ok = interp
                 .dispatch_targets
                 .borrow()
-                .get(&k)
+                .get(k)
                 .map_or(false, |(s, _)| *confirmed.get(s).unwrap_or(&false));
-            (k, if ok { p.clone() } else { TagPlan::Poisoned })
+            (k.clone(), if ok { p.clone() } else { TagPlan::Poisoned })
         })
         .collect();
 
@@ -208,8 +201,8 @@ pub fn start_verifopt(
     // O(program size so far) - this one conversion back to std::HashMap
     // happens exactly once for the whole run, not per summary-build
     // attempt, so it isn't the cost that migration was about avoiding.
-    let cha_std: HashMap<(DefId, usize), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
-        cha.iter().map(|(k, v)| (*k, v.clone())).collect();
+    let cha_std: HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
+        cha.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let _ = logger.log_stats(&fsa, &cha_std);
 
     (fsa, tags)

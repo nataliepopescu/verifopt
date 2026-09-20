@@ -77,6 +77,7 @@ pub fn wrap_visit_dynboth(a: &dyn Animal, v: &dyn AnimalVisitor) -> usize {
 
 // 
 
+/*
 pub fn wrap_visit_dynanimal1(a: &dyn Animal, sbd: &SpeakBetterDogs) -> usize {
     a.visit(sbd)
 }
@@ -119,3 +120,4 @@ pub fn wrap_visit_dynboth4(a: &dyn Animal, v: &dyn AnimalVisitor) -> usize {
 pub fn wrap_visit_dynboth5(a: &dyn Animal, v: &dyn AnimalVisitor) -> usize {
     a.visit(v)
 }
+*/

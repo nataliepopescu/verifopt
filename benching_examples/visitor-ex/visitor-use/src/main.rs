@@ -6,22 +6,23 @@ use visitor_use::{
     wrap_speak, wrap_receive_dog,
 
     wrap_visit_dynanimal,
-    wrap_visit_dynanimal1,
-    wrap_visit_dynanimal2,
-    wrap_visit_dynanimal3,
-
     wrap_visit_dynvisitor,
-    wrap_visit_dynvisitor_direct_sbd,
-    wrap_visit_dynvisitor_funcret_sbd,
-    wrap_visit_dynvisitor_direct_sbc,
-    wrap_visit_dynvisitor_funcret_sbc,
-
     wrap_visit_dynboth,
-    wrap_visit_dynboth1,
-    wrap_visit_dynboth2,
-    wrap_visit_dynboth3,
-    wrap_visit_dynboth4,
-    wrap_visit_dynboth5,
+
+    //wrap_visit_dynanimal1,
+    //wrap_visit_dynanimal2,
+    //wrap_visit_dynanimal3,
+
+    //wrap_visit_dynvisitor_direct_sbd,
+    //wrap_visit_dynvisitor_funcret_sbd,
+    //wrap_visit_dynvisitor_direct_sbc,
+    //wrap_visit_dynvisitor_funcret_sbc,
+
+    //wrap_visit_dynboth1,
+    //wrap_visit_dynboth2,
+    //wrap_visit_dynboth3,
+    //wrap_visit_dynboth4,
+    //wrap_visit_dynboth5,
 };
 use std::hint::black_box;
 //use rand::Rng;

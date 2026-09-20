@@ -41,73 +41,79 @@ fn main() -> () {
                     let _18: i32;
                     scope 5 {
                         debug result => _18;
-                        scope 69 (inlined std::hint::black_box::<i32>) {
+                        scope 75 (inlined std::hint::black_box::<i32>) {
                         }
                     }
                 }
             }
         }
-        scope 43 (inlined <std::vec::Vec<std::boxed::Box<dyn Worker>> as std::ops::Deref>::deref) {
-            scope 44 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_slice) {
+        scope 46 (inlined <std::vec::Vec<std::boxed::Box<dyn Worker>> as std::ops::Deref>::deref) {
+            scope 47 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_slice) {
                 let _42: *const [std::boxed::Box<dyn Worker>];
                 let mut _43: *const std::boxed::Box<dyn Worker>;
                 let mut _44: usize;
-                scope 45 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_ptr) {
-                    scope 46 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::ptr) {
-                        scope 47 (inlined alloc::raw_vec::RawVecInner::ptr::<std::boxed::Box<dyn Worker>>) {
-                            scope 48 (inlined alloc::raw_vec::RawVecInner::non_null::<std::boxed::Box<dyn Worker>>) {
+                scope 48 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_ptr) {
+                    scope 49 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::ptr) {
+                        scope 50 (inlined alloc::raw_vec::RawVecInner::ptr::<std::boxed::Box<dyn Worker>>) {
+                            scope 51 (inlined alloc::raw_vec::RawVecInner::non_null::<std::boxed::Box<dyn Worker>>) {
                                 let mut _45: std::ptr::NonNull<u8>;
-                                scope 49 (inlined std::ptr::Unique::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
-                                    scope 50 (inlined std::ptr::NonNull::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
-                                        scope 51 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                scope 52 (inlined std::ptr::Unique::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
+                                    scope 53 (inlined std::ptr::NonNull::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
+                                        scope 54 (inlined std::ptr::NonNull::<u8>::as_ptr) {
                                         }
                                     }
                                 }
-                                scope 52 (inlined std::ptr::Unique::<std::boxed::Box<dyn Worker>>::as_non_null_ptr) {
+                                scope 55 (inlined std::ptr::Unique::<std::boxed::Box<dyn Worker>>::as_non_null_ptr) {
                                 }
                             }
-                            scope 53 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
+                            scope 56 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
                             }
                         }
                     }
                 }
             }
         }
-        scope 54 (inlined core::slice::<impl [std::boxed::Box<dyn Worker>]>::iter) {
-            scope 55 (inlined std::slice::Iter::<'_, std::boxed::Box<dyn Worker>>::new) {
+        scope 57 (inlined core::slice::<impl [std::boxed::Box<dyn Worker>]>::iter) {
+            scope 58 (inlined std::slice::Iter::<'_, std::boxed::Box<dyn Worker>>::new) {
                 let mut _48: *mut std::boxed::Box<dyn Worker>;
                 let mut _49: *mut std::boxed::Box<dyn Worker>;
-                scope 56 {
+                scope 59 {
                     let _46: std::ptr::NonNull<std::boxed::Box<dyn Worker>>;
-                    scope 57 {
+                    scope 60 {
                         let _47: *const std::boxed::Box<dyn Worker>;
-                        scope 58 {
+                        scope 61 {
                         }
-                        scope 62 (inlined std::ptr::without_provenance::<std::boxed::Box<dyn Worker>>) {
-                            scope 63 (inlined std::ptr::without_provenance_mut::<std::boxed::Box<dyn Worker>>) {
+                        scope 65 (inlined std::ptr::without_provenance::<std::boxed::Box<dyn Worker>>) {
+                            scope 66 (inlined std::ptr::without_provenance_mut::<std::boxed::Box<dyn Worker>>) {
                             }
                         }
-                        scope 64 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
+                        scope 67 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
                         }
-                        scope 65 (inlined #[track_caller] std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::add) {
+                        scope 68 (inlined #[track_caller] std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::add) {
+                            scope 69 (inlined core::ub_checks::check_language_ub) {
+                                scope 70 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 71 (inlined std::mem::size_of::<std::boxed::Box<dyn Worker>>) {
+                            }
                         }
                     }
-                    scope 59 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::from_ref) {
+                    scope 62 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::from_ref) {
                         let mut _50: *const [std::boxed::Box<dyn Worker>];
                     }
-                    scope 60 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::cast::<std::boxed::Box<dyn Worker>>) {
+                    scope 63 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::cast::<std::boxed::Box<dyn Worker>>) {
                         let mut _51: *const std::boxed::Box<dyn Worker>;
-                        scope 61 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::as_ptr) {
+                        scope 64 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::as_ptr) {
                         }
                     }
                 }
             }
         }
-        scope 66 (inlined <std::slice::Iter<'_, std::boxed::Box<dyn Worker>> as std::iter::Iterator>::enumerate) {
-            scope 67 (inlined std::iter::Enumerate::<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>>::new) {
+        scope 72 (inlined <std::slice::Iter<'_, std::boxed::Box<dyn Worker>> as std::iter::Iterator>::enumerate) {
+            scope 73 (inlined std::iter::Enumerate::<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>>::new) {
             }
         }
-        scope 68 (inlined <std::iter::Enumerate<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>> as std::iter::IntoIterator>::into_iter) {
+        scope 74 (inlined <std::iter::Enumerate<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>> as std::iter::IntoIterator>::into_iter) {
         }
     }
     scope 6 (inlined alloc::alloc::exchange_malloc) {
@@ -142,33 +148,33 @@ fn main() -> () {
         let mut _34: *const [std::boxed::Box<dyn Worker>];
         scope 18 {
             scope 19 {
-                scope 31 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
+                scope 34 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
                     let mut _36: alloc::raw_vec::RawVec<std::boxed::Box<dyn Worker>>;
-                    scope 32 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
+                    scope 35 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
                         let mut _38: alloc::raw_vec::RawVecInner;
-                        scope 33 {
+                        scope 36 {
                             let _37: core::num::niche_types::UsizeNoHighBit;
-                            scope 34 {
-                                scope 38 (inlined alloc::raw_vec::RawVecInner::from_raw_parts_in) {
+                            scope 37 {
+                                scope 41 (inlined alloc::raw_vec::RawVecInner::from_raw_parts_in) {
                                     let mut _39: std::ptr::Unique<u8>;
-                                    scope 39 (inlined std::ptr::Unique::<u8>::new_unchecked) {
+                                    scope 42 (inlined std::ptr::Unique::<u8>::new_unchecked) {
                                         let mut _40: std::ptr::NonNull<u8>;
-                                        scope 40 (inlined #[track_caller] std::ptr::NonNull::<u8>::new_unchecked) {
+                                        scope 43 (inlined #[track_caller] std::ptr::NonNull::<u8>::new_unchecked) {
                                             let mut _41: *const u8;
-                                            scope 41 (inlined core::ub_checks::check_language_ub) {
-                                                scope 42 (inlined core::ub_checks::check_language_ub::runtime) {
+                                            scope 44 (inlined core::ub_checks::check_language_ub) {
+                                                scope 45 (inlined core::ub_checks::check_language_ub::runtime) {
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                            scope 36 (inlined alloc::raw_vec::new_cap::<std::boxed::Box<dyn Worker>>) {
-                                scope 37 (inlined core::num::niche_types::UsizeNoHighBit::new_unchecked) {
+                            scope 39 (inlined alloc::raw_vec::new_cap::<std::boxed::Box<dyn Worker>>) {
+                                scope 40 (inlined core::num::niche_types::UsizeNoHighBit::new_unchecked) {
                                 }
                             }
                         }
-                        scope 35 (inlined std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::cast::<u8>) {
+                        scope 38 (inlined std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::cast::<u8>) {
                         }
                     }
                 }
@@ -184,6 +190,12 @@ fn main() -> () {
                             }
                         }
                         scope 30 (inlined #[track_caller] std::ptr::read::<std::alloc::Global>) {
+                            scope 31 (inlined core::ub_checks::check_language_ub) {
+                                scope 32 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 33 (inlined std::mem::align_of::<std::alloc::Global>) {
+                            }
                         }
                     }
                     scope 26 (inlined <std::mem::ManuallyDrop<std::boxed::Box<[std::boxed::Box<dyn Worker>]>> as std::ops::DerefMut>::deref_mut) {
@@ -201,7 +213,6 @@ fn main() -> () {
 
     bb0: {
         StorageLive(_1);
-        StorageLive(_2);
         StorageLive(_3);
         StorageLive(_29);
         StorageLive(_30);
@@ -229,7 +240,6 @@ fn main() -> () {
         StorageDead(_4);
         StorageDead(_3);
         StorageLive(_33);
-        StorageLive(_34);
         StorageLive(_35);
         _34 = copy ((_2.0: std::ptr::Unique<[std::boxed::Box<dyn Worker>]>).0: std::ptr::NonNull<[std::boxed::Box<dyn Worker>]>) as *const [std::boxed::Box<dyn Worker>] (Transmute);
         _33 = PtrMetadata(copy _34);
@@ -254,9 +264,7 @@ fn main() -> () {
         _1 = std::vec::Vec::<std::boxed::Box<dyn Worker>> { buf: move _36, len: copy _33 };
         StorageDead(_36);
         StorageDead(_35);
-        StorageDead(_34);
         StorageDead(_33);
-        StorageDead(_2);
         StorageLive(_10);
         StorageLive(_43);
         StorageLive(_45);
@@ -464,73 +472,79 @@ fn main() -> () {
                     let _18: i32;
                     scope 5 {
                         debug result => _18;
-                        scope 69 (inlined std::hint::black_box::<i32>) {
+                        scope 75 (inlined std::hint::black_box::<i32>) {
                         }
                     }
                 }
             }
         }
-        scope 43 (inlined <std::vec::Vec<std::boxed::Box<dyn Worker>> as std::ops::Deref>::deref) {
-            scope 44 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_slice) {
+        scope 46 (inlined <std::vec::Vec<std::boxed::Box<dyn Worker>> as std::ops::Deref>::deref) {
+            scope 47 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_slice) {
                 let _42: *const [std::boxed::Box<dyn Worker>];
                 let mut _43: *const std::boxed::Box<dyn Worker>;
                 let mut _44: usize;
-                scope 45 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_ptr) {
-                    scope 46 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::ptr) {
-                        scope 47 (inlined alloc::raw_vec::RawVecInner::ptr::<std::boxed::Box<dyn Worker>>) {
-                            scope 48 (inlined alloc::raw_vec::RawVecInner::non_null::<std::boxed::Box<dyn Worker>>) {
+                scope 48 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::as_ptr) {
+                    scope 49 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::ptr) {
+                        scope 50 (inlined alloc::raw_vec::RawVecInner::ptr::<std::boxed::Box<dyn Worker>>) {
+                            scope 51 (inlined alloc::raw_vec::RawVecInner::non_null::<std::boxed::Box<dyn Worker>>) {
                                 let mut _45: std::ptr::NonNull<u8>;
-                                scope 49 (inlined std::ptr::Unique::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
-                                    scope 50 (inlined std::ptr::NonNull::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
-                                        scope 51 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                scope 52 (inlined std::ptr::Unique::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
+                                    scope 53 (inlined std::ptr::NonNull::<u8>::cast::<std::boxed::Box<dyn Worker>>) {
+                                        scope 54 (inlined std::ptr::NonNull::<u8>::as_ptr) {
                                         }
                                     }
                                 }
-                                scope 52 (inlined std::ptr::Unique::<std::boxed::Box<dyn Worker>>::as_non_null_ptr) {
+                                scope 55 (inlined std::ptr::Unique::<std::boxed::Box<dyn Worker>>::as_non_null_ptr) {
                                 }
                             }
-                            scope 53 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
+                            scope 56 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
                             }
                         }
                     }
                 }
             }
         }
-        scope 54 (inlined core::slice::<impl [std::boxed::Box<dyn Worker>]>::iter) {
-            scope 55 (inlined std::slice::Iter::<'_, std::boxed::Box<dyn Worker>>::new) {
+        scope 57 (inlined core::slice::<impl [std::boxed::Box<dyn Worker>]>::iter) {
+            scope 58 (inlined std::slice::Iter::<'_, std::boxed::Box<dyn Worker>>::new) {
                 let mut _48: *mut std::boxed::Box<dyn Worker>;
                 let mut _49: *mut std::boxed::Box<dyn Worker>;
-                scope 56 {
+                scope 59 {
                     let _46: std::ptr::NonNull<std::boxed::Box<dyn Worker>>;
-                    scope 57 {
+                    scope 60 {
                         let _47: *const std::boxed::Box<dyn Worker>;
-                        scope 58 {
+                        scope 61 {
                         }
-                        scope 62 (inlined std::ptr::without_provenance::<std::boxed::Box<dyn Worker>>) {
-                            scope 63 (inlined std::ptr::without_provenance_mut::<std::boxed::Box<dyn Worker>>) {
+                        scope 65 (inlined std::ptr::without_provenance::<std::boxed::Box<dyn Worker>>) {
+                            scope 66 (inlined std::ptr::without_provenance_mut::<std::boxed::Box<dyn Worker>>) {
                             }
                         }
-                        scope 64 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
+                        scope 67 (inlined std::ptr::NonNull::<std::boxed::Box<dyn Worker>>::as_ptr) {
                         }
-                        scope 65 (inlined #[track_caller] std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::add) {
+                        scope 68 (inlined #[track_caller] std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::add) {
+                            scope 69 (inlined core::ub_checks::check_language_ub) {
+                                scope 70 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 71 (inlined std::mem::size_of::<std::boxed::Box<dyn Worker>>) {
+                            }
                         }
                     }
-                    scope 59 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::from_ref) {
+                    scope 62 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::from_ref) {
                         let mut _50: *const [std::boxed::Box<dyn Worker>];
                     }
-                    scope 60 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::cast::<std::boxed::Box<dyn Worker>>) {
+                    scope 63 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::cast::<std::boxed::Box<dyn Worker>>) {
                         let mut _51: *const std::boxed::Box<dyn Worker>;
-                        scope 61 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::as_ptr) {
+                        scope 64 (inlined std::ptr::NonNull::<[std::boxed::Box<dyn Worker>]>::as_ptr) {
                         }
                     }
                 }
             }
         }
-        scope 66 (inlined <std::slice::Iter<'_, std::boxed::Box<dyn Worker>> as std::iter::Iterator>::enumerate) {
-            scope 67 (inlined std::iter::Enumerate::<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>>::new) {
+        scope 72 (inlined <std::slice::Iter<'_, std::boxed::Box<dyn Worker>> as std::iter::Iterator>::enumerate) {
+            scope 73 (inlined std::iter::Enumerate::<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>>::new) {
             }
         }
-        scope 68 (inlined <std::iter::Enumerate<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>> as std::iter::IntoIterator>::into_iter) {
+        scope 74 (inlined <std::iter::Enumerate<std::slice::Iter<'_, std::boxed::Box<dyn Worker>>> as std::iter::IntoIterator>::into_iter) {
         }
     }
     scope 6 (inlined alloc::alloc::exchange_malloc) {
@@ -565,33 +579,33 @@ fn main() -> () {
         let mut _34: *const [std::boxed::Box<dyn Worker>];
         scope 18 {
             scope 19 {
-                scope 31 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
+                scope 34 (inlined std::vec::Vec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
                     let mut _36: alloc::raw_vec::RawVec<std::boxed::Box<dyn Worker>>;
-                    scope 32 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
+                    scope 35 (inlined alloc::raw_vec::RawVec::<std::boxed::Box<dyn Worker>>::from_raw_parts_in) {
                         let mut _38: alloc::raw_vec::RawVecInner;
-                        scope 33 {
+                        scope 36 {
                             let _37: core::num::niche_types::UsizeNoHighBit;
-                            scope 34 {
-                                scope 38 (inlined alloc::raw_vec::RawVecInner::from_raw_parts_in) {
+                            scope 37 {
+                                scope 41 (inlined alloc::raw_vec::RawVecInner::from_raw_parts_in) {
                                     let mut _39: std::ptr::Unique<u8>;
-                                    scope 39 (inlined std::ptr::Unique::<u8>::new_unchecked) {
+                                    scope 42 (inlined std::ptr::Unique::<u8>::new_unchecked) {
                                         let mut _40: std::ptr::NonNull<u8>;
-                                        scope 40 (inlined #[track_caller] std::ptr::NonNull::<u8>::new_unchecked) {
+                                        scope 43 (inlined #[track_caller] std::ptr::NonNull::<u8>::new_unchecked) {
                                             let mut _41: *const u8;
-                                            scope 41 (inlined core::ub_checks::check_language_ub) {
-                                                scope 42 (inlined core::ub_checks::check_language_ub::runtime) {
+                                            scope 44 (inlined core::ub_checks::check_language_ub) {
+                                                scope 45 (inlined core::ub_checks::check_language_ub::runtime) {
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                            scope 36 (inlined alloc::raw_vec::new_cap::<std::boxed::Box<dyn Worker>>) {
-                                scope 37 (inlined core::num::niche_types::UsizeNoHighBit::new_unchecked) {
+                            scope 39 (inlined alloc::raw_vec::new_cap::<std::boxed::Box<dyn Worker>>) {
+                                scope 40 (inlined core::num::niche_types::UsizeNoHighBit::new_unchecked) {
                                 }
                             }
                         }
-                        scope 35 (inlined std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::cast::<u8>) {
+                        scope 38 (inlined std::ptr::mut_ptr::<impl *mut std::boxed::Box<dyn Worker>>::cast::<u8>) {
                         }
                     }
                 }
@@ -607,6 +621,12 @@ fn main() -> () {
                             }
                         }
                         scope 30 (inlined #[track_caller] std::ptr::read::<std::alloc::Global>) {
+                            scope 31 (inlined core::ub_checks::check_language_ub) {
+                                scope 32 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 33 (inlined std::mem::align_of::<std::alloc::Global>) {
+                            }
                         }
                     }
                     scope 26 (inlined <std::mem::ManuallyDrop<std::boxed::Box<[std::boxed::Box<dyn Worker>]>> as std::ops::DerefMut>::deref_mut) {
@@ -624,7 +644,6 @@ fn main() -> () {
 
     bb0: {
         StorageLive(_1);
-        StorageLive(_2);
         StorageLive(_3);
         StorageLive(_29);
         StorageLive(_30);
@@ -652,7 +671,6 @@ fn main() -> () {
         StorageDead(_4);
         StorageDead(_3);
         StorageLive(_33);
-        StorageLive(_34);
         StorageLive(_35);
         _34 = copy ((_2.0: std::ptr::Unique<[std::boxed::Box<dyn Worker>]>).0: std::ptr::NonNull<[std::boxed::Box<dyn Worker>]>) as *const [std::boxed::Box<dyn Worker>] (Transmute);
         _33 = PtrMetadata(copy _34);
@@ -677,9 +695,7 @@ fn main() -> () {
         _1 = std::vec::Vec::<std::boxed::Box<dyn Worker>> { buf: move _36, len: copy _33 };
         StorageDead(_36);
         StorageDead(_35);
-        StorageDead(_34);
         StorageDead(_33);
-        StorageDead(_2);
         StorageLive(_10);
         StorageLive(_43);
         StorageLive(_45);

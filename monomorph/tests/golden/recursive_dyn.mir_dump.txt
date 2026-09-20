@@ -1,5 +1,101 @@
 
 ######### MIR before #########
+fn retain(_1: usize, _2: &dyn Animal) -> usize {
+    debug n => _1;
+    debug fixed => _2;
+    let mut _0: usize;
+    let _3: usize;
+    let mut _4: usize;
+    let mut _5: usize;
+    scope 1 {
+        debug here => _3;
+    }
+
+    bb0: {
+        _3 = <dyn Animal as Animal>::speak(copy _2) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        switchInt(copy _1) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = Sub(copy _1, const 1_usize);
+        _4 = retain(move _5, move _2) -> [return: bb4, unwind continue];
+    }
+
+    bb3: {
+        _0 = copy _3;
+        goto -> bb5;
+    }
+
+    bb4: {
+        StorageDead(_5);
+        _0 = Add(copy _3, move _4);
+        StorageDead(_4);
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn retain(_1: usize, _2: &dyn Animal) -> usize {
+    debug n => _1;
+    debug fixed => _2;
+    let mut _0: usize;
+    let _3: usize;
+    let mut _4: usize;
+    let mut _5: usize;
+    let mut _6: *const Bird;
+    let mut _7: &Bird;
+    scope 1 {
+        debug here => _3;
+    }
+
+    bb0: {
+        _6 = copy _2 as *const Bird (PtrToPtr);
+        _7 = &(*_6);
+        _3 = <Bird as Animal>::speak(move _7) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        switchInt(copy _1) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = Sub(copy _1, const 1_usize);
+        _4 = retain(move _5, move _2) -> [return: bb4, unwind continue];
+    }
+
+    bb3: {
+        _0 = copy _3;
+        goto -> bb5;
+    }
+
+    bb4: {
+        StorageDead(_5);
+        _0 = Add(copy _3, move _4);
+        StorageDead(_4);
+        goto -> bb5;
+    }
+
+    bb5: {
+        return;
+    }
+}
+######### END after #########
+
+
+######### MIR before #########
 fn alternate(_1: usize, _2: &dyn Animal, _3: &dyn Animal) -> usize {
     debug n => _1;
     debug cur => _2;
@@ -130,102 +226,6 @@ fn alternate(_1: usize, _2: &dyn Animal, _3: &dyn Animal) -> usize {
         _16 = copy _2 as *const Cat (PtrToPtr);
         _17 = &(*_16);
         _4 = <Cat as Animal>::speak(move _17) -> [return: bb1, unwind continue];
-    }
-}
-######### END after #########
-
-
-######### MIR before #########
-fn retain(_1: usize, _2: &dyn Animal) -> usize {
-    debug n => _1;
-    debug fixed => _2;
-    let mut _0: usize;
-    let _3: usize;
-    let mut _4: usize;
-    let mut _5: usize;
-    scope 1 {
-        debug here => _3;
-    }
-
-    bb0: {
-        _3 = <dyn Animal as Animal>::speak(copy _2) -> [return: bb1, unwind continue];
-    }
-
-    bb1: {
-        switchInt(copy _1) -> [0: bb3, otherwise: bb2];
-    }
-
-    bb2: {
-        StorageLive(_4);
-        StorageLive(_5);
-        _5 = Sub(copy _1, const 1_usize);
-        _4 = retain(move _5, move _2) -> [return: bb4, unwind continue];
-    }
-
-    bb3: {
-        _0 = copy _3;
-        goto -> bb5;
-    }
-
-    bb4: {
-        StorageDead(_5);
-        _0 = Add(copy _3, move _4);
-        StorageDead(_4);
-        goto -> bb5;
-    }
-
-    bb5: {
-        return;
-    }
-}
-######### END before #########
-
-
-######### MIR after #########
-fn retain(_1: usize, _2: &dyn Animal) -> usize {
-    debug n => _1;
-    debug fixed => _2;
-    let mut _0: usize;
-    let _3: usize;
-    let mut _4: usize;
-    let mut _5: usize;
-    let mut _6: *const Bird;
-    let mut _7: &Bird;
-    scope 1 {
-        debug here => _3;
-    }
-
-    bb0: {
-        _6 = copy _2 as *const Bird (PtrToPtr);
-        _7 = &(*_6);
-        _3 = <Bird as Animal>::speak(move _7) -> [return: bb1, unwind continue];
-    }
-
-    bb1: {
-        switchInt(copy _1) -> [0: bb3, otherwise: bb2];
-    }
-
-    bb2: {
-        StorageLive(_4);
-        StorageLive(_5);
-        _5 = Sub(copy _1, const 1_usize);
-        _4 = retain(move _5, move _2) -> [return: bb4, unwind continue];
-    }
-
-    bb3: {
-        _0 = copy _3;
-        goto -> bb5;
-    }
-
-    bb4: {
-        StorageDead(_5);
-        _0 = Add(copy _3, move _4);
-        StorageDead(_4);
-        goto -> bb5;
-    }
-
-    bb5: {
-        return;
     }
 }
 ######### END after #########

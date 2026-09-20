@@ -14,6 +14,7 @@ vtable rewrite
 - just remove vtables after we check theyre never accessed
 
 fatptr rewrite that also _optimizes_ woul dbe a much bigger lift
+- change all the entire calling convention
 
 lldb
 - watchpoint on loading mem - check vtable use

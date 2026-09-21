@@ -296,7 +296,12 @@ pub enum TyShape {
     Ref(bool /* mutable */, Box<TyShape>),
     RawPtr(bool /* mutable */, Box<TyShape>),
     Slice(Box<TyShape>),
-    FnPtr(Vec<TyShape>) /* inputs_and_output, in order */,
+    FnPtr {
+        inputs_and_output: Vec<TyShape>,
+        abi: String,
+        safe: bool,
+        c_variadic: bool,
+    },
     Dyn(SerializableDefPathHash /* trait DefId hash */, Vec<TyShape>),
 }
 
@@ -325,6 +330,40 @@ fn record_shape(hash: DefPathHash, shape: TyShape) -> DefPathHash {
 /// not recursively alongside every nested hash_ty call - a TyShape
 /// already embeds its own nested structure directly, so there's no
 /// need for a separate registry entry per sub-component.
+fn abi_to_token_string(abi: &rustc_public::ty::Abi) -> Option<String> {
+    use rustc_public::ty::Abi;
+    let uw = |unwind: bool| if unwind { "-unwind" } else { "" };
+    Some(match abi {
+        Abi::Rust => "Rust".to_string(),
+        Abi::C { unwind } => format!("C{}", uw(*unwind)),
+        Abi::Cdecl { unwind } => format!("cdecl{}", uw(*unwind)),
+        Abi::Stdcall { unwind } => format!("stdcall{}", uw(*unwind)),
+        Abi::Fastcall { unwind } => format!("fastcall{}", uw(*unwind)),
+        Abi::Vectorcall { unwind } => format!("vectorcall{}", uw(*unwind)),
+        Abi::Thiscall { unwind } => format!("thiscall{}", uw(*unwind)),
+        Abi::Aapcs { unwind } => format!("aapcs{}", uw(*unwind)),
+        Abi::Win64 { unwind } => format!("win64{}", uw(*unwind)),
+        Abi::SysV64 { unwind } => format!("sysv64{}", uw(*unwind)),
+        Abi::System { unwind } => format!("system{}", uw(*unwind)),
+        Abi::PtxKernel => "ptx-kernel".to_string(),
+        Abi::Msp430Interrupt => "msp430-interrupt".to_string(),
+        Abi::X86Interrupt => "x86-interrupt".to_string(),
+        Abi::GpuKernel => "gpu-kernel".to_string(),
+        Abi::EfiApi => "efiapi".to_string(),
+        Abi::AvrInterrupt => "avr-interrupt".to_string(),
+        Abi::AvrNonBlockingInterrupt => "avr-non-blocking-interrupt".to_string(),
+        Abi::CCmseNonSecureCall => "cmse-nonsecure-call".to_string(),
+        Abi::CCmseNonSecureEntry => "cmse-nonsecure-entry".to_string(),
+        Abi::RustCall => "rust-call".to_string(),
+        Abi::Unadjusted => "unadjusted".to_string(),
+        Abi::RustCold => "rust-cold".to_string(),
+        Abi::RiscvInterruptM => "riscv-interrupt-m".to_string(),
+        Abi::RiscvInterruptS => "riscv-interrupt-s".to_string(),
+        Abi::RustInvalid => "rust-invalid".to_string(),
+        Abi::Custom => "custom".to_string(),
+    })
+}
+
 fn ty_to_shape(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<TyShape> {
     let rustc_public::ty::TyKind::RigidTy(rigid_ty) = ty.kind() else {
         return None;
@@ -384,7 +423,13 @@ fn ty_to_shape(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<TyShape> {
             let fn_sig = poly_fn_sig.value;
             let shapes: Option<Vec<TyShape>> =
                 fn_sig.inputs_and_output.iter().map(|t| ty_to_shape(tcx, t)).collect();
-            TyShape::FnPtr(shapes?)
+            let abi = abi_to_token_string(&fn_sig.abi)?;
+            TyShape::FnPtr {
+                inputs_and_output: shapes?,
+                abi,
+                safe: fn_sig.safety == rustc_public::mir::Safety::Safe,
+                c_variadic: fn_sig.c_variadic,
+            }
         }
         rustc_public::ty::RigidTy::Dynamic(predicates, _region) => {
             let [binder] = predicates.as_slice() else {
@@ -494,9 +539,17 @@ fn hash_ty(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<DefPathHash> {
         }
         rustc_public::ty::RigidTy::FnPtr(poly_fn_sig) => {
             let fn_sig = poly_fn_sig.value;
-            let elem_hashes: Option<Vec<DefPathHash>> =
-                fn_sig.inputs_and_output.iter().map(|t| hash_ty(tcx, t)).collect();
-            combine_hashes("prim:fnptr", &elem_hashes?)
+            let mut elem_hashes: Vec<DefPathHash> =
+                fn_sig.inputs_and_output.iter().map(|t| hash_ty(tcx, t)).collect::<Option<_>>()?;
+            let abi = abi_to_token_string(&fn_sig.abi)?;
+            let header_tag = format!(
+                "prim:fnptr:header:{}:{}:{}",
+                abi,
+                fn_sig.safety == rustc_public::mir::Safety::Safe,
+                fn_sig.c_variadic,
+            );
+            elem_hashes.push(primitive_ty_sentinel(&header_tag));
+            combine_hashes("prim:fnptr", &elem_hashes)
         }
         // Only the common case is handled: exactly one predicate, and
         // that predicate is a plain trait bound (Send/Sync-style

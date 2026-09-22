@@ -1732,7 +1732,7 @@ impl<'a> InterpPass<'a> {
                 r
             }
             InstanceKind::Virtual { .. } => {
-                eprintln!(
+                debug!(
                     "[verifopt debug][dispatch_call Virtual] fndef={:?} cur_scope_def={:?} cur_scope_genargs={:?} new_scope_def={:?} new_scope_genargs={:?}",
                     fndef,
                     cur_scope.0.def.def_id(),
@@ -2406,7 +2406,7 @@ impl<'a> InterpPass<'a> {
         debug!("trait_defid: {:?}", trait_defid);
 
         let key = (caller_scope.0.def.def_id(), bb, caller_scope.1.clone());
-        eprintln!(
+        debug!(
             "[verifopt debug][interp_virtual_call key] fndef={:?} caller_def={:?} bb={:?} caller_genargs={:?}",
             fndef,
             key.0,
@@ -3213,7 +3213,7 @@ impl<'a> InterpPass<'a> {
                                 push_caller_context(cur_scope, term_span.clone(), self.call_context_k),
                             )
                         });
-                    eprintln!(
+                    debug!(
                         "[verifopt debug][simulate_static_calls] assoc_fn_impl={:?} is_virtual={:?} genargs={:?} callee_scope_def={:?} callee_scope_genargs={:?}",
                         assoc_fn_impl,
                         is_virtual,
@@ -3276,7 +3276,7 @@ impl<'a> InterpPass<'a> {
 
                             let body = if is_virtual {
                                 // FIXME not monomorphized
-                                eprintln!("BODY NOT MONOMORPHIZED");
+                                debug!("BODY NOT MONOMORPHIZED");
                                 fndef.body().unwrap()
                             } else {
                                 self.get_body(&callee_scope)

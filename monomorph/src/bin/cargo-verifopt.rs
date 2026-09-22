@@ -29,7 +29,7 @@
 extern crate rustc_driver;
 
 use cargo_metadata::{Package, TargetKind};
-use log::info;
+use log::{debug, info};
 use serde_json;
 use std::env;
 use std::ffi::OsString;
@@ -541,7 +541,7 @@ fn run_cargo_build(
 }
 
 fn call_rustc_or_verifopt() {
-    eprintln!(
+    debug!(
         "[verifopt debug][call_rustc_or_verifopt] crate_name={:?} VERIFOPT_CRATE={:?} VERIFOPT_TARGET_KIND={:?} crate_type={:?}",
         get_arg_flag_value("--crate-name"),
         std::env::var("VERIFOPT_CRATE"),

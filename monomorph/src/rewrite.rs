@@ -26,6 +26,8 @@ use crate::interp::TagPlan;
 use crate::start_verifopt;
 use crate::util::options::AnalysisOptions;
 
+use log::debug;
+
 #[derive(Default)]
 pub struct Store {
     pub targets:
@@ -442,7 +444,7 @@ fn ty_to_shape(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<TyShape> {
                 tcx.def_path_hash(rustc_internal::internal(tcx, trait_ref.def_id.0))
             }))
             .inspect_err(|_| {
-                eprintln!("to_hash panicked on {:?}, skipping", trait_ref.def_id.0)
+                debug!("to_hash panicked on {:?}, skipping", trait_ref.def_id.0)
             })
             .ok()?;
             let genarg_shapes: Option<Vec<TyShape>> = trait_ref
@@ -474,7 +476,7 @@ fn hash_ty(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<DefPathHash> {
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 tcx.def_path_hash(rustc_internal::internal(tcx, adtdef.0))
             }))
-            .inspect_err(|_| eprintln!("to_hash panicked on {:?}, skipping", adtdef.0))
+            .inspect_err(|_| debug!("to_hash panicked on {:?}, skipping", adtdef.0))
             .ok()?
         }
         rustc_public::ty::RigidTy::Bool => primitive_ty_sentinel("prim:bool"),
@@ -568,7 +570,7 @@ fn hash_ty(tcx: TyCtxt<'_>, ty: &rustc_public::ty::Ty) -> Option<DefPathHash> {
                 tcx.def_path_hash(rustc_internal::internal(tcx, trait_ref.def_id.0))
             }))
             .inspect_err(|_| {
-                eprintln!("to_hash panicked on {:?}, skipping", trait_ref.def_id.0)
+                debug!("to_hash panicked on {:?}, skipping", trait_ref.def_id.0)
             })
             .ok()?;
             let genarg_hashes: Option<Vec<DefPathHash>> = trait_ref
@@ -606,7 +608,7 @@ pub struct FsaCallbacks {
 
 impl Callbacks for FsaCallbacks {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
-        eprintln!(
+        debug!(
             "[verifopt debug][after_analysis entry] crate={:?} skip_analysis={:?}",
             tcx.crate_name(LOCAL_CRATE),
             self.options.skip_analysis,
@@ -619,7 +621,7 @@ impl Callbacks for FsaCallbacks {
             let Ok((targets, tags)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 start_verifopt(self.options.clone())
             })) else {
-                eprintln!(
+                debug!(
                     "[verifopt debug] start_verifopt itself panicked - no store written this run"
                 );
                 return;
@@ -631,7 +633,7 @@ impl Callbacks for FsaCallbacks {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     tcx.def_path_hash(rustc_internal::internal(tcx, did))
                 }))
-                .inspect_err(|_| eprintln!("to_hash panicked on {:?}, skipping", did))
+                .inspect_err(|_| debug!("to_hash panicked on {:?}, skipping", did))
                 .ok()
             };
 
@@ -732,7 +734,7 @@ impl Callbacks for FsaCallbacks {
 
             store.shapes = shape_registry().lock().unwrap().clone();
 
-            eprintln!(
+            debug!(
                 "[verifopt debug][store write check] CARGO_PRIMARY_PACKAGE={:?} store.targets.len()={} store.tags.len()={} store.shapes.len()={} crate={:?} path={:?}",
                 std::env::var("CARGO_PRIMARY_PACKAGE"),
                 store.targets.len(),
@@ -744,17 +746,17 @@ impl Callbacks for FsaCallbacks {
             if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
                 match serde_json::to_string(&SerializableStore::from(&*store)) {
                     Ok(json) => {
-                        eprintln!(
+                        debug!(
                             "[verifopt debug][store write] serialized ok, {} bytes, writing to {:?}",
                             json.len(),
                             dep_rewrite_store_path(),
                         );
                         match std::fs::write(dep_rewrite_store_path(), json) {
-                            Ok(()) => eprintln!("[verifopt debug][store write] fs::write succeeded"),
-                            Err(e) => eprintln!("[verifopt debug][store write] fs::write FAILED: {:?}", e),
+                            Ok(()) => debug!("[verifopt debug][store write] fs::write succeeded"),
+                            Err(e) => debug!("[verifopt debug][store write] fs::write FAILED: {:?}", e),
                         }
                     }
-                    Err(e) => eprintln!("[verifopt debug][store write] serde_json::to_string FAILED: {:?}", e),
+                    Err(e) => debug!("[verifopt debug][store write] serde_json::to_string FAILED: {:?}", e),
                 }
 
                 let primary_crate_id = tcx.stable_crate_id(LOCAL_CRATE);

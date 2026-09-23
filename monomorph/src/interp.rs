@@ -2407,7 +2407,12 @@ impl<'a> InterpPass<'a> {
         let trait_defid = self.get_trait_defid(&fndef.0);
         debug!("trait_defid: {:?}", trait_defid);
 
-        let key = (caller_scope.0.def.def_id(), bb, caller_scope.1.clone());
+        // Keyed on the *resolved* instance's args (what codegen sees as
+        // `instance.args`), not the args this scope was reached with
+        // (caller_scope.1) - those differ whenever the caller was reached
+        // through a trait method, e.g. `[Self = Formatter<'_, E>]` vs the
+        // impl's own `['_, E]`, and the rewrite side could never match them.
+        let key = (caller_scope.0.def.def_id(), bb, caller_scope.0.args());
         debug!(
             "[verifopt debug][interp_virtual_call key] fndef={:?} caller_def={:?} bb={:?} caller_genargs={:?}",
             fndef,

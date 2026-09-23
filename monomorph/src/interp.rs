@@ -22,7 +22,7 @@ use rustc_public::ty::{
 };
 use rustc_public::{CrateDef, CrateDefType};
 
-use log::{debug, error};
+use log::{debug, error, warn};
 
 use crate::Context;
 use crate::common::{log_call_stack, log_scope};
@@ -1504,6 +1504,17 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
+        // Only reachable from a body that was itself still generic; resolving
+        // with free params would hand rustc an unnormalizable type (see
+        // has_unresolved_param). The declared signature is the safe,
+        // widened answer.
+        if has_unresolved_param(genargs) {
+            debug!(
+                "interp_fn_def: {:?} called with non-monomorphic genargs {:?}, falling back to poly sig",
+                fndef, genargs
+            );
+            return self.retty_fallback_from_poly(fndef.fn_sig());
+        }
         let instance = match Instance::resolve(fndef, genargs) {
             Ok(instance_) => instance_,
             Err(_) => {
@@ -2705,14 +2716,11 @@ impl<'a> InterpPass<'a> {
     /// If there are no candidates based on input constraints, and this is on the FSA path, add the default
     /// implementation to the returned candidate function set, if there exists one.
     /// For CHA, add the default implementation (if it exists) no matter what.
-    // True if ty is an Adt with a free TyKind::Param in its own GenericArgs.
+    // True if ty still contains a free type/const parameter anywhere
+    // (previously only an Adt's own top-level Type args were checked, which
+    // missed e.g. `Option<<T as Iterator>::Item>` or `Vec<Vec<T>>`).
     fn ty_has_unresolved_param(ty: &Ty) -> bool {
-        match ty.kind() {
-            TyKind::RigidTy(RigidTy::Adt(_, args)) => args.0.iter().any(
-                |k| matches!(k, GenericArgKind::Type(t) if matches!(t.kind(), TyKind::Param(_))),
-            ),
-            _ => false,
-        }
+        has_unresolved_param(ty)
     }
 
     fn get_impls_from_defids(
@@ -3209,6 +3217,15 @@ impl<'a> InterpPass<'a> {
                         return Ok(());
                     }
 
+                    if has_unresolved_param(&genargs) {
+                        debug!(
+                            "skipping {:?}: genargs {:?} are not fully monomorphic, falling back to poly sig",
+                            assoc_fn_impl, genargs
+                        );
+                        results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                        return Ok(());
+                    }
+
                     let instance_ = match Instance::resolve(fndef, &genargs) {
                         Ok(i) => i,
                         Err(_) => {
@@ -3287,6 +3304,26 @@ impl<'a> InterpPass<'a> {
                                 return Ok(());
                             }
 
+                            // Resolution came back Virtual, i.e. Self is still
+                            // `dyn Trait`: the only body available is the
+                            // trait's generic, unmonomorphized one
+                            // (fndef.body()), which previously got interpreted
+                            // here anyway ("FIXME not monomorphized") - and any
+                            // layout/resolve/body call on its generic locals
+                            // can ICE. Widen to the declared signature instead.
+                            if is_virtual {
+                                let _timing_guard =
+                                    self.timing_span(TimingCat::TermSigFallback, cur_scope);
+                                debug!(
+                                    "{:?} resolved to a Virtual instance; not interpreting its generic body, falling back to poly sig",
+                                    assoc_fn_impl
+                                );
+                                results
+                                    .push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
+                                drop(_timing_guard);
+                                return Ok(());
+                            }
+
                             let _timing_guard =
                                 self.timing_span(TimingCat::TermSimulateRealCall, cur_scope);
                             let base_wtos_len = ctxt.wtos.len();
@@ -3297,13 +3334,7 @@ impl<'a> InterpPass<'a> {
                             let mut ctxt_clone = ctxt.clone();
                             let mut call_stack_clone = call_stack.clone();
 
-                            let body = if is_virtual {
-                                // FIXME not monomorphized
-                                debug!("BODY NOT MONOMORPHIZED");
-                                fndef.body().unwrap()
-                            } else {
-                                self.get_body(&callee_scope)
-                            };
+                            let body = self.get_body(&callee_scope);
 
                             let cs = self.collect_resolved_args(
                                 ctxt,
@@ -3383,10 +3414,34 @@ impl<'a> InterpPass<'a> {
                         .map(|s| s.to_string())
                         .or_else(|| panic_payload.downcast_ref::<String>().cloned())
                         .unwrap_or_else(|| "<non-string panic payload>".to_string());
-                    debug!(
-                        "candidate {:?} panicked during simulation, skipping (no fallback pushed): {}",
+                    warn!(
+                        "candidate {:?} panicked during simulation, widening its result to the \
+                         dispatched method's declared return type: {}",
                         assoc_fn_impl, msg
                     );
+
+                    // Previously nothing was pushed here, so a genuine target
+                    // that panicked silently contributed *no* return value to
+                    // the merge - dropping whatever trait objects it returns
+                    // from every downstream dispatch. Push the dispatched
+                    // (trait) method's own declared return type instead: that
+                    // is always a real fn signature (unlike assoc_fn_impl,
+                    // which can be a closure DefId), and converting it never
+                    // calls back into rustc (convert_ty maps Param/Alias to an
+                    // unconstrained value).
+                    //
+                    // NOTE this only restores the *return value*. Writes the
+                    // candidate made through pointers into caller state lived
+                    // in its ctxt_clone, which is discarded along with the
+                    // panic, so recovery is still not fully sound - the warn!
+                    // above says which candidate to investigate.
+                    let fallback = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        self.retty_fallback_from_poly(FnDef(*assoc_fn_defid).fn_sig())
+                    }));
+                    match fallback {
+                        Ok(Ok(res)) => results.push(res),
+                        _ => results.push(Some(Constraints::from(Constraint::new(None, None)))),
+                    }
 
                     debug!(
                         "STACK STATE before catch_unwind-recovery truncate: call_stack.len()={} key_stack.len()={} target_len={}",
@@ -4217,4 +4272,37 @@ impl<'a> InterpPass<'a> {
             }
         }
     }
+}
+
+/// True if `x` still mentions a free generic parameter (type or const)
+/// anywhere, at any depth - i.e. it is not fully monomorphic.
+///
+/// rustc_public's Instance::resolve / Instance::body / layout paths
+/// normalize with `normalize_erasing_regions` in an empty ParamEnv, which
+/// ICEs (via `bug!`, not a recoverable error) on anything generic - e.g.
+/// `Failed to normalize Option<<T as Iterator>::Item>`. An ICE is emitted
+/// as a diagnostic *before* it unwinds, so catching the panic afterwards
+/// doesn't undo it; these calls have to be guarded up front instead.
+pub(crate) fn has_unresolved_param<T: rustc_public::visitor::Visitable>(x: &T) -> bool {
+    use rustc_public::visitor::{Visitable, Visitor};
+    use std::ops::ControlFlow;
+
+    struct FindParam;
+    impl Visitor for FindParam {
+        type Break = ();
+        fn visit_ty(&mut self, ty: &Ty) -> ControlFlow<()> {
+            match ty.kind() {
+                TyKind::Param(_) | TyKind::Bound(..) => ControlFlow::Break(()),
+                _ => ty.super_visit(self),
+            }
+        }
+        fn visit_const(&mut self, c: &rustc_public::ty::TyConst) -> ControlFlow<()> {
+            match c.kind() {
+                rustc_public::ty::TyConstKind::Param(_)
+                | rustc_public::ty::TyConstKind::Bound(..) => ControlFlow::Break(()),
+                _ => c.super_visit(self),
+            }
+        }
+    }
+    x.visit(&mut FindParam).is_break()
 }

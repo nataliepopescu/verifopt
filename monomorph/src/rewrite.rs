@@ -14,7 +14,7 @@ use rustc_driver::{Callbacks, Compilation};
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::TyCtxt;
 use rustc_public::{DefId, rustc_internal};
-use rustc_verifopt::{ShapeRegistry, Store, hash_args};
+use rustc_verifopt::{ShapeRegistry, Store, explain_unhashable, hash_args};
 
 use std::collections::HashMap; // FIXME FxHashMap for consistency?
 use std::path::PathBuf;
@@ -25,7 +25,7 @@ use crate::interp::TagPlan;
 use crate::start_verifopt;
 use crate::util::options::AnalysisOptions;
 
-use log::debug;
+use log::{debug, warn};
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
 
@@ -100,11 +100,29 @@ impl Callbacks for FsaCallbacks {
                 .ok()
                 .flatten()
             };
-            let to_self_hashes = |genargs: &Option<rustc_public::ty::GenericArgs>|
-             -> Option<Option<Vec<DefPathHash>>> {
+            // For the skip warnings below: the smallest component of `genargs`
+            // the hashing scheme doesn't cover yet (e.g. a closure nested in
+            // `FilterMap<Walk, {closure}>`), so a run shows what to add next.
+            let explain = |genargs: &rustc_public::ty::GenericArgs| -> String {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    explain_unhashable(tcx, rustc_internal::internal(tcx, genargs))
+                }))
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "<hash_args panicked or failed; see debug log>".to_string())
+            };
+            // Hashes one target/tag-site callee, or says why it can't.
+            let hash_callee = |did: DefId, genargs: &Option<rustc_public::ty::GenericArgs>|
+             -> Result<(DefPathHash, Option<Vec<DefPathHash>>), String> {
+                let Some(method_hash) = to_hash(did) else {
+                    return Err(format!("DefPathHash of {:?} unavailable", did));
+                };
                 match genargs {
-                    None => Some(None),
-                    Some(g) => Some(Some(to_genargs_hashes(g)?)),
+                    None => Ok((method_hash, None)),
+                    Some(g) => match to_genargs_hashes(g) {
+                        Some(h) => Ok((method_hash, Some(h))),
+                        None => Err(format!("{:?}: {}", did, explain(g))),
+                    },
                 }
             };
 
@@ -119,9 +137,9 @@ impl Callbacks for FsaCallbacks {
                 // never falling back to a coarser key that could match a
                 // different instantiation's entry.
                 let Some(caller_genargs_hash) = to_genargs_hashes(&caller_genargs) else {
-                    debug!(
-                        "[verifopt debug][store] skipping {:?} bb{}: caller genargs {:?} not hashable",
-                        defid, bb, caller_genargs
+                    warn!(
+                        "[verifopt][store] not rewriting {:?} bb{}: caller generic args not hashable: {}",
+                        defid, bb, explain(&caller_genargs)
                     );
                     continue;
                 };
@@ -131,16 +149,19 @@ impl Callbacks for FsaCallbacks {
                 // which compute_edits turns into Edit::Single - a static call
                 // to the wrong impl whenever the dropped one is the real
                 // callee.
-                let t_hashes: Option<Vec<(DefPathHash, Option<Vec<DefPathHash>>)>> = ts
+                let t_hashes: Result<Vec<(DefPathHash, Option<Vec<DefPathHash>>)>, String> = ts
                     .iter()
-                    .map(|(did, genargs)| Some((to_hash(*did)?, to_self_hashes(genargs)?)))
+                    .map(|(did, genargs)| hash_callee(*did, genargs))
                     .collect();
-                let Some(t_hashes) = t_hashes else {
-                    debug!(
-                        "[verifopt debug][store] skipping {:?} bb{}: a target is not hashable",
-                        defid, bb
-                    );
-                    continue;
+                let t_hashes = match t_hashes {
+                    Ok(t) => t,
+                    Err(why) => {
+                        warn!(
+                            "[verifopt][store] not rewriting {:?} bb{}: target not hashable: {}",
+                            defid, bb, why
+                        );
+                        continue;
+                    }
                 };
 
                 store.targets.insert((hash, bb, caller_genargs_hash), t_hashes);
@@ -159,6 +180,7 @@ impl Callbacks for FsaCallbacks {
                 };
 
                 let Some(caller_genargs_hash) = to_genargs_hashes(&caller_genargs) else {
+                    // Already reported by the targets loop for the same site.
                     continue;
                 };
 
@@ -167,7 +189,7 @@ impl Callbacks for FsaCallbacks {
 
                 // All or nothing, as for targets. Without a tags entry,
                 // compute_edits falls back to Pointers (or leaves the call).
-                let entry: Option<Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)>> =
+                let entry: Result<Vec<(usize, usize, u64, DefPathHash, Option<Vec<DefPathHash>>)>, String> =
                     sites
                         .iter()
                         .map(|(bb, stmt, did, genargs)| {
@@ -175,15 +197,19 @@ impl Callbacks for FsaCallbacks {
                                 next += 1;
                                 next - 1
                             });
-                            Some((*bb, *stmt, tag, to_hash(*did)?, to_self_hashes(genargs)?))
+                            let (hash, self_hashes) = hash_callee(*did, genargs)?;
+                            Ok((*bb, *stmt, tag, hash, self_hashes))
                         })
                         .collect();
-                let Some(entry) = entry else {
-                    debug!(
-                        "[verifopt debug][store] not tagging {:?} bb{}: a tag site is not hashable",
-                        defid, bb
-                    );
-                    continue;
+                let entry = match entry {
+                    Ok(e) => e,
+                    Err(why) => {
+                        warn!(
+                            "[verifopt][store] not tagging {:?} bb{} (falls back to pointer compares, if any): tag site not hashable: {}",
+                            defid, bb, why
+                        );
+                        continue;
+                    }
                 };
 
                 store.tags.insert((hash, bb, caller_genargs_hash), entry);

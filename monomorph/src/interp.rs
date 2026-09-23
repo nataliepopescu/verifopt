@@ -33,7 +33,7 @@ use crate::constraints::{
     push_caller_context, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
-use crate::convert::RvalConverter;
+use crate::convert::{RvalConverter, WrapperKind};
 use crate::error::Error;
 use crate::merge::Merge;
 use crate::sig_collect::{SigStore, SigVal};
@@ -2526,9 +2526,24 @@ impl<'a> InterpPass<'a> {
             return Err(Error::SummaryImprecise);
         }
 
-        for fsa_impl in &assoc_fn_impls_fsa {
-            if !assoc_fn_impls_cha.contains(&fsa_impl) {
-                error!("CHA missing impl: {:?}", fsa_impl);
+        // Cross-check: CHA is the fallback whenever FSA comes up empty, so it
+        // must be a superset of anything FSA can find - an impl FSA sees but
+        // CHA lacks means that fallback would drop a real target.
+        //
+        // Compare by impl DefId only. CHA candidates never carry generic args
+        // (get_cha_tyconstraint_defids maps every one to `None`), so comparing
+        // whole (DefId, args) pairs reported every generic impl FSA found as
+        // "missing" - e.g. all of `FilterMap::next`, `vec::IntoIter::next`.
+        //
+        // Skip Fn-family dispatch: closures only implement the builtin Fn
+        // traits (see closure_can_implement), and CHA's trait_structs only
+        // records nominal types with impl blocks, so CHA can never contain a
+        // closure candidate by construction.
+        if !crate::constraints::is_fn_family_method(&fndef.0) {
+            for (fsa_did, fsa_args) in &assoc_fn_impls_fsa {
+                if !assoc_fn_impls_cha.iter().any(|(cha_did, _)| cha_did == fsa_did) {
+                    error!("CHA missing impl: {:?} (FSA genargs {:?})", fsa_did, fsa_args);
+                }
             }
         }
 
@@ -2955,6 +2970,26 @@ impl<'a> InterpPass<'a> {
     /// traitobject we are dispatching on, return that type's DefId
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
+    /// Resolves the value behind a trait object's fat pointer: that value's
+    /// own type is the concrete type, so a top-level ADT here (including a
+    /// Box/Rc/Arc) is a candidate itself - unlike in resolve_defid's
+    /// trait-object branch, which skips the outermost wrapper.
+    fn resolve_pointee(
+        &self,
+        term_span: &Span,
+        trait_defid: &DefId,
+        pointee: &Constraint,
+    ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
+        match pointee {
+            Constraint { cfc: Some(RunningConstraint::Adt(adtdef, genargs, _, fields)), .. } => {
+                self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
+            }
+            // Closures, Idk, nested pointers, and anything already carrying
+            // its own trait-object constraint: resolve_defid handles those.
+            _ => self.resolve_defid(term_span, trait_defid, pointee),
+        }
+    }
+
     fn resolve_defid(
         &self,
         term_span: &Span,
@@ -2974,6 +3009,45 @@ impl<'a> InterpPass<'a> {
                 }
 
                 match toc_ {
+                    // A trait-object constraint recorded on a top-level Box/Rc/Arc
+                    // comes from lifting a value whose own type is
+                    // `Box<dyn Trait>` (lift_traitobjtys -> get_traitobj checks
+                    // the top-level ADT against struct_traits, and these
+                    // wrappers all have forwarding impls such as
+                    // `impl<I: Iterator + ?Sized> Iterator for Box<I>` or
+                    // `impl<T: Error> Error for Arc<T>`). There the wrapper is
+                    // the fat pointer, not the object: the concrete types are
+                    // its pointee (field 0, as stub_wrapper_new models it).
+                    // Treating the wrapper itself as a candidate added a
+                    // spurious `<Box<I, A> as Iterator>::next` target to every
+                    // `Box<dyn Iterator>` dispatch (ripgrep's search loop,
+                    // `box_dyn_iter`), and `<Box<E> as Error>::provide` to
+                    // `Box<dyn Error>` ones.
+                    //
+                    // Only this outermost wrapper is skipped: the pointee is
+                    // resolved *without* re-applying the rule, so for
+                    // `Box<Box<T>>` unsized to `Box<dyn Iterator>` the inner
+                    // Box - the real concrete type, whose forwarding `next`
+                    // really is the target - is still a candidate (see
+                    // `box_box_dyn_iter`). The plain cfc branch below is left
+                    // alone too: a Box reached through `RunningConstraint::Ptr`
+                    // is e.g. `&Box<T> as &dyn Trait`, where the Box *is* the
+                    // object.
+                    (_, TraitObjConstraint::Adt(adtdef, _, _, fields))
+                        if matches!(
+                            self.converter.wrapper_kind(adtdef),
+                            Some(WrapperKind::Box | WrapperKind::Arc | WrapperKind::Rc)
+                        ) && fields.get(&0).is_some_and(|p| !p.inner.is_empty()) =>
+                    {
+                        let mut is_closure = false;
+                        let mut defids = Vec::new();
+                        for pointee in fields[&0].inner.iter() {
+                            let (c, res) = self.resolve_pointee(term_span, trait_defid, pointee);
+                            is_closure |= c;
+                            unique_append(&mut defids, res);
+                        }
+                        (is_closure, defids)
+                    }
                     (_, TraitObjConstraint::Adt(adtdef, genargs, _, fields)) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }

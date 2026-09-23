@@ -78,6 +78,7 @@ impl<'a> InterpPass<'a> {
                 local_decls,
                 args,
                 fndef,
+                genargs,
             )));
         }
 
@@ -657,6 +658,7 @@ impl<'a> InterpPass<'a> {
         local_decls: &[LocalDecl],
         args: &Vec<Operand>,
         fndef: &FnDef,
+        genargs: &GenericArgs,
     ) -> Option<Constraints> {
         let inner = match args.get(0) {
             Some(op) => {
@@ -666,7 +668,19 @@ impl<'a> InterpPass<'a> {
         };
         //debug!("stub_wrapper_new: {:?}", inner);
 
-        let (adtdef, genargs) = match fndef.fn_sig().value.output().kind() {
+        // The wrapper's type args must come from *this call's* signature,
+        // instantiated with the call's own generic args - not from
+        // `fndef.fn_sig()`, which is the declared, unsubstituted one (see
+        // from_iter_collection_recv for the same pitfall). For `Box::new`
+        // that's `impl<T> Box<T>`'s `-> Box<T, Global>`, so every modeled Box
+        // carried `[T/#0, Global]`: resolve_adt_helper then offered
+        // `<Box<I, A> as Iterator>::next` with those args as a dispatch
+        // candidate for any `dyn Iterator` reached through a Box (spurious,
+        // and unhashable - blocking ripgrep's main search loop's rewrite).
+        let call_sig = Ty::from_rigid_kind(RigidTy::FnDef(*fndef, genargs.clone()))
+            .kind()
+            .fn_sig()?;
+        let (adtdef, genargs) = match call_sig.value.output().kind() {
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => (adtdef, genargs),
             _ => return None,
         };

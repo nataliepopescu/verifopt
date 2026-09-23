@@ -113,3 +113,21 @@ example_test!(wtos_conflict, "wtos_conflict", Passing);
 // Not yet characterized at all — run and report, don't assert.
 example_test!(rand_, "rand_", Unclassified);
 example_test!(two_variants_rand, "two_variants_rand", Unclassified);
+
+// ripgrep's `HiArgs::sort` -> `for haystack in haystacks` shape: a generic
+// fn boxes one of several concrete iterators as `Box<dyn Iterator>`, and a
+// `for` loop consumes it (after inlining, `<Box<dyn Iterator> as
+// Iterator>::next` becomes a dyn call on the pointee). On ripgrep this
+// site got a spurious `<Box<I, A> as Iterator>::next` candidate with
+// unsubstituted args `[T/#0, Global]`, making it unrewritable. Expected
+// targets: exactly `<Counter as Iterator>::next` and `<Countdown as
+// Iterator>::next` - no Box.
+example_test!(box_dyn_iter, "box_dyn_iter", Unclassified);
+
+// The other side of box_dyn_iter's fix: `Box<Box<Countdown>>` unsized to
+// `Box<dyn Iterator>` makes the *inner* Box the concrete type. Expected
+// targets: `<Counter as Iterator>::next` and `<Box<Countdown, Global> as
+// Iterator>::next` (the forwarding impl) - the outer Box must not appear, the
+// inner one must. The runtime trace should show `<Countdown as
+// Iterator>::next`, reached through the inner Box's forwarding `next`.
+example_test!(box_box_dyn_iter, "box_box_dyn_iter", Unclassified);

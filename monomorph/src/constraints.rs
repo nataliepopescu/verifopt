@@ -931,6 +931,40 @@ impl TraitObjTy {
     }
 }
 
+/// Whether `trait_path` names one of the traits a closure (or fn item) can
+/// be dispatched through: Fn/FnMut/FnOnce and their async counterparts.
+/// Unlike TraitObjTy::is_fn_trait this takes a plain path, and accepts both
+/// `std::` and `core::` spellings (no_std crates print the latter).
+pub fn is_fn_family_trait_path(trait_path: &str) -> bool {
+    let Some(name) = trait_path
+        .strip_prefix("std::ops::")
+        .or_else(|| trait_path.strip_prefix("core::ops::"))
+    else {
+        return false;
+    };
+    matches!(name, "Fn" | "FnMut" | "FnOnce" | "AsyncFn" | "AsyncFnMut" | "AsyncFnOnce")
+}
+
+/// Whether a closure is a valid dispatch target for a call through
+/// `trait_defid`. A closure only implements the Fn-family traits (plus
+/// auto/marker traits, which have no methods to dispatch), so it must
+/// never be offered as a candidate for anything else - e.g. a closure
+/// stored in `Map<I, F>`'s `f` field is not an implementation of
+/// `Iterator`, even though it's reachable from a `dyn Iterator` value.
+pub fn closure_can_implement(trait_defid: &DefId) -> bool {
+    is_fn_family_trait_path(&trait_defid.name())
+}
+
+/// Same check as closure_can_implement, but from a trait *method*'s DefId
+/// (e.g. `std::ops::FnMut::call_mut`), by stripping the method segment.
+pub fn is_fn_family_method(method_defid: &DefId) -> bool {
+    let name = method_defid.name();
+    match name.rsplit_once("::") {
+        Some((trait_path, _method)) => is_fn_family_trait_path(trait_path),
+        None => false,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArgSet {
     pub args: Vec<HashSet<Constraint>>,

@@ -2758,7 +2758,14 @@ impl<'a> InterpPass<'a> {
                     );
                 }
                 None => {
-                    if FnDef(*defid).body().is_some() {
+                    // No impl entry: the only way a bare callable DefId (a
+                    // closure or fn item) implements the dispatched method
+                    // is through the builtin Fn-family impls. For any other
+                    // trait, accepting it here would interpret the closure's
+                    // own body as if it were that trait's method.
+                    if crate::constraints::is_fn_family_method(assoc_fn_defid)
+                        && FnDef(*defid).body().is_some()
+                    {
                         // This is a callable item, push the impl defid
                         unique_push(&mut assoc_fn_impls, (*defid, genargs.clone()));
                     }
@@ -2961,6 +2968,9 @@ impl<'a> InterpPass<'a> {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }
                     (_, TraitObjConstraint::Closure(cdef, genargs)) => {
+                        if !crate::constraints::closure_can_implement(trait_defid) {
+                            return (false, vec![]);
+                        }
                         if genargs.0.is_empty() {
                             (true, vec![(cdef.0, None)])
                         } else {
@@ -2978,6 +2988,12 @@ impl<'a> InterpPass<'a> {
                     self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                 }
                 RunningConstraint::Closure(cdef, genargs) => {
+                    // Reached e.g. via resolve_adt_helper's recursion into an
+                    // ADT's fields/genargs: a closure field of an iterator
+                    // adapter must not become an `Iterator` candidate.
+                    if !crate::constraints::closure_can_implement(trait_defid) {
+                        return (false, vec![]);
+                    }
                     if genargs.0.is_empty() {
                         (true, vec![(cdef.0, None)])
                     } else {

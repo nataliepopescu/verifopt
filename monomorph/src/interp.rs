@@ -33,7 +33,7 @@ use crate::constraints::{
     push_caller_context, summary_key,
 };
 use crate::constraints::{unique_append, unique_push};
-use crate::convert::{RvalConverter, WrapperKind};
+use crate::convert::RvalConverter;
 use crate::error::Error;
 use crate::merge::Merge;
 use crate::sig_collect::{SigStore, SigVal};
@@ -2890,6 +2890,14 @@ impl<'a> InterpPass<'a> {
         debug!("traitobj place: {:?}", place);
         let (receiver_is_param, tyconstraints) =
             self.get_fsa_tyconstraints(ctxt, caller_scope, local_decls, place);
+        for (i, c) in tyconstraints.inner.iter().enumerate() {
+            debug!(
+                "[fsa receiver] {:?} disjunct {}: {}",
+                caller_scope.0.name(),
+                i,
+                describe_receiver_constraint(&self.converter, c)
+            );
+        }
         //debug!("tyconstraints: {:?}", tyconstraints);
         let (is_closure, constraint_defids) =
             self.get_fsa_constraint_defids(term_span, trait_defid, &tyconstraints);
@@ -2970,26 +2978,6 @@ impl<'a> InterpPass<'a> {
     /// traitobject we are dispatching on, return that type's DefId
     ///
     /// This will later be used to get that type's implementation of the function-to-dispatch
-    /// Resolves the value behind a trait object's fat pointer: that value's
-    /// own type is the concrete type, so a top-level ADT here (including a
-    /// Box/Rc/Arc) is a candidate itself - unlike in resolve_defid's
-    /// trait-object branch, which skips the outermost wrapper.
-    fn resolve_pointee(
-        &self,
-        term_span: &Span,
-        trait_defid: &DefId,
-        pointee: &Constraint,
-    ) -> (bool, Vec<(DefId, Option<GenericArgs>)>) {
-        match pointee {
-            Constraint { cfc: Some(RunningConstraint::Adt(adtdef, genargs, _, fields)), .. } => {
-                self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
-            }
-            // Closures, Idk, nested pointers, and anything already carrying
-            // its own trait-object constraint: resolve_defid handles those.
-            _ => self.resolve_defid(term_span, trait_defid, pointee),
-        }
-    }
-
     fn resolve_defid(
         &self,
         term_span: &Span,
@@ -3009,45 +2997,6 @@ impl<'a> InterpPass<'a> {
                 }
 
                 match toc_ {
-                    // A trait-object constraint recorded on a top-level Box/Rc/Arc
-                    // comes from lifting a value whose own type is
-                    // `Box<dyn Trait>` (lift_traitobjtys -> get_traitobj checks
-                    // the top-level ADT against struct_traits, and these
-                    // wrappers all have forwarding impls such as
-                    // `impl<I: Iterator + ?Sized> Iterator for Box<I>` or
-                    // `impl<T: Error> Error for Arc<T>`). There the wrapper is
-                    // the fat pointer, not the object: the concrete types are
-                    // its pointee (field 0, as stub_wrapper_new models it).
-                    // Treating the wrapper itself as a candidate added a
-                    // spurious `<Box<I, A> as Iterator>::next` target to every
-                    // `Box<dyn Iterator>` dispatch (ripgrep's search loop,
-                    // `box_dyn_iter`), and `<Box<E> as Error>::provide` to
-                    // `Box<dyn Error>` ones.
-                    //
-                    // Only this outermost wrapper is skipped: the pointee is
-                    // resolved *without* re-applying the rule, so for
-                    // `Box<Box<T>>` unsized to `Box<dyn Iterator>` the inner
-                    // Box - the real concrete type, whose forwarding `next`
-                    // really is the target - is still a candidate (see
-                    // `box_box_dyn_iter`). The plain cfc branch below is left
-                    // alone too: a Box reached through `RunningConstraint::Ptr`
-                    // is e.g. `&Box<T> as &dyn Trait`, where the Box *is* the
-                    // object.
-                    (_, TraitObjConstraint::Adt(adtdef, _, _, fields))
-                        if matches!(
-                            self.converter.wrapper_kind(adtdef),
-                            Some(WrapperKind::Box | WrapperKind::Arc | WrapperKind::Rc)
-                        ) && fields.get(&0).is_some_and(|p| !p.inner.is_empty()) =>
-                    {
-                        let mut is_closure = false;
-                        let mut defids = Vec::new();
-                        for pointee in fields[&0].inner.iter() {
-                            let (c, res) = self.resolve_pointee(term_span, trait_defid, pointee);
-                            is_closure |= c;
-                            unique_append(&mut defids, res);
-                        }
-                        (is_closure, defids)
-                    }
                     (_, TraitObjConstraint::Adt(adtdef, genargs, _, fields)) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }
@@ -4381,4 +4330,60 @@ pub(crate) fn has_unresolved_param<T: rustc_public::visitor::Visitable>(x: &T) -
         }
     }
     x.visit(&mut FindParam).is_break()
+}
+
+/// One-line shape of a dispatch receiver's constraint, for debugging which
+/// resolve_defid path it takes: whether a trait-object constraint (toc) is
+/// attached, the running constraint's kind, and for ADTs their field keys -
+/// recursing through pointers and one level of ADT fields.
+fn describe_receiver_constraint(conv: &RvalConverter, c: &Constraint) -> String {
+    fn cfc_shape(conv: &RvalConverter, rc: &RunningConstraint, depth: usize) -> String {
+        match rc {
+            RunningConstraint::Adt(adtdef, genargs, variant, fields) => {
+                let mut s = format!(
+                    "Adt({}{}, variant={:?}, n_genargs={}, fields=[",
+                    adtdef.0.name(),
+                    if conv.wrapper_kind(adtdef).is_some() { " [wrapper]" } else { "" },
+                    variant,
+                    genargs.0.len()
+                );
+                for (k, v) in fields {
+                    s.push_str(&format!("{}:", k));
+                    if depth < 2 {
+                        let inner: Vec<String> =
+                            v.inner.iter().map(|c| constraint_shape(conv, c, depth + 1)).collect();
+                        s.push_str(&format!("{{{}}} ", inner.join(" | ")));
+                    } else {
+                        s.push_str(&format!("{{{} disjuncts}} ", v.inner.len()));
+                    }
+                }
+                s.push_str("])");
+                s
+            }
+            RunningConstraint::Ptr(inner) => format!("Ptr({})", constraint_shape(conv, inner, depth + 1)),
+            RunningConstraint::Closure(cdef, _) => format!("Closure({})", cdef.0.name()),
+            RunningConstraint::Idk(cs) => format!("Idk({} disjuncts)", cs.inner.len()),
+            other => {
+                let dbg = format!("{:?}", other);
+                dbg.chars().take(60).collect()
+            }
+        }
+    }
+    fn constraint_shape(conv: &RvalConverter, c: &Constraint, depth: usize) -> String {
+        let toc = match &c.toc {
+            Some((ty, TraitObjConstraint::Adt(adtdef, ..))) => {
+                format!("toc=({} -> Adt {}) ", ty.def.0.name(), adtdef.0.name())
+            }
+            Some((ty, TraitObjConstraint::Closure(cdef, _))) => {
+                format!("toc=({} -> Closure {}) ", ty.def.0.name(), cdef.0.name())
+            }
+            None => "toc=None ".to_string(),
+        };
+        let cfc = match &c.cfc {
+            Some(rc) => cfc_shape(conv, rc, depth),
+            None => "cfc=None".to_string(),
+        };
+        format!("{}{}", toc, cfc)
+    }
+    constraint_shape(conv, c, 0)
 }

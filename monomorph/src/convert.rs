@@ -98,6 +98,23 @@ pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
     is_btree_iter_suffix(suffix)
 }
 
+/// Box/Arc/Rc: opaque (see is_opaque_internal_defid), but also pointers - a
+/// read through their internals (e.g. `((b.0: Unique<T>).0: NonNull<T>)`,
+/// what rustc lowers `*b` to) yields their contents, not an arbitrary
+/// piece of them. See Context::wrapper_contents_or_flatten.
+pub fn is_pointer_wrapper_defid(adtdef: &AdtDef) -> bool {
+    let name = adtdef.0.name();
+    let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
+    matches!(suffix, "boxed::Box" | "sync::Arc" | "rc::Rc")
+}
+
+pub fn is_pointer_wrapper(ty: &Ty) -> bool {
+    match ty.kind() {
+        TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => is_pointer_wrapper_defid(&adtdef),
+        _ => false,
+    }
+}
+
 pub fn is_opaque_internal(ty: &Ty) -> bool {
     let adtdef = match ty.kind() {
         TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,

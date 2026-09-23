@@ -122,7 +122,7 @@ example_test!(two_variants_rand, "two_variants_rand", Unclassified);
 // unsubstituted args `[T/#0, Global]`, making it unrewritable. Expected
 // targets: exactly `<Counter as Iterator>::next` and `<Countdown as
 // Iterator>::next` - no Box.
-example_test!(box_dyn_iter, "box_dyn_iter", Unclassified);
+example_test!(box_dyn_iter, "box_dyn_iter", Passing);
 
 // The other side of box_dyn_iter's fix: `Box<Box<Countdown>>` unsized to
 // `Box<dyn Iterator>` makes the *inner* Box the concrete type. Expected
@@ -130,4 +130,4 @@ example_test!(box_dyn_iter, "box_dyn_iter", Unclassified);
 // Iterator>::next` (the forwarding impl) - the outer Box must not appear, the
 // inner one must. The runtime trace should show `<Countdown as
 // Iterator>::next`, reached through the inner Box's forwarding `next`.
-example_test!(box_box_dyn_iter, "box_box_dyn_iter", Unclassified);
+example_test!(box_box_dyn_iter, "box_box_dyn_iter", Passing);

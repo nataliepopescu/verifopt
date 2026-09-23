@@ -1,0 +1,484 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let mut _1: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _2: u32;
+    let mut _3: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _4: std::option::Option<u32>;
+    let mut _5: isize;
+    let _7: u32;
+    scope 1 {
+        debug iter => _3;
+        let _6: u32;
+        scope 2 {
+            debug x => _6;
+            scope 6 (inlined std::hint::black_box::<u32>) {
+            }
+        }
+        scope 5 (inlined std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<dyn std::iter::Iterator<Item = u32>>>::next) {
+            let mut _8: &mut dyn std::iter::Iterator<Item = u32>;
+            let mut _9: *const dyn std::iter::Iterator<Item = u32>;
+            let mut _10: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>;
+        }
+    }
+    scope 3 (inlined std::hint::black_box::<u32>) {
+    }
+    scope 4 (inlined <std::boxed::Box<dyn std::iter::Iterator<Item = u32>> as std::iter::IntoIterator>::into_iter) {
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<u32>(const 0_u32) -> [return: bb9, unwind unreachable];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        StorageLive(_3);
+        _3 = copy _1;
+        goto -> bb2;
+    }
+
+    bb2: {
+        StorageLive(_4);
+        StorageLive(_9);
+        StorageLive(_10);
+        StorageLive(_8);
+        _10 = copy ((_3.0: std::ptr::Unique<dyn std::iter::Iterator<Item = u32>>).0: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>);
+        _9 = copy _10 as *const dyn std::iter::Iterator<Item = u32> (Transmute);
+        _8 = &mut (*_9);
+        _4 = <dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::next(move _8) -> [return: bb10, unwind: bb7];
+    }
+
+    bb3: {
+        unreachable;
+    }
+
+    bb4: {
+        _6 = copy ((_4 as Some).0: u32);
+        StorageLive(_7);
+        _7 = std::intrinsics::black_box::<u32>(move _6) -> [return: bb11, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_4);
+        drop(_3) -> [return: bb6, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_3);
+        return;
+    }
+
+    bb7 (cleanup): {
+        drop(_3) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        resume;
+    }
+
+    bb9: {
+        _1 = make(move _2) -> [return: bb1, unwind continue];
+    }
+
+    bb10: {
+        StorageDead(_8);
+        StorageDead(_10);
+        StorageDead(_9);
+        _5 = discriminant(_4);
+        switchInt(move _5) -> [0: bb5, 1: bb4, otherwise: bb3];
+    }
+
+    bb11: {
+        StorageDead(_7);
+        StorageDead(_4);
+        goto -> bb2;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let mut _1: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _2: u32;
+    let mut _3: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _4: std::option::Option<u32>;
+    let mut _5: isize;
+    let _7: u32;
+    let mut _11: std::ptr::DynMetadata<dyn std::iter::Iterator<Item = u32>>;
+    let mut _12: *const ();
+    let mut _13: *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _14: *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _15: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _16: *mut Counter;
+    let mut _17: &mut Counter;
+    let mut _18: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _19: bool;
+    let mut _20: *mut Countdown;
+    let mut _21: &mut Countdown;
+    let mut _22: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _23: bool;
+    scope 1 {
+        debug iter => _3;
+        let _6: u32;
+        scope 2 {
+            debug x => _6;
+            scope 6 (inlined std::hint::black_box::<u32>) {
+            }
+        }
+        scope 5 (inlined std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<dyn std::iter::Iterator<Item = u32>>>::next) {
+            let mut _8: &mut dyn std::iter::Iterator<Item = u32>;
+            let mut _9: *const dyn std::iter::Iterator<Item = u32>;
+            let mut _10: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>;
+        }
+    }
+    scope 3 (inlined std::hint::black_box::<u32>) {
+    }
+    scope 4 (inlined <std::boxed::Box<dyn std::iter::Iterator<Item = u32>> as std::iter::IntoIterator>::into_iter) {
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<u32>(const 0_u32) -> [return: bb9, unwind unreachable];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        StorageLive(_3);
+        _3 = copy _1;
+        goto -> bb2;
+    }
+
+    bb2: {
+        StorageLive(_4);
+        StorageLive(_9);
+        StorageLive(_10);
+        StorageLive(_8);
+        _10 = copy ((_3.0: std::ptr::Unique<dyn std::iter::Iterator<Item = u32>>).0: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>);
+        _9 = copy _10 as *const dyn std::iter::Iterator<Item = u32> (Transmute);
+        _8 = &mut (*_9);
+        _11 = PtrMetadata(move _8);
+        _12 = move _11 as *const () (Transmute);
+        _13 = copy _12 as *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PtrToPtr);
+        _14 = Offset(copy _13, const 3_usize);
+        _15 = copy (*_14);
+        _18 = <Counter as std::iter::Iterator>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _22 = <Countdown as std::iter::Iterator>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _23 = Eq(copy _15, copy _22);
+        switchInt(copy _23) -> [1: bb15, otherwise: bb14];
+    }
+
+    bb3: {
+        unreachable;
+    }
+
+    bb4: {
+        _6 = copy ((_4 as Some).0: u32);
+        StorageLive(_7);
+        _7 = std::intrinsics::black_box::<u32>(move _6) -> [return: bb11, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_4);
+        drop(_3) -> [return: bb6, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_3);
+        return;
+    }
+
+    bb7 (cleanup): {
+        drop(_3) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        resume;
+    }
+
+    bb9: {
+        _1 = make(move _2) -> [return: bb1, unwind continue];
+    }
+
+    bb10: {
+        StorageDead(_8);
+        StorageDead(_10);
+        StorageDead(_9);
+        _5 = discriminant(_4);
+        switchInt(move _5) -> [0: bb5, 1: bb4, otherwise: bb3];
+    }
+
+    bb11: {
+        StorageDead(_7);
+        StorageDead(_4);
+        goto -> bb2;
+    }
+
+    bb12: {
+        _4 = <dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::next(move _8) -> [return: bb10, unwind: bb7];
+    }
+
+    bb13: {
+        _16 = move _8 as *mut Counter (PtrToPtr);
+        _17 = &mut (*_16);
+        _4 = <Counter as std::iter::Iterator>::next(move _17) -> [return: bb10, unwind: bb7];
+    }
+
+    bb14: {
+        _19 = Eq(copy _15, copy _18);
+        switchInt(copy _19) -> [1: bb13, otherwise: bb12];
+    }
+
+    bb15: {
+        _20 = move _8 as *mut Countdown (PtrToPtr);
+        _21 = &mut (*_20);
+        _4 = <Countdown as std::iter::Iterator>::next(move _21) -> [return: bb10, unwind: bb7];
+    }
+}
+######### END after #########
+
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let mut _1: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _2: u32;
+    let mut _3: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _4: std::option::Option<u32>;
+    let mut _5: isize;
+    let _7: u32;
+    scope 1 {
+        debug iter => _3;
+        let _6: u32;
+        scope 2 {
+            debug x => _6;
+            scope 6 (inlined std::hint::black_box::<u32>) {
+            }
+        }
+        scope 5 (inlined std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<dyn std::iter::Iterator<Item = u32>>>::next) {
+            let mut _8: &mut dyn std::iter::Iterator<Item = u32>;
+            let mut _9: *const dyn std::iter::Iterator<Item = u32>;
+            let mut _10: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>;
+        }
+    }
+    scope 3 (inlined std::hint::black_box::<u32>) {
+    }
+    scope 4 (inlined <std::boxed::Box<dyn std::iter::Iterator<Item = u32>> as std::iter::IntoIterator>::into_iter) {
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<u32>(const 0_u32) -> [return: bb9, unwind unreachable];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        StorageLive(_3);
+        _3 = copy _1;
+        goto -> bb2;
+    }
+
+    bb2: {
+        StorageLive(_4);
+        StorageLive(_9);
+        StorageLive(_10);
+        StorageLive(_8);
+        _10 = copy ((_3.0: std::ptr::Unique<dyn std::iter::Iterator<Item = u32>>).0: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>);
+        _9 = copy _10 as *const dyn std::iter::Iterator<Item = u32> (Transmute);
+        _8 = &mut (*_9);
+        _4 = <dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::next(move _8) -> [return: bb10, unwind: bb7];
+    }
+
+    bb3: {
+        unreachable;
+    }
+
+    bb4: {
+        _6 = copy ((_4 as Some).0: u32);
+        StorageLive(_7);
+        _7 = std::intrinsics::black_box::<u32>(move _6) -> [return: bb11, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_4);
+        drop(_3) -> [return: bb6, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_3);
+        return;
+    }
+
+    bb7 (cleanup): {
+        drop(_3) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        resume;
+    }
+
+    bb9: {
+        _1 = make(move _2) -> [return: bb1, unwind continue];
+    }
+
+    bb10: {
+        StorageDead(_8);
+        StorageDead(_10);
+        StorageDead(_9);
+        _5 = discriminant(_4);
+        switchInt(move _5) -> [0: bb5, 1: bb4, otherwise: bb3];
+    }
+
+    bb11: {
+        StorageDead(_7);
+        StorageDead(_4);
+        goto -> bb2;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let mut _1: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _2: u32;
+    let mut _3: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
+    let mut _4: std::option::Option<u32>;
+    let mut _5: isize;
+    let _7: u32;
+    let mut _11: std::ptr::DynMetadata<dyn std::iter::Iterator<Item = u32>>;
+    let mut _12: *const ();
+    let mut _13: *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _14: *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _15: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _16: *mut Counter;
+    let mut _17: &mut Counter;
+    let mut _18: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _19: bool;
+    let mut _20: *mut Countdown;
+    let mut _21: &mut Countdown;
+    let mut _22: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
+    let mut _23: bool;
+    scope 1 {
+        debug iter => _3;
+        let _6: u32;
+        scope 2 {
+            debug x => _6;
+            scope 6 (inlined std::hint::black_box::<u32>) {
+            }
+        }
+        scope 5 (inlined std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<dyn std::iter::Iterator<Item = u32>>>::next) {
+            let mut _8: &mut dyn std::iter::Iterator<Item = u32>;
+            let mut _9: *const dyn std::iter::Iterator<Item = u32>;
+            let mut _10: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>;
+        }
+    }
+    scope 3 (inlined std::hint::black_box::<u32>) {
+    }
+    scope 4 (inlined <std::boxed::Box<dyn std::iter::Iterator<Item = u32>> as std::iter::IntoIterator>::into_iter) {
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _2 = std::intrinsics::black_box::<u32>(const 0_u32) -> [return: bb9, unwind unreachable];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        StorageLive(_3);
+        _3 = copy _1;
+        goto -> bb2;
+    }
+
+    bb2: {
+        StorageLive(_4);
+        StorageLive(_9);
+        StorageLive(_10);
+        StorageLive(_8);
+        _10 = copy ((_3.0: std::ptr::Unique<dyn std::iter::Iterator<Item = u32>>).0: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>);
+        _9 = copy _10 as *const dyn std::iter::Iterator<Item = u32> (Transmute);
+        _8 = &mut (*_9);
+        _11 = PtrMetadata(move _8);
+        _12 = move _11 as *const () (Transmute);
+        _13 = copy _12 as *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PtrToPtr);
+        _14 = Offset(copy _13, const 3_usize);
+        _15 = copy (*_14);
+        _18 = <Counter as std::iter::Iterator>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _22 = <Countdown as std::iter::Iterator>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _23 = Eq(copy _15, copy _22);
+        switchInt(copy _23) -> [1: bb15, otherwise: bb14];
+    }
+
+    bb3: {
+        unreachable;
+    }
+
+    bb4: {
+        _6 = copy ((_4 as Some).0: u32);
+        StorageLive(_7);
+        _7 = std::intrinsics::black_box::<u32>(move _6) -> [return: bb11, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_4);
+        drop(_3) -> [return: bb6, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_3);
+        return;
+    }
+
+    bb7 (cleanup): {
+        drop(_3) -> [return: bb8, unwind terminate(cleanup)];
+    }
+
+    bb8 (cleanup): {
+        resume;
+    }
+
+    bb9: {
+        _1 = make(move _2) -> [return: bb1, unwind continue];
+    }
+
+    bb10: {
+        StorageDead(_8);
+        StorageDead(_10);
+        StorageDead(_9);
+        _5 = discriminant(_4);
+        switchInt(move _5) -> [0: bb5, 1: bb4, otherwise: bb3];
+    }
+
+    bb11: {
+        StorageDead(_7);
+        StorageDead(_4);
+        goto -> bb2;
+    }
+
+    bb12: {
+        _4 = <dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::next(move _8) -> [return: bb10, unwind: bb7];
+    }
+
+    bb13: {
+        _16 = move _8 as *mut Counter (PtrToPtr);
+        _17 = &mut (*_16);
+        _4 = <Counter as std::iter::Iterator>::next(move _17) -> [return: bb10, unwind: bb7];
+    }
+
+    bb14: {
+        _19 = Eq(copy _15, copy _18);
+        switchInt(copy _19) -> [1: bb13, otherwise: bb12];
+    }
+
+    bb15: {
+        _20 = move _8 as *mut Countdown (PtrToPtr);
+        _21 = &mut (*_20);
+        _4 = <Countdown as std::iter::Iterator>::next(move _21) -> [return: bb10, unwind: bb7];
+    }
+}
+######### END after #########
+

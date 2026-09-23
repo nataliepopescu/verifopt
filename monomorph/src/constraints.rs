@@ -1108,6 +1108,48 @@ impl Context {
         out
     }
 
+    /// What a read through a Box/Arc/Rc's own internals yields: the pointer
+    /// to its contents - which, since references and raw pointers are
+    /// represented by their pointee's constraint (see convert's Rvalue::Ref
+    /// / AddressOf, and Deref being a no-op in get_constraints), is just the
+    /// contents themselves.
+    ///
+    /// Previously every such read went through flatten_all, which returns
+    /// the wrapper itself *and* everything nested anywhere inside it. For a
+    /// `Box<dyn Iterator>` dispatch - whose receiver is read through
+    /// `((*self).0: Unique).0: NonNull` after Box-deref lowering - that made
+    /// the receiver a mix of the Box (with and without its trait-object
+    /// constraint), the iterator, and the iterator's own scalar fields, so
+    /// the Box's forwarding `<Box<I, A> as Iterator>::next` became a
+    /// spurious dispatch target (ripgrep's search loop, `box_dyn_iter`).
+    ///
+    /// Only wrappers in the shape stub_wrapper_new builds - a single field 0
+    /// holding the contents - are unwrapped; anything else (Idk, a wrapper
+    /// converted from its type, ...) keeps the imprecise-but-sound flatten.
+    /// Nested wrappers are unwrapped one level only: for `Box<Box<T>>` the
+    /// result is the inner Box, the real object (see `box_box_dyn_iter`).
+    fn wrapper_contents_or_flatten(
+        &self,
+        constraints: &Constraints,
+        scope: &VOID,
+        timing: Option<&InterpPass>,
+    ) -> Constraints {
+        let mut out = Constraints::new();
+        for constraint in constraints.inner.iter() {
+            match &constraint.cfc {
+                Some(RunningConstraint::Adt(adtdef, _, _, fields))
+                    if crate::convert::is_pointer_wrapper_defid(adtdef)
+                        && fields.len() == 1
+                        && fields.get(&0).is_some_and(|c| !c.inner.is_empty()) =>
+                {
+                    out.append(fields[&0].clone());
+                }
+                _ => out.append(self.flatten_one(constraint, scope, timing)),
+            }
+        }
+        out
+    }
+
     /// Recursively unions every constraint reachable inside `constraints`,
     /// discarding all field/variant/tuple structure. Used in place of
     /// `step_field`/`filter_variant` for reads through types we've decided
@@ -1283,14 +1325,18 @@ impl Context {
                         timing.map(|p| p.timing_span(TimingCat::GetConstraintsProjLoop, scope));
                     for elem in &place.projection {
                         if !opaque_from_here {
-                            let is_opaque = {
+                            // (is opaque, is a pointer wrapper)
+                            let (is_opaque, is_wrapper) = {
                                 let _g = timing.map(|p| {
                                     p.timing_span(TimingCat::GetConstraintsIsOpaqueInternal, scope)
                                 });
                                 if let Ok(prefix_ty) = prefix.ty(local_decls) {
-                                    crate::convert::is_opaque_internal(&prefix_ty)
+                                    (
+                                        crate::convert::is_opaque_internal(&prefix_ty),
+                                        crate::convert::is_pointer_wrapper(&prefix_ty),
+                                    )
                                 } else {
-                                    false
+                                    (false, false)
                                 }
                             };
                             if is_opaque {
@@ -1298,7 +1344,11 @@ impl Context {
                                 let _g = timing.map(|p| {
                                     p.timing_span(TimingCat::GetConstraintsFlattenAll, scope)
                                 });
-                                cur = self.flatten_all(&cur, scope, timing);
+                                cur = if is_wrapper {
+                                    self.wrapper_contents_or_flatten(&cur, scope, timing)
+                                } else {
+                                    self.flatten_all(&cur, scope, timing)
+                                };
                             }
                         }
 

@@ -1,0 +1,156 @@
+
+######### MIR before #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: &dyn Animal;
+    let _2: u32;
+    let mut _3: u32;
+    scope 1 {
+        debug a => _1;
+        scope 3 (inlined std::hint::black_box::<u32>) {
+        }
+    }
+    scope 2 (inlined pick) {
+        let mut _4: u32;
+        let mut _5: *const u32;
+    }
+
+    bb0: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = const {alloc5: *const u32};
+        _4 = copy (*_5);
+        StorageDead(_5);
+        switchInt(copy _4) -> [0: bb4, 1: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        _2 = std::intrinsics::black_box::<u32>(move _3) -> [return: bb6, unwind unreachable];
+    }
+
+    bb2: {
+        _1 = const pick::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb3: {
+        _1 = const pick::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb4: {
+        _1 = const pick::promoted[2] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        goto -> bb5;
+    }
+
+    bb5: {
+        StorageDead(_4);
+        StorageLive(_2);
+        StorageLive(_3);
+        _3 = <dyn Animal as Animal>::speak(move _1) -> [return: bb1, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+}
+
+alloc5 (extern static: WHICH)
+######### END before #########
+
+
+######### MIR after #########
+fn main() -> () {
+    let mut _0: ();
+    let _1: &dyn Animal;
+    let _2: u32;
+    let mut _3: u32;
+    let mut _6: usize;
+    let mut _7: *const Dog;
+    let mut _8: &Dog;
+    let mut _9: *const Fish;
+    let mut _10: &Fish;
+    let mut _11: *const Cat;
+    let mut _12: &Cat;
+    scope 1 {
+        debug a => _1;
+        scope 3 (inlined std::hint::black_box::<u32>) {
+        }
+    }
+    scope 2 (inlined pick) {
+        let mut _4: u32;
+        let mut _5: *const u32;
+    }
+
+    bb0: {
+        StorageLive(_4);
+        StorageLive(_5);
+        _5 = const {alloc5: *const u32};
+        _4 = copy (*_5);
+        StorageDead(_5);
+        switchInt(copy _4) -> [0: bb4, 1: bb3, otherwise: bb2];
+    }
+
+    bb1: {
+        _2 = std::intrinsics::black_box::<u32>(move _3) -> [return: bb6, unwind unreachable];
+    }
+
+    bb2: {
+        _1 = const pick::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _6 = const 0_usize;
+        goto -> bb5;
+    }
+
+    bb3: {
+        _1 = const pick::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _6 = const 1_usize;
+        goto -> bb5;
+    }
+
+    bb4: {
+        _1 = const pick::promoted[2] as &dyn Animal (PointerCoercion(Unsize, Implicit));
+        _6 = const 2_usize;
+        goto -> bb5;
+    }
+
+    bb5: {
+        StorageDead(_4);
+        StorageLive(_2);
+        StorageLive(_3);
+        switchInt(copy _6) -> [0: bb8, 1: bb9, 2: bb10, otherwise: bb7];
+    }
+
+    bb6: {
+        StorageDead(_3);
+        StorageDead(_2);
+        return;
+    }
+
+    bb7: {
+        _3 = <dyn Animal as Animal>::speak(move _1) -> [return: bb1, unwind continue];
+    }
+
+    bb8: {
+        _7 = move _1 as *const Dog (PtrToPtr);
+        _8 = &(*_7);
+        _3 = <Dog as Animal>::speak(move _8) -> [return: bb1, unwind continue];
+    }
+
+    bb9: {
+        _9 = move _1 as *const Fish (PtrToPtr);
+        _10 = &(*_9);
+        _3 = <Fish as Animal>::speak(move _10) -> [return: bb1, unwind continue];
+    }
+
+    bb10: {
+        _11 = move _1 as *const Cat (PtrToPtr);
+        _12 = &(*_11);
+        _3 = <Cat as Animal>::speak(move _12) -> [return: bb1, unwind continue];
+    }
+}
+
+alloc5 (extern static: WHICH)
+######### END after #########
+

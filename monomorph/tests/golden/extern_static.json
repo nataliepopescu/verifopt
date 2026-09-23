@@ -1,0 +1,20 @@
+{
+  "maybe_count": 0,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:52:26: 52:35",
+      "is_maybe_example": false,
+      "cha": [
+        "<extern_static::Cat as extern_static::Animal>::speak",
+        "<extern_static::Dog as extern_static::Animal>::speak",
+        "<extern_static::Fish as extern_static::Animal>::speak"
+      ],
+      "fsa": [
+        "<extern_static::Cat as extern_static::Animal>::speak",
+        "<extern_static::Dog as extern_static::Animal>::speak",
+        "<extern_static::Fish as extern_static::Animal>::speak"
+      ]
+    }
+  ]
+}

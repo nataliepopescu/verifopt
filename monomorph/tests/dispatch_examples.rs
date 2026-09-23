@@ -102,6 +102,10 @@ example_test!(mut_refs2, "mut_refs2", Passing);
 example_test!(simple, "simple", Passing);
 example_test!(simple_single, "simple_single", Passing);
 example_test!(r#static, "static", Passing);
+// Same shape as `static`, but the selector is an `extern` static (no
+// initializer, value unknown to Rust): evaluating it used to ICE the
+// analysis. All three impls must stay possible targets.
+example_test!(extern_static, "extern_static", Passing);
 example_test!(sip_repro, "sip_repro", Passing);
 example_test!(vec_growth, "vec_growth", Passing);
 example_test!(wtos_conflict, "wtos_conflict", Passing);

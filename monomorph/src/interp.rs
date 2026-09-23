@@ -695,6 +695,22 @@ impl<'a> InterpPass<'a> {
         let sdef = StaticDef(defid);
         let ty = sdef.ty();
 
+        // `extern { static X: T; }` has no initializer: its value comes from
+        // the linker (e.g. tock's `_sstorage`/`_estack` linker-script symbols)
+        // or from foreign code, which may also write to it. Asking rustc to
+        // evaluate it doesn't return Err - it ICEs (`can't type-check body
+        // of ...`, via mir_for_ctfe), so the Err fallback below never gets a
+        // chance. Its contents are unknown to Rust anyway: use the type-based
+        // fallback, and cache it like any other static.
+        if rustc_public::CrateItem(defid).is_foreign_item() {
+            let (_, c) = self
+                .converter
+                .convert_ty(&Location::unknown(), &ty, None, Some(self));
+            let constraints = Constraints::from(c);
+            ctxt.set_static(defid, constraints.clone());
+            return constraints;
+        }
+
         let alloc = match sdef.eval_initializer() {
             Ok(a) => a,
             Err(_) => {

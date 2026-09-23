@@ -1181,6 +1181,7 @@ impl<'a> InterpPass<'a> {
             TerminatorKind::Assert { .. }
             | TerminatorKind::Drop { .. }
             | TerminatorKind::Goto { .. } => Ok(None),
+            /*
             _iasm @ TerminatorKind::InlineAsm {
                 ..
                 //template,
@@ -1194,6 +1195,7 @@ impl<'a> InterpPass<'a> {
                 // TODO do not interp, try to get rettype
                 todo!("inline asm");
             }
+            */
             _ => todo!("other term kind: {:?}", &term.kind),
         }
     }

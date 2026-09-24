@@ -108,11 +108,26 @@ pub fn is_pointer_wrapper_defid(adtdef: &AdtDef) -> bool {
     matches!(suffix, "boxed::Box" | "sync::Arc" | "rc::Rc")
 }
 
+/// Looks through one reference, exactly like is_opaque_internal: the two
+/// must agree, because get_constraints enters opaque mode at the first prefix
+/// is_opaque_internal accepts and only then asks this whether to unwrap. For
+/// a read through a *parameter* - e.g. `((*self).0: Unique<T>).0` in a
+/// non-inlined `<Box<dyn Iterator> as Iterator>::next`, where `self:
+/// &mut Box<..>` - that first prefix is `self` itself, a `&mut Box`. Not
+/// peeling the reference here sent those reads to flatten_all, leaking the
+/// Box (and its contents' fields) into the receiver in debug builds. The
+/// constraints at that prefix are the Box's own, since a reference is
+/// represented by its pointee.
 pub fn is_pointer_wrapper(ty: &Ty) -> bool {
-    match ty.kind() {
-        TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => is_pointer_wrapper_defid(&adtdef),
-        _ => false,
-    }
+    let adtdef = match ty.kind() {
+        TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
+        TyKind::RigidTy(RigidTy::Ref(_, inner, _)) => match inner.kind() {
+            TyKind::RigidTy(RigidTy::Adt(adtdef, _)) => adtdef,
+            _ => return false,
+        },
+        _ => return false,
+    };
+    is_pointer_wrapper_defid(&adtdef)
 }
 
 pub fn is_opaque_internal(ty: &Ty) -> bool {

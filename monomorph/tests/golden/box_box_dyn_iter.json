@@ -337,7 +337,6 @@
         "std::iter::range::<impl std::iter::Iterator for std::ops::RangeInclusive<A>>::next"
       ],
       "fsa": [
-        "<box_box_dyn_iter::Countdown as std::iter::Iterator>::next",
         "<box_box_dyn_iter::Counter as std::iter::Iterator>::next",
         "box_box_dyn_iter::Countdown",
         "std::alloc::Global",

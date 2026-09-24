@@ -121,10 +121,6 @@ fn main() -> () {
     let mut _21: &mut std::boxed::Box<Countdown>;
     let mut _22: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
     let mut _23: bool;
-    let mut _24: *mut Countdown;
-    let mut _25: &mut Countdown;
-    let mut _26: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
-    let mut _27: bool;
     scope 1 {
         debug iter => _3;
         let _6: u32;
@@ -171,9 +167,8 @@ fn main() -> () {
         _15 = copy (*_14);
         _18 = <Counter as std::iter::Iterator>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _22 = std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<Countdown>>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _26 = <Countdown as std::iter::Iterator>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _27 = Eq(copy _15, copy _26);
-        switchInt(copy _27) -> [1: bb17, otherwise: bb16];
+        _23 = Eq(copy _15, copy _22);
+        switchInt(copy _23) -> [1: bb18, otherwise: bb16];
     }
 
     bb3: {
@@ -223,35 +218,36 @@ fn main() -> () {
     }
 
     bb12: {
-        _4 = <dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::next(move _8) -> [return: bb10, unwind: bb7];
+        goto -> bb10;
     }
 
     bb13: {
-        _16 = move _8 as *mut Counter (PtrToPtr);
-        _17 = &mut (*_16);
-        _4 = <Counter as std::iter::Iterator>::next(move _17) -> [return: bb10, unwind: bb7];
+        _4 = <dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::next(move _8) -> [return: bb12, unwind: bb7];
     }
 
     bb14: {
-        _19 = Eq(copy _15, copy _18);
-        switchInt(copy _19) -> [1: bb13, otherwise: bb12];
+        goto -> bb10;
     }
 
     bb15: {
-        _20 = move _8 as *mut std::boxed::Box<Countdown> (PtrToPtr);
-        _21 = &mut (*_20);
-        _4 = std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<Countdown>>::next(move _21) -> [return: bb10, unwind: bb7];
+        _16 = move _8 as *mut Counter (PtrToPtr);
+        _17 = &mut (*_16);
+        _4 = <Counter as std::iter::Iterator>::next(move _17) -> [return: bb14, unwind: bb7];
     }
 
     bb16: {
-        _23 = Eq(copy _15, copy _22);
-        switchInt(copy _23) -> [1: bb15, otherwise: bb14];
+        _19 = Eq(copy _15, copy _18);
+        switchInt(copy _19) -> [1: bb15, otherwise: bb13];
     }
 
     bb17: {
-        _24 = move _8 as *mut Countdown (PtrToPtr);
-        _25 = &mut (*_24);
-        _4 = <Countdown as std::iter::Iterator>::next(move _25) -> [return: bb10, unwind: bb7];
+        goto -> bb10;
+    }
+
+    bb18: {
+        _20 = move _8 as *mut std::boxed::Box<Countdown> (PtrToPtr);
+        _21 = &mut (*_20);
+        _4 = std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<Countdown>>::next(move _21) -> [return: bb17, unwind: bb7];
     }
 }
 ######### END after #########

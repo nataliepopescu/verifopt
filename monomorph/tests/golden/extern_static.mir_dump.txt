@@ -119,7 +119,7 @@ fn main() -> () {
         StorageDead(_4);
         StorageLive(_2);
         StorageLive(_3);
-        switchInt(copy _6) -> [0: bb8, 1: bb9, 2: bb10, otherwise: bb7];
+        switchInt(copy _6) -> [0: bb10, 1: bb12, 2: bb14, otherwise: bb8];
     }
 
     bb6: {
@@ -129,25 +129,41 @@ fn main() -> () {
     }
 
     bb7: {
-        _3 = <dyn Animal as Animal>::speak(move _1) -> [return: bb1, unwind continue];
+        goto -> bb1;
     }
 
     bb8: {
-        _7 = move _1 as *const Dog (PtrToPtr);
-        _8 = &(*_7);
-        _3 = <Dog as Animal>::speak(move _8) -> [return: bb1, unwind continue];
+        _3 = <dyn Animal as Animal>::speak(move _1) -> [return: bb7, unwind continue];
     }
 
     bb9: {
-        _9 = move _1 as *const Fish (PtrToPtr);
-        _10 = &(*_9);
-        _3 = <Fish as Animal>::speak(move _10) -> [return: bb1, unwind continue];
+        goto -> bb1;
     }
 
     bb10: {
+        _7 = move _1 as *const Dog (PtrToPtr);
+        _8 = &(*_7);
+        _3 = <Dog as Animal>::speak(move _8) -> [return: bb9, unwind continue];
+    }
+
+    bb11: {
+        goto -> bb1;
+    }
+
+    bb12: {
+        _9 = move _1 as *const Fish (PtrToPtr);
+        _10 = &(*_9);
+        _3 = <Fish as Animal>::speak(move _10) -> [return: bb11, unwind continue];
+    }
+
+    bb13: {
+        goto -> bb1;
+    }
+
+    bb14: {
         _11 = move _1 as *const Cat (PtrToPtr);
         _12 = &(*_11);
-        _3 = <Cat as Animal>::speak(move _12) -> [return: bb1, unwind continue];
+        _3 = <Cat as Animal>::speak(move _12) -> [return: bb13, unwind continue];
     }
 }
 

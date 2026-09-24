@@ -140,4 +140,4 @@ example_test!(box_box_dyn_iter, "box_box_dyn_iter", Passing);
 // `[vec::IntoIter<u32, Global>, {closure}]`) and `<Counter as
 // Iterator>::next` - not `<vec::IntoIter<T, A> as Iterator>::next` from
 // Map's `iter` field, nor the closure from its `f` field.
-example_test!(map_dyn_iter, "map_dyn_iter", Unclassified);
+example_test!(map_dyn_iter, "map_dyn_iter", Passing);

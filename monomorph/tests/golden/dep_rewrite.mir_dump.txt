@@ -30,17 +30,13 @@ fn wrap_dyn_call(_1: &std::boxed::Box<dyn Animal>) -> usize {
     let mut _2: &dyn Animal;
     let mut _3: *const dyn Animal;
     let mut _4: std::ptr::NonNull<dyn Animal>;
-    let mut _5: *const Cat;
-    let mut _6: &Cat;
 
     bb0: {
         StorageLive(_2);
         _4 = copy (((*_1).0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>);
         _3 = copy _4 as *const dyn Animal (Transmute);
         _2 = &(*_3);
-        _5 = move _2 as *const Cat (PtrToPtr);
-        _6 = &(*_5);
-        _0 = <Cat as Animal>::speak(move _6) -> [return: bb1, unwind continue];
+        _0 = <dyn Animal as Animal>::speak(move _2) -> [return: bb1, unwind continue];
     }
 
     bb1: {
@@ -82,17 +78,13 @@ fn wrap_dyn_call(_1: &std::boxed::Box<dyn Animal>) -> usize {
     let mut _2: &dyn Animal;
     let mut _3: *const dyn Animal;
     let mut _4: std::ptr::NonNull<dyn Animal>;
-    let mut _5: *const Cat;
-    let mut _6: &Cat;
 
     bb0: {
         StorageLive(_2);
         _4 = copy (((*_1).0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>);
         _3 = copy _4 as *const dyn Animal (Transmute);
         _2 = &(*_3);
-        _5 = move _2 as *const Cat (PtrToPtr);
-        _6 = &(*_5);
-        _0 = <Cat as Animal>::speak(move _6) -> [return: bb1, unwind continue];
+        _0 = <dyn Animal as Animal>::speak(move _2) -> [return: bb1, unwind continue];
     }
 
     bb1: {

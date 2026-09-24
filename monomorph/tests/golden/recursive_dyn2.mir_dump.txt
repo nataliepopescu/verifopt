@@ -122,7 +122,7 @@ fn sum(_1: usize) -> usize {
     bb5: {
         StorageLive(_3);
         StorageLive(_4);
-        switchInt(copy _7) -> [0: bb11, 1: bb12, otherwise: bb10];
+        switchInt(copy _7) -> [0: bb13, 1: bb15, otherwise: bb11];
     }
 
     bb6: {
@@ -148,19 +148,31 @@ fn sum(_1: usize) -> usize {
     }
 
     bb10: {
-        _4 = <dyn Animal as Animal>::speak(move _2) -> [return: bb6, unwind continue];
+        goto -> bb6;
     }
 
     bb11: {
-        _8 = move _2 as *const Cat (PtrToPtr);
-        _9 = &(*_8);
-        _4 = <Cat as Animal>::speak(move _9) -> [return: bb6, unwind continue];
+        _4 = <dyn Animal as Animal>::speak(move _2) -> [return: bb10, unwind continue];
     }
 
     bb12: {
+        goto -> bb6;
+    }
+
+    bb13: {
+        _8 = move _2 as *const Cat (PtrToPtr);
+        _9 = &(*_8);
+        _4 = <Cat as Animal>::speak(move _9) -> [return: bb12, unwind continue];
+    }
+
+    bb14: {
+        goto -> bb6;
+    }
+
+    bb15: {
         _10 = move _2 as *const Fish (PtrToPtr);
         _11 = &(*_10);
-        _4 = <Fish as Animal>::speak(move _11) -> [return: bb6, unwind continue];
+        _4 = <Fish as Animal>::speak(move _11) -> [return: bb14, unwind continue];
     }
 }
 ######### END after #########

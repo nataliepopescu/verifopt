@@ -127,7 +127,7 @@ fn main() -> () {
     }
 
     bb6: {
-        switchInt(copy _5) -> [0: bb11, 1: bb12, 2: bb13, otherwise: bb10];
+        switchInt(copy _5) -> [0: bb13, 1: bb15, 2: bb17, otherwise: bb11];
     }
 
     bb7: {
@@ -145,25 +145,41 @@ fn main() -> () {
     }
 
     bb10: {
-        _3 = <dyn Animal as Animal>::speak(move _2) -> [return: bb7, unwind continue];
+        goto -> bb7;
     }
 
     bb11: {
-        _6 = move _2 as *const Cat (PtrToPtr);
-        _7 = &(*_6);
-        _3 = <Cat as Animal>::speak(move _7) -> [return: bb7, unwind continue];
+        _3 = <dyn Animal as Animal>::speak(move _2) -> [return: bb10, unwind continue];
     }
 
     bb12: {
-        _8 = move _2 as *const Fish (PtrToPtr);
-        _9 = &(*_8);
-        _3 = <Fish as Animal>::speak(move _9) -> [return: bb7, unwind continue];
+        goto -> bb7;
     }
 
     bb13: {
+        _6 = move _2 as *const Cat (PtrToPtr);
+        _7 = &(*_6);
+        _3 = <Cat as Animal>::speak(move _7) -> [return: bb12, unwind continue];
+    }
+
+    bb14: {
+        goto -> bb7;
+    }
+
+    bb15: {
+        _8 = move _2 as *const Fish (PtrToPtr);
+        _9 = &(*_8);
+        _3 = <Fish as Animal>::speak(move _9) -> [return: bb14, unwind continue];
+    }
+
+    bb16: {
+        goto -> bb7;
+    }
+
+    bb17: {
         _10 = move _2 as *const Bird (PtrToPtr);
         _11 = &(*_10);
-        _3 = <Bird as Animal>::speak(move _11) -> [return: bb7, unwind continue];
+        _3 = <Bird as Animal>::speak(move _11) -> [return: bb16, unwind continue];
     }
 }
 ######### END after #########

@@ -782,7 +782,7 @@ fn main() -> () {
         _60 = <Fast as Worker>::run as for<'a> fn(&'a dyn Worker, i32) -> i32 (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _64 = <Slow as Worker>::run as for<'a> fn(&'a dyn Worker, i32) -> i32 (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _65 = Eq(copy _57, copy _64);
-        switchInt(copy _65) -> [1: bb25, otherwise: bb24];
+        switchInt(copy _65) -> [1: bb28, otherwise: bb26];
     }
 
     bb11: {
@@ -850,24 +850,36 @@ fn main() -> () {
     }
 
     bb22: {
-        _18 = <dyn Worker as Worker>::run(move _19, move _17) -> [return: bb11, unwind: bb13];
+        goto -> bb11;
     }
 
     bb23: {
-        _58 = move _19 as *const Fast (PtrToPtr);
-        _59 = &(*_58);
-        _18 = <Fast as Worker>::run(move _59, move _17) -> [return: bb11, unwind: bb13];
+        _18 = <dyn Worker as Worker>::run(move _19, move _17) -> [return: bb22, unwind: bb13];
     }
 
     bb24: {
-        _61 = Eq(copy _57, copy _60);
-        switchInt(copy _61) -> [1: bb23, otherwise: bb22];
+        goto -> bb11;
     }
 
     bb25: {
+        _58 = move _19 as *const Fast (PtrToPtr);
+        _59 = &(*_58);
+        _18 = <Fast as Worker>::run(move _59, move _17) -> [return: bb24, unwind: bb13];
+    }
+
+    bb26: {
+        _61 = Eq(copy _57, copy _60);
+        switchInt(copy _61) -> [1: bb25, otherwise: bb23];
+    }
+
+    bb27: {
+        goto -> bb11;
+    }
+
+    bb28: {
         _62 = move _19 as *const Slow (PtrToPtr);
         _63 = &(*_62);
-        _18 = <Slow as Worker>::run(move _63, move _17) -> [return: bb11, unwind: bb13];
+        _18 = <Slow as Worker>::run(move _63, move _17) -> [return: bb27, unwind: bb13];
     }
 }
 

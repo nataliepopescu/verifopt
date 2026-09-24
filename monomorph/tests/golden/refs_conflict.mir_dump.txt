@@ -747,7 +747,7 @@ fn main() -> () {
         _60 = <A as Holder>::touch as for<'a> fn(&'a dyn Holder, i32) -> i32 (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _64 = <B as Holder>::touch as for<'a> fn(&'a dyn Holder, i32) -> i32 (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _65 = Eq(copy _57, copy _64);
-        switchInt(copy _65) -> [1: bb22, otherwise: bb21];
+        switchInt(copy _65) -> [1: bb25, otherwise: bb23];
     }
 
     bb7: {
@@ -822,24 +822,36 @@ fn main() -> () {
     }
 
     bb19: {
-        _17 = <dyn Holder as Holder>::touch(move _18, move _19) -> [return: bb8, unwind: bb10];
+        goto -> bb8;
     }
 
     bb20: {
-        _58 = move _18 as *const A (PtrToPtr);
-        _59 = &(*_58);
-        _17 = <A as Holder>::touch(move _59, move _19) -> [return: bb8, unwind: bb10];
+        _17 = <dyn Holder as Holder>::touch(move _18, move _19) -> [return: bb19, unwind: bb10];
     }
 
     bb21: {
-        _61 = Eq(copy _57, copy _60);
-        switchInt(copy _61) -> [1: bb20, otherwise: bb19];
+        goto -> bb8;
     }
 
     bb22: {
+        _58 = move _18 as *const A (PtrToPtr);
+        _59 = &(*_58);
+        _17 = <A as Holder>::touch(move _59, move _19) -> [return: bb21, unwind: bb10];
+    }
+
+    bb23: {
+        _61 = Eq(copy _57, copy _60);
+        switchInt(copy _61) -> [1: bb22, otherwise: bb20];
+    }
+
+    bb24: {
+        goto -> bb8;
+    }
+
+    bb25: {
         _62 = move _18 as *const B (PtrToPtr);
         _63 = &(*_62);
-        _17 = <B as Holder>::touch(move _63, move _19) -> [return: bb8, unwind: bb10];
+        _17 = <B as Holder>::touch(move _63, move _19) -> [return: bb24, unwind: bb10];
     }
 }
 

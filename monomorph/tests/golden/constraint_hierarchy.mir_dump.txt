@@ -569,7 +569,7 @@ fn main() -> () {
     }
 
     bb12: {
-        switchInt(copy _41) -> [0: bb22, 1: bb23, otherwise: bb21];
+        switchInt(copy _41) -> [0: bb24, 1: bb26, otherwise: bb22];
     }
 
     bb13: {
@@ -632,19 +632,31 @@ fn main() -> () {
     }
 
     bb21: {
-        _18 = <dyn Animal as Animal>::speak(move _15) -> [return: bb13, unwind: bb16];
+        goto -> bb13;
     }
 
     bb22: {
-        _42 = move _15 as *const Cat (PtrToPtr);
-        _43 = &(*_42);
-        _18 = <Cat as Animal>::speak(move _43) -> [return: bb13, unwind: bb16];
+        _18 = <dyn Animal as Animal>::speak(move _15) -> [return: bb21, unwind: bb16];
     }
 
     bb23: {
+        goto -> bb13;
+    }
+
+    bb24: {
+        _42 = move _15 as *const Cat (PtrToPtr);
+        _43 = &(*_42);
+        _18 = <Cat as Animal>::speak(move _43) -> [return: bb23, unwind: bb16];
+    }
+
+    bb25: {
+        goto -> bb13;
+    }
+
+    bb26: {
         _44 = move _15 as *const Dog (PtrToPtr);
         _45 = &(*_44);
-        _18 = <Dog as Animal>::speak(move _45) -> [return: bb13, unwind: bb16];
+        _18 = <Dog as Animal>::speak(move _45) -> [return: bb25, unwind: bb16];
     }
 }
 

@@ -590,7 +590,7 @@ fn main() -> () {
         _48 = <Cat as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _52 = <Dog as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _53 = Eq(copy _45, copy _52);
-        switchInt(copy _53) -> [1: bb24, otherwise: bb23];
+        switchInt(copy _53) -> [1: bb27, otherwise: bb25];
     }
 
     bb9: {
@@ -672,24 +672,36 @@ fn main() -> () {
     }
 
     bb21: {
-        _14 = <dyn Animal as Animal>::speak(move _15) -> [return: bb9, unwind: bb14];
+        goto -> bb9;
     }
 
     bb22: {
-        _46 = move _15 as *const Cat (PtrToPtr);
-        _47 = &(*_46);
-        _14 = <Cat as Animal>::speak(move _47) -> [return: bb9, unwind: bb14];
+        _14 = <dyn Animal as Animal>::speak(move _15) -> [return: bb21, unwind: bb14];
     }
 
     bb23: {
-        _49 = Eq(copy _45, copy _48);
-        switchInt(copy _49) -> [1: bb22, otherwise: bb21];
+        goto -> bb9;
     }
 
     bb24: {
+        _46 = move _15 as *const Cat (PtrToPtr);
+        _47 = &(*_46);
+        _14 = <Cat as Animal>::speak(move _47) -> [return: bb23, unwind: bb14];
+    }
+
+    bb25: {
+        _49 = Eq(copy _45, copy _48);
+        switchInt(copy _49) -> [1: bb24, otherwise: bb22];
+    }
+
+    bb26: {
+        goto -> bb9;
+    }
+
+    bb27: {
         _50 = move _15 as *const Dog (PtrToPtr);
         _51 = &(*_50);
-        _14 = <Dog as Animal>::speak(move _51) -> [return: bb9, unwind: bb14];
+        _14 = <Dog as Animal>::speak(move _51) -> [return: bb26, unwind: bb14];
     }
 }
 

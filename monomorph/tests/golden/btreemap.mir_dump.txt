@@ -1317,7 +1317,7 @@ fn main() -> () {
         _97 = <Dog as Speak>::speak as for<'a> fn(&'a dyn Speak) -> std::string::String (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _101 = <Cat as Speak>::speak as for<'a> fn(&'a dyn Speak) -> std::string::String (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _102 = Eq(copy _94, copy _101);
-        switchInt(copy _102) -> [1: bb34, otherwise: bb33];
+        switchInt(copy _102) -> [1: bb37, otherwise: bb35];
     }
 
     bb11: {
@@ -1540,24 +1540,36 @@ fn main() -> () {
     }
 
     bb31: {
-        _21 = <dyn Speak as Speak>::speak(move _22) -> [return: bb12, unwind: bb15];
+        goto -> bb12;
     }
 
     bb32: {
-        _95 = move _22 as *const Dog (PtrToPtr);
-        _96 = &(*_95);
-        _21 = <Dog as Speak>::speak(move _96) -> [return: bb12, unwind: bb15];
+        _21 = <dyn Speak as Speak>::speak(move _22) -> [return: bb31, unwind: bb15];
     }
 
     bb33: {
-        _98 = Eq(copy _94, copy _97);
-        switchInt(copy _98) -> [1: bb32, otherwise: bb31];
+        goto -> bb12;
     }
 
     bb34: {
+        _95 = move _22 as *const Dog (PtrToPtr);
+        _96 = &(*_95);
+        _21 = <Dog as Speak>::speak(move _96) -> [return: bb33, unwind: bb15];
+    }
+
+    bb35: {
+        _98 = Eq(copy _94, copy _97);
+        switchInt(copy _98) -> [1: bb34, otherwise: bb32];
+    }
+
+    bb36: {
+        goto -> bb12;
+    }
+
+    bb37: {
         _99 = move _22 as *const Cat (PtrToPtr);
         _100 = &(*_99);
-        _21 = <Cat as Speak>::speak(move _100) -> [return: bb12, unwind: bb15];
+        _21 = <Cat as Speak>::speak(move _100) -> [return: bb36, unwind: bb15];
     }
 }
 

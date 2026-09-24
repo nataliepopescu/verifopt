@@ -177,7 +177,7 @@ fn alternate(_1: usize, _2: &dyn Animal, _3: &dyn Animal) -> usize {
         _14 = <Fish as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _18 = <Cat as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
         _19 = Eq(copy _11, copy _18);
-        switchInt(copy _19) -> [1: bb9, otherwise: bb8];
+        switchInt(copy _19) -> [1: bb12, otherwise: bb10];
     }
 
     bb1: {
@@ -208,24 +208,36 @@ fn alternate(_1: usize, _2: &dyn Animal, _3: &dyn Animal) -> usize {
     }
 
     bb6: {
-        _4 = <dyn Animal as Animal>::speak(copy _2) -> [return: bb1, unwind continue];
+        goto -> bb1;
     }
 
     bb7: {
-        _12 = copy _2 as *const Fish (PtrToPtr);
-        _13 = &(*_12);
-        _4 = <Fish as Animal>::speak(move _13) -> [return: bb1, unwind continue];
+        _4 = <dyn Animal as Animal>::speak(copy _2) -> [return: bb6, unwind continue];
     }
 
     bb8: {
-        _15 = Eq(copy _11, copy _14);
-        switchInt(copy _15) -> [1: bb7, otherwise: bb6];
+        goto -> bb1;
     }
 
     bb9: {
+        _12 = copy _2 as *const Fish (PtrToPtr);
+        _13 = &(*_12);
+        _4 = <Fish as Animal>::speak(move _13) -> [return: bb8, unwind continue];
+    }
+
+    bb10: {
+        _15 = Eq(copy _11, copy _14);
+        switchInt(copy _15) -> [1: bb9, otherwise: bb7];
+    }
+
+    bb11: {
+        goto -> bb1;
+    }
+
+    bb12: {
         _16 = copy _2 as *const Cat (PtrToPtr);
         _17 = &(*_16);
-        _4 = <Cat as Animal>::speak(move _17) -> [return: bb1, unwind continue];
+        _4 = <Cat as Animal>::speak(move _17) -> [return: bb11, unwind continue];
     }
 }
 ######### END after #########

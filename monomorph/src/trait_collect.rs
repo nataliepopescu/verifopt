@@ -70,22 +70,32 @@ impl TraitCollectPass {
                         AssocContainer::Trait => {
                             trait_fns.push(assoc_item.def_id.0);
 
+                            // Back-pointer to the declaring trait for *every*
+                            // method, not only ones with a default body.
+                            // collect_rest_impls adds the rest only via
+                            // impls it sees, so a required method of a trait
+                            // with no visible impl was never registered - and
+                            // a dyn call to it (reachable code can still hold a
+                            // `&dyn Trait` that is only ever `None`/unset, e.g.
+                            // tock's `OptionalCell<&dyn eic::Client>` in
+                            // sam4l's EIC driver) panicked in get_trait_defid
+                            // ("assoc fn ... does not point to trait").
+                            match tstore.assoc_fn_traits.get(&assoc_item.def_id.0) {
+                                Some(trait_defid) => {
+                                    if *trait_defid != trait_def.0 {
+                                        panic!("same assoc fn for multiple traits");
+                                    }
+                                }
+                                None => {
+                                    tstore
+                                        .assoc_fn_traits
+                                        .insert(assoc_item.def_id.0, trait_def.0);
+                                }
+                            }
+
                             if FnDef(assoc_item.def_id.0).has_body() {
                                 //debug!("found default impl {:?}", assoc_item.def_id.0);
                                 default_impls.push(assoc_item.def_id.0);
-
-                                match tstore.assoc_fn_traits.get_mut(&assoc_item.def_id.0) {
-                                    Some(trait_defid) => {
-                                        if *trait_defid != trait_def.0 {
-                                            panic!("same assoc fn for multiple traits");
-                                        }
-                                    }
-                                    None => {
-                                        tstore
-                                            .assoc_fn_traits
-                                            .insert(assoc_item.def_id.0, trait_def.0);
-                                    }
-                                }
                             }
                         }
                         _ => todo!("diff container"),

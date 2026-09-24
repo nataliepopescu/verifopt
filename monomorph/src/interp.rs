@@ -3087,6 +3087,29 @@ impl<'a> InterpPass<'a> {
             None => {}
         }
 
+        // If this ADT implements the trait, it *is* the object's concrete
+        // type: the vtable is its own, so the dispatch goes to its method and
+        // never to a method of something stored inside it. Searching its
+        // fields/genargs then only adds unreachable targets - e.g. for a
+        // `Map<vec::IntoIter<..>, F>` object (ripgrep's `sort`), the `iter`
+        // field's `<vec::IntoIter<..> as Iterator>::next`; for a
+        // `Box<Countdown>` object (`box_box_dyn_iter`), `Countdown::next`,
+        // which Box's forwarding `next` calls statically, never via this
+        // dispatch. Those extras cost precision (a one-target site can't be
+        // an Edit::Single), and analysis time (each one gets simulated).
+        //
+        // The search below stays as the fallback for when this ADT can't be
+        // the object: a receiver constraint that is some container of the
+        // object, from an imprecise read (e.g. a field read that fell back
+        // to the whole enclosing value). Caveat: struct_traits is per ADT,
+        // not per instantiation (it records `Box: Iterator` regardless of
+        // `impl<I: Iterator> .. for Box<I>`'s bound), so "implements" here
+        // is judged per ADT - the same test that already decided whether to
+        // push this ADT's own candidate above.
+        if !resvec.is_empty() {
+            return (false, resvec);
+        }
+
         // Search in fields (in addition to genargs) b/c constraints are already there + don't need
         // to reconstruct them; however, this might pose a termination problem
         for (_key, field_constraints) in fields {

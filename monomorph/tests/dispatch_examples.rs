@@ -130,4 +130,14 @@ example_test!(box_dyn_iter, "box_dyn_iter", Passing);
 // Iterator>::next` (the forwarding impl) - the outer Box must not appear, the
 // inner one must. The runtime trace should show `<Countdown as
 // Iterator>::next`, reached through the inner Box's forwarding `next`.
+// `<Countdown as Iterator>::next` itself must *not* be a dispatch target:
+// it's only ever called statically by the inner Box's `next`
+// (resolve_adt_helper no longer searches inside an ADT that is the object).
 example_test!(box_box_dyn_iter, "box_box_dyn_iter", Passing);
+
+// The other half of ripgrep's `sort`: an iterator adapter boxed as `dyn
+// Iterator`. Expected targets: `<Map<I, F> as Iterator>::next` (with args
+// `[vec::IntoIter<u32, Global>, {closure}]`) and `<Counter as
+// Iterator>::next` - not `<vec::IntoIter<T, A> as Iterator>::next` from
+// Map's `iter` field, nor the closure from its `f` field.
+example_test!(map_dyn_iter, "map_dyn_iter", Unclassified);

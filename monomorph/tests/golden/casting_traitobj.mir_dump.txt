@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: casting_traitobj (package casting_traitobj 0.1.0)
+// fn: wrap_dyn_call
+// instance: wrap_dyn_call
 fn wrap_dyn_call(_1: &dyn Animal) -> usize {
     debug animal => _1;
     let mut _0: usize;
@@ -16,6 +19,9 @@ fn wrap_dyn_call(_1: &dyn Animal) -> usize {
 
 
 ######### MIR after #########
+// crate: casting_traitobj (package casting_traitobj 0.1.0)
+// fn: wrap_dyn_call
+// instance: wrap_dyn_call
 fn wrap_dyn_call(_1: &dyn Animal) -> usize {
     debug animal => _1;
     let mut _0: usize;

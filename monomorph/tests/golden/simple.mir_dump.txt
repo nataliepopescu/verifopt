@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: simple (package simple 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: i32;
@@ -69,6 +72,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: simple (package simple 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: i32;

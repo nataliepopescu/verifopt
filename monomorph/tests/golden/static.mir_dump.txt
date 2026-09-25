@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: static (package static 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: &dyn Animal;
@@ -34,6 +37,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: static (package static 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: &dyn Animal;

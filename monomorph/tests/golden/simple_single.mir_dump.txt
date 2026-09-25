@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: simple_single (package simple_single 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: &dyn Animal;
@@ -36,6 +39,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: simple_single (package simple_single 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: &dyn Animal;

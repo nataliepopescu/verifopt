@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: recursive_dyn3 (package recursive_dyn3 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: usize;
@@ -62,6 +65,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: recursive_dyn3 (package recursive_dyn3 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: usize;

@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: refs_conflict (package refs_conflict 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::boxed::Box<dyn Holder>>;
@@ -404,6 +407,9 @@ alloc70 (size: 16, align: 8) {
 
 
 ######### MIR after #########
+// crate: refs_conflict (package refs_conflict 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::boxed::Box<dyn Holder>>;

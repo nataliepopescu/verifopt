@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: two_variants_static_nonzst (package two_variants_static_nonzst 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let mut _6: &dyn Animal;
@@ -99,6 +102,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: two_variants_static_nonzst (package two_variants_static_nonzst 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let mut _6: &dyn Animal;

@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: one_variant (package one_variant 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::string::String>;
@@ -288,6 +291,9 @@ alloc3 (size: 39, align: 1) {
 
 
 ######### MIR after #########
+// crate: one_variant (package one_variant 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::string::String>;

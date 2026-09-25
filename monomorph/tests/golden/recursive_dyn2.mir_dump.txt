@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: recursive_dyn2 (package recursive_dyn2 0.1.0)
+// fn: sum
+// instance: sum
 fn sum(_1: usize) -> usize {
     debug n => _1;
     let mut _0: usize;
@@ -72,6 +75,9 @@ fn sum(_1: usize) -> usize {
 
 
 ######### MIR after #########
+// crate: recursive_dyn2 (package recursive_dyn2 0.1.0)
+// fn: sum
+// instance: sum
 fn sum(_1: usize) -> usize {
     debug n => _1;
     let mut _0: usize;
@@ -179,6 +185,9 @@ fn sum(_1: usize) -> usize {
 
 
 ######### MIR before #########
+// crate: recursive_dyn2 (package recursive_dyn2 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: usize;
@@ -241,6 +250,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: recursive_dyn2 (package recursive_dyn2 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: usize;

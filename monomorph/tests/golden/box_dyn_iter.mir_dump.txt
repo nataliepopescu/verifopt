@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: box_dyn_iter (package box_dyn_iter 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let mut _1: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;
@@ -100,6 +103,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: box_dyn_iter (package box_dyn_iter 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let mut _1: std::boxed::Box<dyn std::iter::Iterator<Item = u32>>;

@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: mut_refs2 (package mut_refs2 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let mut _1: u32;
@@ -42,6 +45,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: mut_refs2 (package mut_refs2 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let mut _1: u32;

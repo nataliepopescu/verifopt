@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: dep (package dep 0.1.0)
+// fn: wrap_dyn_call
+// instance: wrap_dyn_call
 fn wrap_dyn_call(_1: &std::boxed::Box<dyn Animal>) -> usize {
     debug animal => _1;
     let mut _0: usize;
@@ -24,6 +27,9 @@ fn wrap_dyn_call(_1: &std::boxed::Box<dyn Animal>) -> usize {
 
 
 ######### MIR after #########
+// crate: dep (package dep 0.1.0)
+// fn: wrap_dyn_call
+// instance: wrap_dyn_call
 fn wrap_dyn_call(_1: &std::boxed::Box<dyn Animal>) -> usize {
     debug animal => _1;
     let mut _0: usize;

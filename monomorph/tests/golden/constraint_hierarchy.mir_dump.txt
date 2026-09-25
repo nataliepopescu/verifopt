@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: constraint_hierarchy (package constraint_hierarchy 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::string::String>;
@@ -317,6 +320,9 @@ alloc1 (size: 39, align: 1) {
 
 
 ######### MIR after #########
+// crate: constraint_hierarchy (package constraint_hierarchy 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::string::String>;

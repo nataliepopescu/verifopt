@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: diff_sites (package diff_sites 0.1.0)
+// fn: first_speak
+// instance: first_speak
 fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
     debug a => _1;
     let mut _0: usize;
@@ -34,6 +37,9 @@ fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
 
 
 ######### MIR after #########
+// crate: diff_sites (package diff_sites 0.1.0)
+// fn: first_speak
+// instance: first_speak
 fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
     debug a => _1;
     let mut _0: usize;
@@ -72,6 +78,9 @@ fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
 
 
 ######### MIR before #########
+// crate: diff_sites (package diff_sites 0.1.0)
+// fn: second_speak
+// instance: second_speak
 fn second_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
     debug a => _1;
     let mut _0: usize;
@@ -106,6 +115,9 @@ fn second_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
 
 
 ######### MIR after #########
+// crate: diff_sites (package diff_sites 0.1.0)
+// fn: second_speak
+// instance: second_speak
 fn second_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
     debug a => _1;
     let mut _0: usize;

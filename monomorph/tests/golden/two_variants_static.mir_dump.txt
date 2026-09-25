@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: two_variants_static (package two_variants_static 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _2: usize;
@@ -58,6 +61,9 @@ fn main() -> () {
 
 
 ######### MIR after #########
+// crate: two_variants_static (package two_variants_static 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _2: usize;

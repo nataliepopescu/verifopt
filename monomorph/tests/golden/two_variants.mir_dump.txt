@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: two_variants (package two_variants 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::string::String>;
@@ -330,6 +333,9 @@ alloc2 (size: 39, align: 1) {
 
 
 ######### MIR after #########
+// crate: two_variants (package two_variants 0.1.0)
+// fn: main
+// instance: main
 fn main() -> () {
     let mut _0: ();
     let _1: std::vec::Vec<std::string::String>;

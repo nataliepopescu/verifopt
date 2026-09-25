@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: recursive_dyn (package recursive_dyn 0.1.0)
+// fn: retain
+// instance: retain
 fn retain(_1: usize, _2: &dyn Animal) -> usize {
     debug n => _1;
     debug fixed => _2;
@@ -46,6 +49,9 @@ fn retain(_1: usize, _2: &dyn Animal) -> usize {
 
 
 ######### MIR after #########
+// crate: recursive_dyn (package recursive_dyn 0.1.0)
+// fn: retain
+// instance: retain
 fn retain(_1: usize, _2: &dyn Animal) -> usize {
     debug n => _1;
     debug fixed => _2;
@@ -96,6 +102,9 @@ fn retain(_1: usize, _2: &dyn Animal) -> usize {
 
 
 ######### MIR before #########
+// crate: recursive_dyn (package recursive_dyn 0.1.0)
+// fn: alternate
+// instance: alternate
 fn alternate(_1: usize, _2: &dyn Animal, _3: &dyn Animal) -> usize {
     debug n => _1;
     debug cur => _2;
@@ -143,6 +152,9 @@ fn alternate(_1: usize, _2: &dyn Animal, _3: &dyn Animal) -> usize {
 
 
 ######### MIR after #########
+// crate: recursive_dyn (package recursive_dyn 0.1.0)
+// fn: alternate
+// instance: alternate
 fn alternate(_1: usize, _2: &dyn Animal, _3: &dyn Animal) -> usize {
     debug n => _1;
     debug cur => _2;

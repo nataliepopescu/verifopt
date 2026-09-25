@@ -1,5 +1,8 @@
 
 ######### MIR before #########
+// crate: generic_traitobj (package generic_traitobj 0.1.0)
+// fn: find_inner
+// instance: find_inner
 fn find_inner(_1: &mut dyn std::ops::FnMut(usize) -> bool) -> std::option::Option<usize> {
     debug eq => _1;
     let mut _0: std::option::Option<usize>;
@@ -102,6 +105,9 @@ alloc85 (size: 16, align: 8) {
 
 
 ######### MIR after #########
+// crate: generic_traitobj (package generic_traitobj 0.1.0)
+// fn: find_inner
+// instance: find_inner
 fn find_inner(_1: &mut dyn std::ops::FnMut(usize) -> bool) -> std::option::Option<usize> {
     debug eq => _1;
     let mut _0: std::option::Option<usize>;

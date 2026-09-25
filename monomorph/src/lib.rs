@@ -57,7 +57,11 @@ pub fn start_verifopt(
     // over from an earlier run could otherwise be mistaken for this
     // run's own signal that a rewrite pass is needed.
     let _ = fs::remove_file("stats");
-    let _ = fs::remove_file("mir_dump.txt");
+    // The MIR dumps (verifopt_mir_dumps/) and verifopt_edit_kind_stats.txt
+    // are *not* cleared here: this runs at the start of a primary crate's
+    // analysis, after its dependencies have already been compiled - and
+    // rewritten - in this same build. cargo-verifopt clears them at the start
+    // of the build instead (see rewrite::clear_rewrite_outputs).
     let _ = fs::remove_file(crate::rewrite::dep_rewrite_store_path());
 
     // TODO make log filename a cmdline option

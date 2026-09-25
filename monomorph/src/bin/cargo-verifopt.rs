@@ -318,6 +318,19 @@ fn build_targets(targets: &[BuildTarget]) {
     let marker = monomorph::rewrite::needs_rewrite_pass_marker_path();
     let _ = std::fs::remove_file(&marker);
 
+    // This run's rewrite outputs start empty: the MIR dumps and edit-kind
+    // counts describe exactly what this build rewrote.
+    monomorph::rewrite::clear_rewrite_outputs();
+
+    // An analysis run must not let pass 1 see the *previous* run's store:
+    // dependencies compile before this run's analysis writes a new one, and
+    // the modified compiler would rewrite them against stale results - wrong
+    // if the code changed since. (--skip-analysis runs exist precisely to
+    // reuse the store, so it stays for those.)
+    if !has_arg_flag("--skip-analysis") {
+        let _ = std::fs::remove_file(monomorph::rewrite::dep_rewrite_store_path());
+    }
+
     // Pass 1, for every target.
     for t in targets {
         run_cargo_build(&t.name, &t.kind, &[], t.kind_override);
@@ -354,6 +367,9 @@ fn build_targets(targets: &[BuildTarget]) {
     if !clean_status.success() {
         std::process::exit(clean_status.code().unwrap_or(-1));
     }
+
+    // Pass 2 recompiles everything, so pass 1's dumps would be duplicated.
+    monomorph::rewrite::clear_rewrite_outputs();
 
     // Pass 2, for every target. --skip-analysis here is load-bearing: this
     // pass exists only so dependency crates - compiled before

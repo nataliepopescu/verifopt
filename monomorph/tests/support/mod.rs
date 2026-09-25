@@ -152,36 +152,26 @@ fn example_dir(name: &str) -> PathBuf {
     manifest_dir().join("../testing_examples").join(name)
 }
 
-/// Every local, path-based dependency's own source directory for the
-/// example at `dir` - e.g. for `dep_rewrite` (which depends on `dep` via
-/// `path = "../dep"` in its own Cargo.toml), this returns
-/// `testing_examples/dep`. Used because a dispatch site whose rewrite
-/// applies inside such a dependency's own, separate compilation session
-/// can leave its own `mir_dump.txt` there rather than in the primary
-/// example's own directory - mir_dump.txt uses a plain relative path
-/// (see rewrite.rs's `mir_dump_file`), so it always lands wherever that
-/// specific rustc invocation's own working directory happens to be, not
-/// necessarily `dir` itself. Best-effort: silently returns an empty Vec
-/// on any cargo_metadata failure, since not being able to enumerate
-/// dependencies here shouldn't itself fail the whole test - the primary
-/// directory is still always checked regardless.
-fn path_dependency_dirs(dir: &Path) -> Vec<PathBuf> {
-    let Ok(metadata) = cargo_metadata::MetadataCommand::new()
-        .manifest_path(dir.join("Cargo.toml"))
-        .no_deps()
-        .exec()
-    else {
-        return Vec::new();
-    };
-    let Some(root_pkg) = metadata.root_package() else {
-        return Vec::new();
-    };
-    root_pkg
-        .dependencies
-        .iter()
-        .filter_map(|d| d.path.as_ref())
-        .map(|p| PathBuf::from(p.as_str()))
-        .collect()
+/// Must match `MIR_DUMP_DIR` in monomorph/src/rewrite.rs and in the modified
+/// compiler's verifopt_rewrite.rs (the harness doesn't link the monomorph
+/// library itself, only runs its binaries).
+const MIR_DUMP_DIR: &str = "verifopt_mir_dumps";
+
+/// The combined MIR dump for a run in `dir`: every per-rustc-process file in
+/// `dir/verifopt_mir_dumps/` (see MIR_DUMP_DIR above), concatenated in
+/// sorted file-name order. cargo-verifopt sets VERIFOPT_STORE_DIR to `dir` for
+/// every rustc it spawns, so dependencies' dumps (e.g. dep_rewrite's `dep`)
+/// land here too; one file per process keeps parallel compiles from
+/// interleaving, and sorting makes the concatenation deterministic.
+fn read_mir_dumps(dir: &Path) -> Option<String> {
+    let mut files: Vec<PathBuf> = fs::read_dir(dir.join(MIR_DUMP_DIR))
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|x| x == "txt"))
+        .collect();
+    files.sort();
+    let combined: String = files.iter().filter_map(|p| fs::read_to_string(p).ok()).collect();
+    if combined.is_empty() { None } else { Some(combined) }
 }
 
 fn golden_path(name: &str) -> PathBuf {
@@ -190,7 +180,7 @@ fn golden_path(name: &str) -> PathBuf {
         .join(format!("{name}.json"))
 }
 
-/// mir_dump.txt (see rewrite.rs's `dump_body`) is verifopt's own
+/// The combined MIR dump (see read_mir_dumps) is verifopt's own
 /// before/after MIR dump - purely structural (locals, basic blocks,
 /// statements, terminators), with no span/file-path info of its own,
 /// confirmed against a real sample - so it's already portable across
@@ -233,22 +223,13 @@ struct RunOutcome {
 }
 
 fn run_verifopt(dir: &Path) -> RunOutcome {
-    let dep_dirs = path_dependency_dirs(dir);
-
-    // `stats` is opened in append mode by VOLogger,
-    // and `mir_dump.txt` is opened in append mode by rewrite.rs's
-    // `dump_body`, so stale files from a previous run would silently
-    // corrupt this run's parsed output (or, for mir_dump.txt, just pile up
-    // duplicate before/after blocks). Clear them all first - mir_dump.txt
-    // specifically in every path-dependency's own directory too, since a
-    // dispatch site whose rewrite applies inside a dependency's own,
-    // separate compilation session (e.g. dep_rewrite's own dep) writes
-    // its dump there, using a plain relative path that lands wherever
-    // that session's own CWD happens to be - not necessarily here.
+    // `stats` is opened in append mode by VOLogger, and the MIR dumps are
+    // appended to by the modified compiler, so stale files from a previous
+    // run would corrupt this run's parsed output. cargo-verifopt clears the
+    // dumps itself at the start of a build; clearing them here too keeps the
+    // harness independent of that.
     let _ = fs::remove_file(dir.join("stats"));
-    for d in std::iter::once(dir.to_path_buf()).chain(dep_dirs.iter().map(|p| dir.join(p))) {
-        let _ = fs::remove_file(d.join("mir_dump.txt"));
-    }
+    let _ = fs::remove_dir_all(dir.join(MIR_DUMP_DIR));
     let _ = Command::new("cargo").arg("clean").current_dir(dir).output();
 
     let _ = Command::new("cargo").arg("run").current_dir(dir).output();
@@ -272,11 +253,7 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
         });
 
     let stats = fs::read_to_string(dir.join("stats")).ok();
-    let mir_dump: String = std::iter::once(dir.to_path_buf())
-        .chain(dep_dirs.iter().map(|p| dir.join(p)))
-        .filter_map(|d| fs::read_to_string(d.join("mir_dump.txt")).ok())
-        .collect();
-    let mir_dump = if mir_dump.is_empty() { None } else { Some(mir_dump) };
+    let mir_dump = read_mir_dumps(dir);
 
     let _ = Command::new(Path::new("target/release").join(dir.file_name().unwrap()))
         .current_dir(dir)

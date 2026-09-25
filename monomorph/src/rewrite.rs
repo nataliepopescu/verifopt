@@ -29,6 +29,25 @@ use log::{debug, warn};
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
 
+/// Directory (under the store dir) where the modified compiler writes one MIR
+/// dump per rustc process - must match `MIR_DUMP_DIR` in the compiler's
+/// rustc_codegen_ssa/src/mir/verifopt_rewrite.rs. Read the files in sorted
+/// name order for a deterministic combined dump (see the test harness).
+pub const MIR_DUMP_DIR: &str = "verifopt_mir_dumps";
+
+/// The per-build rewrite outputs the modified compiler appends to - the MIR
+/// dump directory and verifopt_edit_kind_stats.txt - resolved the same way
+/// the compiler resolves them (VERIFOPT_STORE_DIR, else CWD). cargo-verifopt
+/// clears them at the start of a run and before its second pass.
+pub fn clear_rewrite_outputs() {
+    let dir = match std::env::var_os("VERIFOPT_STORE_DIR") {
+        Some(dir) => std::path::PathBuf::from(dir),
+        None => std::path::PathBuf::from("."),
+    };
+    let _ = std::fs::remove_dir_all(dir.join(MIR_DUMP_DIR));
+    let _ = std::fs::remove_file(dir.join("verifopt_edit_kind_stats.txt"));
+}
+
 pub fn dep_rewrite_store_path() -> PathBuf {
     resolve_store_path("verifopt_store.json")
 }

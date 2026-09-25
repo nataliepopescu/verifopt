@@ -329,7 +329,7 @@ if [ "$SKIP_DISCOVERY" -eq 1 ]; then
 else
     echo "=== discovery pass: cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME --skip-rewrite (combined unit graph) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
-    rm -f "$EXAMPLE_DIR/mir_dump.txt"
+    rm -rf "$EXAMPLE_DIR/verifopt_mir_dumps"
     rm -f "$EXAMPLE_DIR/verifopt_store.json"
     rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
     rm -f "$EXAMPLE_DIR/verifopt_edit_kind_stats.txt"

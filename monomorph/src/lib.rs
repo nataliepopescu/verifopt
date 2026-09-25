@@ -56,7 +56,7 @@ pub fn start_verifopt(
     // needs_rewrite_pass_marker_path docs): a stale marker file left
     // over from an earlier run could otherwise be mistaken for this
     // run's own signal that a rewrite pass is needed.
-    let _ = fs::remove_file("stats");
+    let _ = fs::remove_file(crate::rewrite::stats_path());
     // The MIR dumps (verifopt_mir_dumps/) and verifopt_edit_kind_stats.txt
     // are *not* cleared here: this runs at the start of a primary crate's
     // analysis, after its dependencies have already been compiled - and

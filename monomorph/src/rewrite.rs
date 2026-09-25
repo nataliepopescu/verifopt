@@ -29,21 +29,18 @@ use log::{debug, warn};
 
 static STORE: OnceLock<Mutex<Store>> = OnceLock::new();
 
-/// Directory (under the store dir) where the modified compiler writes one MIR
+/// Directory (in results_dir()) where the modified compiler writes one MIR
 /// dump per rustc process - must match `MIR_DUMP_DIR` in the compiler's
 /// rustc_codegen_ssa/src/mir/verifopt_rewrite.rs. Read the files in sorted
 /// name order for a deterministic combined dump (see the test harness).
 pub const MIR_DUMP_DIR: &str = "verifopt_mir_dumps";
 
 /// The per-build rewrite outputs the modified compiler appends to - the MIR
-/// dump directory and verifopt_edit_kind_stats.txt - resolved the same way
-/// the compiler resolves them (VERIFOPT_STORE_DIR, else CWD). cargo-verifopt
-/// clears them at the start of a run and before its second pass.
+/// dump directory and verifopt_edit_kind_stats.txt - in results_dir(), where
+/// the compiler writes them too. cargo-verifopt clears them at the start of a
+/// run and before its second pass.
 pub fn clear_rewrite_outputs() {
-    let dir = match std::env::var_os("VERIFOPT_STORE_DIR") {
-        Some(dir) => std::path::PathBuf::from(dir),
-        None => std::path::PathBuf::from("."),
-    };
+    let dir = results_dir();
     let _ = std::fs::remove_dir_all(dir.join(MIR_DUMP_DIR));
     let _ = std::fs::remove_file(dir.join("verifopt_edit_kind_stats.txt"));
 }
@@ -56,11 +53,39 @@ pub fn needs_rewrite_pass_marker_path() -> PathBuf {
     resolve_store_path("verifopt_needs_rewrite_pass")
 }
 
-fn resolve_store_path(filename: &str) -> PathBuf {
+/// The analysis's `stats` output, in results_dir() with everything else -
+/// not a plain relative path: cargo runs a workspace member's rustc from the
+/// *workspace root*, so for e.g. tock's `boards/imix` a relative `stats`
+/// landed in the repo root while verifopt_store.json landed in boards/imix.
+pub fn stats_path() -> PathBuf {
+    resolve_store_path("stats")
+}
+
+/// Name of the directory every verifopt output of a run goes in, created
+/// inside the directory cargo-verifopt is run from: verifopt_store.json, the
+/// two-pass marker, `stats`, the MIR dumps (MIR_DUMP_DIR) and
+/// verifopt_edit_kind_stats.txt.
+pub const RESULTS_DIR: &str = "verifopt_results";
+
+/// Where every verifopt output goes. cargo-verifopt sets VERIFOPT_STORE_DIR to
+/// `<run dir>/verifopt_results` on every rustc it spawns (dependencies
+/// included - cargo runs each from its own CWD, so a relative path would
+/// scatter them), and the modified compiler reads the same variable. Without
+/// it - cargo-verifopt's own process, whose CWD *is* the run dir, or a
+/// hand-run rustc - it's `./verifopt_results`.
+pub fn results_dir() -> PathBuf {
     match std::env::var_os("VERIFOPT_STORE_DIR") {
-        Some(dir) => PathBuf::from(dir).join(filename),
-        None => PathBuf::from(filename),
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(RESULTS_DIR),
     }
+}
+
+/// A file in results_dir(), creating the directory if needed so writers
+/// never fail for lack of it.
+fn resolve_store_path(filename: &str) -> PathBuf {
+    let dir = results_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join(filename)
 }
 
 fn store() -> &'static Mutex<Store> {

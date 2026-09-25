@@ -329,10 +329,7 @@ if [ "$SKIP_DISCOVERY" -eq 1 ]; then
 else
     echo "=== discovery pass: cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME --skip-rewrite (combined unit graph) ===" >&2
     (cd "$EXAMPLE_DIR" && cargo clean --target-dir target-discovery "${extra_args[@]}") >&2
-    rm -rf "$EXAMPLE_DIR/verifopt_mir_dumps"
-    rm -f "$EXAMPLE_DIR/verifopt_store.json"
-    rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
-    rm -f "$EXAMPLE_DIR/verifopt_edit_kind_stats.txt"
+    rm -rf "$EXAMPLE_DIR/verifopt_results"
     start_spinner "discovery pass running..."
     discovery_output="$(cd "$EXAMPLE_DIR" && cargo verifopt --bench "$BENCH_NAME" --bin "$BIN_NAME" --skip-rewrite --target-dir target-discovery --message-format=json "${extra_args[@]}")" || true
     stop_spinner
@@ -340,7 +337,7 @@ else
         echo "error: discovery pass (cargo verifopt --bench $BENCH_NAME --bin $BIN_NAME --skip-rewrite) produced no output - build likely failed" >&2
         exit 1
     fi
-    rm -f "$EXAMPLE_DIR/verifopt_needs_rewrite_pass"
+    rm -f "$EXAMPLE_DIR/verifopt_results/verifopt_needs_rewrite_pass"
 fi
 
 echo "=== baseline build: cargo verifopt --bench $BENCH_NAME --skip-analysis --skip-rewrite ===" >&2

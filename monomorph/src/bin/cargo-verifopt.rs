@@ -564,10 +564,14 @@ fn run_cargo_build(
     // rewrite.rs's own dep_rewrite_store_path/
     // needs_rewrite_pass_marker_path (and their counterparts in the
     // rust fork's own verifopt_rewrite.rs).
-    cmd.env(
-        "VERIFOPT_STORE_DIR",
-        std::env::current_dir().expect("could not determine current directory"),
-    );
+    //
+    // It points at `<run dir>/verifopt_results` (rewrite::RESULTS_DIR), the
+    // one directory every verifopt output of this run goes in.
+    let results_dir = std::env::current_dir()
+        .expect("could not determine current directory")
+        .join(monomorph::rewrite::RESULTS_DIR);
+    let _ = std::fs::create_dir_all(&results_dir);
+    cmd.env("VERIFOPT_STORE_DIR", results_dir);
 
     // Belt-and-suspenders: `pinned_cargo_path()` above already invokes the
     // exact toolchain binary directly (not a rustup shim), so this env var

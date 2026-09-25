@@ -152,19 +152,22 @@ fn example_dir(name: &str) -> PathBuf {
     manifest_dir().join("../testing_examples").join(name)
 }
 
-/// Must match `MIR_DUMP_DIR` in monomorph/src/rewrite.rs and in the modified
-/// compiler's verifopt_rewrite.rs (the harness doesn't link the monomorph
-/// library itself, only runs its binaries).
+/// Must match `RESULTS_DIR` and `MIR_DUMP_DIR` in monomorph/src/rewrite.rs
+/// (and MIR_DUMP_DIR in the modified compiler's verifopt_rewrite.rs); the
+/// harness doesn't link the monomorph library itself, only runs its binaries.
+/// cargo-verifopt puts every output of a run in `<run dir>/RESULTS_DIR`.
+const RESULTS_DIR: &str = "verifopt_results";
 const MIR_DUMP_DIR: &str = "verifopt_mir_dumps";
 
 /// The combined MIR dump for a run in `dir`: every per-rustc-process file in
-/// `dir/verifopt_mir_dumps/` (see MIR_DUMP_DIR above), concatenated in
-/// sorted file-name order. cargo-verifopt sets VERIFOPT_STORE_DIR to `dir` for
+/// `dir/verifopt_results/verifopt_mir_dumps/` (see MIR_DUMP_DIR above), concatenated in
+/// sorted file-name order. cargo-verifopt sets VERIFOPT_STORE_DIR to
+/// `dir/verifopt_results` for
 /// every rustc it spawns, so dependencies' dumps (e.g. dep_rewrite's `dep`)
 /// land here too; one file per process keeps parallel compiles from
 /// interleaving, and sorting makes the concatenation deterministic.
 fn read_mir_dumps(dir: &Path) -> Option<String> {
-    let mut files: Vec<PathBuf> = fs::read_dir(dir.join(MIR_DUMP_DIR))
+    let mut files: Vec<PathBuf> = fs::read_dir(dir.join(RESULTS_DIR).join(MIR_DUMP_DIR))
         .ok()?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "txt"))
@@ -226,10 +229,9 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
     // `stats` is opened in append mode by VOLogger, and the MIR dumps are
     // appended to by the modified compiler, so stale files from a previous
     // run would corrupt this run's parsed output. cargo-verifopt clears the
-    // dumps itself at the start of a build; clearing them here too keeps the
-    // harness independent of that.
-    let _ = fs::remove_file(dir.join("stats"));
-    let _ = fs::remove_dir_all(dir.join(MIR_DUMP_DIR));
+    // dumps itself at the start of a build; clearing the whole results
+    // directory here too keeps the harness independent of that.
+    let _ = fs::remove_dir_all(dir.join(RESULTS_DIR));
     let _ = Command::new("cargo").arg("clean").current_dir(dir).output();
 
     let _ = Command::new("cargo").arg("run").current_dir(dir).output();
@@ -252,7 +254,7 @@ fn run_verifopt(dir: &Path) -> RunOutcome {
             )
         });
 
-    let stats = fs::read_to_string(dir.join("stats")).ok();
+    let stats = fs::read_to_string(dir.join(RESULTS_DIR).join("stats")).ok();
     let mir_dump = read_mir_dumps(dir);
 
     let _ = Command::new(Path::new("target/release").join(dir.file_name().unwrap()))

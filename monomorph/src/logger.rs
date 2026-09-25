@@ -14,8 +14,8 @@ impl VOLogger {
         let stats_file = OpenOptions::new()
             .append(true)
             .create(true)
-            .open("stats")
-            .expect("should be able to open file");
+            .open(crate::rewrite::stats_path())
+            .expect("should be able to open the stats file");
 
         Self { stats_file }
     }

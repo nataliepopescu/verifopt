@@ -137,40 +137,59 @@ fn call_cargo() {
         (get_arg_flag_value("--bin"), get_arg_flag_value("--bench"))
     {
         let _ = bench_target;
-        call_cargo_on_target(&bin_target, &TargetKind::Bench, Some("bin"));
+        build_targets(&[BuildTarget::new(&bin_target, &TargetKind::Bench, Some("bin"))]);
         return;
     }
 
     // If a binary is specified, analyze this binary only.
     if let Some(target) = get_arg_flag_value("--bin") {
-        call_cargo_on_target(&target, &TargetKind::Bin, None);
+        build_targets(&[BuildTarget::new(&target, &TargetKind::Bin, None)]);
         return;
     }
 
     // If a bench is specified, build this bench only - mirrors --bin
     // above. Without this, --bench <name> would fall through to
-    // call_cargo_on_each_package_target below, which builds every
+    // package_targets below, which builds every
     // target in the package (including the primary --bin target),
     // defeating the point of a targeted, --skip-analysis bench build.
     if let Some(target) = get_arg_flag_value("--bench") {
-        call_cargo_on_target(&target, &TargetKind::Bench, None);
+        build_targets(&[BuildTarget::new(&target, &TargetKind::Bench, None)]);
         return;
     }
 
     if let Some(root) = metadata.root_package() {
-        call_cargo_on_each_package_target(root);
+        build_targets(&package_targets(root));
         return;
     }
 
-    // There is no root, this must be a workspace, so call_cargo_on_each_package_target on each workspace member
+    // There is no root, this must be a workspace: build every workspace member's targets
+    // Build every workspace member's targets as one set, so any clean
+    // (see build_targets) happens once, after all of them, rather than
+    // wiping earlier members' outputs.
+    let mut targets = Vec::new();
     for package_id in &metadata.workspace_members {
         let package = metadata.index(package_id);
-        call_cargo_on_each_package_target(package);
+        targets.extend(package_targets(package));
+    }
+    build_targets(&targets);
+}
+
+/// One `cargo build`/`test --no-run`/`bench --no-run` target to build.
+struct BuildTarget {
+    name: String,
+    kind: TargetKind,
+    kind_override: Option<&'static str>,
+}
+
+impl BuildTarget {
+    fn new(name: &str, kind: &TargetKind, kind_override: Option<&'static str>) -> Self {
+        BuildTarget { name: name.to_owned(), kind: kind.clone(), kind_override }
     }
 }
 
-fn call_cargo_on_each_package_target(package: &Package) {
+fn package_targets(package: &Package) -> Vec<BuildTarget> {
     let lib_only = has_arg_flag("--lib");
+    let mut out = Vec::new();
     for target in &package.targets {
         let kind = target
             .kind
@@ -179,8 +198,9 @@ fn call_cargo_on_each_package_target(package: &Package) {
         if lib_only && *kind != TargetKind::Lib {
             continue;
         }
-        call_cargo_on_target(&target.name, kind, None);
+        out.push(BuildTarget::new(&target.name, kind, None));
     }
+    out
 }
 
 /// Resolves `name` (e.g. "rustc"/"cargo") from the same, pinned toolchain
@@ -211,7 +231,7 @@ fn call_cargo_on_each_package_target(package: &Package) {
 /// rather than through rustup's shim, nothing corrects that PATH lookup
 /// for us — so both `cargo` and `rustc` must be resolved explicitly here,
 /// and `rustc` must additionally be threaded through as the `RUSTC` env
-/// var on the child `cargo build` invocation (see `call_cargo_on_target`)
+/// var on the child `cargo build` invocation (see `build_targets`)
 /// so cargo doesn't fall back to a bare, PATH-resolved "rustc" itself.
 fn pinned_toolchain_bin(name: &str) -> Option<OsString> {
     let toolchain = option_env!("RUSTUP_TOOLCHAIN").expect(
@@ -258,36 +278,52 @@ fn pinned_toolchain_cargo() -> OsString {
     pinned_toolchain_bin("cargo").unwrap_or_else(|| OsString::from("cargo"))
 }
 
-fn call_cargo_on_target(target: &String, kind: &TargetKind, verifopt_kind_override: Option<&str>) {
-    // Debugging escape hatch: re-run a single, plain build against
-    // whatever verifopt_store.json already exists on disk (from an
-    // earlier, successful discovery run), skipping this function's own
-    // automatic discovery-then-decide flow entirely - no cargo clean,
-    // so cargo's own caching does whatever it would normally do (e.g.
-    // leaving already-successfully-built dependencies alone, retrying
-    // only whatever previously failed). Useful for iterating without
-    // re-paying for analysis or a full dependency rebuild each time.
-    // Stripped here, before anything else looks at the arg list,
-    // matching how --lib is already skipped in run_cargo_build for the
-    // same reason.
+/// Builds every target, then - only if this run's analysis asked for it -
+/// cleans once and rebuilds every target a second time.
+///
+/// Pass 1 is the ordinary build. The modified compiler's codegen_mir hook
+/// rewrites each primary crate's own code within it. It's also the
+/// discovery pass for the two-pass dependency-rewrite flow: FsaCallbacks's
+/// analysis (rewrite.rs's after_analysis) writes the marker file only when
+/// it found a dispatch site whose containing function lives outside the
+/// crate - code in dependency crates that pass 1 compiled before
+/// verifopt_store.json existed.
+///
+/// Three things this has to get right, each of which the previous
+/// per-target version got wrong:
+/// - Only *this* run's analysis may request pass 2. Nothing else ever
+///   deleted the marker, so one left by an earlier run triggered a
+///   `cargo clean` + full rebuild on every later run.
+/// - `--skip-analysis` never needs pass 2: the store already exists
+///   before pass 1 starts, so pass 1 compiles every crate - dependencies
+///   included - with it. Cleaning there just deletes correct output.
+/// - The clean happens once, after *all* targets' pass 1. Done per target,
+///   a later target's clean (e.g. ripgrep's `integration` test) deleted
+///   an earlier target's finished output (the `rg` binary), and a real
+///   analysis run would repeat its analysis for every target.
+fn build_targets(targets: &[BuildTarget]) {
+    // Debugging escape hatch: re-run plain builds against whatever
+    // verifopt_store.json already exists on disk (from an earlier,
+    // successful discovery run), skipping the discovery-then-decide flow
+    // entirely - no cargo clean, so cargo's own caching does whatever it
+    // would normally do (e.g. leaving already-successfully-built
+    // dependencies alone, retrying only whatever previously failed).
     if has_arg_flag("--rewrite-only") {
-        run_cargo_build(target, kind, &[], verifopt_kind_override);
+        for t in targets {
+            run_cargo_build(&t.name, &t.kind, &[], t.kind_override);
+        }
         return;
     }
 
-    // This first build *is* the ordinary, single-pass build - nothing
-    // extra is paid here regardless of what it finds, since the
-    // modified compiler's own codegen_mir hook already rewrites this
-    // crate's own code within this same pass either way. It's also the
-    // discovery pass for the two-pass dependency-rewrite flow:
-    // FsaCallbacks's own analysis (see rewrite.rs's after_analysis)
-    // writes a small marker file, but only when it actually found a
-    // dispatch site whose containing function lives outside this
-    // crate - i.e. only when there's something a second pass would
-    // need to act on.
-    run_cargo_build(target, kind, &[], verifopt_kind_override);
+    let marker = monomorph::rewrite::needs_rewrite_pass_marker_path();
+    let _ = std::fs::remove_file(&marker);
 
-    if !monomorph::rewrite::needs_rewrite_pass_marker_path().exists() {
+    // Pass 1, for every target.
+    for t in targets {
+        run_cargo_build(&t.name, &t.kind, &[], t.kind_override);
+    }
+
+    if has_arg_flag("--skip-analysis") || !marker.exists() {
         return;
     }
 
@@ -319,26 +355,25 @@ fn call_cargo_on_target(target: &String, kind: &TargetKind, verifopt_kind_overri
         std::process::exit(clean_status.code().unwrap_or(-1));
     }
 
-    // --skip-analysis here is load-bearing, not optional: this second
+    // Pass 2, for every target. --skip-analysis here is load-bearing: this
     // pass exists only so dependency crates - compiled before
-    // verifopt_store.json existed during the discovery pass above -
-    // get rebuilt and pick it up via the modified compiler's own
-    // codegen_mir hook. The primary crate's own analysis already ran,
-    // once, during the discovery pass; re-running it here would just
-    // reproduce the same result (assuming determinism) at the same,
-    // full analysis cost a second time, for nothing.
-    let second_pass_flags: Vec<String> = if has_arg_flag("--skip-analysis") {
-        Vec::new()
-    } else {
-        vec!["--skip-analysis".to_owned()]
-    };
-    run_cargo_build(target, kind, &second_pass_flags, verifopt_kind_override);
+    // verifopt_store.json existed during pass 1 - get rebuilt and pick it
+    // up via the modified compiler's codegen_mir hook. The primary crates'
+    // analysis already ran, once, in pass 1; re-running it would reproduce
+    // the same result at the same full cost a second time.
+    let second_pass_flags = vec!["--skip-analysis".to_owned()];
+    for t in targets {
+        run_cargo_build(&t.name, &t.kind, &second_pass_flags, t.kind_override);
+    }
+
+    // Consumed: don't let it leak into a later run.
+    let _ = std::fs::remove_file(&marker);
 }
 
 /// Builds and runs the actual `cargo build`/`cargo test` invocation.
-/// Factored out of `call_cargo_on_target` so it can be called either
+/// Factored out of `build_targets` so it can be called either
 /// once (the ordinary case - this is the whole of what
-/// `call_cargo_on_target` used to do directly) or twice, with a
+/// `build_targets` used to do directly) or twice, with a
 /// `cargo clean` in between, when the first (discovery) pass's own
 /// analysis found a dispatch site living outside the primary crate: a
 /// dependency crate has no entry point of its own to analyze from, so
@@ -601,7 +636,7 @@ fn call_rustc() {
     // argv[1] here previously reproduced the *same* wrong-compiler bug
     // as the original `$RUSTC`/`$PATH` fallback it replaced. Resolve the
     // pinned toolchain's rustc explicitly instead, exactly as
-    // `call_cargo_on_target` resolves cargo.
+    // `build_targets` resolves cargo.
     let mut cmd = Command::new(pinned_toolchain_rustc());
     cmd.args(std::env::args().skip(2));
     let exit_status = cmd

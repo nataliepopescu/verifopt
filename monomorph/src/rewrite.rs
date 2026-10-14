@@ -124,6 +124,22 @@ impl Callbacks for FsaCallbacks {
 
             let mut store = store().lock().unwrap();
 
+            // Records `did`'s crate (name -> stable crate id) in the store, so
+            // the compiler can tell when a later build of that crate doesn't
+            // match this analysis (Store::crate_id_mismatch): every key's
+            // DefPathHash starts with the crate id, which depends on the
+            // build profile, features and flags - a mismatch otherwise just
+            // silently rewrites nothing.
+            let record_crate = |store: &mut Store, did: DefId| {
+                let info = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let krate = rustc_internal::internal(tcx, did).krate;
+                    (tcx.crate_name(krate).to_string(), tcx.stable_crate_id(krate).as_u64())
+                }));
+                if let Ok((name, id)) = info {
+                    store.crates.insert(name, id);
+                }
+            };
+
             let to_hash = |did| -> Option<DefPathHash> {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     tcx.def_path_hash(rustc_internal::internal(tcx, did))
@@ -208,6 +224,7 @@ impl Callbacks for FsaCallbacks {
                     }
                 };
 
+                record_crate(&mut store, defid);
                 store.targets.insert((hash, bb, caller_genargs_hash), t_hashes);
             }
 
@@ -256,6 +273,7 @@ impl Callbacks for FsaCallbacks {
                     }
                 };
 
+                record_crate(&mut store, defid);
                 store.tags.insert((hash, bb, caller_genargs_hash), entry);
             }
 

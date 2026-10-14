@@ -302,6 +302,25 @@ fn pinned_toolchain_cargo() -> OsString {
 ///   an earlier target's finished output (the `rg` binary), and a real
 ///   analysis run would repeat its analysis for every target.
 fn build_targets(targets: &[BuildTarget]) {
+    // --skip-analysis and --rewrite-only exist to reuse a store from an
+    // earlier analysis run. Without one, the build still "succeeds" - every
+    // rustc just logs (at debug level) that it couldn't read the store and
+    // rewrites nothing - which is easy to mistake for the rewrite itself not
+    // working. (An analysis run deletes the previous store when it starts, so
+    // an aborted or failed one leaves none behind.) Stop up front instead.
+    if has_arg_flag("--skip-analysis") || has_arg_flag("--rewrite-only") {
+        let store = monomorph::rewrite::dep_rewrite_store_path();
+        if !store.exists() {
+            eprintln!(
+                "error: --skip-analysis/--rewrite-only reuse an existing analysis store, but {} \
+                 doesn't exist.\n       Run the analysis first (without --skip-analysis), or \
+                 restore a saved copy of verifopt_store.json there.",
+                store.display()
+            );
+            std::process::exit(1);
+        }
+    }
+
     // Debugging escape hatch: re-run plain builds against whatever
     // verifopt_store.json already exists on disk (from an earlier,
     // successful discovery run), skipping the discovery-then-decide flow

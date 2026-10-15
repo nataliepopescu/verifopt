@@ -74,3 +74,6 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/sam4l-3716898326bb9396.txt: 
 
 ## notes
 
+ignore tock structure
+- stick everything into one big crate
+

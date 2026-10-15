@@ -64,7 +64,9 @@ pub fn stats_path() -> PathBuf {
 /// Name of the directory every verifopt output of a run goes in, created
 /// inside the directory cargo-verifopt is run from: verifopt_store.json, the
 /// two-pass marker, `stats`, the MIR dumps (MIR_DUMP_DIR) and
-/// verifopt_edit_kind_stats.txt.
+/// verifopt_edit_kind_stats.txt. With --target-dir (or CARGO_TARGET_DIR),
+/// cargo-verifopt appends `_<target dir name>`, so each target dir keeps its
+/// own results (see cargo-verifopt's set_results_dir_env).
 pub const RESULTS_DIR: &str = "verifopt_results";
 
 /// Where every verifopt output goes. cargo-verifopt sets VERIFOPT_STORE_DIR to

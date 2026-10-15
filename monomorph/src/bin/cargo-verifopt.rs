@@ -68,6 +68,7 @@ pub fn main() {
     match std::env::args().nth(1).as_ref().map(AsRef::<str>::as_ref) {
         Some(s) if s.ends_with("verifopt") => {
             // Get here for the top level cargo execution, i.e. "cargo verifopt".
+            set_results_dir_env();
             call_cargo();
         }
         Some(s) if s.ends_with("rustc") => {
@@ -308,7 +309,14 @@ fn build_targets(targets: &[BuildTarget]) {
     // rewrites nothing - which is easy to mistake for the rewrite itself not
     // working. (An analysis run deletes the previous store when it starts, so
     // an aborted or failed one leaves none behind.) Stop up front instead.
-    if has_arg_flag("--skip-analysis") || has_arg_flag("--rewrite-only") {
+    //
+    // Only when the store will actually be read: with --skip-rewrite the
+    // compiler's rewrite is off (VERIFOPT_SKIP_REWRITE), so e.g. a baseline
+    // `--skip-analysis --skip-rewrite` build is a plain build that needs no
+    // store at all.
+    if (has_arg_flag("--skip-analysis") || has_arg_flag("--rewrite-only"))
+        && !has_arg_flag("--skip-rewrite")
+    {
         let store = monomorph::rewrite::dep_rewrite_store_path();
         if !store.exists() {
             eprintln!(
@@ -586,9 +594,8 @@ fn run_cargo_build(
     //
     // It points at `<run dir>/verifopt_results` (rewrite::RESULTS_DIR), the
     // one directory every verifopt output of this run goes in.
-    let results_dir = std::env::current_dir()
-        .expect("could not determine current directory")
-        .join(monomorph::rewrite::RESULTS_DIR);
+    // (Chosen once per run, per target dir - see set_results_dir_env.)
+    let results_dir = monomorph::rewrite::results_dir();
     let _ = std::fs::create_dir_all(&results_dir);
     cmd.env("VERIFOPT_STORE_DIR", results_dir);
 
@@ -698,6 +705,43 @@ fn has_arg_flag(name: &str) -> bool {
 
 /// Gets the value of `name`.
 /// `--name value` or `--name=value`
+/// Picks this run's results directory and exports it as VERIFOPT_STORE_DIR,
+/// for this process (its own store check, marker and output clean-up all go
+/// through rewrite::results_dir) and everything it spawns (cargo, and through
+/// it every rustc, which reads the same variable).
+///
+/// One results directory per cargo target directory, so that e.g. a baseline
+/// build in `plain_target` can't overwrite (or, for an analysis run, delete
+/// the store of) a verifopt run in `verifopt_target`:
+/// - no --target-dir / CARGO_TARGET_DIR: `<run dir>/verifopt_results`, as
+///   before (the test harness relies on this);
+/// - otherwise `<run dir>/verifopt_results_<target dir's last component>`,
+///   e.g. `verifopt_results_verifopt_target`.
+/// An explicitly set VERIFOPT_STORE_DIR is left alone.
+fn set_results_dir_env() {
+    if std::env::var_os("VERIFOPT_STORE_DIR").is_some() {
+        return;
+    }
+    let target_dir = get_arg_flag_value("--target-dir").or_else(|| std::env::var("CARGO_TARGET_DIR").ok());
+    let name = match target_dir.as_deref().and_then(|d| Path::new(d).file_name()) {
+        Some(last) => {
+            let last: String = last
+                .to_string_lossy()
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' { c } else { '_' })
+                .collect();
+            format!("{}_{last}", monomorph::rewrite::RESULTS_DIR)
+        }
+        None => monomorph::rewrite::RESULTS_DIR.to_owned(),
+    };
+    let dir = std::env::current_dir().expect("could not determine current directory").join(name);
+    let _ = std::fs::create_dir_all(&dir);
+    // SAFETY: called first thing in the top-level `cargo verifopt` process,
+    // before it spawns anything or starts any threads, so nothing can be
+    // reading the environment concurrently.
+    unsafe { std::env::set_var("VERIFOPT_STORE_DIR", &dir) };
+}
+
 fn get_arg_flag_value(name: &str) -> Option<String> {
     let mut args = std::env::args().take_while(|val| val != "--");
     loop {

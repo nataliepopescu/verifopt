@@ -35,9 +35,7 @@ use std::env;
 use std::ffi::OsString;
 use std::ops::Index;
 use std::path::Path;
-use std::process::{Command, Stdio};
-
-use monomorph::util;
+use std::process::Command;
 
 /// The help message for `cargo-verifopt`
 const CARGO_VERIFOPT_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
@@ -764,29 +762,17 @@ fn get_arg_flag_value(name: &str) -> Option<String> {
 }
 
 /// Returns the target of the toolchain, e.g. "x86_64-unknown-linux-gnu".
+/// The pinned toolchain's host triple, from `rustc -vV`'s `host:` line.
+///
+/// (This used to match `rustup target list` against the end of the sysroot
+/// path, which only works for rustup-installed toolchains, whose directories
+/// are named `<channel>-<triple>` - not for a linked build like
+/// `rust-mono-rewrite`, whose sysroot ends in `.../<triple>/stage2`.)
 fn toolchain_target() -> Option<String> {
-    let sysroot = util::find_sysroot();
-
-    // get the supported rustup targets
-    let output = String::from_utf8(
-        Command::new("rustup")
-            .arg("target")
-            .arg("list")
-            .stdout(Stdio::piped())
-            .output()
-            .expect("could not run 'rustup target list'")
-            .stdout,
-    )
-    .unwrap();
-
-    let target = output.lines().find_map(|line| {
-        let target = line.split_whitespace().next().unwrap().to_owned();
-        if sysroot.ends_with(&target) {
-            Some(target)
-        } else {
-            None
-        }
-    });
-
-    target
+    let output = Command::new(pinned_toolchain_rustc()).arg("-vV").output().ok()?;
+    String::from_utf8(output.stdout)
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .map(|host| host.trim().to_owned())
 }

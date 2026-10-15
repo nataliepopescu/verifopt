@@ -61,7 +61,7 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/sam4l-3716898326bb9396.txt: 
       in the crate being compiled
 
     - _many_ of existing rewrites are a single target w dynamic fallback -
-      e.t. analysis imprecision
+      i.e. analysis imprecision
 
 - code size culprits
 
@@ -69,8 +69,7 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/sam4l-3716898326bb9396.txt: 
         - how many options in general?
     - inlining
     - fnptr comparisons keep targets in the binary even if they are never called
-    - partitioning change (cross-cgu target visibility) makes targets non-local
-      and thus less-susceptible to elimination
+        - mae's suggestion from a few weeks ago: clean up at binary level
 
 ## notes
 

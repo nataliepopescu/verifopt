@@ -16,6 +16,7 @@ use std::fs;
 
 use log::debug;
 
+pub mod chamax;
 pub mod common;
 pub mod constraints;
 pub mod convert;
@@ -34,7 +35,6 @@ pub mod wto;
 
 use crate::constraints::Context;
 use crate::interp::{InterpPass, TagPlan};
-use crate::logger::VOLogger;
 use crate::sig_collect::{SigCollectPass, SigStore};
 use crate::trait_collect::{TraitCollectPass, TraitStore};
 use crate::util::options::AnalysisOptions;
@@ -44,6 +44,7 @@ pub fn start_verifopt(
 ) -> (
     HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     HashMap<(DefId, usize, GenericArgs), TagPlan>,
+    HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
 ) {
     // `stats` (opened in append mode by VOLogger::new below) and
     // `mir_dump.txt` (opened in append mode by the modified compiler's
@@ -65,7 +66,6 @@ pub fn start_verifopt(
     let _ = fs::remove_file(crate::rewrite::dep_rewrite_store_path());
 
     // TODO make log filename a cmdline option
-    let mut logger = VOLogger::new();
 
     // `rustc_public::entry_fn()` only resolves rustc's own notion of "the
     // crate's designated entry point" — tied to the ordinary Rust runtime
@@ -207,7 +207,8 @@ pub fn start_verifopt(
     // attempt, so it isn't the cost that migration was about avoiding.
     let cha_std: HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
         cha.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-    let _ = logger.log_stats(&fsa, &cha_std);
-
-    (fsa, tags)
+    // `stats` is written by the caller (rewrite.rs's after_analysis), after
+    // the store: CHAmax needs this crate's monomorphization, which must only
+    // happen once the store exists (see chamax::compute).
+    (fsa, tags, cha_std)
 }

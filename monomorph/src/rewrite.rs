@@ -115,7 +115,7 @@ impl Callbacks for FsaCallbacks {
         }
 
         let _ = rustc_internal::run(tcx, || {
-            let Ok((targets, tags)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let Ok((targets, tags, cha)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 start_verifopt(self.options.clone())
             })) else {
                 debug!(
@@ -188,6 +188,7 @@ impl Callbacks for FsaCallbacks {
                 }
             };
 
+            let targets_for_stats = targets.clone();
             for ((defid, bb, caller_genargs), (_, ts)) in targets {
                 let Some(hash) = to_hash(defid) else {
                     continue;
@@ -317,6 +318,17 @@ impl Callbacks for FsaCallbacks {
                     let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
                 }
             }
+
+            // `stats`, now with CHAmax per site. Last, because CHAmax makes rustc
+            // monomorphize this crate, which must see the store just written
+            // (the partitioning accounts for the rewrite's new calls from it).
+            drop(store);
+            let chamax = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::chamax::compute(tcx, &cha)
+            }))
+            .unwrap_or_default();
+            let mut logger = crate::logger::VOLogger::new();
+            let _ = logger.log_stats(&targets_for_stats, &cha, &chamax);
         });
 
         Compilation::Continue

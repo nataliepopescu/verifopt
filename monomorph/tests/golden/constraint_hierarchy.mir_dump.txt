@@ -466,6 +466,7 @@ fn main() -> () {
     }
 
     bb0: {
+        _41 = const usize::MAX;
         StorageLive(_1);
         StorageLive(_2);
         _2 = std::env::args() -> [return: bb1, unwind continue];

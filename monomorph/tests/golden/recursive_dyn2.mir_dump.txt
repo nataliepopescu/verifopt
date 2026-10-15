@@ -101,6 +101,7 @@ fn sum(_1: usize) -> usize {
     }
 
     bb0: {
+        _7 = const usize::MAX;
         switchInt(move _1) -> [0: bb1, otherwise: bb2];
     }
 

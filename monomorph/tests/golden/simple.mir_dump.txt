@@ -103,6 +103,7 @@ fn main() -> () {
     }
 
     bb0: {
+        _5 = const usize::MAX;
         _1 = std::intrinsics::black_box::<i32>(const 0_i32) -> [return: bb8, unwind unreachable];
     }
 

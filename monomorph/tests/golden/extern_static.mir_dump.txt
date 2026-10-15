@@ -91,6 +91,7 @@ fn main() -> () {
     }
 
     bb0: {
+        _6 = const usize::MAX;
         StorageLive(_4);
         StorageLive(_5);
         _5 = const {alloc5: *const u32};

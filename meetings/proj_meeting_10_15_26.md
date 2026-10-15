@@ -2,8 +2,9 @@
 
 ## agenda
 
-- circular dependencies / scopes -> rewrites
-    - order of compilation: rewrites in dependencies
+- rewrites cannot access targets from analysis (different crates, not exported)
+    - due order of compilation: rewrites in dependencies when concrete target
+      exists further upstream
     - a solution: code motion, but CON code size
     - code size is already larger...
 

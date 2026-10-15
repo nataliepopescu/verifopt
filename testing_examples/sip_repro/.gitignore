@@ -1,4 +1,4 @@
-target
+*target
 log.md
 stats
 calls
@@ -7,5 +7,7 @@ calls
 *.txt
 *.log
 *.stderr
-verifopt_store.json
-verifopt_needs_rewrite_pass
+*.ll
+*.s
+verifopt_*
+*out

@@ -324,7 +324,7 @@ impl Callbacks for FsaCallbacks {
             // (the partitioning accounts for the rewrite's new calls from it).
             drop(store);
             let chamax = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                crate::chamax::compute(tcx, &cha)
+                crate::chamax::compute(tcx, &targets_for_stats, &cha)
             }))
             .unwrap_or_default();
             let mut logger = crate::logger::VOLogger::new();

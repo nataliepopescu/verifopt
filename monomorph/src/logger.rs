@@ -48,25 +48,45 @@ impl VOLogger {
 
         // FSA vs CHAmax (the whole-program maximum set of instances behind each
         // site's CHA candidates - see chamax.rs). The maybe/non-example split
-        // above stays FSA vs CHA; this is extra information.
-        let (mut complete, mut incomplete, mut eq, mut lt, mut gt) = (0, 0, 0, 0, 0);
+        // above stays FSA vs CHA; this is extra information. Where FSA found
+        // nothing, the analysis records CHA's candidates as FSA's, so FSA == CHA
+        // there - those "fallback" sites are counted separately, because their
+        // FSA entries are impls (no generic args) while CHAmax counts instances:
+        // comparing the two would compare different units.
+        let (mut complete, mut incomplete, mut not_applicable, mut fallback) = (0, 0, 0, 0);
+        let (mut eq, mut lt, mut gt) = (0, 0, 0);
         for (key, (_, fsa)) in dispatch_targets {
-            match chamax.get(key) {
-                Some(c) if c.incomplete.is_none() => {
-                    complete += 1;
-                    match fsa.len().cmp(&c.total) {
-                        std::cmp::Ordering::Equal => eq += 1,
-                        std::cmp::Ordering::Less => lt += 1,
-                        std::cmp::Ordering::Greater => gt += 1,
-                    }
-                }
-                _ => incomplete += 1,
+            let Some(c) = chamax.get(key) else {
+                incomplete += 1;
+                continue;
+            };
+            if c.not_applicable.is_some() {
+                not_applicable += 1;
+                continue;
+            }
+            if c.incomplete.is_some() {
+                incomplete += 1;
+                continue;
+            }
+            complete += 1;
+            let cha = dispatch_cha.get(key).map(|(_, v)| v);
+            if !fsa.is_empty() && cha == Some(fsa) {
+                fallback += 1;
+                continue;
+            }
+            match fsa.len().cmp(&c.total) {
+                std::cmp::Ordering::Equal => eq += 1,
+                std::cmp::Ordering::Less => lt += 1,
+                std::cmp::Ordering::Greater => gt += 1,
             }
         }
         write!(
             &mut self.stats_file,
-            "CHAmax summary: complete for {complete} sites (incomplete or unknown for {incomplete}); \
-             among complete: FSA == CHAmax at {eq}, FSA < CHAmax at {lt}, FSA > CHAmax at {gt}\n",
+            "CHAmax summary: {} sites: complete {complete}, incomplete {incomplete}, \
+             n/a (closure dispatch) {not_applicable}. Of the complete: FSA = CHA (FSA found \
+             nothing, CHA fallback) at {fallback}; at the others FSA == CHAmax at {eq}, \
+             FSA < CHAmax at {lt}, FSA > CHAmax at {gt}\n",
+            dispatch_targets.len(),
         )?;
 
         write!(&mut self.stats_file, "--MAYBE EXAMPLES--\n")?;
@@ -74,7 +94,7 @@ impl VOLogger {
             let (caller_def_id, bb_index, caller_genargs) = key;
             write!(
                 &mut self.stats_file,
-                "Caller: {:?} (bb {}), caller genargs: {:?}\nSpan: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n\n",
+                "Caller: {:?} (bb {}), caller genargs: {:?}\nSpan: {:?}\nCHA ({}): {:?}\nFSA ({}): {:?}\n",
                 caller_def_id,
                 bb_index,
                 caller_genargs,
@@ -85,6 +105,8 @@ impl VOLogger {
                 fsa
             )?;
             write_chamax_line(&mut self.stats_file, chamax.get(key))?;
+            // (entries in this section end with a blank line)
+            writeln!(&mut self.stats_file)?;
         }
 
         write!(&mut self.stats_file, "--NOT EXAMPLES--\n")?;
@@ -115,6 +137,9 @@ impl VOLogger {
 fn write_chamax_line(out: &mut File, chamax: Option<&crate::chamax::ChaMax>) -> Result<(), Error> {
     match chamax {
         None => writeln!(out, "CHAmax (?): not computed"),
+        Some(c) if c.not_applicable.is_some() => {
+            writeln!(out, "CHAmax (n/a): {}", c.not_applicable.as_deref().unwrap_or_default())
+        }
         Some(c) => {
             let incomplete = c.incomplete.as_ref().map_or(String::new(), |why| format!(", incomplete: {why}"));
             let parts: Vec<String> =

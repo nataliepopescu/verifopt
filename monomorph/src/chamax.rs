@@ -36,6 +36,11 @@ pub struct ChaMax {
     pub total: usize,
     /// Why this is only a lower bound, if it is.
     pub incomplete: Option<String>,
+    /// Why CHAmax says nothing about this site, if it doesn't: it's built
+    /// from CHA's candidates, and CHA never lists closures - so at a site
+    /// dispatching to closures (through an Fn-family trait) CHAmax would be
+    /// an empty "maximum" that's simply wrong.
+    pub not_applicable: Option<String>,
 }
 
 /// Computes CHAmax for every site in `cha`. Must run *after* the store has
@@ -45,6 +50,7 @@ pub struct ChaMax {
 /// query's result is cached, so codegen reuses it rather than redoing it.
 pub fn compute<'tcx>(
     tcx: TyCtxt<'tcx>,
+    fsa: &HashMap<Key, (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     cha: &HashMap<Key, (Span, Vec<(DefId, Option<GenericArgs>)>)>,
 ) -> HashMap<Key, ChaMax> {
     let _ = tcx.collect_and_partition_mono_items(());
@@ -103,7 +109,38 @@ pub fn compute<'tcx>(
         if !missing_other.is_empty() {
             incomplete = Some(format!("no instance manifest for crate(s) {}", missing_other.join(", ")));
         }
+        // Closure dispatch: CHA can't describe it (see ChaMax::not_applicable).
+        let fsa_targets = fsa.get(key).map(|(_, t)| t.as_slice()).unwrap_or(&[]);
+        let fsa_has_closure = fsa_targets
+            .iter()
+            .any(|(d, _)| tcx.is_closure_like(rustc_internal::internal(tcx, *d)));
+        if fsa_has_closure || (candidates.is_empty() && !fsa_targets.is_empty()) {
+            out.insert(
+                key.clone(),
+                ChaMax {
+                    per_candidate: Vec::new(),
+                    total: 0,
+                    incomplete: None,
+                    not_applicable: Some(
+                        "dispatch to closures (CHA never lists closures, so CHAmax can't bound it)"
+                            .to_string(),
+                    ),
+                },
+            );
+            continue;
+        }
+
+        // Each function once: CHA lists a trait's default method once per
+        // implementing type (same DefId, different Self), but the manifests
+        // count that function's instances across all of them - summing per
+        // entry would multiply them by the number of implementing types.
+        let mut distinct: Vec<DefId> = Vec::new();
         for (candidate, _) in candidates {
+            if !distinct.contains(candidate) {
+                distinct.push(*candidate);
+            }
+        }
+        for candidate in &distinct {
             let did = rustc_internal::internal(tcx, *candidate);
             let hash = tcx.def_path_hash(did);
             let found = instances.get(&hash);
@@ -123,7 +160,7 @@ pub fn compute<'tcx>(
             total += count;
             per_candidate.push((*candidate, count));
         }
-        out.insert(key.clone(), ChaMax { per_candidate, total, incomplete });
+        out.insert(key.clone(), ChaMax { per_candidate, total, incomplete, not_applicable: None });
     }
     out
 }

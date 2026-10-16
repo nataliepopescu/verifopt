@@ -12,7 +12,7 @@ use crate::constraints::{
 use crate::convert::WrapperKind;
 use crate::error::Error;
 
-use log::debug;
+use log::{debug, warn};
 
 /// Everything we need about a call's receiver to decide whether (and how)
 /// to stub it as a BTreeSet/BTreeMap method.
@@ -29,6 +29,7 @@ struct CollectionRecv {
 /// (Iter/IntoIter/Keys/Values over a BTreeSet/BTreeMap).
 struct IterRecv {
     place: Place,
+    adtdef: AdtDef,
     elem_field: ProjectionElem,
 }
 
@@ -123,7 +124,9 @@ impl<'a> InterpPass<'a> {
 
         // Iterator methods (currently just `next`) take priority, since an
         // Iter<...> value is never also a BTreeSet/BTreeMap.
-        if let Some(recv) = self.iter_receiver(local_decls, args) {
+        if let Some(recv) = self.iter_receiver(local_decls, args)
+            && Self::belongs_to(fndef, genargs, &recv.adtdef)
+        {
             let result = match method.as_str() {
                 "next" => self.stub_next(ctxt, caller_scope, local_decls, fndef, &recv),
                 // Every Iterator blanket-impls IntoIterator::into_iter as
@@ -135,15 +138,29 @@ impl<'a> InterpPass<'a> {
                 "into_iter" => {
                     ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))
                 }
-                _ => panic!(
-                    "stdlib_stub: no summary for iterator method {} - add one",
-                    method
-                ),
+                // A real method of the iterator without a summary: interpret
+                // its actual body (sound, just slower than a summary would be).
+                _ => {
+                    warn!(
+                        "stdlib_stub: no summary for iterator method {:?}::{} - interpreting \
+                         its real body (add a summary if this is hot)",
+                        recv.adtdef, method
+                    );
+                    return None;
+                }
             };
             return Some(Ok(result));
         }
 
         let recv = self.collection_receiver(local_decls, args)?;
+        // A collection-typed first argument alone doesn't make this one of the
+        // collection's methods: e.g. std's private
+        // `construct_envp(env: BTreeMap<..>, saw_nul: &mut bool)` (building a
+        // child process's environment) is a free function. Only stub calls
+        // that really belong to the collection; interpret everything else.
+        if !Self::belongs_to(fndef, genargs, &recv.adtdef) {
+            return None;
+        }
 
         let result = match method.as_str() {
             "new" | "default" => self.stub_constructor(&recv),
@@ -162,10 +179,16 @@ impl<'a> InterpPass<'a> {
             "entry" => {
                 return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
             }
-            _ => panic!(
-                "stdlib_stub: no summary for {:?}::{} - add one or handle it in wrapper_kind",
-                recv.adtdef, method
-            ),
+            // A real method of the collection without a summary: interpret its
+            // actual body (sound, just slower than a summary would be).
+            _ => {
+                warn!(
+                    "stdlib_stub: no summary for {:?}::{} - interpreting its real body \
+                     (add a summary if this is hot)",
+                    recv.adtdef, method
+                );
+                return None;
+            }
         };
 
         Some(Ok(result))
@@ -176,6 +199,36 @@ impl<'a> InterpPass<'a> {
     /// Returns None if the receiver isn't a BTreeSet/BTreeMap (or there's no
     /// receiver at all), in which case the caller should fall through to normal
     /// interpretation.
+    /// Whether `fndef` is one of the methods of the type `adtdef` (a std
+    /// collection or one of its iterators), as opposed to some other function
+    /// that merely takes such a value as its first argument:
+    /// - a trait method called with that type as `Self` - Extend::extend,
+    ///   Default::default, IntoIterator::into_iter, Iterator::next, ... -
+    ///   whose first generic argument is then the type itself (possibly behind
+    ///   references, e.g. `IntoIterator for &BTreeMap`);
+    /// - or a method of an impl block for that type, inherent or trait, whose
+    ///   path names the type (`...::BTreeMap::<K, V, A>::insert`,
+    ///   `<...::BTreeMap<K, V, A> as Extend<..>>::extend`).
+    fn belongs_to(fndef: &FnDef, genargs: &GenericArgs, adtdef: &AdtDef) -> bool {
+        if let Some(GenericArgKind::Type(self_ty)) = genargs.0.first() {
+            let mut ty = self_ty.clone();
+            while let TyKind::RigidTy(RigidTy::Ref(_, inner, _)) = ty.kind() {
+                ty = inner;
+            }
+            if let TyKind::RigidTy(RigidTy::Adt(def, _)) = ty.kind()
+                && def == *adtdef
+            {
+                return true;
+            }
+        }
+        let type_name = adtdef.0.name();
+        let short = type_name.rsplit("::").next().unwrap_or(&type_name);
+        let path = fndef.0.name();
+        [format!("{short}::<"), format!("{short}<"), format!("{short}::")]
+            .iter()
+            .any(|pattern| path.contains(pattern.as_str()))
+    }
+
     fn collection_receiver(
         &self,
         local_decls: &[LocalDecl],
@@ -223,6 +276,7 @@ impl<'a> InterpPass<'a> {
         // whatever's already stored rather than needing a type annotation.
         Some(IterRecv {
             place,
+            adtdef,
             elem_field: ProjectionElem::Field(0, Ty::bool_ty()),
         })
     }

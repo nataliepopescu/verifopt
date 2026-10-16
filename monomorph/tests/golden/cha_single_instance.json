@@ -1,0 +1,18 @@
+{
+  "maybe_count": 0,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:51:13: 51:23",
+      "is_maybe_example": false,
+      "cha": [
+        "<cha_single_instance::Driver<C> as cha_single_instance::Device>::poll",
+        "<cha_single_instance::Unused as cha_single_instance::Device>::poll"
+      ],
+      "fsa": [
+        "<cha_single_instance::Driver<C> as cha_single_instance::Device>::poll",
+        "<cha_single_instance::Unused as cha_single_instance::Device>::poll"
+      ]
+    }
+  ]
+}

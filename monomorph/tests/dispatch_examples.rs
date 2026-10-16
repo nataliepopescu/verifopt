@@ -141,3 +141,9 @@ example_test!(box_box_dyn_iter, "box_box_dyn_iter", Passing);
 // Iterator>::next` - not `<vec::IntoIter<T, A> as Iterator>::next` from
 // Map's `iter` field, nor the closure from its `f` field.
 example_test!(map_dyn_iter, "map_dyn_iter", Passing);
+
+// A CHA-fallback site with exactly one compiled instance in the whole program
+// (CHA: the generic `Driver<C>` impl plus an unused one; CHAmax: just
+// `<Driver<Sam> as Device>::poll`). Expected: rewritten as "single exact" -
+// a direct call to that instance - with `Sam::id` traced once.
+example_test!(cha_single_instance, "cha_single_instance", Passing);

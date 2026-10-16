@@ -41,7 +41,15 @@ pub struct ChaMax {
     /// dispatching to closures (through an Fn-family trait) CHAmax would be
     /// an empty "maximum" that's simply wrong.
     pub not_applicable: Option<String>,
+    /// The instances themselves, as (function, its own generic-arg hashes)
+    /// from the manifests - only filled in when there are few of them (see
+    /// MAX_LISTED_INSTANCES); used to record a provably single target as an
+    /// exact instance (Store::exact).
+    pub instances: Vec<(DefPathHash, Option<Vec<DefPathHash>>)>,
 }
+
+/// Up to how many instances a site's ChaMax lists individually.
+const MAX_LISTED_INSTANCES: usize = 4;
 
 /// Computes CHAmax for every site in `cha`. Must run *after* the store has
 /// been written: it first makes rustc monomorphize (and partition) this crate
@@ -52,7 +60,7 @@ pub fn compute<'tcx>(
     tcx: TyCtxt<'tcx>,
     fsa: &HashMap<Key, (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     cha: &HashMap<Key, (Span, Vec<(DefId, Option<GenericArgs>)>)>,
-) -> HashMap<Key, ChaMax> {
+) -> (HashMap<Key, ChaMax>, Vec<(DefPathHash, rustc_verifopt::ArgShape)>) {
     let _ = tcx.collect_and_partition_mono_items(());
 
     // Every crate in this program: stable crate id -> (name, loaded from sysroot?)
@@ -78,6 +86,9 @@ pub fn compute<'tcx>(
     // Union of this program's manifests: function -> its compiled instances' args.
     let mut instances: HashMap<DefPathHash, HashSet<Option<Vec<DefPathHash>>>> = HashMap::new();
     let mut covered: HashSet<u64> = HashSet::new();
+    // Shapes of the manifests' sentinel hashes (first one wins; a hash's shape
+    // is the same wherever it was recorded).
+    let mut shapes: HashMap<DefPathHash, rustc_verifopt::ArgShape> = HashMap::new();
     if let Ok(entries) = std::fs::read_dir(rustc_verifopt::manifest_dir()) {
         for entry in entries.flatten() {
             let Ok(json) = std::fs::read_to_string(entry.path()) else { continue };
@@ -90,6 +101,9 @@ pub fn compute<'tcx>(
             covered.insert(manifest.crate_id);
             for (function, args) in manifest.instances {
                 instances.entry(function).or_default().insert(args);
+            }
+            for (hash, shape) in manifest.shapes {
+                shapes.entry(hash).or_insert(shape);
             }
         }
     }
@@ -104,6 +118,7 @@ pub fn compute<'tcx>(
     let mut out = HashMap::new();
     for (key, (_, candidates)) in cha {
         let mut per_candidate = Vec::new();
+        let mut listed: Vec<(DefPathHash, Option<Vec<DefPathHash>>)> = Vec::new();
         let mut total = 0;
         let mut incomplete: Option<String> = None;
         if !missing_other.is_empty() {
@@ -121,6 +136,7 @@ pub fn compute<'tcx>(
                     per_candidate: Vec::new(),
                     total: 0,
                     incomplete: None,
+                    instances: Vec::new(),
                     not_applicable: Some(
                         "dispatch to closures (CHA never lists closures, so CHAmax can't bound it)"
                             .to_string(),
@@ -159,8 +175,21 @@ pub fn compute<'tcx>(
             }
             total += count;
             per_candidate.push((*candidate, count));
+            if let Some(set) = found
+                && listed.len() + set.len() <= MAX_LISTED_INSTANCES
+            {
+                listed.extend(set.iter().map(|args| (hash, args.clone())));
+            }
         }
-        out.insert(key.clone(), ChaMax { per_candidate, total, incomplete, not_applicable: None });
+        if listed.len() != total {
+            listed.clear(); // too many to list: listed only when complete
+        }
+        out.insert(
+            key.clone(),
+            ChaMax { per_candidate, total, incomplete, not_applicable: None, instances: listed },
+        );
     }
-    out
+    let mut shapes: Vec<(DefPathHash, rustc_verifopt::ArgShape)> = shapes.into_iter().collect();
+    shapes.sort_by_key(|(h, _)| *h);
+    (out, shapes)
 }

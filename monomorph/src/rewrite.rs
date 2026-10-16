@@ -189,6 +189,10 @@ impl Callbacks for FsaCallbacks {
             };
 
             let targets_for_stats = targets.clone();
+            // Each analysis site's store key, for recording exact targets
+            // after CHAmax (below).
+            let mut site_keys: HashMap<(DefId, usize, rustc_public::ty::GenericArgs), rustc_verifopt::SiteKey> =
+                HashMap::new();
             for ((defid, bb, caller_genargs), (_, ts)) in targets {
                 let Some(hash) = to_hash(defid) else {
                     continue;
@@ -228,6 +232,7 @@ impl Callbacks for FsaCallbacks {
                 };
 
                 record_crate(&mut store, defid);
+                site_keys.insert((defid, bb, caller_genargs.clone()), (hash, bb, caller_genargs_hash.clone()));
                 store.targets.insert((hash, bb, caller_genargs_hash), t_hashes);
             }
 
@@ -323,10 +328,76 @@ impl Callbacks for FsaCallbacks {
             // monomorphize this crate, which must see the store just written
             // (the partitioning accounts for the rewrite's new calls from it).
             drop(store);
-            let chamax = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let (chamax, manifest_shapes) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 crate::chamax::compute(tcx, &targets_for_stats, &cha)
             }))
             .unwrap_or_default();
+
+            // Provably single targets. Where CHAmax is complete and finds
+            // exactly one instance in the whole program, that instance is the
+            // only function the site can ever call - even where FSA lost the
+            // receiver and fell back to CHA, whose impl-level candidates (no
+            // generic args) the rewrite could otherwise only use as a guarded
+            // `Pointers` with one candidate. Record it as an exact instance
+            // (Store::exact: the function and its *own* generic args, from the
+            // manifests, plus the shapes needed to decode them), which the
+            // rewrite turns into a plain direct call ("single exact"). The
+            // final crate's codegen reads the store after this point, and the
+            // partitioning edges already cover the function (by DefPathHash).
+            if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
+                let mut store = crate::rewrite::store().lock().unwrap();
+                let mut exact = 0usize;
+                for (key, c) in &chamax {
+                    if c.not_applicable.is_some()
+                        || c.incomplete.is_some()
+                        || c.total != 1
+                        || c.instances.len() != 1
+                    {
+                        continue;
+                    }
+                    let (function, Some(args)) = c.instances[0].clone() else {
+                        continue;
+                    };
+                    let Some(site_key) = site_keys.get(key) else {
+                        continue;
+                    };
+                    // Where FSA found the targets itself (rather than falling
+                    // back to CHA), it must agree: a target other than this
+                    // function would mean a bug in one of the two.
+                    let fsa_targets = targets_for_stats.get(key).map(|(_, t)| t);
+                    let cha_targets = cha.get(key).map(|(_, t)| t);
+                    if let Some(fsa_targets) = fsa_targets
+                        && fsa_targets != cha_targets.unwrap_or(&Vec::new())
+                        && fsa_targets.iter().any(|(d, _)| to_hash(*d) != Some(function))
+                    {
+                        warn!(
+                            "[verifopt][store] {:?} bb{}: CHAmax's single instance {:?} isn't among \
+                             FSA's targets {:?} - not recording it as exact",
+                            key.0, key.1, function, fsa_targets
+                        );
+                        continue;
+                    }
+                    store.targets.insert(site_key.clone(), vec![(function, Some(args))]);
+                    store.tags.remove(site_key);
+                    store.exact.insert(site_key.clone());
+                    exact += 1;
+                }
+                if exact > 0 {
+                    for (hash, shape) in manifest_shapes {
+                        store.shapes.entry(hash).or_insert(shape);
+                    }
+                    match store.to_json() {
+                        Ok(json) => {
+                            if let Err(e) = std::fs::write(dep_rewrite_store_path(), json) {
+                                warn!("[verifopt][store] could not rewrite the store: {e:?}");
+                            }
+                        }
+                        Err(e) => warn!("[verifopt][store] Store::to_json failed: {e:?}"),
+                    }
+                }
+                warn!("[verifopt][store] {exact} sites recorded as exact single targets (CHAmax)");
+            }
+
             let mut logger = crate::logger::VOLogger::new();
             let _ = logger.log_stats(&targets_for_stats, &cha, &chamax);
         });

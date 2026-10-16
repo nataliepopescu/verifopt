@@ -1,0 +1,154 @@
+
+######### MIR before #########
+// crate: cha_single_instance (package cha_single_instance 0.1.0)
+// fn: main
+// instance: main
+fn main() -> () {
+    let mut _0: ();
+    let _1: Driver<Sam>;
+    let _2: &dyn Device;
+    let mut _3: &dyn Device;
+    let _4: &Driver<Sam>;
+    let _6: u32;
+    let mut _7: u32;
+    let _8: u32;
+    scope 1 {
+        debug driver => const Driver::<Sam> {{ chip: Sam }};
+        scope 2 {
+            debug dev => _2;
+            let _5: u32;
+            scope 3 {
+                debug r => _5;
+                scope 5 (inlined std::hint::black_box::<u32>) {
+                }
+                scope 6 (inlined std::hint::black_box::<u32>) {
+                }
+            }
+        }
+        scope 4 (inlined std::hint::black_box::<&dyn Device>) {
+        }
+    }
+
+    bb0: {
+        StorageLive(_3);
+        _4 = &_1;
+        _3 = copy _4 as &dyn Device (PointerCoercion(Unsize, Implicit));
+        _2 = std::intrinsics::black_box::<&dyn Device>(move _3) -> [return: bb5, unwind unreachable];
+    }
+
+    bb1: {
+        switchInt(move _5) -> [8: bb4, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = <Sam as Chip>::id(const main::promoted[0]) -> [return: bb3, unwind continue];
+    }
+
+    bb3: {
+        _6 = std::intrinsics::black_box::<u32>(move _7) -> [return: bb6, unwind unreachable];
+    }
+
+    bb4: {
+        StorageLive(_8);
+        _8 = std::intrinsics::black_box::<u32>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_3);
+        _5 = <dyn Device as Device>::poll(move _2) -> [return: bb1, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_7);
+        StorageDead(_6);
+        goto -> bb4;
+    }
+
+    bb7: {
+        StorageDead(_8);
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: cha_single_instance (package cha_single_instance 0.1.0)
+// fn: main
+// instance: main
+fn main() -> () {
+    let mut _0: ();
+    let _1: Driver<Sam>;
+    let _2: &dyn Device;
+    let mut _3: &dyn Device;
+    let _4: &Driver<Sam>;
+    let _6: u32;
+    let mut _7: u32;
+    let _8: u32;
+    let mut _9: *const Driver<Sam>;
+    let mut _10: &Driver<Sam>;
+    scope 1 {
+        debug driver => const Driver::<Sam> {{ chip: Sam }};
+        scope 2 {
+            debug dev => _2;
+            let _5: u32;
+            scope 3 {
+                debug r => _5;
+                scope 5 (inlined std::hint::black_box::<u32>) {
+                }
+                scope 6 (inlined std::hint::black_box::<u32>) {
+                }
+            }
+        }
+        scope 4 (inlined std::hint::black_box::<&dyn Device>) {
+        }
+    }
+
+    bb0: {
+        StorageLive(_3);
+        _4 = &_1;
+        _3 = copy _4 as &dyn Device (PointerCoercion(Unsize, Implicit));
+        _2 = std::intrinsics::black_box::<&dyn Device>(move _3) -> [return: bb5, unwind unreachable];
+    }
+
+    bb1: {
+        switchInt(move _5) -> [8: bb4, otherwise: bb2];
+    }
+
+    bb2: {
+        StorageLive(_6);
+        StorageLive(_7);
+        _7 = <Sam as Chip>::id(const main::promoted[0]) -> [return: bb3, unwind continue];
+    }
+
+    bb3: {
+        _6 = std::intrinsics::black_box::<u32>(move _7) -> [return: bb6, unwind unreachable];
+    }
+
+    bb4: {
+        StorageLive(_8);
+        _8 = std::intrinsics::black_box::<u32>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_3);
+        _9 = move _2 as *const Driver<Sam> (PtrToPtr);
+        _10 = &(*_9);
+        _5 = <Driver<Sam> as Device>::poll(move _10) -> [return: bb1, unwind continue];
+    }
+
+    bb6: {
+        StorageDead(_7);
+        StorageDead(_6);
+        goto -> bb4;
+    }
+
+    bb7: {
+        StorageDead(_8);
+        return;
+    }
+}
+######### END after #########
+

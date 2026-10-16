@@ -20,6 +20,11 @@ impl VOLogger {
         Self { stats_file }
     }
 
+    /// Appends `text` as is (e.g. the --ASSUMPTIONS-- section).
+    pub fn log_text(&mut self, text: &str) -> Result<(), Error> {
+        self.stats_file.write_all(text.as_bytes())
+    }
+
     pub fn log_stats(
         &mut self,
         dispatch_targets: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,

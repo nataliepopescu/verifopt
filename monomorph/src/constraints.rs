@@ -252,7 +252,9 @@ impl Constraints {
         // since new's own size could be hiding in nested fields rather
         // than at its own top level.
         let new = if constraints_size(&new) > NEW_VALUE_WIDEN_THRESHOLD {
-            widen_constraints(&new)
+            crate::assumptions::with_widen_cause(crate::assumptions::Reason::WidenWriteValue, || {
+                widen_constraints(&new)
+            })
         } else {
             new
         };
@@ -287,7 +289,10 @@ impl Constraints {
             (1, target_variant) => {
                 let idx = adt_field_idx(&field[0]);
                 if self.inner.len() > WRITE_FIELD_WIDEN_THRESHOLD {
-                    *self = widen_constraints(self);
+                    *self = crate::assumptions::with_widen_cause(
+                        crate::assumptions::Reason::WidenWriteDisjuncts,
+                        || widen_constraints(self),
+                    );
                 }
                 let old = std::mem::take(&mut self.inner);
                 let new_set: IndexSet<Constraint> = old
@@ -315,7 +320,10 @@ impl Constraints {
                 let rest = rest.to_vec();
 
                 if self.inner.len() > WRITE_FIELD_WIDEN_THRESHOLD {
-                    *self = widen_constraints(self);
+                    *self = crate::assumptions::with_widen_cause(
+                        crate::assumptions::Reason::WidenWriteDisjuncts,
+                        || widen_constraints(self),
+                    );
                 }
                 let old = std::mem::take(&mut self.inner);
                 let new_set: IndexSet<Constraint> = old
@@ -718,7 +726,10 @@ fn widen_constraint(c: &Constraint) -> Constraint {
 
 fn widen_toc(tc: &TraitObjConstraint) -> TraitObjConstraint {
     match tc {
-        TraitObjConstraint::Adt(def, genargs, _, _) => {
+        TraitObjConstraint::Adt(def, genargs, _, fields) => {
+            if !fields.is_empty() {
+                crate::assumptions::note_dropped_fields(&def.0.name());
+            }
             TraitObjConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
         }
         TraitObjConstraint::Closure(cdef, genargs) => {
@@ -731,7 +742,10 @@ fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
     match rc {
         RunningConstraint::Scalar(_) => RunningConstraint::Scalar(None),
         RunningConstraint::Float => RunningConstraint::Float,
-        RunningConstraint::Adt(def, genargs, _, _) => {
+        RunningConstraint::Adt(def, genargs, _, fields) => {
+            if !fields.is_empty() {
+                crate::assumptions::note_dropped_fields(&def.0.name());
+            }
             RunningConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
         }
         RunningConstraint::Ptr(inner) => RunningConstraint::Ptr(Box::new(widen_constraint(inner))),

@@ -1515,6 +1515,7 @@ impl<'a> InterpPass<'a> {
                 "interp_fn_def: {:?} called with non-monomorphic genargs {:?}, falling back to poly sig",
                 fndef, genargs
             );
+            crate::assumptions::record_call(crate::assumptions::Reason::NonMonomorphicArgs, &fndef);
             return self.retty_fallback_from_poly(fndef.fn_sig());
         }
         let instance = match Instance::resolve(fndef, genargs) {
@@ -1643,6 +1644,13 @@ impl<'a> InterpPass<'a> {
             };
 
             if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
+                if precise_count >= 50 {
+                    crate::assumptions::record(
+                        crate::assumptions::Reason::MemoWidenedReuse,
+                        new_scope.0.name(),
+                        Vec::new,
+                    );
+                }
                 if scope_matches_trace_filter(&new_scope) {
                     debug!(
                         "TRACE recursive_hit MEMOIZED HIT for {:?}: new_scope={:?} cached={:?}",
@@ -1654,6 +1662,7 @@ impl<'a> InterpPass<'a> {
                 return Ok(Some(cs));
             }
 
+            crate::assumptions::record_call(crate::assumptions::Reason::RecursionCut, &fndef);
             let retty = self
                 .retty_fallback_from_poly(fndef.fn_sig())?
                 .unwrap_or_default();
@@ -1770,7 +1779,10 @@ impl<'a> InterpPass<'a> {
                 drop(_timing_guard);
                 r
             }
-            InstanceKind::Intrinsic => self.retty_fallback_from_poly(fndef.fn_sig()),
+            InstanceKind::Intrinsic => {
+                crate::assumptions::record_call(crate::assumptions::Reason::Intrinsic, &fndef);
+                self.retty_fallback_from_poly(fndef.fn_sig())
+            }
         }
     }
 
@@ -2087,6 +2099,13 @@ impl<'a> InterpPass<'a> {
             let epoch_before = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
             if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
                 if *cached_epoch == epoch_before {
+                    if precise_count >= 50 {
+                        crate::assumptions::record(
+                            crate::assumptions::Reason::MemoWidenedReuse,
+                            cur_scope.0.name(),
+                            Vec::new,
+                        );
+                    }
                     debug!(
                         "exact_memo hit for {:?} at epoch {}",
                         cur_scope.0.name(),
@@ -2148,6 +2167,7 @@ impl<'a> InterpPass<'a> {
                 }
             }
         } else {
+            crate::assumptions::record_call(crate::assumptions::Reason::NoMir, &fndef);
             self.retty_fallback_from_poly(fndef.fn_sig())
         }
     }
@@ -3239,6 +3259,7 @@ impl<'a> InterpPass<'a> {
                             genargs.0.len(),
                             expected_count
                         );
+                        crate::assumptions::record_call(crate::assumptions::Reason::ArgsMismatch, &fndef);
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         return Ok(());
                     }
@@ -3261,6 +3282,7 @@ impl<'a> InterpPass<'a> {
                             "skipping {:?}: genargs kind shape doesn't match callee signature, falling back to poly sig",
                             assoc_fn_impl,
                         );
+                        crate::assumptions::record_call(crate::assumptions::Reason::ArgsMismatch, &fndef);
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         return Ok(());
                     }
@@ -3270,6 +3292,7 @@ impl<'a> InterpPass<'a> {
                             "skipping {:?}: genargs {:?} are not fully monomorphic, falling back to poly sig",
                             assoc_fn_impl, genargs
                         );
+                        crate::assumptions::record_call(crate::assumptions::Reason::NonMonomorphicArgs, &fndef);
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         return Ok(());
                     }
@@ -3277,6 +3300,7 @@ impl<'a> InterpPass<'a> {
                     let instance_ = match Instance::resolve(fndef, &genargs) {
                         Ok(i) => i,
                         Err(_) => {
+                            crate::assumptions::record_call(crate::assumptions::Reason::UnresolvedInstance, &fndef);
                             results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                             return Ok(());
                         }
@@ -3319,6 +3343,7 @@ impl<'a> InterpPass<'a> {
                     if recursive_hit {
                         let _timing_guard =
                             self.timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
+                        crate::assumptions::record_call(crate::assumptions::Reason::RecursionCut, &fndef);
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         drop(_timing_guard);
                         return Ok(());
@@ -3346,6 +3371,7 @@ impl<'a> InterpPass<'a> {
                             if !instance.has_body() {
                                 let _timing_guard =
                                     self.timing_span(TimingCat::TermSigFallback, cur_scope);
+                                crate::assumptions::record_call(crate::assumptions::Reason::NoMir, &fndef);
                                 results
                                     .push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                                 drop(_timing_guard);
@@ -3366,6 +3392,7 @@ impl<'a> InterpPass<'a> {
                                     "{:?} resolved to a Virtual instance; not interpreting its generic body, falling back to poly sig",
                                     assoc_fn_impl
                                 );
+                                crate::assumptions::record_call(crate::assumptions::Reason::VirtualInstance, &fndef);
                                 results
                                     .push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                                 drop(_timing_guard);
@@ -3483,6 +3510,7 @@ impl<'a> InterpPass<'a> {
                     // in its ctxt_clone, which is discarded along with the
                     // panic, so recovery is still not fully sound - the warn!
                     // above says which candidate to investigate.
+                    crate::assumptions::record_call(crate::assumptions::Reason::CandidatePanicked, &FnDef(*assoc_fn_defid));
                     let fallback = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         self.retty_fallback_from_poly(FnDef(*assoc_fn_defid).fn_sig())
                     }));

@@ -115,7 +115,7 @@ impl Callbacks for FsaCallbacks {
         }
 
         let _ = rustc_internal::run(tcx, || {
-            let Ok((targets, tags, cha)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let Ok((targets, tags, cha, assumptions)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 start_verifopt(self.options.clone())
             })) else {
                 debug!(
@@ -400,6 +400,7 @@ impl Callbacks for FsaCallbacks {
 
             let mut logger = crate::logger::VOLogger::new();
             let _ = logger.log_stats(&targets_for_stats, &cha, &chamax);
+            let _ = logger.log_text(&assumptions);
         });
 
         Compilation::Continue

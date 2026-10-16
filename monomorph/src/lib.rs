@@ -16,6 +16,7 @@ use std::fs;
 
 use log::debug;
 
+pub mod assumptions;
 pub mod chamax;
 pub mod common;
 pub mod constraints;
@@ -45,6 +46,7 @@ pub fn start_verifopt(
     HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     HashMap<(DefId, usize, GenericArgs), TagPlan>,
     HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
+    String,
 ) {
     // `stats` (opened in append mode by VOLogger::new below) and
     // `mir_dump.txt` (opened in append mode by the modified compiler's
@@ -156,6 +158,7 @@ pub fn start_verifopt(
     // Abstractly Interpret MIR
     debug!("\n\nINTERP PASS");
     let mut ctxt = Context::empty();
+    crate::assumptions::reset();
     let interp = InterpPass::new(&sigstore, &tstore, options.context_depth);
     let _ = interp.run(&mut ctxt, entry_instance);
 
@@ -210,5 +213,6 @@ pub fn start_verifopt(
     // `stats` is written by the caller (rewrite.rs's after_analysis), after
     // the store: CHAmax needs this crate's monomorphization, which must only
     // happen once the store exists (see chamax::compute).
-    (fsa, tags, cha_std)
+    let assumptions = crate::assumptions::report();
+    (fsa, tags, cha_std, assumptions)
 }

@@ -47,6 +47,29 @@ impl<'a> InterpPass<'a> {
         genargs: &GenericArgs,
         args: &Vec<Operand>,
     ) -> Option<Result<Option<Constraints>, Error>> {
+        let result =
+            self.stdlib_stub_inner(ctxt, caller_scope, term_span, local_decls, fndef, genargs, args);
+        if result.is_some() {
+            let reason = if self.is_precondition_check(fndef) {
+                crate::assumptions::Reason::PreconditionCheck
+            } else {
+                crate::assumptions::Reason::Stub
+            };
+            crate::assumptions::record_call(reason, fndef);
+        }
+        result
+    }
+
+    fn stdlib_stub_inner(
+        &self,
+        ctxt: &mut Context,
+        caller_scope: &VOID,
+        term_span: &Span,
+        local_decls: &[LocalDecl],
+        fndef: &FnDef,
+        genargs: &GenericArgs,
+        args: &Vec<Operand>,
+    ) -> Option<Result<Option<Constraints>, Error>> {
         debug!("STDLIB_STUB");
         let method = Self::method_name(fndef);
         debug!(
@@ -724,6 +747,11 @@ impl<'a> InterpPass<'a> {
                 if trait_objects.is_some()
                     && !matches!(ty.kind(), TyKind::RigidTy(RigidTy::Dynamic(..)))
                 {
+                    crate::assumptions::record(
+                        crate::assumptions::Reason::NestedTraitObjectLost,
+                        format!("{ty:?}"),
+                        Vec::new,
+                    );
                     warn!(
                         "stdlib_stub: any value of {ty:?}: trait objects nested in this type \
                          are not represented (reads of its fields come back empty)"
@@ -782,6 +810,11 @@ impl<'a> InterpPass<'a> {
             cur.write_field(vec![field.clone()], all);
         }
         ctxt.set_scoped_constraints(caller_scope, &recv.place, cur, Some(self));
+        crate::assumptions::record(
+            crate::assumptions::Reason::CollectionWidened,
+            format!("{}::{method}", recv.adtdef.0.name()),
+            Vec::new,
+        );
         warn!(
             "stdlib_stub: {:?}::{method} - effect on contents not summarized, widened \
              to any value of the element types",

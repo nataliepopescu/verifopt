@@ -33,7 +33,10 @@ fn merge_constraints(
         debug!("merge_constraints: WIDENING");
         let widen_guard = timing
             .map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsWiden, scope));
-        let widened = crate::constraints::widen_constraints(&merged);
+        let widened = crate::assumptions::with_widen_cause(
+            crate::assumptions::Reason::WidenMerge,
+            || crate::constraints::widen_constraints(&merged),
+        );
         drop(widen_guard);
         widened
     } else {

@@ -235,7 +235,33 @@ impl<'a> RvalConverter<'a> {
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                 self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
             }
-            _ => todo!("other rval: {:?}", to_convert),
+            // The address of a `#[thread_local]` static. Each thread has its own
+            // copy, starting from the static's initializer but mutable - in
+            // practice through Cell/RefCell - so it's modelled like a mutable
+            // static (see the interpreter's static_get_constraints): any value
+            // of its type. A reference is represented by its pointee, so this
+            // is the type-based constraint of the destination (`&T`/`*mut T`).
+            // Reached once the standard library's own code is analyzed (e.g.
+            // with VERIFOPT_BUILD_STD), e.g. std::thread::current's cached ID.
+            Rvalue::ThreadLocalRef(_) => {
+                let (_, c) = self.convert_ty(span, destty, Some(cur_scope), timing);
+                Constraints::from(c)
+            }
+            // An array/slice length: some integer.
+            Rvalue::Len(_) => {
+                Constraints::from(Constraint::new(None, Some(RunningConstraint::Scalar(None))))
+            }
+            // Raw `*mut u8` memory reinterpreted as a shallow-initialized
+            // `Box<T>` (its contents are written afterwards, through the box):
+            // nothing precise is known about it at this point, so - soundly but
+            // imprecisely - any value of the box's type.
+            Rvalue::ShallowInitBox(_, _) => {
+                let (_, c) = self.convert_ty(span, destty, Some(cur_scope), timing);
+                Constraints::from(c)
+            }
+            // (No catch-all: Rvalue isn't #[non_exhaustive], so a new variant
+            // is a compile error here rather than a panic in the middle of an
+            // analysis run.)
         }
     }
 
@@ -521,7 +547,21 @@ impl<'a> RvalConverter<'a> {
                         .collect::<Vec<_>>()
                 })
                 .collect(),
-            _ => todo!("cfc: {:?}", cfc),
+            // A function item converted to a trait object - in practice to
+            // `dyn Fn*`, e.g. std's `fs::read_link` passing `readlink` to a
+            // `&dyn Fn(&CStr) -> io::Result<_>` parameter. Like FnPtr above:
+            // no candidate type here, so the cast keeps the constraint as it
+            // is. Known gap (shared with FnPtr): a later call through that
+            // `dyn Fn` gets no FSA target - resolve_defid has none for
+            // FnDef/FnPtr, and CHA never lists functions - so the function's
+            // body isn't interpreted at that dispatch, and the site is never
+            // rewritten (no targets, no edit). Modelling fn items/pointers as
+            // Fn-trait implementors (a TraitObjConstraint for them, interpreted
+            // via interp_fn_def/interp_fn_ptr as indirect calls already are)
+            // would close it.
+            RunningConstraint::FnDef(..) => vec![],
+            // (No catch-all, so a new RunningConstraint variant is a compile
+            // error here rather than a panic in the middle of an analysis run.)
         }
     }
 

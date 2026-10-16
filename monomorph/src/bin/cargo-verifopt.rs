@@ -40,7 +40,7 @@ use std::process::Command;
 /// The help message for `cargo-verifopt`
 const CARGO_VERIFOPT_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
 Usage:
-    cargo verifopt [--rewrite-only]
+    cargo verifopt [--rewrite-only] [--max-candidates N]
 
     --rewrite-only  Skip analysis and the automatic discovery-then-decide
                      flow entirely - just re-run the rewrite pass against
@@ -49,6 +49,12 @@ Usage:
                      cargo's own caching applies as normal. For iterating
                      on the rewrite logic itself without re-paying for
                      analysis or a full dependency rebuild each time.
+
+    --max-candidates N
+                    Up to how many candidates a pointer-comparison rewrite
+                    may compare against (default 4); a dispatch site with
+                    more possible targets is left as a dynamic call. Sets
+                    VERIFOPT_MAX_CANDIDATES for every compiler process.
 "#;
 
 /// Set the environment variable `VERIFOPT_BUILD_STD` to enable the building of std library when running verifopt.
@@ -482,11 +488,19 @@ fn run_cargo_build(
     // collected after `--`, not whatever cargo-verifopt forwards to
     // cargo directly here.
     let mut redirect_to_verifopt_flags: Vec<String> = Vec::new();
-    for arg in args.by_ref() {
+    while let Some(arg) = args.next() {
         if arg == "--" {
             break;
         }
         if arg == "--lib" || arg == "--rewrite-only" || arg == "--skip-rewrite" {
+            continue;
+        }
+        // Ours, not cargo's (see VERIFOPT_MAX_CANDIDATES below).
+        if arg == "--max-candidates" {
+            let _ = args.next();
+            continue;
+        }
+        if arg.starts_with("--max-candidates=") {
             continue;
         }
         if arg == "--skip-analysis" {
@@ -569,6 +583,22 @@ fn run_cargo_build(
     // verifopt_rewrite.rs.
     if has_arg_flag("--skip-rewrite") {
         cmd.env("VERIFOPT_SKIP_REWRITE", "1");
+    }
+
+    // --max-candidates N: read by the modified compiler's rewrite (see
+    // max_pointers_candidates in verifopt_rewrite.rs), in every crate's
+    // compilation - so, like VERIFOPT_SKIP_REWRITE, it goes in the
+    // environment of the whole cargo invocation.
+    if let Some(n) = get_arg_flag_value("--max-candidates") {
+        match n.trim().parse::<usize>() {
+            Ok(n) if n >= 1 => {
+                cmd.env("VERIFOPT_MAX_CANDIDATES", n.to_string());
+            }
+            _ => {
+                eprintln!("error: --max-candidates expects a positive number, got {n:?}");
+                std::process::exit(1);
+            }
+        }
     }
 
     // Same propagation reasoning as VERIFOPT_SKIP_REWRITE above: needs

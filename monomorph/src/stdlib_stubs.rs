@@ -7,7 +7,7 @@ use rustc_public::ty::{
 use crate::Context;
 use crate::InterpPass;
 use crate::constraints::{
-    ADTFields, Constraint, Constraints, RunningConstraint, VOID, adt_field_idx,
+    ADTFields, Constraint, Constraints, Location, RunningConstraint, VOID, adt_field_idx,
 };
 use crate::convert::WrapperKind;
 use crate::error::Error;
@@ -164,10 +164,30 @@ impl<'a> InterpPass<'a> {
 
         let result = match method.as_str() {
             "new" | "default" => self.stub_constructor(&recv),
-            "insert" | "extend" => {
-                self.stub_insert(ctxt, caller_scope, term_span, local_decls, &recv, args)
+            "insert" => self.stub_insert(ctxt, caller_scope, term_span, local_decls, &recv, args),
+            // Calls whose effect on the contents isn't summarized: `extend`/
+            // `append` add elements that come out of an iterator or another
+            // collection (not readable from the argument's own constraint),
+            // and the rest hand out a handle - an Entry, a `&mut V`, a
+            // mutable iterator, a closure over `&mut V` - through which the
+            // caller writes into the *real* collection, not into this model.
+            // So: the contents become "anything of the element types" (see
+            // widen_collection), and the result "anything of its type".
+            "extend" | "append" | "entry" | "get_mut" | "iter_mut" | "values_mut"
+            | "range_mut" | "first_entry" | "last_entry" | "retain" | "extract_if"
+            | "get_or_insert_with" | "replace" => {
+                self.widen_collection(ctxt, caller_scope, local_decls, &recv, &method);
+                return Some(Ok(Some(self.any_value(&fndef.fn_sig().value.output()))));
+            }
+            // A new collection holding (a subset of) the receiver's contents.
+            "split_off" | "clone" => {
+                ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))
             }
             "get" | "first" | "last" => {
+                self.stub_get_like(ctxt, caller_scope, local_decls, fndef, &recv)
+            }
+            // A map's `remove` returns the removed value, like `get`.
+            "remove" if matches!(recv.kind, WrapperKind::BTreeMap) => {
                 self.stub_get_like(ctxt, caller_scope, local_decls, fndef, &recv)
             }
             "iter" | "into_iter" | "range" | "keys" | "values" => {
@@ -176,18 +196,19 @@ impl<'a> InterpPass<'a> {
             "len" | "is_empty" | "contains" | "clear" | "remove" | "jaccard_index" => {
                 return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
             }
-            "entry" => {
-                return Some(self.retty_fallback_from_poly(fndef.fn_sig()));
-            }
-            // A real method of the collection without a summary: interpret its
-            // actual body (sound, just slower than a summary would be).
+            // A real method of the collection without a summary. Its real body
+            // can't be interpreted usefully here: the collection's value at
+            // this point is our *model* (one field of keys, one of values), not
+            // a real B-tree, so the real code would read fields that don't
+            // exist. So treat it like the unsummarized-effect methods above.
             _ => {
                 warn!(
-                    "stdlib_stub: no summary for {:?}::{} - interpreting its real body \
+                    "stdlib_stub: no summary for {:?}::{} - widening its contents \
                      (add a summary if this is hot)",
                     recv.adtdef, method
                 );
-                return None;
+                self.widen_collection(ctxt, caller_scope, local_decls, &recv, &method);
+                return Some(Ok(Some(self.any_value(&fndef.fn_sig().value.output()))));
             }
         };
 
@@ -447,10 +468,21 @@ impl<'a> InterpPass<'a> {
             }
         };
 
+        // An insert *adds* to what the collection may contain. (Storing the
+        // updated value below already merges it with the place's previous one
+        // - set_scoped_constraints' scoped_update, at a call's block - but
+        // write_field itself replaces the field, so union explicitly rather
+        // than rely on that; a missing field also counts as "unknown" here.)
+        let add = |cur: &Constraints, field: &ProjectionElem, new: Constraints| {
+            let mut all = self.read_collection_field(cur, field);
+            all.append(new);
+            all
+        };
         match recv.kind {
             WrapperKind::BTreeSet => {
                 // insert(&mut self, value) - args[1] is the sole element
-                cur.write_field(vec![recv.key_field.clone()], resolve(1));
+                let keys = add(&cur, &recv.key_field, resolve(1));
+                cur.write_field(vec![recv.key_field.clone()], keys);
             }
             WrapperKind::BTreeMap => {
                 // insert(&mut self, key, value) - args[1]=key, args[2]=value
@@ -465,9 +497,11 @@ impl<'a> InterpPass<'a> {
                 //    recv.kind, key, val
                 //);
 
-                cur.write_field(vec![recv.key_field.clone()], key);
+                let keys = add(&cur, &recv.key_field, key);
+                cur.write_field(vec![recv.key_field.clone()], keys);
                 if let Some(val_field) = &recv.val_field {
-                    cur.write_field(vec![val_field.clone()], val);
+                    let vals = add(&cur, val_field, val);
+                    cur.write_field(vec![val_field.clone()], vals);
                 }
             }
             _ => unreachable!(),
@@ -516,10 +550,18 @@ impl<'a> InterpPass<'a> {
         };
         let flattened = ctxt.flatten_all(&iterable, caller_scope, Some(self));
 
+        // `flattened` only holds elements *stored* in the source iterator;
+        // ones it produces - e.g. `iter.map(|x| Box::new(X) as Box<dyn T>)` -
+        // are created by its closure and aren't there. So the contents also
+        // get "anything of the element types" (see any_value).
         let mut cur = Constraints::from(self.fresh_collection_constraint(recv));
-        cur.write_field(vec![recv.key_field.clone()], flattened.clone());
+        let mut keys = flattened.clone();
+        keys.append(self.any_value(field_ty(&recv.key_field)));
+        cur.write_field(vec![recv.key_field.clone()], keys);
         if let Some(val_field) = &recv.val_field {
-            cur.write_field(vec![val_field.clone()], flattened);
+            let mut vals = flattened;
+            vals.append(self.any_value(field_ty(val_field)));
+            cur.write_field(vec![val_field.clone()], vals);
         }
         Some(cur)
     }
@@ -543,7 +585,7 @@ impl<'a> InterpPass<'a> {
             WrapperKind::BTreeMap => recv.val_field.as_ref()?,
             _ => unreachable!(),
         };
-        let elem = ctxt.step_field(caller_scope, &cur, field, Some(self));
+        let elem = self.read_collection_field(&cur, field);
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }
 
@@ -562,16 +604,14 @@ impl<'a> InterpPass<'a> {
             ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))?;
 
         let elem = match recv.kind {
-            WrapperKind::BTreeSet => {
-                ctxt.step_field(caller_scope, &cur, &recv.key_field, Some(self))
-            }
+            WrapperKind::BTreeSet => self.read_collection_field(&cur, &recv.key_field),
             WrapperKind::BTreeMap => {
-                let key = ctxt.step_field(caller_scope, &cur, &recv.key_field, Some(self));
+                let key = self.read_collection_field(&cur, &recv.key_field);
                 let val_field = recv
                     .val_field
                     .as_ref()
                     .expect("BTreeMap always has a value field");
-                let val = ctxt.step_field(caller_scope, &cur, val_field, Some(self));
+                let val = self.read_collection_field(&cur, val_field);
                 Constraints::from(Constraint::new(
                     None,
                     Some(RunningConstraint::Tuple(vec![key, val])),
@@ -605,8 +645,16 @@ impl<'a> InterpPass<'a> {
     ) -> Option<Constraints> {
         let cur =
             ctxt.get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))?;
-        let elem = ctxt.step_field(caller_scope, &cur, &recv.elem_field, Some(self));
-        //debug!("stub_next: elem = {:?}", elem);
+        // The element type is `next`'s `Option<Item>`'s payload (the field's
+        // own type is only a placeholder - see iter_receiver). An iterator
+        // value we didn't build (e.g. from a type-based fallback) has no
+        // field 0: then any Item.
+        let elem = match option_payload_ty(&fndef.fn_sig()) {
+            Some(item_ty) => {
+                self.read_field_or_any(&cur, adt_field_idx(&recv.elem_field), &item_ty)
+            }
+            None => ctxt.step_field(caller_scope, &cur, &recv.elem_field, Some(self)),
+        };
         self.wrap_in_option(&fndef.fn_sig(), elem)
     }
 
@@ -639,9 +687,117 @@ impl<'a> InterpPass<'a> {
         )))
     }
 
+    /// "Any value of type `ty`", as a constraint the analysis can read through:
+    /// references are represented by their pointee; Box/Arc/Rc in the shape
+    /// stub_wrapper_new builds (field 0 = contents); a trait object as
+    /// `Dynamic`, which a dispatch resolves to every implementation (CHA); a
+    /// tuple element-wise. Anything else gets convert_ty's type-based
+    /// constraint - which for an ADT has no fields (convert_ty's FIXME), so a
+    /// trait object nested in some *other* ADT (e.g. `Vec<Box<dyn T>>`) is
+    /// lost when those fields are read. That case is logged.
+    fn any_value(&self, ty: &Ty) -> Constraints {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Ref(_, inner, _))
+            | TyKind::RigidTy(RigidTy::RawPtr(inner, _)) => self.any_value(&inner),
+            TyKind::RigidTy(RigidTy::Adt(def, args))
+                if matches!(
+                    self.converter.wrapper_kind(&def),
+                    Some(WrapperKind::Box | WrapperKind::Arc | WrapperKind::Rc)
+                ) =>
+            {
+                let contents = match args.0.first() {
+                    Some(GenericArgKind::Type(t)) => self.any_value(t),
+                    _ => Constraints::new(),
+                };
+                Constraints::from(Constraint::new(
+                    None,
+                    Some(RunningConstraint::Adt(def, args, None, ADTFields::from([(0, contents)]))),
+                ))
+            }
+            TyKind::RigidTy(RigidTy::Tuple(tys)) => Constraints::from(Constraint::new(
+                None,
+                Some(RunningConstraint::Tuple(tys.iter().map(|t| self.any_value(t)).collect())),
+            )),
+            _ => {
+                let (trait_objects, c) =
+                    self.converter.convert_ty(&Location::unknown(), ty, None, Some(self));
+                if trait_objects.is_some()
+                    && !matches!(ty.kind(), TyKind::RigidTy(RigidTy::Dynamic(..)))
+                {
+                    warn!(
+                        "stdlib_stub: any value of {ty:?}: trait objects nested in this type \
+                         are not represented (reads of its fields come back empty)"
+                    );
+                }
+                Constraints::from(c)
+            }
+        }
+    }
+
+    /// Field `idx` across every disjunct of `cur`; a disjunct without that
+    /// field - e.g. a value from a type-based fallback, whose ADT constraint
+    /// has no fields at all - contributes any value of `ty`. (Elsewhere a
+    /// missing field reads as *empty*, i.e. "nothing", which would be unsound
+    /// here: it would claim the collection holds nothing.)
+    fn read_field_or_any(&self, cur: &Constraints, idx: usize, ty: &Ty) -> Constraints {
+        let mut out = Constraints::new();
+        let mut unknown = cur.inner.is_empty();
+        for c in cur.inner.iter() {
+            match &c.cfc {
+                Some(RunningConstraint::Adt(_, _, _, fields)) if fields.contains_key(&idx) => {
+                    out.append(fields[&idx].clone());
+                }
+                _ => unknown = true,
+            }
+        }
+        if unknown {
+            out.append(self.any_value(ty));
+        }
+        out
+    }
+
+    /// A collection's key/value field (see read_field_or_any).
+    fn read_collection_field(&self, cur: &Constraints, field: &ProjectionElem) -> Constraints {
+        self.read_field_or_any(cur, adt_field_idx(field), field_ty(field))
+    }
+
+    /// For calls whose effect on a collection's contents isn't summarized:
+    /// adds "any value of the element types" (any_value) to its key and value
+    /// fields, so every later read sees whatever the real call could have put
+    /// in. Sound, and as imprecise as it sounds - hence the warning.
+    fn widen_collection(
+        &self,
+        ctxt: &mut Context,
+        caller_scope: &VOID,
+        local_decls: &[LocalDecl],
+        recv: &CollectionRecv,
+        method: &str,
+    ) {
+        let mut cur = ctxt
+            .get_constraints(caller_scope, local_decls, &recv.place, false, Some(self))
+            .unwrap_or_else(|| Constraints::from(self.fresh_collection_constraint(recv)));
+        for field in std::iter::once(&recv.key_field).chain(recv.val_field.iter()) {
+            let mut all = self.read_collection_field(&cur, field);
+            all.append(self.any_value(field_ty(field)));
+            cur.write_field(vec![field.clone()], all);
+        }
+        ctxt.set_scoped_constraints(caller_scope, &recv.place, cur, Some(self));
+        warn!(
+            "stdlib_stub: {:?}::{method} - effect on contents not summarized, widened \
+             to any value of the element types",
+            recv.adtdef
+        );
+    }
+
     fn fresh_collection_constraint(&self, recv: &CollectionRecv) -> Constraint {
-        let fields: ADTFields =
+        // Both fields, empty: a new collection holds nothing. (A *missing*
+        // field means "unknown" to read_collection_field, so a map's value
+        // field must exist from the start.)
+        let mut fields: ADTFields =
             ADTFields::from([(adt_field_idx(&recv.key_field), Constraints::new())]);
+        if let Some(val_field) = &recv.val_field {
+            fields.insert(adt_field_idx(val_field), Constraints::new());
+        }
         Constraint::new(
             None,
             Some(RunningConstraint::Adt(
@@ -744,5 +900,25 @@ impl<'a> InterpPass<'a> {
             None,
             Some(RunningConstraint::Adt(adtdef, genargs, None, fields)),
         )))
+    }
+}
+
+/// The type a collection field holds (set from the collection's generic
+/// args in collection_receiver).
+fn field_ty(field: &ProjectionElem) -> &Ty {
+    match field {
+        ProjectionElem::Field(_, ty) => ty,
+        _ => unreachable!("collection fields are always Field projections"),
+    }
+}
+
+/// `T` for a signature returning `Option<T>`.
+fn option_payload_ty(sig: &PolyFnSig) -> Option<Ty> {
+    match sig.value.output().kind() {
+        TyKind::RigidTy(RigidTy::Adt(_, args)) => match args.0.first() {
+            Some(GenericArgKind::Type(t)) => Some(t.clone()),
+            _ => None,
+        },
+        _ => None,
     }
 }

@@ -1,6 +1,4 @@
-# status
-
-thursday's meeting (10/15/26)
+# STATUS (thursday's meeting 10/15/26)
 
 ## ripgrep
 
@@ -56,7 +54,7 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/sam4l-3716898326bb9396.txt: 
     - fnptr comparisons keep targets in the binary even if they are never called
         - mae's suggestion from a few weeks ago: clean up at binary level
 
-# NEW BUILD
+# NEW BUILD (10/16/26)
 
 FSA fallback to CHAmax
 - CHAmax considers which functions are _actually_ compiled, while CHA considers
@@ -73,6 +71,8 @@ also fixed a bug in the stdlib stubs impl
 
 also added logging for tracking number of candidates, if a fn was able to be
 interpreted or not, etc
+
+and added max-candidates knob
 
 ## ripgrep
 
@@ -241,7 +241,7 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/imix-a7028f869d0b08c6.txt: 4
  166940       0   31324  198264   30678 verifopt_target/thumbv7em-none-eabi/release/imix
 ```
 
-# NEW BUILD
+# NEW BUILD (10/17/26)
 
 
 

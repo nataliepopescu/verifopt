@@ -688,6 +688,18 @@ impl<'a> RvalConverter<'a> {
                     self.convert_ty(span, ty, Some(cur_scope), timing);
                 if let Some(traitobjtys) = maybe_traitobj {
                     self.convert_cast_helper(&traitobjtys, &prev_constraints, span)
+                } else if matches!(post_constraint.cfc, Some(RunningConstraint::FnPtr(_)))
+                    && !prev_constraints.inner.is_empty()
+                    && prev_constraints.inner.iter().all(|c| {
+                        matches!(c.cfc, Some(RunningConstraint::FnDef(..) | RunningConstraint::Closure(..)))
+                    })
+                {
+                    // A fn item or closure coerced to a fn pointer
+                    // (ReifyFnPointer / ClosureFnPointer): keep which function
+                    // it is, so a later call through the pointer can be
+                    // interpreted (interp_constraint_as_fn) rather than
+                    // answered from the signature.
+                    prev_constraints
                 } else {
                     Constraints::from(post_constraint)
                 }
@@ -928,11 +940,25 @@ impl<'a> RvalConverter<'a> {
             }
             AggregateKind::Array(ty) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggArray, cur_scope));
-                let (_, constraint) = self.convert_ty(span, ty, Some(cur_scope), timing);
-                Constraints::from(Constraint::new(
-                    None,
-                    Some(RunningConstraint::List(Box::new(constraint))),
-                ))
+                // The union of the elements' values: indexing reads the
+                // array's own value (Index projections are no-ops in
+                // get_constraints), and a pointer to the array is then also a
+                // pointer to any element (e.g. `&[T; N]` transmuted to
+                // `NonNull<T>` and walked with `add`, as fmt::Arguments does).
+                let mut elems = Constraints::new();
+                for op in ops {
+                    let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                    elems.append(self.convert_op(ctxt, span, local_decls, cur_scope, op, ty, timing));
+                }
+                if elems.inner.is_empty() {
+                    let (_, constraint) = self.convert_ty(span, ty, Some(cur_scope), timing);
+                    Constraints::from(Constraint::new(
+                        None,
+                        Some(RunningConstraint::List(Box::new(constraint))),
+                    ))
+                } else {
+                    Constraints::from(Constraint::new(None, Some(RunningConstraint::Idk(Box::new(elems)))))
+                }
             }
             AggregateKind::Closure(def, genargs) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggClosure, cur_scope));
@@ -1174,6 +1200,20 @@ impl<'a> RvalConverter<'a> {
         op2: &Operand,
         timing: Option<&InterpPass>,
     ) -> Constraints {
+        if let BinOp::Offset = binop {
+            // `ptr.add(n)` / `offset`: a pointer's value is its pointee's, and
+            // array elements share one abstract value, so the offset pointer
+            // points at the same value - keeping it, rather than "a pointer
+            // of this type" with nothing behind it (which loses e.g. the fn
+            // pointers in `fmt::Arguments`'s argument table).
+            let base = {
+                let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                self.convert_op(ctxt, span, local_decls, cur_scope, op1, destty, timing)
+            };
+            if !base.inner.is_empty() {
+                return base;
+            }
+        }
         let constraint = match binop {
             BinOp::Add | BinOp::AddUnchecked => self.convert_binop_helper(
                 ctxt,

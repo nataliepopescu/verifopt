@@ -1,0 +1,18 @@
+{
+  "maybe_count": 0,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:23:9: 23:24",
+      "is_maybe_example": false,
+      "cha": [
+        "<fnptr_args_table::Counter as fnptr_args_table::Sink>::put",
+        "<fnptr_args_table::Text as fnptr_args_table::Sink>::put"
+      ],
+      "fsa": [
+        "<fnptr_args_table::Counter as fnptr_args_table::Sink>::put",
+        "<fnptr_args_table::Text as fnptr_args_table::Sink>::put"
+      ]
+    }
+  ]
+}

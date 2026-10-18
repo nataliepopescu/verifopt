@@ -1273,6 +1273,12 @@ impl Context {
                 let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOnePtr, scope));
                 self.step_field_one(scope, inner, elem, timing)
             }
+            // A sequence's elements: like Idk below, a field of "an element"
+            // (a pointer to a List is also a pointer to its elements).
+            Some(RunningConstraint::List(box inner)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneIdk, scope));
+                self.step_field_one(scope, inner, elem, timing)
+            }
             Some(RunningConstraint::Idk(box inner_cs)) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneIdk, scope));
                 let mut out = Constraints::new();

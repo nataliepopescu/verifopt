@@ -161,3 +161,9 @@ example_test!(cha_lifetime_trait, "cha_lifetime_trait", Passing);
 // (pointers, with the dyn call as fallback): the traced byte/call counts
 // are only right if the Counter's own write_str runs.
 example_test!(fmt_fnptr_writer, "fmt_fnptr_writer", Passing);
+
+// `core::fmt`'s argument-passing shape without std: a table of transmuted
+// fn pointers walked with `NonNull::add`, each called with a wrapper around
+// a `&mut dyn Sink`. FSA at `Fmt::emit` must see `Counter` (reached only
+// through the fn pointers) as well as `Text` (reached directly).
+example_test!(fnptr_args_table, "fnptr_args_table", Passing);

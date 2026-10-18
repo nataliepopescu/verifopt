@@ -5,7 +5,11 @@
     {
       "span": "src/main.rs:3:12: 3:17",
       "is_maybe_example": true,
-      "cha": [],
+      "cha": [
+        "<std::boxed::Box<F, A> as std::ops::FnMut<Args>>::call_mut",
+        "<std::ops::try_trait::Wrapped<T, A, F> as std::ops::FnMut<(A,)>>::call_mut",
+        "<std::sync::Exclusive<F> as std::ops::FnMut<Args>>::call_mut"
+      ],
       "fsa": [
         "generic_traitobj::find::{closure#0}"
       ]

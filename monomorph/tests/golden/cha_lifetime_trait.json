@@ -1,0 +1,30 @@
+{
+  "maybe_count": 0,
+  "not_count": 2,
+  "sites": [
+    {
+      "span": "src/main.rs:81:13: 81:27",
+      "is_maybe_example": false,
+      "cha": [
+        "<cha_lifetime_trait::Pin<'a> as cha_lifetime_trait::Client<'a>>::fired",
+        "<cha_lifetime_trait::UnusedClient as cha_lifetime_trait::Client<'static>>::fired"
+      ],
+      "fsa": [
+        "<cha_lifetime_trait::Pin<'a> as cha_lifetime_trait::Client<'a>>::fired",
+        "<cha_lifetime_trait::UnusedClient as cha_lifetime_trait::Client<'static>>::fired"
+      ]
+    },
+    {
+      "span": "src/main.rs:85:13: 85:24",
+      "is_maybe_example": false,
+      "cha": [
+        "<cha_lifetime_trait::Store as cha_lifetime_trait::Sink<F>>::done",
+        "<cha_lifetime_trait::UnusedSink as cha_lifetime_trait::Sink<cha_lifetime_trait::Calw>>::done"
+      ],
+      "fsa": [
+        "<cha_lifetime_trait::Store as cha_lifetime_trait::Sink<F>>::done",
+        "<cha_lifetime_trait::UnusedSink as cha_lifetime_trait::Sink<cha_lifetime_trait::Calw>>::done"
+      ]
+    }
+  ]
+}

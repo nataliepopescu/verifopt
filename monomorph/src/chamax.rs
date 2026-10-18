@@ -129,7 +129,24 @@ pub fn compute<'tcx>(
         let fsa_has_closure = fsa_targets
             .iter()
             .any(|(d, _)| tcx.is_closure_like(rustc_internal::internal(tcx, *d)));
-        if fsa_has_closure || (candidates.is_empty() && !fsa_targets.is_empty()) {
+        // Any other site where FSA found targets but CHA has none means CHA
+        // dropped real impls (an analysis bug, also logged as "CHA missing
+        // impl"): CHAmax is then no bound at all, so it must never prove a
+        // single target - and it isn't closure dispatch, so don't call it that.
+        if !fsa_has_closure && candidates.is_empty() && !fsa_targets.is_empty() {
+            out.insert(
+                key.clone(),
+                ChaMax {
+                    per_candidate: Vec::new(),
+                    total: 0,
+                    incomplete: Some("CHA lacks FSA's targets (analysis bug)".to_string()),
+                    instances: Vec::new(),
+                    not_applicable: None,
+                },
+            );
+            continue;
+        }
+        if fsa_has_closure {
             out.insert(
                 key.clone(),
                 ChaMax {

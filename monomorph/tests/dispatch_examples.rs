@@ -147,3 +147,9 @@ example_test!(map_dyn_iter, "map_dyn_iter", Passing);
 // `<Driver<Sam> as Device>::poll`). Expected: rewritten as "single exact" -
 // a direct call to that instance - with `Sam::id` traced once.
 example_test!(cha_single_instance, "cha_single_instance", Passing);
+
+// CHA-fallback sites dispatching traits with their own lifetime / type params
+// (`Client<'a>`, `Sink<F>` with a generic impl): CHA must still list their
+
+// CHA-fallback sites dispatching traits with their own lifetime / type params
+// (`Client<'a>`, `Sink<F>` with a generic impl): CHA must still list their

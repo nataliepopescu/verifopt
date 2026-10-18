@@ -1,0 +1,248 @@
+
+######### MIR before #########
+// crate: cha_lifetime_trait (package cha_lifetime_trait 0.1.0)
+// fn: main
+// instance: main
+fn main() -> () {
+    let mut _0: ();
+    let _1: Sam;
+    let _3: &Sam;
+    let _4: &dyn Client<'_>;
+    let mut _5: &dyn Client<'_>;
+    let _6: &Pin<'_>;
+    let _9: &dyn Sink<Calw>;
+    let mut _10: &dyn Sink<Calw>;
+    let _11: &Store;
+    let _13: u32;
+    let mut _14: u32;
+    let _15: (u32, u32);
+    let mut _16: (u32, u32);
+    scope 1 {
+        debug sam => const Sam;
+        let _2: Pin<'_>;
+        scope 2 {
+            debug pin => _2;
+            scope 3 {
+                debug client => _4;
+                let _7: u32;
+                scope 4 {
+                    debug a => _7;
+                    let _8: Store;
+                    scope 5 {
+                        debug store => const Store {{ chip: Sam }};
+                        scope 6 {
+                            debug sink => _9;
+                            let _12: u32;
+                            scope 7 {
+                                debug b => _12;
+                                scope 10 (inlined std::hint::black_box::<u32>) {
+                                }
+                                scope 11 (inlined std::hint::black_box::<(u32, u32)>) {
+                                }
+                            }
+                        }
+                        scope 9 (inlined std::hint::black_box::<&dyn Sink<Calw>>) {
+                        }
+                    }
+                }
+            }
+            scope 8 (inlined std::hint::black_box::<&dyn Client<'_>>) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _3 = &_1;
+        _2 = Pin::<'_> { chip: copy _3 };
+        StorageLive(_5);
+        _6 = &_2;
+        _5 = copy _6 as &dyn Client<'_> (PointerCoercion(Unsize, Implicit));
+        _4 = std::intrinsics::black_box::<&dyn Client<'_>>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb1: {
+        StorageLive(_10);
+        _11 = &_8;
+        _10 = copy _11 as &dyn Sink<Calw> (PointerCoercion(Unsize, Implicit));
+        _9 = std::intrinsics::black_box::<&dyn Sink<Calw>>(move _10) -> [return: bb8, unwind unreachable];
+    }
+
+    bb2: {
+        switchInt(move _7) -> [8: bb3, otherwise: bb4];
+    }
+
+    bb3: {
+        switchInt(move _12) -> [9: bb6, otherwise: bb4];
+    }
+
+    bb4: {
+        StorageLive(_13);
+        StorageLive(_14);
+        _14 = <Sam as Chip>::id(const main::promoted[0]) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        _13 = std::intrinsics::black_box::<u32>(move _14) -> [return: bb9, unwind unreachable];
+    }
+
+    bb6: {
+        StorageLive(_15);
+        StorageLive(_16);
+        _16 = (copy _7, copy _12);
+        _15 = std::intrinsics::black_box::<(u32, u32)>(move _16) -> [return: bb10, unwind unreachable];
+    }
+
+    bb7: {
+        StorageDead(_5);
+        _7 = <dyn Client<'_> as Client<'_>>::fired(move _4) -> [return: bb1, unwind continue];
+    }
+
+    bb8: {
+        StorageDead(_10);
+        _12 = <dyn Sink<Calw> as Sink<Calw>>::done(move _9) -> [return: bb2, unwind continue];
+    }
+
+    bb9: {
+        StorageDead(_14);
+        StorageDead(_13);
+        goto -> bb6;
+    }
+
+    bb10: {
+        StorageDead(_16);
+        StorageDead(_15);
+        StorageDead(_2);
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: cha_lifetime_trait (package cha_lifetime_trait 0.1.0)
+// fn: main
+// instance: main
+fn main() -> () {
+    let mut _0: ();
+    let _1: Sam;
+    let _3: &Sam;
+    let _4: &dyn Client<'_>;
+    let mut _5: &dyn Client<'_>;
+    let _6: &Pin<'_>;
+    let _9: &dyn Sink<Calw>;
+    let mut _10: &dyn Sink<Calw>;
+    let _11: &Store;
+    let _13: u32;
+    let mut _14: u32;
+    let _15: (u32, u32);
+    let mut _16: (u32, u32);
+    let mut _17: *const Pin<'_>;
+    let mut _18: &Pin<'_>;
+    let mut _19: *const Store;
+    let mut _20: &Store;
+    scope 1 {
+        debug sam => const Sam;
+        let _2: Pin<'_>;
+        scope 2 {
+            debug pin => _2;
+            scope 3 {
+                debug client => _4;
+                let _7: u32;
+                scope 4 {
+                    debug a => _7;
+                    let _8: Store;
+                    scope 5 {
+                        debug store => const Store {{ chip: Sam }};
+                        scope 6 {
+                            debug sink => _9;
+                            let _12: u32;
+                            scope 7 {
+                                debug b => _12;
+                                scope 10 (inlined std::hint::black_box::<u32>) {
+                                }
+                                scope 11 (inlined std::hint::black_box::<(u32, u32)>) {
+                                }
+                            }
+                        }
+                        scope 9 (inlined std::hint::black_box::<&dyn Sink<Calw>>) {
+                        }
+                    }
+                }
+            }
+            scope 8 (inlined std::hint::black_box::<&dyn Client<'_>>) {
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_2);
+        _3 = &_1;
+        _2 = Pin::<'_> { chip: copy _3 };
+        StorageLive(_5);
+        _6 = &_2;
+        _5 = copy _6 as &dyn Client<'_> (PointerCoercion(Unsize, Implicit));
+        _4 = std::intrinsics::black_box::<&dyn Client<'_>>(move _5) -> [return: bb7, unwind unreachable];
+    }
+
+    bb1: {
+        StorageLive(_10);
+        _11 = &_8;
+        _10 = copy _11 as &dyn Sink<Calw> (PointerCoercion(Unsize, Implicit));
+        _9 = std::intrinsics::black_box::<&dyn Sink<Calw>>(move _10) -> [return: bb8, unwind unreachable];
+    }
+
+    bb2: {
+        switchInt(move _7) -> [8: bb3, otherwise: bb4];
+    }
+
+    bb3: {
+        switchInt(move _12) -> [9: bb6, otherwise: bb4];
+    }
+
+    bb4: {
+        StorageLive(_13);
+        StorageLive(_14);
+        _14 = <Sam as Chip>::id(const main::promoted[0]) -> [return: bb5, unwind continue];
+    }
+
+    bb5: {
+        _13 = std::intrinsics::black_box::<u32>(move _14) -> [return: bb9, unwind unreachable];
+    }
+
+    bb6: {
+        StorageLive(_15);
+        StorageLive(_16);
+        _16 = (copy _7, copy _12);
+        _15 = std::intrinsics::black_box::<(u32, u32)>(move _16) -> [return: bb10, unwind unreachable];
+    }
+
+    bb7: {
+        StorageDead(_5);
+        _17 = move _4 as *const Pin<'_> (PtrToPtr);
+        _18 = &(*_17);
+        _7 = <Pin<'_> as Client<'_>>::fired(move _18) -> [return: bb1, unwind continue];
+    }
+
+    bb8: {
+        StorageDead(_10);
+        _19 = move _9 as *const Store (PtrToPtr);
+        _20 = &(*_19);
+        _12 = <Store as Sink<Calw>>::done(move _20) -> [return: bb2, unwind continue];
+    }
+
+    bb9: {
+        StorageDead(_14);
+        StorageDead(_13);
+        goto -> bb6;
+    }
+
+    bb10: {
+        StorageDead(_16);
+        StorageDead(_15);
+        StorageDead(_2);
+        return;
+    }
+}
+######### END after #########
+

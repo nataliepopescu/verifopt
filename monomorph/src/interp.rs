@@ -2862,7 +2862,13 @@ impl<'a> InterpPass<'a> {
 
     /// Compares a call site's own generic args (e.g. `std::ops::Fn::call`'s
     /// `[Self, Args]`, where `Self` here is the erased `dyn Trait` object) -
-    /// against one specific impl's own `TraitRef` args
+    /// against one specific impl's own `TraitRef` args.
+    ///
+    /// Must never reject an impl that could be selected (CHA has to stay a
+    /// superset), so args are compared with `generic_arg_may_unify`, not `==`:
+    /// the call site's lifetimes are erased while the impl's are `'a`/`'static`,
+    /// and an impl's args may be generic (`impl<F> Client<F> for X`). Plain
+    /// equality rejected every impl of e.g. tock's `uart::Transmit<'a>`.
     fn trait_params_compatible(
         call_site_genargs: &GenericArgs,
         impl_struct_defid: &DefId,
@@ -2885,7 +2891,7 @@ impl<'a> InterpPass<'a> {
             if is_self_position {
                 continue;
             }
-            if call_arg != impl_arg {
+            if !generic_arg_may_unify(call_arg, impl_arg) {
                 return false;
             }
         }
@@ -4381,6 +4387,85 @@ pub(crate) fn has_unresolved_param<T: rustc_public::visitor::Visitable>(x: &T) -
         }
     }
     x.visit(&mut FindParam).is_break()
+}
+
+/// Whether a call site's trait arg (`call`, concrete but with erased regions)
+/// could be an instantiation of an impl's trait arg (`imp`, which may name the
+/// impl's own lifetimes and type/const params). Conservative: `false` only
+/// when the two certainly differ - see `Interpreter::trait_params_compatible`.
+pub(crate) fn generic_arg_may_unify(call: &GenericArgKind, imp: &GenericArgKind) -> bool {
+    match (call, imp) {
+        // Regions never decide which impl a dyn call selects.
+        (GenericArgKind::Lifetime(_), GenericArgKind::Lifetime(_)) => true,
+        (GenericArgKind::Type(a), GenericArgKind::Type(b)) => ty_may_unify(a, b),
+        (GenericArgKind::Const(a), GenericArgKind::Const(b)) => const_may_unify(a, b),
+        _ => false,
+    }
+}
+
+fn generic_args_may_unify(call: &GenericArgs, imp: &GenericArgs) -> bool {
+    call.0.len() == imp.0.len()
+        && call.0.iter().zip(imp.0.iter()).all(|(a, b)| generic_arg_may_unify(a, b))
+}
+
+fn const_may_unify(a: &rustc_public::ty::TyConst, b: &rustc_public::ty::TyConst) -> bool {
+    use rustc_public::ty::TyConstKind;
+    match (a.kind(), b.kind()) {
+        (TyConstKind::Value(_, x), TyConstKind::Value(_, y)) => x == y,
+        _ => true,
+    }
+}
+
+/// Structural comparison ignoring regions, with params (on either side) and
+/// anything not modelled here treated as matching.
+fn ty_may_unify(a: &Ty, b: &Ty) -> bool {
+    let (TyKind::RigidTy(ra), TyKind::RigidTy(rb)) = (a.kind(), b.kind()) else {
+        return true; // Param / Bound / Alias
+    };
+    match (&ra, &rb) {
+        (RigidTy::Adt(da, ga), RigidTy::Adt(db, gb)) => da == db && generic_args_may_unify(ga, gb),
+        (RigidTy::Ref(_, ta, ma), RigidTy::Ref(_, tb, mb))
+        | (RigidTy::RawPtr(ta, ma), RigidTy::RawPtr(tb, mb)) => ma == mb && ty_may_unify(ta, tb),
+        (RigidTy::Slice(ta), RigidTy::Slice(tb)) => ty_may_unify(ta, tb),
+        (RigidTy::Array(ta, ca), RigidTy::Array(tb, cb)) => {
+            ty_may_unify(ta, tb) && const_may_unify(ca, cb)
+        }
+        (RigidTy::Tuple(ta), RigidTy::Tuple(tb)) => {
+            ta.len() == tb.len() && ta.iter().zip(tb.iter()).all(|(x, y)| ty_may_unify(x, y))
+        }
+        (RigidTy::Dynamic(pa, _), RigidTy::Dynamic(pb, _)) => {
+            let principal = |preds: &Vec<rustc_public::ty::Binder<rustc_public::ty::ExistentialPredicate>>| {
+                preds.iter().find_map(|p| match &p.value {
+                    rustc_public::ty::ExistentialPredicate::Trait(t) => Some(t.def_id),
+                    _ => None,
+                })
+            };
+            principal(pa) == principal(pb)
+        }
+        (
+            RigidTy::Bool
+            | RigidTy::Char
+            | RigidTy::Int(_)
+            | RigidTy::Uint(_)
+            | RigidTy::Float(_)
+            | RigidTy::Str
+            | RigidTy::Never,
+            _,
+        )
+        | (
+            _,
+            RigidTy::Bool
+            | RigidTy::Char
+            | RigidTy::Int(_)
+            | RigidTy::Uint(_)
+            | RigidTy::Float(_)
+            | RigidTy::Str
+            | RigidTy::Never,
+        ) => ra == rb,
+        // Same constructor we don't model (fn ptrs, closures, ...): assume a match.
+        _ if std::mem::discriminant(&ra) == std::mem::discriminant(&rb) => true,
+        _ => false,
+    }
 }
 
 /// One-line shape of a dispatch receiver's constraint, for debugging which

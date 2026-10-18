@@ -1,0 +1,13 @@
+*target
+log.md
+stats
+calls
+*.mir
+*.zst
+*.txt
+*.log
+*.stderr
+*.ll
+*.s
+verifopt_*
+*out

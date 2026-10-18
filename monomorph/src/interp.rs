@@ -1220,6 +1220,24 @@ impl<'a> InterpPass<'a> {
         let mut ret_constraints = Constraints::new();
         match ctxt.get_constraints(cur_scope, local_decls, place, false, Some(self)) {
             Some(constraints) => {
+                // Disjuncts without a cfc - or no disjuncts at all, e.g. a fn
+                // pointer lost through pointer arithmetic - call nothing below,
+                // silently; the ones interp_constraint_as_fn sees record
+                // themselves.
+                let unknown = if constraints.inner.is_empty() {
+                    Some("callee value empty")
+                } else if constraints.inner.iter().any(|c| c.cfc.is_none()) {
+                    Some("callee value partly unknown")
+                } else {
+                    None
+                };
+                if let Some(what) = unknown {
+                    crate::assumptions::record(
+                        crate::assumptions::Reason::FnPtrCall,
+                        format!("indirect call in {} ({what})", cur_scope.0.name()),
+                        Vec::new,
+                    );
+                }
                 for constraint in constraints.inner.iter() {
                     let constraint = constraint.clone();
                     match constraint {

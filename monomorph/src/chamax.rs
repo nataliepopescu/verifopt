@@ -16,6 +16,7 @@
 //! whose crates can only instantiate impls from other sysroot crates (they
 //! can't depend on yours), or any crate cargo didn't recompile in this run.
 
+extern crate rustc_hir;
 extern crate rustc_middle;
 extern crate rustc_span;
 extern crate rustc_verifopt;
@@ -129,11 +130,24 @@ pub fn compute<'tcx>(
         let fsa_has_closure = fsa_targets
             .iter()
             .any(|(d, _)| tcx.is_closure_like(rustc_internal::internal(tcx, *d)));
+        // Decided by the dispatched trait too, not only by what FSA found:
+        // FSA can miss the closures (or fall back to CHA), and CHA then lists
+        // only the trait's explicit impls (e.g. `<Box<F, A> as Fn<Args>>`),
+        // whose instance count says nothing about the closures behind it.
+        let builtin_impl_trait = candidates
+            .iter()
+            .chain(fsa_targets)
+            .filter_map(|(d, _)| candidate_trait(tcx, rustc_internal::internal(tcx, *d)))
+            .find(|t| has_builtin_impls(tcx, *t));
         // Any other site where FSA found targets but CHA has none means CHA
         // dropped real impls (an analysis bug, also logged as "CHA missing
         // impl"): CHAmax is then no bound at all, so it must never prove a
         // single target - and it isn't closure dispatch, so don't call it that.
-        if !fsa_has_closure && candidates.is_empty() && !fsa_targets.is_empty() {
+        if !fsa_has_closure
+            && builtin_impl_trait.is_none()
+            && candidates.is_empty()
+            && !fsa_targets.is_empty()
+        {
             out.insert(
                 key.clone(),
                 ChaMax {
@@ -146,7 +160,16 @@ pub fn compute<'tcx>(
             );
             continue;
         }
-        if fsa_has_closure {
+        if fsa_has_closure || builtin_impl_trait.is_some() {
+            let why = match builtin_impl_trait {
+                Some(t) => format!(
+                    "dispatch through `{}`, which closures, fn items or coroutines implement \
+                     without an impl item (CHA can't list those, so CHAmax can't bound it)",
+                    tcx.def_path_str(t)
+                ),
+                None => "dispatch to closures (CHA never lists closures, so CHAmax can't bound it)"
+                    .to_string(),
+            };
             out.insert(
                 key.clone(),
                 ChaMax {
@@ -154,10 +177,7 @@ pub fn compute<'tcx>(
                     total: 0,
                     incomplete: None,
                     instances: Vec::new(),
-                    not_applicable: Some(
-                        "dispatch to closures (CHA never lists closures, so CHAmax can't bound it)"
-                            .to_string(),
-                    ),
+                    not_applicable: Some(why),
                 },
             );
             continue;
@@ -209,4 +229,23 @@ pub fn compute<'tcx>(
     let mut shapes: Vec<(DefPathHash, rustc_verifopt::ArgShape)> = shapes.into_iter().collect();
     shapes.sort_by_key(|(h, _)| *h);
     (out, shapes)
+}
+
+/// The trait a CHA candidate belongs to: an impl item's trait, or the trait of
+/// a default method. None for anything else (e.g. a closure).
+fn candidate_trait(tcx: TyCtxt<'_>, d: rustc_span::def_id::DefId) -> Option<rustc_span::def_id::DefId> {
+    tcx.trait_of_assoc(d).or_else(|| tcx.trait_impl_of_assoc(d).map(|imp| tcx.impl_trait_id(imp)))
+}
+
+/// Dyn-compatible traits that closures, fn items, fn pointers, coroutines or
+/// async blocks implement through compiler-builtin impls - no impl item, so
+/// CHA can't list those implementors. (Not `Iterator`: only unstable `gen`
+/// blocks implement it that way.)
+fn has_builtin_impls(tcx: TyCtxt<'_>, t: rustc_span::def_id::DefId) -> bool {
+    use rustc_hir::LangItem;
+    tcx.fn_trait_kind_from_def_id(t).is_some()
+        || tcx.async_fn_trait_kind_from_def_id(t).is_some()
+        || [LangItem::Future, LangItem::Coroutine, LangItem::AsyncIterator]
+            .into_iter()
+            .any(|item| tcx.is_lang_item(t, item))
 }

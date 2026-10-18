@@ -114,8 +114,15 @@ fn find_inner(_1: &mut dyn std::ops::FnMut(usize) -> bool) -> std::option::Optio
     let mut _2: std::option::Option<usize>;
     let mut _4: bool;
     let mut _5: (usize,);
-    let mut _10: *mut {closure@src/main.rs:10:18: 10:30};
-    let mut _11: &mut {closure@src/main.rs:10:18: 10:30};
+    let mut _10: std::ptr::DynMetadata<dyn std::ops::FnMut(usize) -> bool>;
+    let mut _11: *const ();
+    let mut _12: *const for<'a> extern "rust-call" fn(&'a mut dyn std::ops::FnMut(usize) -> bool, (usize,)) -> <dyn std::ops::FnMut(usize) -> bool as std::ops::FnOnce<(usize,)>>::Output;
+    let mut _13: *const for<'a> extern "rust-call" fn(&'a mut dyn std::ops::FnMut(usize) -> bool, (usize,)) -> <dyn std::ops::FnMut(usize) -> bool as std::ops::FnOnce<(usize,)>>::Output;
+    let mut _14: for<'a> extern "rust-call" fn(&'a mut dyn std::ops::FnMut(usize) -> bool, (usize,)) -> <dyn std::ops::FnMut(usize) -> bool as std::ops::FnOnce<(usize,)>>::Output;
+    let mut _15: *mut {closure@src/main.rs:10:18: 10:30};
+    let mut _16: &mut {closure@src/main.rs:10:18: 10:30};
+    let mut _17: for<'a> extern "rust-call" fn(&'a mut dyn std::ops::FnMut(usize) -> bool, (usize,)) -> <dyn std::ops::FnMut(usize) -> bool as std::ops::FnOnce<(usize,)>>::Output;
+    let mut _18: bool;
     scope 1 {
         debug ((iter: std::ops::Range<usize>).0: usize) => _8;
         debug ((iter: std::ops::Range<usize>).1: usize) => const 10_usize;
@@ -194,9 +201,14 @@ fn find_inner(_1: &mut dyn std::ops::FnMut(usize) -> bool) -> std::option::Optio
         StorageLive(_4);
         StorageLive(_5);
         _5 = (copy _3,);
-        _10 = copy _1 as *mut {closure@src/main.rs:10:18: 10:30} (PtrToPtr);
-        _11 = &mut (*_10);
-        _4 = <{closure@src/main.rs:10:18: 10:30} as std::ops::FnMut<(usize,)>>::call_mut(move _11, move _5) -> [return: bb2, unwind continue];
+        _10 = PtrMetadata(copy _1);
+        _11 = move _10 as *const () (Transmute);
+        _12 = copy _11 as *const for<'a> extern "rust-call" fn(&'a mut dyn std::ops::FnMut(usize) -> bool, (usize,)) -> <dyn std::ops::FnMut(usize) -> bool as std::ops::FnOnce<(usize,)>>::Output (PtrToPtr);
+        _13 = Offset(copy _12, const 4_usize);
+        _14 = copy (*_13);
+        _17 = <{closure@src/main.rs:10:18: 10:30} as std::ops::FnMut<(usize,)>>::call_mut as for<'a> extern "rust-call" fn(&'a mut dyn std::ops::FnMut(usize) -> bool, (usize,)) -> <dyn std::ops::FnMut(usize) -> bool as std::ops::FnOnce<(usize,)>>::Output (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _18 = Eq(copy _14, copy _17);
+        switchInt(copy _18) -> [1: bb11, otherwise: bb9];
     }
 
     bb7: {
@@ -204,6 +216,24 @@ fn find_inner(_1: &mut dyn std::ops::FnMut(usize) -> bool) -> std::option::Optio
         StorageDead(_2);
         _0 = const std::option::Option::<usize>::None;
         goto -> bb5;
+    }
+
+    bb8: {
+        goto -> bb2;
+    }
+
+    bb9: {
+        _4 = <dyn std::ops::FnMut(usize) -> bool as std::ops::FnMut<(usize,)>>::call_mut(copy _1, move _5) -> [return: bb8, unwind continue];
+    }
+
+    bb10: {
+        goto -> bb2;
+    }
+
+    bb11: {
+        _15 = copy _1 as *mut {closure@src/main.rs:10:18: 10:30} (PtrToPtr);
+        _16 = &mut (*_15);
+        _4 = <{closure@src/main.rs:10:18: 10:30} as std::ops::FnMut<(usize,)>>::call_mut(move _16, move _5) -> [return: bb10, unwind continue];
     }
 }
 

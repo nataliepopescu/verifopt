@@ -45,16 +45,28 @@ fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
     let mut _0: usize;
     let mut _2: &dyn Animal;
     let mut _3: *const dyn Animal;
-    let mut _4: *const Cat;
-    let mut _5: &Cat;
+    let mut _4: std::ptr::DynMetadata<dyn Animal>;
+    let mut _5: *const ();
+    let mut _6: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _7: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _8: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _9: *const Cat;
+    let mut _10: &Cat;
+    let mut _11: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _12: bool;
 
     bb0: {
         StorageLive(_2);
         _3 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
         _2 = &(*_3);
-        _4 = move _2 as *const Cat (PtrToPtr);
-        _5 = &(*_4);
-        _0 = <Cat as Animal>::speak(move _5) -> [return: bb1, unwind: bb3];
+        _4 = PtrMetadata(move _2);
+        _5 = move _4 as *const () (Transmute);
+        _6 = copy _5 as *const for<'a> fn(&'a dyn Animal) -> usize (PtrToPtr);
+        _7 = Offset(copy _6, const 3_usize);
+        _8 = copy (*_7);
+        _11 = <Cat as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _12 = Eq(copy _8, copy _11);
+        switchInt(copy _12) -> [1: bb8, otherwise: bb6];
     }
 
     bb1: {
@@ -72,6 +84,24 @@ fn first_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
 
     bb4 (cleanup): {
         resume;
+    }
+
+    bb5: {
+        goto -> bb1;
+    }
+
+    bb6: {
+        _0 = <dyn Animal as Animal>::speak(move _2) -> [return: bb5, unwind: bb3];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _9 = move _2 as *const Cat (PtrToPtr);
+        _10 = &(*_9);
+        _0 = <Cat as Animal>::speak(move _10) -> [return: bb7, unwind: bb3];
     }
 }
 ######### END after #########
@@ -123,16 +153,28 @@ fn second_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
     let mut _0: usize;
     let mut _2: &dyn Animal;
     let mut _3: *const dyn Animal;
-    let mut _4: *const Dog;
-    let mut _5: &Dog;
+    let mut _4: std::ptr::DynMetadata<dyn Animal>;
+    let mut _5: *const ();
+    let mut _6: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _7: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _8: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _9: *const Dog;
+    let mut _10: &Dog;
+    let mut _11: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _12: bool;
 
     bb0: {
         StorageLive(_2);
         _3 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
         _2 = &(*_3);
-        _4 = move _2 as *const Dog (PtrToPtr);
-        _5 = &(*_4);
-        _0 = <Dog as Animal>::speak(move _5) -> [return: bb1, unwind: bb3];
+        _4 = PtrMetadata(move _2);
+        _5 = move _4 as *const () (Transmute);
+        _6 = copy _5 as *const for<'a> fn(&'a dyn Animal) -> usize (PtrToPtr);
+        _7 = Offset(copy _6, const 3_usize);
+        _8 = copy (*_7);
+        _11 = <Dog as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _12 = Eq(copy _8, copy _11);
+        switchInt(copy _12) -> [1: bb8, otherwise: bb6];
     }
 
     bb1: {
@@ -150,6 +192,24 @@ fn second_speak(_1: std::boxed::Box<dyn Animal>) -> usize {
 
     bb4 (cleanup): {
         resume;
+    }
+
+    bb5: {
+        goto -> bb1;
+    }
+
+    bb6: {
+        _0 = <dyn Animal as Animal>::speak(move _2) -> [return: bb5, unwind: bb3];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _9 = move _2 as *const Dog (PtrToPtr);
+        _10 = &(*_9);
+        _0 = <Dog as Animal>::speak(move _10) -> [return: bb7, unwind: bb3];
     }
 }
 ######### END after #########

@@ -73,6 +73,11 @@ pub enum Reason {
     /// argument sets for this function): it may have been computed for
     /// arguments that differ from this call's inside ADT fields.
     MemoWidenedReuse,
+    /// A call through a fn pointer whose target the analysis doesn't know
+    /// (interp_fn_ptr): answered from the signature, the callee isn't
+    /// interpreted - e.g. `core::fmt::rt::Argument::fmt` calling a
+    /// `Display::fmt` impl.
+    FnPtrCall,
 }
 
 impl Reason {
@@ -94,6 +99,7 @@ impl Reason {
             Reason::WidenWriteValue => "widened (written value size) - dropped fields of",
             Reason::WidenWriteDisjuncts => "widened (written place's disjuncts) - dropped fields of",
             Reason::MemoWidenedReuse => "memo reuse under widened key",
+            Reason::FnPtrCall => "fn-pointer call (not followed)",
         }
     }
 
@@ -110,6 +116,7 @@ impl Reason {
                 | Reason::UnresolvedInstance
                 | Reason::VirtualInstance
                 | Reason::CandidatePanicked
+                | Reason::FnPtrCall
         )
     }
 }
@@ -177,8 +184,13 @@ impl Assumptions {
 
 /// What a callee's parameters would let it do that a fallback doesn't model.
 pub fn signature_risks(sig: &PolyFnSig) -> Vec<&'static str> {
+    input_risks(sig.value.inputs())
+}
+
+/// signature_risks, for a list of parameter types.
+pub fn input_risks(inputs: &[Ty]) -> Vec<&'static str> {
     let mut risks = Vec::new();
-    for input in sig.value.inputs() {
+    for input in inputs {
         collect_risks(input, 0, &mut risks);
     }
     risks.sort();

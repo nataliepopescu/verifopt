@@ -72,7 +72,7 @@ also fixed a bug in the stdlib stubs impl
 also added logging for tracking number of candidates, if a fn was able to be
 interpreted or not, etc
 
-and added max-candidates knob
+and added max-candidates knob (previously was using 4)
 
 ## ripgrep
 
@@ -186,10 +186,13 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/walkdir-629828d1005faf9c.txt
 4511080  348289     424 4859793  4a2791 verifopt_target/x86_64-unknown-linux-gnu/release/rg
 ```
 
-- size is closer but still worse in ripgrep, not sure why
-    - possibly inlining
-    - also the partitioning change
-    - rewrites don't actually account for this directly
+- size is closer but still worse in ripgrep, inlining due to rewrites
+    - tested, _not_ the partitioning change
+
+    - however, the partitioning hook _does_ change layouts, so it should be used
+      at the baseline, not a build without it, to isolate the effects of the
+      rewrites
+        - note: need a store present for the hook to run properly
 
 ## tock
 
@@ -243,5 +246,7 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/imix-a7028f869d0b08c6.txt: 4
 
 # NEW BUILD (10/17/26)
 
+fix target creation when CHA finds no candidates
 
+fix rewrite unsoundness due to fnptr fallbacks
 

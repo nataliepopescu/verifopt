@@ -75,8 +75,15 @@ fn main() -> () {
     let _3: &dyn Animal;
     let _4: usize;
     let mut _5: usize;
-    let mut _6: *const Cat;
-    let mut _7: &Cat;
+    let mut _6: std::ptr::DynMetadata<dyn Animal>;
+    let mut _7: *const ();
+    let mut _8: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _9: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _10: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _11: *const Cat;
+    let mut _12: &Cat;
+    let mut _13: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _14: bool;
     scope 1 {
         debug res => _1;
         scope 2 {
@@ -110,9 +117,14 @@ fn main() -> () {
     bb4: {
         StorageLive(_4);
         StorageLive(_5);
-        _6 = move _3 as *const Cat (PtrToPtr);
-        _7 = &(*_6);
-        _5 = <Cat as Animal>::speak(move _7) -> [return: bb5, unwind continue];
+        _6 = PtrMetadata(move _3);
+        _7 = move _6 as *const () (Transmute);
+        _8 = copy _7 as *const for<'a> fn(&'a dyn Animal) -> usize (PtrToPtr);
+        _9 = Offset(copy _8, const 3_usize);
+        _10 = copy (*_9);
+        _13 = <Cat as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _14 = Eq(copy _10, copy _13);
+        switchInt(copy _14) -> [1: bb11, otherwise: bb9];
     }
 
     bb5: {
@@ -128,6 +140,24 @@ fn main() -> () {
         StorageDead(_5);
         StorageDead(_4);
         return;
+    }
+
+    bb8: {
+        goto -> bb5;
+    }
+
+    bb9: {
+        _5 = <dyn Animal as Animal>::speak(move _3) -> [return: bb8, unwind continue];
+    }
+
+    bb10: {
+        goto -> bb5;
+    }
+
+    bb11: {
+        _11 = move _3 as *const Cat (PtrToPtr);
+        _12 = &(*_11);
+        _5 = <Cat as Animal>::speak(move _12) -> [return: bb10, unwind continue];
     }
 }
 ######### END after #########

@@ -70,8 +70,15 @@ fn main() -> () {
     let mut _3: usize;
     let mut _4: &dyn Animal;
     let mut _5: *const dyn Animal;
-    let mut _6: *const Cat;
-    let mut _7: &Cat;
+    let mut _6: std::ptr::DynMetadata<dyn Animal>;
+    let mut _7: *const ();
+    let mut _8: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _9: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _10: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _11: *const Cat;
+    let mut _12: &Cat;
+    let mut _13: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _14: bool;
     scope 1 {
         debug x => const 0_usize;
         let _1: std::boxed::Box<dyn Animal>;
@@ -93,9 +100,14 @@ fn main() -> () {
         StorageLive(_4);
         _5 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
         _4 = &(*_5);
-        _6 = move _4 as *const Cat (PtrToPtr);
-        _7 = &(*_6);
-        _3 = <Cat as Animal>::speak(move _7) -> [return: bb2, unwind: bb4];
+        _6 = PtrMetadata(move _4);
+        _7 = move _6 as *const () (Transmute);
+        _8 = copy _7 as *const for<'a> fn(&'a dyn Animal) -> usize (PtrToPtr);
+        _9 = Offset(copy _8, const 3_usize);
+        _10 = copy (*_9);
+        _13 = <Cat as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _14 = Eq(copy _10, copy _13);
+        switchInt(copy _14) -> [1: bb10, otherwise: bb8];
     }
 
     bb2: {
@@ -120,6 +132,24 @@ fn main() -> () {
         StorageDead(_3);
         StorageDead(_2);
         drop(_1) -> [return: bb3, unwind continue];
+    }
+
+    bb7: {
+        goto -> bb2;
+    }
+
+    bb8: {
+        _3 = <dyn Animal as Animal>::speak(move _4) -> [return: bb7, unwind: bb4];
+    }
+
+    bb9: {
+        goto -> bb2;
+    }
+
+    bb10: {
+        _11 = move _4 as *const Cat (PtrToPtr);
+        _12 = &(*_11);
+        _3 = <Cat as Animal>::speak(move _12) -> [return: bb9, unwind: bb4];
     }
 }
 ######### END after #########

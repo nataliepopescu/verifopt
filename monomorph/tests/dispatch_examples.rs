@@ -150,6 +150,14 @@ example_test!(cha_single_instance, "cha_single_instance", Passing);
 
 // CHA-fallback sites dispatching traits with their own lifetime / type params
 // (`Client<'a>`, `Sink<F>` with a generic impl): CHA must still list their
+// impls, and with one compiled instance each, both are rewritten as "single
+// exact". Before the fix CHA was empty there and nothing was rewritten.
+example_test!(cha_lifetime_trait, "cha_lifetime_trait", Passing);
 
-// CHA-fallback sites dispatching traits with their own lifetime / type params
-// (`Client<'a>`, `Sink<F>` with a generic impl): CHA must still list their
+// `Formatter::write_fmt`'s writer dispatch, reached directly from
+// `to_string()` (a String) and, through `core::fmt::write`'s fn-pointer call
+// to `Display::fmt`, with a custom `fmt::Write` type. FSA can miss the
+// second writer, so the single-target site must get a guarded rewrite
+// (pointers, with the dyn call as fallback): the traced byte/call counts
+// are only right if the Counter's own write_str runs.
+example_test!(fmt_fnptr_writer, "fmt_fnptr_writer", Passing);

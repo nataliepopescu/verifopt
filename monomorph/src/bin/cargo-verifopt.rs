@@ -40,7 +40,7 @@ use std::process::Command;
 /// The help message for `cargo-verifopt`
 const CARGO_VERIFOPT_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
 Usage:
-    cargo verifopt [--rewrite-only] [--max-candidates N]
+    cargo verifopt [--rewrite-only] [--max-candidates N] [--unguarded-single]
 
     --rewrite-only  Skip analysis and the automatic discovery-then-decide
                      flow entirely - just re-run the rewrite pass against
@@ -55,6 +55,14 @@ Usage:
                     may compare against (default 4); a dispatch site with
                     more possible targets is left as a dynamic call. Sets
                     VERIFOPT_MAX_CANDIDATES for every compiler process.
+
+    --unguarded-single
+                    Also rewrite single-target sites that aren't proven
+                    single (no complete CHAmax == 1) as unguarded direct
+                    calls. Off by default, since a missed target makes such
+                    a call unsound; those sites get a guarded pointer
+                    comparison with the dynamic call as fallback instead.
+                    Sets VERIFOPT_UNGUARDED_SINGLE for every compiler process.
 "#;
 
 /// Set the environment variable `VERIFOPT_BUILD_STD` to enable the building of std library when running verifopt.
@@ -492,7 +500,11 @@ fn run_cargo_build(
         if arg == "--" {
             break;
         }
-        if arg == "--lib" || arg == "--rewrite-only" || arg == "--skip-rewrite" {
+        if arg == "--lib"
+            || arg == "--rewrite-only"
+            || arg == "--skip-rewrite"
+            || arg == "--unguarded-single"
+        {
             continue;
         }
         // Ours, not cargo's (see VERIFOPT_MAX_CANDIDATES below).
@@ -583,6 +595,13 @@ fn run_cargo_build(
     // verifopt_rewrite.rs.
     if has_arg_flag("--skip-rewrite") {
         cmd.env("VERIFOPT_SKIP_REWRITE", "1");
+    }
+
+    // --unguarded-single: read by the modified compiler's rewrite (see
+    // allow_unguarded_single in verifopt_rewrite.rs); same propagation as
+    // VERIFOPT_SKIP_REWRITE.
+    if has_arg_flag("--unguarded-single") {
+        cmd.env("VERIFOPT_UNGUARDED_SINGLE", "1");
     }
 
     // --max-candidates N: read by the modified compiler's rewrite (see

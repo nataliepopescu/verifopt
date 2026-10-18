@@ -1,0 +1,24 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "library/core/src/fmt/mod.rs:2123:13: 2123:34",
+      "is_maybe_example": true,
+      "cha": [
+        "<core::fmt::builders::PadAdapter<'_, '_> as std::fmt::Write>::write_str",
+        "<core::net::display_buffer::DisplayBuffer<SIZE> as std::fmt::Write>::write_str",
+        "<fmt_fnptr_writer::Counter as std::fmt::Write>::write_str",
+        "<rustc_demangle::SizeLimitedFmtAdapter<F> as std::fmt::Write>::write_str",
+        "<std::error::Indented<'_, T> as std::fmt::Write>::write_str",
+        "<std::ffi::OsString as std::fmt::Write>::write_str",
+        "<std::fmt::Formatter<'_> as std::fmt::Write>::write_str",
+        "<std::io::default_write_fmt::Adapter<'_, T> as std::fmt::Write>::write_str",
+        "<std::string::String as std::fmt::Write>::write_str"
+      ],
+      "fsa": [
+        "<std::string::String as std::fmt::Write>::write_str"
+      ]
+    }
+  ]
+}

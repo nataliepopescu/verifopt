@@ -112,8 +112,15 @@ fn main() -> () {
     let mut _8: *const dyn Animal;
     let mut _9: *const dyn Animal;
     let mut _10: *const dyn Animal;
-    let mut _11: *const Cat;
-    let mut _12: &Cat;
+    let mut _11: std::ptr::DynMetadata<dyn Animal>;
+    let mut _12: *const ();
+    let mut _13: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _14: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _15: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _16: *const Cat;
+    let mut _17: &Cat;
+    let mut _18: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _19: bool;
     scope 1 {
         debug x => const 0_usize;
         let _1: std::boxed::Box<dyn Animal>;
@@ -164,9 +171,14 @@ fn main() -> () {
         StorageLive(_6);
         _10 = copy ((_1.0: std::ptr::Unique<dyn Animal>).0: std::ptr::NonNull<dyn Animal>) as *const dyn Animal (Transmute);
         _6 = &(*_10);
-        _11 = move _6 as *const Cat (PtrToPtr);
-        _12 = &(*_11);
-        _5 = <Cat as Animal>::speak(move _12) -> [return: bb3, unwind: bb6];
+        _11 = PtrMetadata(move _6);
+        _12 = move _11 as *const () (Transmute);
+        _13 = copy _12 as *const for<'a> fn(&'a dyn Animal) -> usize (PtrToPtr);
+        _14 = Offset(copy _13, const 3_usize);
+        _15 = copy (*_14);
+        _18 = <Cat as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _19 = Eq(copy _15, copy _18);
+        switchInt(copy _19) -> [1: bb13, otherwise: bb11];
     }
 
     bb3: {
@@ -202,6 +214,24 @@ fn main() -> () {
         StorageDead(_4);
         StorageDead(_3);
         drop(_2) -> [return: bb4, unwind: bb7];
+    }
+
+    bb10: {
+        goto -> bb3;
+    }
+
+    bb11: {
+        _5 = <dyn Animal as Animal>::speak(move _6) -> [return: bb10, unwind: bb6];
+    }
+
+    bb12: {
+        goto -> bb3;
+    }
+
+    bb13: {
+        _16 = move _6 as *const Cat (PtrToPtr);
+        _17 = &(*_16);
+        _5 = <Cat as Animal>::speak(move _17) -> [return: bb12, unwind: bb6];
     }
 }
 ######### END after #########

@@ -59,16 +59,28 @@ fn retain(_1: usize, _2: &dyn Animal) -> usize {
     let _3: usize;
     let mut _4: usize;
     let mut _5: usize;
-    let mut _6: *const Bird;
-    let mut _7: &Bird;
+    let mut _6: std::ptr::DynMetadata<dyn Animal>;
+    let mut _7: *const ();
+    let mut _8: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _9: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _10: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _11: *const Bird;
+    let mut _12: &Bird;
+    let mut _13: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _14: bool;
     scope 1 {
         debug here => _3;
     }
 
     bb0: {
-        _6 = copy _2 as *const Bird (PtrToPtr);
-        _7 = &(*_6);
-        _3 = <Bird as Animal>::speak(move _7) -> [return: bb1, unwind continue];
+        _6 = PtrMetadata(copy _2);
+        _7 = move _6 as *const () (Transmute);
+        _8 = copy _7 as *const for<'a> fn(&'a dyn Animal) -> usize (PtrToPtr);
+        _9 = Offset(copy _8, const 3_usize);
+        _10 = copy (*_9);
+        _13 = <Bird as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _14 = Eq(copy _10, copy _13);
+        switchInt(copy _14) -> [1: bb9, otherwise: bb7];
     }
 
     bb1: {
@@ -96,6 +108,24 @@ fn retain(_1: usize, _2: &dyn Animal) -> usize {
 
     bb5: {
         return;
+    }
+
+    bb6: {
+        goto -> bb1;
+    }
+
+    bb7: {
+        _3 = <dyn Animal as Animal>::speak(copy _2) -> [return: bb6, unwind continue];
+    }
+
+    bb8: {
+        goto -> bb1;
+    }
+
+    bb9: {
+        _11 = copy _2 as *const Bird (PtrToPtr);
+        _12 = &(*_11);
+        _3 = <Bird as Animal>::speak(move _12) -> [return: bb8, unwind continue];
     }
 }
 ######### END after #########

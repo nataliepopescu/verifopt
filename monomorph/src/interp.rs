@@ -1320,6 +1320,11 @@ impl<'a> InterpPass<'a> {
                     "interp_constraint_as_fn: constraint isn't fn-like, falling back to imprecise (Ok(None)): {:?}",
                     constraint
                 );
+                crate::assumptions::record(
+                    crate::assumptions::Reason::FnPtrCall,
+                    format!("indirect call in {} (callee value not fn-like)", cur_scope.0.name()),
+                    Vec::new,
+                );
                 if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
                     *tainted = true;
                 }
@@ -1333,11 +1338,18 @@ impl<'a> InterpPass<'a> {
         _term_span: &Span,
         _ctxt: &mut Context,
         _call_stack: &mut Vec<VOID>,
-        _cur_scope: &VOID,
+        cur_scope: &VOID,
         _local_decls: &[LocalDecl],
         sigval: &SigVal,
         _args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
+        // The target is unknown, so nothing it does - writes through its
+        // arguments, dispatches on trait objects it's given - is modelled.
+        crate::assumptions::record(
+            crate::assumptions::Reason::FnPtrCall,
+            format!("fn pointer called in {}", cur_scope.0.name()),
+            || crate::assumptions::input_risks(&sigval.inputs),
+        );
         //debug!(
         //    "interp_fn_ptr: falling back for sigval with output {:?}",
         //    sigval.output

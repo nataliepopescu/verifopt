@@ -1,0 +1,458 @@
+
+######### MIR before #########
+// crate: fmt_fnptr_writer (package fmt_fnptr_writer 0.1.0)
+// fn: <Lit as std::fmt::Display>::fmt
+// instance: <Lit as std::fmt::Display>::fmt
+fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    debug self => _1;
+    debug f => _2;
+    let mut _0: std::result::Result<(), std::fmt::Error>;
+    let mut _3: std::fmt::Arguments<'_>;
+    let mut _4: &str;
+    scope 1 (inlined std::fmt::Arguments::<'_>::from_str) {
+        let mut _5: std::ptr::NonNull<u8>;
+        let mut _6: *const u8;
+        let mut _7: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+        let mut _8: usize;
+        let mut _9: usize;
+        let mut _10: usize;
+        scope 2 (inlined core::str::<impl str>::as_ptr) {
+            let mut _11: *const str;
+        }
+        scope 3 (inlined core::str::<impl str>::len) {
+            let _12: &[u8];
+            scope 4 (inlined core::str::<impl str>::as_bytes) {
+            }
+        }
+    }
+    scope 5 (inlined std::fmt::Formatter::<'_>::write_fmt) {
+        let mut _13: std::option::Option<&str>;
+        let mut _15: &mut dyn std::fmt::Write;
+        let mut _16: &mut dyn std::fmt::Write;
+        scope 6 {
+            let _14: &str;
+            scope 7 (inlined std::fmt::Arguments::<'_>::as_statically_known_str) {
+                let mut _17: bool;
+                let mut _18: bool;
+                scope 8 {
+                    scope 20 (inlined std::option::Option::<&str>::is_some) {
+                        let mut _26: isize;
+                        scope 21 {
+                        }
+                    }
+                }
+                scope 9 (inlined std::fmt::Arguments::<'_>::as_str) {
+                    let _19: usize;
+                    let mut _20: usize;
+                    let _21: &str;
+                    let _22: &[u8];
+                    let mut _23: *const u8;
+                    let mut _24: usize;
+                    scope 10 {
+                        scope 11 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                        }
+                        scope 12 (inlined #[track_caller] std::slice::from_raw_parts::<'_, u8>) {
+                            let _25: *const [u8];
+                            scope 13 (inlined core::ub_checks::check_language_ub) {
+                                scope 14 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 15 (inlined std::mem::size_of::<u8>) {
+                            }
+                            scope 16 (inlined std::mem::align_of::<u8>) {
+                            }
+                            scope 17 (inlined std::ptr::slice_from_raw_parts::<u8>) {
+                                scope 18 (inlined std::ptr::from_raw_parts::<[u8], u8>) {
+                                }
+                            }
+                        }
+                        scope 19 (inlined std::str::from_utf8_unchecked) {
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const "lit";
+        StorageLive(_6);
+        StorageLive(_11);
+        _11 = &raw const (*_4);
+        _6 = copy _11 as *const u8 (PtrToPtr);
+        StorageDead(_11);
+        _5 = copy _6 as std::ptr::NonNull<u8> (Transmute);
+        StorageDead(_6);
+        StorageLive(_8);
+        StorageLive(_9);
+        StorageLive(_10);
+        StorageLive(_12);
+        _12 = const "lit" as &[u8] (Transmute);
+        _10 = PtrMetadata(copy _12);
+        StorageDead(_12);
+        _9 = Shl(move _10, const 1_i32);
+        StorageDead(_10);
+        _8 = BitOr(move _9, const 1_usize);
+        StorageDead(_9);
+        _7 = move _8 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        StorageDead(_8);
+        _3 = std::fmt::Arguments::<'_> { template: copy _5, args: copy _7 };
+        StorageDead(_4);
+        StorageLive(_14);
+        StorageLive(_15);
+        StorageLive(_16);
+        StorageLive(_13);
+        StorageLive(_19);
+        StorageLive(_21);
+        StorageLive(_22);
+        _19 = copy _7 as usize (Transmute);
+        StorageLive(_20);
+        _20 = BitAnd(copy _19, const 1_usize);
+        switchInt(move _20) -> [1: bb4, otherwise: bb5];
+    }
+
+    bb1: {
+        StorageDead(_16);
+        StorageDead(_15);
+        StorageDead(_14);
+        StorageDead(_3);
+        return;
+    }
+
+    bb2: {
+        StorageDead(_13);
+        goto -> bb1;
+    }
+
+    bb3: {
+        StorageDead(_18);
+        goto -> bb8;
+    }
+
+    bb4: {
+        StorageDead(_20);
+        StorageLive(_23);
+        _23 = copy _5 as *const u8 (Transmute);
+        StorageLive(_24);
+        _24 = Shr(copy _19, const 1_i32);
+        StorageLive(_25);
+        _25 = *const [u8] from (copy _23, copy _24);
+        _22 = &(*_25);
+        StorageDead(_25);
+        StorageDead(_24);
+        StorageDead(_23);
+        _21 = copy _22 as &str (Transmute);
+        _13 = std::option::Option::<&str>::Some(copy _21);
+        StorageDead(_22);
+        StorageDead(_21);
+        StorageDead(_19);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_26);
+        _26 = discriminant(_13);
+        _18 = Eq(copy _26, const 1_isize);
+        StorageDead(_26);
+        _17 = std::intrinsics::is_val_statically_known::<bool>(move _18) -> [return: bb9, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_20);
+        _13 = const std::option::Option::<&str>::None;
+        StorageDead(_22);
+        StorageDead(_21);
+        StorageDead(_19);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_26);
+        _26 = discriminant(_13);
+        _18 = Eq(copy _26, const 1_isize);
+        StorageDead(_26);
+        _17 = std::intrinsics::is_val_statically_known::<bool>(move _18) -> [return: bb6, unwind unreachable];
+    }
+
+    bb6: {
+        switchInt(move _17) -> [0: bb3, otherwise: bb7];
+    }
+
+    bb7: {
+        StorageDead(_18);
+        goto -> bb8;
+    }
+
+    bb8: {
+        StorageDead(_17);
+        StorageDead(_13);
+        _16 = copy ((*_2).1: &mut dyn std::fmt::Write);
+        _0 = std::fmt::write(move _16, move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb9: {
+        switchInt(move _17) -> [0: bb3, otherwise: bb10];
+    }
+
+    bb10: {
+        StorageDead(_18);
+        StorageDead(_17);
+        _14 = copy ((_13 as Some).0: &str);
+        _15 = copy ((*_2).1: &mut dyn std::fmt::Write);
+        _0 = <dyn std::fmt::Write as std::fmt::Write>::write_str(move _15, move _14) -> [return: bb2, unwind continue];
+    }
+}
+
+alloc12 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+alloc1 (size: 3, align: 1) {
+    6c 69 74                                        │ lit
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: fmt_fnptr_writer (package fmt_fnptr_writer 0.1.0)
+// fn: <Lit as std::fmt::Display>::fmt
+// instance: <Lit as std::fmt::Display>::fmt
+fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+    debug self => _1;
+    debug f => _2;
+    let mut _0: std::result::Result<(), std::fmt::Error>;
+    let mut _3: std::fmt::Arguments<'_>;
+    let mut _4: &str;
+    let mut _27: std::ptr::DynMetadata<dyn std::fmt::Write>;
+    let mut _28: *const ();
+    let mut _29: *const for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
+    let mut _30: *const for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
+    let mut _31: for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
+    let mut _32: *mut std::string::String;
+    let mut _33: &mut std::string::String;
+    let mut _34: for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
+    let mut _35: bool;
+    scope 1 (inlined std::fmt::Arguments::<'_>::from_str) {
+        let mut _5: std::ptr::NonNull<u8>;
+        let mut _6: *const u8;
+        let mut _7: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+        let mut _8: usize;
+        let mut _9: usize;
+        let mut _10: usize;
+        scope 2 (inlined core::str::<impl str>::as_ptr) {
+            let mut _11: *const str;
+        }
+        scope 3 (inlined core::str::<impl str>::len) {
+            let _12: &[u8];
+            scope 4 (inlined core::str::<impl str>::as_bytes) {
+            }
+        }
+    }
+    scope 5 (inlined std::fmt::Formatter::<'_>::write_fmt) {
+        let mut _13: std::option::Option<&str>;
+        let mut _15: &mut dyn std::fmt::Write;
+        let mut _16: &mut dyn std::fmt::Write;
+        scope 6 {
+            let _14: &str;
+            scope 7 (inlined std::fmt::Arguments::<'_>::as_statically_known_str) {
+                let mut _17: bool;
+                let mut _18: bool;
+                scope 8 {
+                    scope 20 (inlined std::option::Option::<&str>::is_some) {
+                        let mut _26: isize;
+                        scope 21 {
+                        }
+                    }
+                }
+                scope 9 (inlined std::fmt::Arguments::<'_>::as_str) {
+                    let _19: usize;
+                    let mut _20: usize;
+                    let _21: &str;
+                    let _22: &[u8];
+                    let mut _23: *const u8;
+                    let mut _24: usize;
+                    scope 10 {
+                        scope 11 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                        }
+                        scope 12 (inlined #[track_caller] std::slice::from_raw_parts::<'_, u8>) {
+                            let _25: *const [u8];
+                            scope 13 (inlined core::ub_checks::check_language_ub) {
+                                scope 14 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 15 (inlined std::mem::size_of::<u8>) {
+                            }
+                            scope 16 (inlined std::mem::align_of::<u8>) {
+                            }
+                            scope 17 (inlined std::ptr::slice_from_raw_parts::<u8>) {
+                                scope 18 (inlined std::ptr::from_raw_parts::<[u8], u8>) {
+                                }
+                            }
+                        }
+                        scope 19 (inlined std::str::from_utf8_unchecked) {
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = const "lit";
+        StorageLive(_6);
+        StorageLive(_11);
+        _11 = &raw const (*_4);
+        _6 = copy _11 as *const u8 (PtrToPtr);
+        StorageDead(_11);
+        _5 = copy _6 as std::ptr::NonNull<u8> (Transmute);
+        StorageDead(_6);
+        StorageLive(_8);
+        StorageLive(_9);
+        StorageLive(_10);
+        StorageLive(_12);
+        _12 = const "lit" as &[u8] (Transmute);
+        _10 = PtrMetadata(copy _12);
+        StorageDead(_12);
+        _9 = Shl(move _10, const 1_i32);
+        StorageDead(_10);
+        _8 = BitOr(move _9, const 1_usize);
+        StorageDead(_9);
+        _7 = move _8 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        StorageDead(_8);
+        _3 = std::fmt::Arguments::<'_> { template: copy _5, args: copy _7 };
+        StorageDead(_4);
+        StorageLive(_14);
+        StorageLive(_15);
+        StorageLive(_16);
+        StorageLive(_13);
+        StorageLive(_19);
+        StorageLive(_21);
+        StorageLive(_22);
+        _19 = copy _7 as usize (Transmute);
+        StorageLive(_20);
+        _20 = BitAnd(copy _19, const 1_usize);
+        switchInt(move _20) -> [1: bb4, otherwise: bb5];
+    }
+
+    bb1: {
+        StorageDead(_16);
+        StorageDead(_15);
+        StorageDead(_14);
+        StorageDead(_3);
+        return;
+    }
+
+    bb2: {
+        StorageDead(_13);
+        goto -> bb1;
+    }
+
+    bb3: {
+        StorageDead(_18);
+        goto -> bb8;
+    }
+
+    bb4: {
+        StorageDead(_20);
+        StorageLive(_23);
+        _23 = copy _5 as *const u8 (Transmute);
+        StorageLive(_24);
+        _24 = Shr(copy _19, const 1_i32);
+        StorageLive(_25);
+        _25 = *const [u8] from (copy _23, copy _24);
+        _22 = &(*_25);
+        StorageDead(_25);
+        StorageDead(_24);
+        StorageDead(_23);
+        _21 = copy _22 as &str (Transmute);
+        _13 = std::option::Option::<&str>::Some(copy _21);
+        StorageDead(_22);
+        StorageDead(_21);
+        StorageDead(_19);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_26);
+        _26 = discriminant(_13);
+        _18 = Eq(copy _26, const 1_isize);
+        StorageDead(_26);
+        _17 = std::intrinsics::is_val_statically_known::<bool>(move _18) -> [return: bb9, unwind unreachable];
+    }
+
+    bb5: {
+        StorageDead(_20);
+        _13 = const std::option::Option::<&str>::None;
+        StorageDead(_22);
+        StorageDead(_21);
+        StorageDead(_19);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_26);
+        _26 = discriminant(_13);
+        _18 = Eq(copy _26, const 1_isize);
+        StorageDead(_26);
+        _17 = std::intrinsics::is_val_statically_known::<bool>(move _18) -> [return: bb6, unwind unreachable];
+    }
+
+    bb6: {
+        switchInt(move _17) -> [0: bb3, otherwise: bb7];
+    }
+
+    bb7: {
+        StorageDead(_18);
+        goto -> bb8;
+    }
+
+    bb8: {
+        StorageDead(_17);
+        StorageDead(_13);
+        _16 = copy ((*_2).1: &mut dyn std::fmt::Write);
+        _0 = std::fmt::write(move _16, move _3) -> [return: bb1, unwind continue];
+    }
+
+    bb9: {
+        switchInt(move _17) -> [0: bb3, otherwise: bb10];
+    }
+
+    bb10: {
+        StorageDead(_18);
+        StorageDead(_17);
+        _14 = copy ((_13 as Some).0: &str);
+        _15 = copy ((*_2).1: &mut dyn std::fmt::Write);
+        _27 = PtrMetadata(move _15);
+        _28 = move _27 as *const () (Transmute);
+        _29 = copy _28 as *const for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error> (PtrToPtr);
+        _30 = Offset(copy _29, const 3_usize);
+        _31 = copy (*_30);
+        _34 = <std::string::String as std::fmt::Write>::write_str as for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _35 = Eq(copy _31, copy _34);
+        switchInt(copy _35) -> [1: bb14, otherwise: bb12];
+    }
+
+    bb11: {
+        goto -> bb2;
+    }
+
+    bb12: {
+        _0 = <dyn std::fmt::Write as std::fmt::Write>::write_str(move _15, move _14) -> [return: bb11, unwind continue];
+    }
+
+    bb13: {
+        goto -> bb2;
+    }
+
+    bb14: {
+        _32 = move _15 as *mut std::string::String (PtrToPtr);
+        _33 = &mut (*_32);
+        _0 = <std::string::String as std::fmt::Write>::write_str(move _33, move _14) -> [return: bb13, unwind continue];
+    }
+}
+
+alloc12 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+alloc1 (size: 3, align: 1) {
+    6c 69 74                                        │ lit
+}
+######### END after #########
+

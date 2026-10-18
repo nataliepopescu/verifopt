@@ -1317,7 +1317,7 @@ impl<'a> InterpPass<'a> {
                 sigval,
                 args,
             ),
-            RunningConstraint::Closure(cdef, genargs) => self.interp_closure(
+            RunningConstraint::Closure(cdef, genargs, _) => self.interp_closure(
                 term_span,
                 ctxt,
                 call_stack,
@@ -2060,7 +2060,10 @@ impl<'a> InterpPass<'a> {
                             .borrow_mut()
                             .insert(cur_scope.clone(), ParamSummary::Unavailable);
                     } else {
-                        let build_result = self.build_param_summary(cur_scope, is_closure);
+                        let rust_call =
+                            rust_call_arity(&self.get_body(cur_scope), args, local_decls).is_some();
+                        let build_result =
+                            self.build_param_summary(cur_scope, is_closure && !rust_call);
                         match build_result {
                             Ok(built) => {
                                 debug!("built param_summary for {:?}", cur_scope.0.name());
@@ -2266,6 +2269,18 @@ impl<'a> InterpPass<'a> {
         args: &Vec<Operand>,
         is_closure: bool,
     ) -> Vec<Constraints> {
+        if let Some(arity) = rust_call_arity(body, args, local_decls) {
+            return self.resolve_rust_call_args(
+                ctxt,
+                term_span,
+                caller_scope,
+                body,
+                local_decls,
+                args,
+                arity,
+                is_closure,
+            );
+        }
         let arg_count = body.arg_locals().len();
         let mut resolved = Vec::new();
 
@@ -2325,15 +2340,18 @@ impl<'a> InterpPass<'a> {
             is_closure,
         );
 
+        // An untupled rust-call (see rust_call_arity) is aligned with the
+        // callee's argument locals from `_1`; only `self` is a caller operand.
+        let rust_call = rust_call_arity(body, args, local_decls).is_some();
         for (i, constraints) in resolved.into_iter().enumerate() {
             debug!("\narg position: {:?}", i);
-            let local = if is_closure { i + 2 } else { i + 1 };
+            let local = if is_closure && !rust_call { i + 2 } else { i + 1 };
             let place = Place {
                 local,
                 projection: vec![],
             };
 
-            if local < body.locals().len() {
+            if local < body.locals().len() && (!rust_call || i == 0) {
                 let arg_ty = place.ty(body.locals()).unwrap();
                 if let TyKind::RigidTy(RigidTy::Ref(_, _, mt)) = arg_ty.kind() {
                     if let Operand::Copy(caller_place) | Operand::Move(caller_place) = &args[i] {
@@ -2397,6 +2415,58 @@ impl<'a> InterpPass<'a> {
             ),
             _ => todo!("runtime check arg"),
         }
+    }
+
+    /// The arguments of a rust-call closure invocation (see rust_call_arity),
+    /// as the callee's argument locals see them: `self` for `_1`, then the
+    /// tuple's elements for `_2..` (each from the tuple's value, or "a value
+    /// of the parameter's type" if that's unknown).
+    fn resolve_rust_call_args(
+        &self,
+        ctxt: &Context,
+        term_span: &Span,
+        caller_scope: &VOID,
+        body: &Body,
+        local_decls: &[LocalDecl],
+        args: &Vec<Operand>,
+        arity: usize,
+        is_closure: bool,
+    ) -> Vec<Constraints> {
+        let locals = body.locals();
+        let mut out = Vec::with_capacity(1 + arity);
+        out.push(self.resolve_arg(
+            ctxt,
+            term_span,
+            caller_scope,
+            &self.contains_dyn(&locals[1].ty),
+            local_decls,
+            &args[0],
+            is_closure,
+        ));
+        let tuple =
+            self.resolve_arg(ctxt, term_span, caller_scope, &None, local_decls, &args[1], is_closure);
+        for j in 0..arity {
+            let param_ty = &locals[j + 2].ty;
+            let mut elem = Constraints::new();
+            for c in tuple.inner.iter() {
+                if let Some(RunningConstraint::Tuple(inner)) = &c.cfc
+                    && let Some(e) = inner.get(j)
+                {
+                    elem.append(e.clone());
+                }
+            }
+            if elem.inner.is_empty() {
+                let (_, constraint) = self.converter.convert_ty(
+                    &Location::unknown(),
+                    param_ty,
+                    Some(caller_scope),
+                    Some(self),
+                );
+                elem = Constraints::from(constraint);
+            }
+            out.push(self.lift_traitobjtys(&self.contains_dyn(param_ty), elem, caller_scope));
+        }
+        out
     }
 
     fn check_sig_boundvars(&self, sig: &PolyFnSig) {
@@ -3056,7 +3126,7 @@ impl<'a> InterpPass<'a> {
                     (_, TraitObjConstraint::Adt(adtdef, genargs, _, fields)) => {
                         self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                     }
-                    (_, TraitObjConstraint::Closure(cdef, genargs)) => {
+                    (_, TraitObjConstraint::Closure(cdef, genargs, _)) => {
                         if !crate::constraints::closure_can_implement(trait_defid) {
                             return (false, vec![]);
                         }
@@ -3076,7 +3146,7 @@ impl<'a> InterpPass<'a> {
                 RunningConstraint::Adt(adtdef, genargs, _, fields) => {
                     self.resolve_adt_helper(term_span, trait_defid, adtdef, genargs, fields)
                 }
-                RunningConstraint::Closure(cdef, genargs) => {
+                RunningConstraint::Closure(cdef, genargs, _) => {
                     // Reached e.g. via resolve_adt_helper's recursion into an
                     // ADT's fields/genargs: a closure field of an iterator
                     // adapter must not become an `Iterator` candidate.
@@ -4527,7 +4597,7 @@ fn describe_receiver_constraint(conv: &RvalConverter, c: &Constraint) -> String 
                 s
             }
             RunningConstraint::Ptr(inner) => format!("Ptr({})", constraint_shape(conv, inner, depth + 1)),
-            RunningConstraint::Closure(cdef, _) => format!("Closure({})", cdef.0.name()),
+            RunningConstraint::Closure(cdef, ..) => format!("Closure({})", cdef.0.name()),
             RunningConstraint::Idk(cs) => format!("Idk({} disjuncts)", cs.inner.len()),
             other => {
                 let dbg = format!("{:?}", other);
@@ -4540,7 +4610,7 @@ fn describe_receiver_constraint(conv: &RvalConverter, c: &Constraint) -> String 
             Some((ty, TraitObjConstraint::Adt(adtdef, ..))) => {
                 format!("toc=({} -> Adt {}) ", ty.def.0.name(), adtdef.0.name())
             }
-            Some((ty, TraitObjConstraint::Closure(cdef, _))) => {
+            Some((ty, TraitObjConstraint::Closure(cdef, ..))) => {
                 format!("toc=({} -> Closure {}) ", ty.def.0.name(), cdef.0.name())
             }
             None => "toc=None ".to_string(),
@@ -4552,4 +4622,41 @@ fn describe_receiver_constraint(conv: &RvalConverter, c: &Constraint) -> String 
         format!("{}{}", toc, cfc)
     }
     constraint_shape(conv, c, 0)
+}
+
+/// The argument tuple's arity if `args` call the closure body `body` in the
+/// "rust-call" form `Fn*::call*(self, (a, b, ..))`, which the body declares
+/// as `_1` (the closure, by value or reference) and `_2..` (the tuple's
+/// elements, untupled). Not for a closure called through a fn pointer, whose
+/// arguments are the parameters themselves.
+fn rust_call_arity(body: &Body, args: &[Operand], local_decls: &[LocalDecl]) -> Option<usize> {
+    fn closure_def(ty: &Ty) -> Option<ClosureDef> {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Ref(_, inner, _)) => closure_def(&inner),
+            TyKind::RigidTy(RigidTy::Closure(def, _)) => Some(def),
+            _ => None,
+        }
+    }
+    let n_params = body.arg_locals().len();
+    if args.len() != 2 || n_params == 0 {
+        return None;
+    }
+    fn is_dyn(ty: &Ty) -> bool {
+        match ty.kind() {
+            TyKind::RigidTy(RigidTy::Ref(_, inner, _)) => is_dyn(&inner),
+            TyKind::RigidTy(RigidTy::Dynamic(..)) => true,
+            _ => false,
+        }
+    }
+    let env = closure_def(&body.locals()[1].ty)?;
+    // The receiver is the closure itself (static dispatch) or a `dyn Fn*`
+    // (virtual dispatch to this closure).
+    let receiver = args[0].ty(local_decls).ok()?;
+    if closure_def(&receiver) != Some(env) && !is_dyn(&receiver) {
+        return None;
+    }
+    match args[1].ty(local_decls).ok()?.kind() {
+        TyKind::RigidTy(RigidTy::Tuple(tys)) if tys.len() == n_params - 1 => Some(tys.len()),
+        _ => None,
+    }
 }

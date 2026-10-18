@@ -1,0 +1,33 @@
+{
+  "maybe_count": 2,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:46:5: 46:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<closure_captures::A as closure_captures::Sink>::put",
+        "<closure_captures::B as closure_captures::Sink>::put",
+        "<closure_captures::C as closure_captures::Sink>::put",
+        "<closure_captures::D as closure_captures::Sink>::put"
+      ],
+      "fsa": [
+        "<closure_captures::A as closure_captures::Sink>::put",
+        "<closure_captures::B as closure_captures::Sink>::put",
+        "<closure_captures::C as closure_captures::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:56:5: 56:8",
+      "is_maybe_example": true,
+      "cha": [
+        "<std::boxed::Box<F, A> as std::ops::FnMut<Args>>::call_mut",
+        "<std::sync::Exclusive<F> as std::ops::FnMut<Args>>::call_mut"
+      ],
+      "fsa": [
+        "closure_captures::Sink",
+        "closure_captures::main::{closure#1}"
+      ]
+    }
+  ]
+}

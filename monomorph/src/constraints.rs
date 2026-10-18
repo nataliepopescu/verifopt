@@ -307,6 +307,9 @@ impl Constraints {
                             if applies {
                                 fields.insert(idx, new.clone());
                             }
+                        } else if let Some(RunningConstraint::Closure(_, _, captures)) = &mut c.cfc {
+                            // a by-value capture written by an FnMut closure
+                            captures.insert(idx, new.clone());
                         }
                         c
                     })
@@ -341,6 +344,11 @@ impl Constraints {
                                 nested.write_field(rest.clone(), new.clone());
                                 fields.insert(idx, nested);
                             }
+                        } else if let Some(RunningConstraint::Closure(_, _, captures)) = &mut c.cfc {
+                            let mut nested =
+                                captures.get(&idx).cloned().unwrap_or_else(Constraints::new);
+                            nested.write_field(rest.clone(), new.clone());
+                            captures.insert(idx, nested);
                         }
                         c
                     })
@@ -445,7 +453,9 @@ pub type ADTFields = BTreeMap<usize, Constraints>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TraitObjConstraint {
     Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
-    Closure(ClosureDef, GenericArgs),
+    /// A closure value with its captured values (upvar index -> value), like
+    /// an ADT's fields; a capture never written reads as empty.
+    Closure(ClosureDef, GenericArgs, ADTFields),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -502,7 +512,9 @@ pub enum RunningConstraint {
     Adt(AdtDef, GenericArgs, Option<VariantIdx>, ADTFields),
     Ptr(Box<Constraint>),
     //Ref(Box<Constraint>),
-    Closure(ClosureDef, GenericArgs),
+    /// A closure value with its captured values (upvar index -> value), like
+    /// an ADT's fields; a capture never written reads as empty.
+    Closure(ClosureDef, GenericArgs, ADTFields),
     FnDef(FnDef, GenericArgs),
     FnPtr(SigVal),
     Dynamic(Vec<TraitObjTy>),
@@ -534,7 +546,8 @@ fn apply_field_idx(base: &Constraints, idx: usize) -> Constraints {
     let mut out = Constraints::new();
     for c in base.inner.iter() {
         match &c.cfc {
-            Some(RunningConstraint::Adt(_, _, _, fields)) => {
+            Some(RunningConstraint::Adt(_, _, _, fields))
+            | Some(RunningConstraint::Closure(_, _, fields)) => {
                 out.append(fields.get(&idx).cloned().unwrap_or_else(Constraints::new));
             }
             Some(RunningConstraint::Tuple(inner)) => {
@@ -576,8 +589,12 @@ fn substitute_toc(
                 }
                 TraitObjConstraint::Adt(def.clone(), genargs.clone(), *variant, new_fields)
             }
-            TraitObjConstraint::Closure(cdef, genargs) => {
-                TraitObjConstraint::Closure(*cdef, genargs.clone())
+            TraitObjConstraint::Closure(cdef, genargs, captures) => {
+                let mut new_captures = ADTFields::new();
+                for (k, v) in captures {
+                    new_captures.insert(*k, substitute_params(v, actual_args));
+                }
+                TraitObjConstraint::Closure(*cdef, genargs.clone(), new_captures)
             }
         };
         (ty.clone(), new_tc)
@@ -690,7 +707,9 @@ fn constraint_size(c: &Constraint) -> usize {
 
 fn rc_size(rc: &RunningConstraint) -> usize {
     match rc {
-        RunningConstraint::Adt(_, _, _, fields) => fields.values().map(constraints_size).sum(),
+        RunningConstraint::Adt(_, _, _, fields) | RunningConstraint::Closure(_, _, fields) => {
+            fields.values().map(constraints_size).sum()
+        }
         RunningConstraint::Ptr(inner) => constraint_size(inner),
         RunningConstraint::List(inner) => constraint_size(inner),
         RunningConstraint::Tuple(elems) => elems.iter().map(constraints_size).sum(),
@@ -701,8 +720,9 @@ fn rc_size(rc: &RunningConstraint) -> usize {
 
 fn toc_size(tc: &TraitObjConstraint) -> usize {
     match tc {
-        TraitObjConstraint::Adt(_, _, _, fields) => fields.values().map(constraints_size).sum(),
-        _ => 0,
+        TraitObjConstraint::Adt(_, _, _, fields) | TraitObjConstraint::Closure(_, _, fields) => {
+            fields.values().map(constraints_size).sum()
+        }
     }
 }
 
@@ -732,8 +752,11 @@ fn widen_toc(tc: &TraitObjConstraint) -> TraitObjConstraint {
             }
             TraitObjConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
         }
-        TraitObjConstraint::Closure(cdef, genargs) => {
-            TraitObjConstraint::Closure(*cdef, genargs.clone())
+        TraitObjConstraint::Closure(cdef, genargs, captures) => {
+            if !captures.is_empty() {
+                crate::assumptions::note_dropped_fields(&cdef.0.name());
+            }
+            TraitObjConstraint::Closure(*cdef, genargs.clone(), ADTFields::new())
         }
     }
 }
@@ -749,8 +772,11 @@ fn widen_rc(rc: &RunningConstraint) -> RunningConstraint {
             RunningConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
         }
         RunningConstraint::Ptr(inner) => RunningConstraint::Ptr(Box::new(widen_constraint(inner))),
-        RunningConstraint::Closure(cdef, genargs) => {
-            RunningConstraint::Closure(*cdef, genargs.clone())
+        RunningConstraint::Closure(cdef, genargs, captures) => {
+            if !captures.is_empty() {
+                crate::assumptions::note_dropped_fields(&cdef.0.name());
+            }
+            RunningConstraint::Closure(*cdef, genargs.clone(), ADTFields::new())
         }
         RunningConstraint::FnDef(fndef, genargs) => {
             RunningConstraint::FnDef(*fndef, genargs.clone())
@@ -780,7 +806,8 @@ pub fn contains_param(cs: &Constraints) -> bool {
 fn constraint_contains_param(c: &Constraint) -> bool {
     match &c.cfc {
         Some(RunningConstraint::Param(..)) => true,
-        Some(RunningConstraint::Adt(_, _, _, fields)) => fields.values().any(contains_param),
+        Some(RunningConstraint::Adt(_, _, _, fields))
+        | Some(RunningConstraint::Closure(_, _, fields)) => fields.values().any(contains_param),
         Some(RunningConstraint::Tuple(inner)) => inner.iter().any(contains_param),
         Some(RunningConstraint::Ptr(box inner)) => constraint_contains_param(inner),
         Some(RunningConstraint::List(box inner)) => constraint_contains_param(inner),
@@ -876,7 +903,20 @@ fn substitute_params_constraint(c: &Constraint, actual_args: &[Constraints]) -> 
                     .with_prov(c.prov.clone()),
             )
         }
-        // Scalar/Float/Dynamic/Closure/FnDef/FnPtr/None: nothing nested that
+        Some(RunningConstraint::Closure(cdef, genargs, captures)) => {
+            let mut new_captures = ADTFields::new();
+            for (k, v) in captures {
+                new_captures.insert(*k, substitute_params(v, actual_args));
+            }
+            Constraints::from(
+                Constraint::new(
+                    toc,
+                    Some(RunningConstraint::Closure(*cdef, genargs.clone(), new_captures)),
+                )
+                .with_prov(c.prov.clone()),
+            )
+        }
+        // Scalar/Float/Dynamic/FnDef/FnPtr/None: nothing nested that
         // summary-building could have planted a Param inside.
         _ => Constraints::from(Constraint::new(toc, c.cfc.clone()).with_prov(c.prov.clone())),
     }
@@ -1208,7 +1248,8 @@ impl Context {
         out.push(constraint.clone());
 
         match &constraint.cfc {
-            Some(RunningConstraint::Adt(_, _, _, fields)) => {
+            Some(RunningConstraint::Adt(_, _, _, fields))
+            | Some(RunningConstraint::Closure(_, _, fields)) => {
                 for (_key, field_constraints) in fields {
                     let res = self.flatten_all(field_constraints, scope, timing);
                     let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
@@ -1237,7 +1278,7 @@ impl Context {
                 let _g = timing.map(|p| p.timing_span(TimingCat::FlattenOneAppend, scope));
                 out.append(res);
             }
-            // Scalar/Float/Dynamic/Closure/FnDef/FnPtr: no further
+            // Scalar/Float/Dynamic/FnDef/FnPtr: no further
             // structure to descend into
             _ => {}
         }
@@ -1259,6 +1300,11 @@ impl Context {
                     .get(&adt_field_idx(elem))
                     .cloned()
                     .unwrap_or_else(Constraints::new) // unknown/never-written field -> fallback, see below
+            }
+            // An upvar read in a closure body: `(*_1).i` / `_1.i`.
+            Some(RunningConstraint::Closure(_, _, captures)) => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneAdt, scope));
+                captures.get(&adt_field_idx(elem)).cloned().unwrap_or_else(Constraints::new)
             }
             Some(RunningConstraint::Tuple(inner)) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneTuple, scope));

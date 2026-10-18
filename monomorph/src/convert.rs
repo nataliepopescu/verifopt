@@ -508,8 +508,8 @@ impl<'a> RvalConverter<'a> {
             RunningConstraint::Adt(adtdef, genargs, variant_idx, fields) => {
                 TraitObjConstraint::Adt(*adtdef, genargs.clone(), *variant_idx, fields.clone())
             }
-            RunningConstraint::Closure(cdef, genargs) => {
-                TraitObjConstraint::Closure(*cdef, genargs.clone())
+            RunningConstraint::Closure(cdef, genargs, captures) => {
+                TraitObjConstraint::Closure(*cdef, genargs.clone(), captures.clone())
             }
             _ => panic!("unexpected cfc: {:?}", cfc),
         }
@@ -518,7 +518,7 @@ impl<'a> RvalConverter<'a> {
     fn get_defid_candidates(&self, cfc: &RunningConstraint) -> Vec<(DefId, RunningConstraint)> {
         match cfc {
             RunningConstraint::Adt(adtdef, _, _, _) => vec![(adtdef.0, cfc.clone())],
-            RunningConstraint::Closure(cdef, _) => vec![(cdef.0, cfc.clone())],
+            RunningConstraint::Closure(cdef, ..) => vec![(cdef.0, cfc.clone())],
             RunningConstraint::Scalar(_)
             | RunningConstraint::Float
             | RunningConstraint::Ptr(_)
@@ -807,12 +807,16 @@ impl<'a> RvalConverter<'a> {
                             _ => {}
                         }
                     }
-                    RunningConstraint::Closure(cdef, genargs) => {
+                    RunningConstraint::Closure(cdef, genargs, captures) => {
                         // This case is expected if the traits in maybe_trait_ty are one of: Fn, FnMut, FnOnce
                         if let Some(trait_ty) = maybe_trait_ty {
                             return Some((
                                 trait_ty[0].clone(),
-                                TraitObjConstraint::Closure(cdef.clone(), genargs.clone()),
+                                TraitObjConstraint::Closure(
+                                    cdef.clone(),
+                                    genargs.clone(),
+                                    captures.clone(),
+                                ),
                             ));
                         }
                     }
@@ -962,9 +966,17 @@ impl<'a> RvalConverter<'a> {
             }
             AggregateKind::Closure(def, genargs) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::ConvertAggClosure, cur_scope));
+                // The operands are the captured values, in upvar order - what
+                // the closure body reads as `(*_1).i` (or `_1.i` by value).
+                let mut captures = ADTFields::new();
+                for (i, op) in ops.iter().enumerate() {
+                    let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
+                    let ty = op.ty(local_decls).unwrap_or_else(|_| destty.clone());
+                    captures.insert(i, self.convert_op(ctxt, span, local_decls, cur_scope, op, &ty, timing));
+                }
                 Constraints::from(Constraint::new(
                     None,
-                    Some(RunningConstraint::Closure(*def, genargs.clone())),
+                    Some(RunningConstraint::Closure(*def, genargs.clone(), captures)),
                 ))
             }
             _ => todo!("other agg kind: {:?}", kind),
@@ -1106,7 +1118,7 @@ impl<'a> RvalConverter<'a> {
                 }
                 RigidTy::Closure(def, genargs) => (
                     None,
-                    Constraint::new(None, Some(RunningConstraint::Closure(def, genargs))),
+                    Constraint::new(None, Some(RunningConstraint::Closure(def, genargs, ADTFields::new()))),
                 ),
                 RigidTy::FnDef(def, genargs) => (
                     None,

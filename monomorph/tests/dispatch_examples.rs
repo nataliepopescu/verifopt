@@ -167,3 +167,8 @@ example_test!(fmt_fnptr_writer, "fmt_fnptr_writer", Passing);
 // a `&mut dyn Sink`. FSA at `Fmt::emit` must see `Counter` (reached only
 // through the fn pointers) as well as `Text` (reached directly).
 example_test!(fnptr_args_table, "fnptr_args_table", Passing);
+
+// Values captured by closures: `emit`'s dispatch is reached with a `B` only
+// through a generic closure's capture, and with a `C` only through a closure
+// called as `dyn FnMut`. FSA at `emit` must list A, B and C.
+example_test!(closure_captures, "closure_captures", Passing);

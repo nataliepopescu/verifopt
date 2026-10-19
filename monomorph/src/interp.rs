@@ -41,7 +41,7 @@ use crate::timing::{SelfTimeGuard, TimingCat, TimingStats};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
 use indexmap::IndexSet;
-use std::rc::Weak;
+use std::rc::{Rc, Weak};
 
 const MAX_DEPTH: u32 = 50;
 
@@ -164,7 +164,7 @@ pub struct InterpPass<'a> {
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
     pub wtos_merge_conflicts: RefCell<ImHashSet<VOID>>,
-    pub refs_merge_conflicts: RefCell<ImHashSet<(Place, VOID)>>,
+    pub refs_merge_conflicts: RefCell<ImHashSet<VOID>>,
 
     pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, u64)>>,
 
@@ -174,6 +174,8 @@ pub struct InterpPass<'a> {
     pub scope_epoch: RefCell<HashMap<BaseScopeId, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
     pub scope_summaries_count: RefCell<HashMap<BaseScopeId, u32>>,
+    body_cache: RefCell<HashMap<Instance, Rc<Body>>>,
+    wto_templates: RefCell<HashMap<Instance, BBDeps>>,
     //pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
     pub building_summaries: RefCell<HashSet<VOID>>,
@@ -280,6 +282,8 @@ impl<'a> InterpPass<'a> {
             scope_epoch: HashMap::new().into(),
             scope_exact_memo_count: HashMap::new().into(),
             scope_summaries_count: HashMap::new().into(),
+            body_cache: HashMap::new().into(),
+            wto_templates: HashMap::new().into(),
             //param_summaries: HashMap::new().into(),
             summary_build_taint_stack: Vec::new().into(),
             building_summaries: HashSet::new().into(),
@@ -369,8 +373,28 @@ impl<'a> InterpPass<'a> {
         result
     }
 
-    fn get_body(&self, cur_scope: &VOID) -> Body {
-        cur_scope.0.body().unwrap()
+    /// The scope's MIR body, converted once per instance: `Instance::body()`
+    /// builds a fresh `Body` from rustc's MIR on every call (millions of
+    /// times in a ripgrep run), and a function's body doesn't depend on the
+    /// call context.
+    fn get_body(&self, cur_scope: &VOID) -> Rc<Body> {
+        self.body_cache
+            .borrow_mut()
+            .entry(cur_scope.0)
+            .or_insert_with(|| Rc::new(cur_scope.0.body().unwrap()))
+            .clone()
+    }
+
+    /// A fresh block ordering for `cur_scope`: per-instance template (see
+    /// BBDeps::new), cloned so each scope consumes its own `ordering`; the
+    /// template's blocks are shared through their Rc instead of being copied
+    /// again for every call context.
+    fn new_bb_deps(&self, cur_scope: &VOID, body: &Body) -> BBDeps {
+        self.wto_templates
+            .borrow_mut()
+            .entry(cur_scope.0)
+            .or_insert_with(|| BBDeps::new(body))
+            .clone()
     }
 
     fn visit_body(
@@ -426,7 +450,7 @@ impl<'a> InterpPass<'a> {
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
         } else {
-            bb_deps = BBDeps::new(body);
+            bb_deps = self.new_bb_deps(cur_scope, body);
             if bb_deps.ordering.is_empty() {
                 return self.finish_frame(ctxt, call_stack, cur_scope, None);
             }
@@ -3965,22 +3989,28 @@ impl<'a> InterpPass<'a> {
             // forced to discard one. This debug log is purely
             // diagnostic now - how often genuinely different
             // alias-target sets get combined - not a correctness signal.
-            let refs_conflicts = Self::find_conflicting_keys(&merged.refs, &store.refs);
-            if !refs_conflicts.is_empty() {
-                debug!(
-                    "REFS MERGE: bb_visit={} {} key(s) had disagreeing alias-target sets \
-                     (both retained via union, not discarded)",
-                    *self.bb_visit_count.borrow(),
-                    refs_conflicts.len(),
-                );
-            }
-            for conflicting_key in refs_conflicts {
-                self.refs_merge_conflicts
-                    .borrow_mut()
-                    .insert(conflicting_key);
+            // Diagnostics only, so only with debug logging on: the scan
+            // walks the smaller alias map on every context merge (once per
+            // simulated dispatch candidate) - over a quarter of the CPU in
+            // a ripgrep run - and refs_merge_conflicts is never read.
+            if log::log_enabled!(log::Level::Debug) {
+                let refs_conflicts = Self::find_conflicting_keys(&merged.refs, &store.refs);
+                if !refs_conflicts.is_empty() {
+                    debug!(
+                        "REFS MERGE: bb_visit={} {} key(s) had disagreeing alias-target sets \
+                         (both retained via union, not discarded)",
+                        *self.bb_visit_count.borrow(),
+                        refs_conflicts.len(),
+                    );
+                }
+                for conflicting_key in refs_conflicts {
+                    self.refs_merge_conflicts
+                        .borrow_mut()
+                        .insert(conflicting_key);
+                }
             }
 
-            merged.refs = merged.refs.union_with(store.refs, |set1, set2| set1.union(set2));
+            merged.refs = crate::constraints::union_refs(merged.refs, store.refs);
             drop(_timing_guard);
         }
 
@@ -4286,7 +4316,29 @@ impl<'a> InterpPass<'a> {
         result
     }
 
+    /// Returns from `cur_scope` (finish_frame_inner: queued recursive calls
+    /// re-interpreted, the scope re-visited if needed), then drops its alias
+    /// edges if it's no longer on the call stack - otherwise they pile up for
+    /// every scope and call context ever entered. Safe for the fixpoint: a
+    /// queued recursive call is only ever re-interpreted while the scope it
+    /// recursed into is still on the stack (it was queued because that scope
+    /// was active, and is processed when a frame below it finishes), so its
+    /// aliases are still there; a later call registers them afresh.
     fn finish_frame(
+        &self,
+        ctxt: &mut Context,
+        call_stack: &mut Vec<VOID>,
+        cur_scope: &VOID,
+        retval: Option<Constraints>,
+    ) -> Result<Option<Constraints>, Error> {
+        let result = self.finish_frame_inner(ctxt, call_stack, cur_scope, retval);
+        if !call_stack.contains(cur_scope) {
+            ctxt.cstore.drop_scope_refs(cur_scope);
+        }
+        result
+    }
+
+    fn finish_frame_inner(
         &self,
         ctxt: &mut Context,
         call_stack: &mut Vec<VOID>,

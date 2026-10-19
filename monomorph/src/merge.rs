@@ -164,9 +164,7 @@ impl Merge<ConstraintStore> for Vec<ConstraintStore> {
             let refs_guard = timing.map(|(pass, scope)| {
                 pass.timing_span(TimingCat::MergeStoresFallbackRefsUnion, scope)
             });
-            merged.refs = merged
-                .refs
-                .union_with(store.refs.clone(), |set1, set2| set1.union(set2));
+            merged.refs = crate::constraints::union_refs(merged.refs, store.refs.clone());
             drop(refs_guard);
         }
 

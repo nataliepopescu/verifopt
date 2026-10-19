@@ -1645,7 +1645,20 @@ pub struct ConstraintStore {
     /// matter. Retaining the full set is the sound alternative: nothing
     /// gets discarded, readers consider every possible target, at the
     /// cost of resolving to potentially more than one place.
-    pub refs: ImHashMap<(Place, VOID), ImHashSet<((Place, VOID), Mutability)>>,
+    ///
+    /// Keyed by scope first (see Refs), so a finished scope's aliases can be
+    /// dropped in one step (drop_scope_refs).
+    pub refs: Refs,
+}
+
+/// Alias edges by the scope of the aliasing place, then the place itself:
+/// (place, scope) -> its possible targets. Each scope - with its call
+/// context - is stored once rather than in every entry's key.
+pub type Refs = ImHashMap<VOID, ImHashMap<Place, ImHashSet<((Place, VOID), Mutability)>>>;
+
+/// The union of two alias maps (every target either has).
+pub fn union_refs(a: Refs, b: Refs) -> Refs {
+    a.union_with(b, |m1, m2| m1.union_with(m2, |s1, s2| s1.union(s2)))
 }
 
 impl ConstraintStore {
@@ -1696,10 +1709,24 @@ impl ConstraintStore {
     }
 
     pub fn add_ref(&mut self, from: (Place, VOID), to: (Place, VOID), bk: Mutability) {
+        let (place, scope) = from;
         self.refs
-            .entry(from)
+            .entry(scope)
+            .or_default()
+            .entry(place)
             .or_insert_with(ImHashSet::new)
             .insert((to, bk));
+    }
+
+    /// Forgets the alias edges out of `scope`'s places - for a scope that has
+    /// finished (see InterpPass::finish_frame); a later call of it registers
+    /// its own again (resolve_args, and its `&place` statements).
+    pub fn drop_scope_refs(&mut self, scope: &VOID) {
+        self.refs.remove(scope);
+    }
+
+    fn ref_targets(&self, cur: &(Place, VOID)) -> Option<&ImHashSet<((Place, VOID), Mutability)>> {
+        self.refs.get(&cur.1).and_then(|m| m.get(&cur.0))
     }
 
     /// Explores every possible alias path from (place, scope), since a
@@ -1720,7 +1747,7 @@ impl ConstraintStore {
                 continue;
             }
             visited.insert(cur.clone());
-            match self.refs.get(&cur) {
+            match self.ref_targets(&cur) {
                 Some(targets) if !targets.is_empty() => {
                     for (to, _bk) in targets.iter() {
                         worklist.push(to.clone());
@@ -1749,7 +1776,7 @@ impl ConstraintStore {
                 continue;
             }
             visited.insert(cur.clone());
-            match self.refs.get(&cur) {
+            match self.ref_targets(&cur) {
                 Some(targets) if !targets.is_empty() => {
                     for (to, bk) in targets.iter() {
                         if matches!(bk, Mutability::Mut) {

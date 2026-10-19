@@ -226,14 +226,25 @@ impl TimingStats {
 pub(crate) struct TimingSpanGuard<'a, 'b> {
     pass: &'a InterpPass<'b>,
     cat: TimingCat,
-    scope: VOID,
+    /// None when timing is off (see timing_enabled): the guard does nothing.
+    scope: Option<VOID>,
     start: std::time::Instant,
+}
+
+/// Whether timing spans are recorded (env VERIFOPT_TIMING). Off by default:
+/// the per-(scope, category) maps are keyed by the full scope, call context
+/// included, so they grow with every context the analysis creates - about a
+/// tenth of the heap in a ripgrep run - and cost a scope clone per span.
+pub(crate) fn timing_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("VERIFOPT_TIMING").is_some())
 }
 
 impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
     fn drop(&mut self) {
+        let Some(scope) = self.scope.take() else { return };
         let elapsed = self.start.elapsed();
-        self.pass.record_timing(self.cat, &self.scope, elapsed);
+        self.pass.record_timing(self.cat, &scope, elapsed);
 
         let child_time = self
             .pass
@@ -252,13 +263,13 @@ impl<'a, 'b> Drop for TimingSpanGuard<'a, 'b> {
         self.pass
             .timing_scope_exclusive
             .borrow_mut()
-            .entry((self.scope.clone(), self.cat))
+            .entry((scope.clone(), self.cat))
             .or_default()
             .record(exclusive);
         self.pass
             .timing_scope_exclusive_global
             .borrow_mut()
-            .entry((self.scope.clone(), self.cat))
+            .entry((scope.clone(), self.cat))
             .or_default()
             .record(exclusive);
         self.pass
@@ -337,13 +348,16 @@ impl<'a> InterpPass<'a> {
         cat: TimingCat,
         scope: &VOID,
     ) -> TimingSpanGuard<'b, 'a> {
+        if !timing_enabled() {
+            return TimingSpanGuard { pass: self, cat, scope: None, start: std::time::Instant::now() };
+        }
         self.timing_child_stack
             .borrow_mut()
             .push(std::time::Duration::ZERO);
         TimingSpanGuard {
             pass: self,
             cat,
-            scope: scope.clone(),
+            scope: Some(scope.clone()),
             start: std::time::Instant::now(),
         }
     }

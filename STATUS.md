@@ -254,4 +254,5 @@ fix rewrite unsoundness due to fnptr fallbacks
 - plus try to recover some fnptr precision
 
 closure captures fix
+- big impact on analysis time b/c state starts to grow again, working on alleviating this
 

@@ -972,7 +972,17 @@ impl<'a> RvalConverter<'a> {
                 for (i, op) in ops.iter().enumerate() {
                     let _g = timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                     let ty = op.ty(local_decls).unwrap_or_else(|_| destty.clone());
-                    captures.insert(i, self.convert_op(ctxt, span, local_decls, cur_scope, op, &ty, timing));
+                    // Bounded like a written field: a closure capturing a
+                    // value that holds earlier closures (through `dyn`) can
+                    // otherwise nest without limit across loop iterations.
+                    let value = self.convert_op(ctxt, span, local_decls, cur_scope, op, &ty, timing);
+                    captures.insert(
+                        i,
+                        crate::constraints::bound_value_size(
+                            value,
+                            crate::assumptions::Reason::WidenCapture,
+                        ),
+                    );
                 }
                 Constraints::from(Constraint::new(
                     None,

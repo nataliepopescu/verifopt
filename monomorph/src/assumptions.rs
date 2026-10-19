@@ -73,6 +73,10 @@ pub enum Reason {
     /// argument sets for this function): it may have been computed for
     /// arguments that differ from this call's inside ADT fields.
     MemoWidenedReuse,
+    /// A closure's captured value was larger than NEW_VALUE_WIDEN_THRESHOLD
+    /// nodes and was widened, dropping the fields of this ADT / closure
+    /// (convert_agg, AggregateKind::Closure).
+    WidenCapture,
     /// A call through a fn pointer whose target the analysis doesn't know
     /// (interp_fn_ptr): answered from the signature, the callee isn't
     /// interpreted - e.g. `core::fmt::rt::Argument::fmt` calling a
@@ -99,6 +103,7 @@ impl Reason {
             Reason::WidenWriteValue => "widened (written value size) - dropped fields of",
             Reason::WidenWriteDisjuncts => "widened (written place's disjuncts) - dropped fields of",
             Reason::MemoWidenedReuse => "memo reuse under widened key",
+            Reason::WidenCapture => "widened (captured value size) - dropped fields of",
             Reason::FnPtrCall => "fn-pointer call (not followed)",
         }
     }

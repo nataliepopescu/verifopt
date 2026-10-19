@@ -39,6 +39,111 @@ const WRITE_FIELD_WIDEN_THRESHOLD: usize = 50;
 // this only needs to catch cases orders of magnitude beyond that.
 const NEW_VALUE_WIDEN_THRESHOLD: usize = 5_000;
 
+/// The two field maps' keys whose values differ (a key only one has counts),
+/// stopping once more than `limit` are found.
+fn differing_fields(a: &ADTFields, b: &ADTFields, limit: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    for k in a.keys().chain(b.keys().filter(|k| !a.contains_key(k))) {
+        if a.get(k) != b.get(k) {
+            out.push(*k);
+            if out.len() > limit {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// If `a` and `b` are the same ADT (def, generic args, variant) or closure
+/// (def, generic args), with the same trait-object type if any, and differ
+/// in at most one field / capture position (counting cfc and toc fields
+/// together), the single disjunct equal to both: that position's value is
+/// their union. Lossless - with every other field equal, no combination of
+/// field values is added - unlike merging disjuncts that differ in two
+/// fields, which would lose which values go together. Provenance is joined.
+fn merge_if_one_field_differs(a: &Constraint, b: &Constraint) -> Option<Constraint> {
+    fn cfc_fields(c: &Option<RunningConstraint>) -> Option<&ADTFields> {
+        match c {
+            Some(RunningConstraint::Adt(_, _, _, f)) | Some(RunningConstraint::Closure(_, _, f)) => Some(f),
+            _ => None,
+        }
+    }
+    fn toc_fields(t: &TraitObjConstraint) -> &ADTFields {
+        match t {
+            TraitObjConstraint::Adt(_, _, _, f) | TraitObjConstraint::Closure(_, _, f) => f,
+        }
+    }
+    let same_cfc_shape = match (&a.cfc, &b.cfc) {
+        (Some(RunningConstraint::Adt(d1, g1, v1, _)), Some(RunningConstraint::Adt(d2, g2, v2, _))) => {
+            d1 == d2 && v1 == v2 && g1 == g2
+        }
+        (Some(RunningConstraint::Closure(d1, g1, _)), Some(RunningConstraint::Closure(d2, g2, _))) => {
+            d1 == d2 && g1 == g2
+        }
+        _ => false,
+    };
+    if !same_cfc_shape {
+        return None;
+    }
+    let same_toc_shape = match (&a.toc, &b.toc) {
+        (None, None) => true,
+        (Some((t1, c1)), Some((t2, c2))) => {
+            t1 == t2
+                && match (c1, c2) {
+                    (TraitObjConstraint::Adt(d1, g1, v1, _), TraitObjConstraint::Adt(d2, g2, v2, _)) => {
+                        d1 == d2 && v1 == v2 && g1 == g2
+                    }
+                    (TraitObjConstraint::Closure(d1, g1, _), TraitObjConstraint::Closure(d2, g2, _)) => {
+                        d1 == d2 && g1 == g2
+                    }
+                    _ => false,
+                }
+        }
+        _ => false,
+    };
+    if !same_toc_shape {
+        return None;
+    }
+    let cfc_diff = differing_fields(cfc_fields(&a.cfc)?, cfc_fields(&b.cfc)?, 1);
+    let toc_diff = match (&a.toc, &b.toc) {
+        (Some((_, c1)), Some((_, c2))) => differing_fields(toc_fields(c1), toc_fields(c2), 1),
+        _ => Vec::new(),
+    };
+    if cfc_diff.len() + toc_diff.len() > 1 {
+        return None;
+    }
+    let mut merged = a.clone();
+    let union_at = |into: &mut ADTFields, from: &ADTFields, k: usize| {
+        if let Some(v) = from.get(&k) {
+            into.entry(k).or_insert_with(Constraints::new).append(v.clone());
+        }
+    };
+    if let Some(&k) = cfc_diff.first() {
+        let from = cfc_fields(&b.cfc).expect("same shape").clone();
+        if let Some(RunningConstraint::Adt(_, _, _, f)) | Some(RunningConstraint::Closure(_, _, f)) = &mut merged.cfc {
+            union_at(f, &from, k);
+        }
+    }
+    if let Some(&k) = toc_diff.first() {
+        let from = toc_fields(&b.toc.as_ref().expect("same shape").1).clone();
+        if let Some((_, TraitObjConstraint::Adt(_, _, _, f) | TraitObjConstraint::Closure(_, _, f))) = &mut merged.toc {
+            union_at(f, &from, k);
+        }
+    }
+    merged.prov.join(&b.prov);
+    Some(merged)
+}
+/// `value`, widened (ADT fields / captures dropped, recorded under `cause`)
+/// if its recursive size exceeds NEW_VALUE_WIDEN_THRESHOLD - the bound
+/// write_field applies to written values, for values built elsewhere.
+pub fn bound_value_size(value: Constraints, cause: crate::assumptions::Reason) -> Constraints {
+    if constraints_size(&value) > NEW_VALUE_WIDEN_THRESHOLD {
+        crate::assumptions::with_widen_cause(cause, || widen_constraints(&value))
+    } else {
+        value
+    }
+}
+
 pub fn unique_push<T: PartialEq>(vec: &mut Vec<T>, elem: T) -> Option<T> {
     if vec.contains(&elem) {
         Some(elem)
@@ -168,42 +273,73 @@ pub fn adt_field_idx(elem: &ProjectionElem) -> usize {
 }
 
 // Set of positive constraints; negative constraints are resolved immediately by removing them from the set
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Default, Clone)]
 pub struct Constraints {
     pub inner: Rc<IndexSet<Constraint>>,
+    /// Cached content hash (see content_hash). Values nest deeply (fields,
+    /// captures), and every push into an IndexSet hashes the whole disjunct,
+    /// so recomputing it each time made merges quadratic in value size.
+    /// Reset by everything that changes `inner` (push, write_field) - code
+    /// that replaces `inner` directly must call `invalidate_hash`.
+    hash: Cell<Option<u64>>,
 }
 
-impl Hash for Constraints {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+impl std::fmt::Debug for Constraints {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Constraints").field("inner", &self.inner).finish()
+    }
+}
+
+impl Constraints {
+    /// Order-independent hash of the disjuncts, computed once per value.
+    fn content_hash(&self) -> u64 {
+        if let Some(h) = self.hash.get() {
+            return h;
+        }
         let mut combined: u64 = 0;
         for elem in self.inner.iter() {
             let mut h = DefaultHasher::new();
             elem.hash(&mut h);
             combined ^= h.finish();
         }
-        combined.hash(state);
+        self.hash.set(Some(combined));
+        combined
+    }
+
+    pub fn invalidate_hash(&mut self) {
+        self.hash.set(None);
     }
 }
 
+impl Hash for Constraints {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.content_hash().hash(state);
+    }
+}
+
+impl PartialEq for Constraints {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.inner, &other.inner)
+            || (self.inner.len() == other.inner.len()
+                && self.content_hash() == other.content_hash()
+                && self.inner == other.inner)
+    }
+}
+impl Eq for Constraints {}
+
 impl Constraints {
     pub fn new() -> Constraints {
-        Self {
-            inner: Rc::new(IndexSet::new()),
-        }
+        Self { inner: Rc::new(IndexSet::new()), hash: Cell::new(None) }
     }
 
     pub fn from(constraint: Constraint) -> Constraints {
         let mut set = IndexSet::with_capacity(1);
         set.insert(constraint);
-        Self {
-            inner: Rc::new(set),
-        }
+        Self { inner: Rc::new(set), hash: Cell::new(None) }
     }
 
     pub fn from_vec(inner: Vec<Constraint>) -> Constraints {
-        Self {
-            inner: Rc::new(inner.into_iter().collect()),
-        }
+        Self { inner: Rc::new(inner.into_iter().collect()), hash: Cell::new(None) }
     }
 
     pub fn len(&self) -> usize {
@@ -226,6 +362,20 @@ impl Constraints {
         // duplicate is already present. Merge provenance into the existing
         // entry (via replace(), which keeps insertion order) instead of
         // just discarding it.
+        let mut new_constraint = new_constraint;
+        // Lossless merging (see merge_if_one_field_differs): absorb, one at a
+        // time, every existing disjunct that differs from the incoming one in
+        // at most one field, so values differing only in e.g. a scalar
+        // capacity don't multiply into separate disjuncts.
+        while let Some(i) = self
+            .inner
+            .iter()
+            .position(|c| *c != new_constraint && merge_if_one_field_differs(c, &new_constraint).is_some())
+        {
+            let existing = self.inner[i].clone();
+            new_constraint = merge_if_one_field_differs(&existing, &new_constraint).expect("checked above");
+            Rc::make_mut(&mut self.inner).shift_remove_index(i);
+        }
         if let Some(existing) = self.inner.get(&new_constraint) {
             let mut merged = existing.clone();
             merged.prov.join(&new_constraint.prov);
@@ -233,6 +383,7 @@ impl Constraints {
         } else {
             Rc::make_mut(&mut self.inner).insert(new_constraint);
         }
+        self.invalidate_hash();
     }
 
     pub fn append(&mut self, new_constraints: Constraints) {
@@ -315,6 +466,7 @@ impl Constraints {
                     })
                     .collect();
                 self.inner = Rc::new(new_set);
+                self.invalidate_hash();
             }
 
             (_, _) => {
@@ -354,6 +506,7 @@ impl Constraints {
                     })
                     .collect();
                 self.inner = Rc::new(new_set);
+                self.invalidate_hash();
             }
         }
     }

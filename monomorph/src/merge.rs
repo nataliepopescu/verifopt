@@ -112,6 +112,20 @@ pub fn merge_mapvals(
     }
 }
 
+/// Whether two map values are the same value by identity (the same shared
+/// constraint set, or stores with the same persistent maps), so merging them
+/// would give that value back. A cheap check, not equality: false doesn't
+/// mean they differ.
+pub fn mapvals_identical(a: &MapValue, b: &MapValue) -> bool {
+    match (a, b) {
+        (MapValue::Constraints(x), MapValue::Constraints(y)) => std::rc::Rc::ptr_eq(&x.inner, &y.inner),
+        (MapValue::Store(sx, ex), MapValue::Store(sy, ey)) => {
+            sx.cmap.ptr_eq(&sy.cmap) && sx.refs.ptr_eq(&sy.refs) && ex == ey
+        }
+        _ => false,
+    }
+}
+
 pub trait Merge<T> {
     fn merge(&self, timing: Option<(&InterpPass, &VOID)>) -> Result<Option<T>, Error>;
 }

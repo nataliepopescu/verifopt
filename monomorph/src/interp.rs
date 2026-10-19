@@ -4015,7 +4015,8 @@ impl<'a> InterpPass<'a> {
 
         for store in stores_iter {
             let _timing_guard = self.timing_span(TimingCat::TermMergeIdentityCheck, scope);
-            let identical = merged.cmap.ptr_eq(&store.cmap) && merged.refs == store.refs;
+            let identical = merged.cmap.ptr_eq(&store.cmap)
+                && (merged.refs.ptr_eq(&store.refs) || merged.refs == store.refs);
             drop(_timing_guard);
             if identical {
                 continue;
@@ -4024,9 +4025,16 @@ impl<'a> InterpPass<'a> {
             // HERE
             let _timing_guard = self.timing_span(TimingCat::TermMergePerKeyMapvals, scope);
             for (key, val) in store.cmap.iter() {
-                match merged.cmap.get_mut(key) {
+                // `get`, not `get_mut`: the value is only read, and get_mut
+                // copies the map's nodes on the way down (copy-on-write).
+                match merged.cmap.get(key) {
+                    // A candidate's context is a persistent clone of the
+                    // base, so most entries are still the very same value on
+                    // both sides; merging a value with itself gives it back,
+                    // so skip those instead of re-merging and re-inserting
+                    // every scope's every variable at every merge.
+                    Some(merged_val) if crate::merge::mapvals_identical(merged_val, val) => {}
                     Some(merged_val) => {
-                        // HERE
                         let _tg = self.timing_span(TimingCat::TermMergeMapsvalsMerge, scope);
                         let new_merged_val =
                             crate::merge::merge_mapvals(merged_val, val, Some((self, scope)));

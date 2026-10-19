@@ -2037,3 +2037,81 @@ impl ConstraintStore {
         }
     }
 }
+
+/// Diagnostics: the `top` node kinds making up `cs` by (tree) node count,
+/// e.g. "Adt(std::vec::Vec)=812345 Closure(..)=...", plus the maximum depth.
+pub fn size_histogram(cs: &Constraints, top: usize) -> String {
+    fn walk_cs(cs: &Constraints, depth: usize, counts: &mut HashMap<String, usize>, max_depth: &mut usize) {
+        for c in cs.inner.iter() {
+            walk_c(c, depth, counts, max_depth);
+        }
+    }
+    fn walk_c(c: &Constraint, depth: usize, counts: &mut HashMap<String, usize>, max_depth: &mut usize) {
+        *max_depth = (*max_depth).max(depth);
+        if let Some((_, tc)) = &c.toc {
+            match tc {
+                TraitObjConstraint::Adt(_, _, _, f) | TraitObjConstraint::Closure(_, _, f) => {
+                    for v in f.values() {
+                        walk_cs(v, depth + 1, counts, max_depth);
+                    }
+                }
+            }
+        }
+        let label = match &c.cfc {
+            Some(RunningConstraint::Adt(d, ..)) => format!("Adt({})", d.0.name()),
+            Some(RunningConstraint::Closure(d, ..)) => format!("Closure({})", d.0.name()),
+            Some(other) => format!("{:?}", other).split(['(', ' ', '{']).next().unwrap_or("?").to_string(),
+            None => "None".to_string(),
+        };
+        *counts.entry(label).or_default() += 1;
+        match &c.cfc {
+            Some(RunningConstraint::Adt(_, _, _, f)) | Some(RunningConstraint::Closure(_, _, f)) => {
+                for v in f.values() {
+                    walk_cs(v, depth + 1, counts, max_depth);
+                }
+            }
+            Some(RunningConstraint::Ptr(inner)) | Some(RunningConstraint::List(inner)) => {
+                walk_c(inner, depth + 1, counts, max_depth)
+            }
+            Some(RunningConstraint::Tuple(elems)) => {
+                for e in elems {
+                    walk_cs(e, depth + 1, counts, max_depth);
+                }
+            }
+            Some(RunningConstraint::Idk(inner)) => walk_cs(inner, depth + 1, counts, max_depth),
+            _ => {}
+        }
+    }
+    let mut counts = HashMap::new();
+    let mut max_depth = 0;
+    walk_cs(cs, 0, &mut counts, &mut max_depth);
+    let mut v: Vec<(String, usize)> = counts.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1));
+    let parts: Vec<String> = v.iter().take(top).map(|(k, n)| format!("{k}={n}")).collect();
+    format!("max depth {max_depth}; {}", parts.join(" "))
+}
+
+/// Diagnostics: total (tree) node count of a memo key's argument values.
+pub fn argset_size(a: &ArgSet) -> usize {
+    a.args.iter().flatten().map(constraint_size).sum()
+}
+
+/// Diagnostics: (variables, total node count) over a store and the stores
+/// nested in it.
+pub fn store_size(store: &ConstraintStore) -> (usize, usize) {
+    let (mut vars, mut nodes) = (0, 0);
+    for v in store.cmap.values() {
+        match &**v {
+            MapValue::Constraints(cs) => {
+                vars += 1;
+                nodes += constraints_size(cs);
+            }
+            MapValue::Store(inner, _) => {
+                let (v2, n2) = store_size(inner);
+                vars += v2;
+                nodes += n2;
+            }
+        }
+    }
+    (vars, nodes)
+}

@@ -524,6 +524,17 @@ impl<'a> InterpPass<'a> {
                     );
                     //crate::constraints::dump_flatten_all_cache_stats(&format!("bb visit {}", *n));
                     //self.log_bb_cache_sizes(*n, cur_scope, ctxt, bb_deps.ordering.len());
+                }
+                // Memory diagnostics for long runs: every N bb visits (env
+                // VERIFOPT_CACHE_SIZES=N), the caches' sizes at warn level.
+                static CACHE_SIZES_EVERY: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+                if let Some(every) = *CACHE_SIZES_EVERY.get_or_init(|| {
+                    std::env::var("VERIFOPT_CACHE_SIZES").ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0)
+                }) && *n % every == 0
+                {
+                    self.log_memory_diag(*n, ctxt);
+                }
+                if *n % 200 == 0 {
                     self.dump_self_time_report(
                         &format!("bb visit {}", *n),
                         &self.scope_self_time.borrow(),
@@ -2026,6 +2037,55 @@ impl<'a> InterpPass<'a> {
         );
     }
     */
+
+    /// Memory diagnostics (see VERIFOPT_CACHE_SIZES): RSS, then each cache's
+    /// entry count and, for the value-holding ones, the total node count of
+    /// its values (constraints_size, a tree count).
+    fn log_memory_diag(&self, n: u64, ctxt: &Context) {
+        let rss_mb = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("VmRSS:"))
+                    .and_then(|r| r.trim().split_whitespace().next()?.parse::<u64>().ok())
+            })
+            .unwrap_or(0)
+            / 1024;
+        let size = crate::constraints::constraints_size;
+        let (em_n, em_nodes, em_key_nodes) = {
+            let em = self.exact_memo.borrow();
+            (
+                em.len(),
+                em.values().map(|(c, _)| c.as_ref().map(size).unwrap_or(0)).sum::<usize>(),
+                em.keys().map(|(_, a)| crate::constraints::argset_size(a)).sum::<usize>(),
+            )
+        };
+        let sm_key_nodes =
+            self.summaries.borrow().keys().map(|(_, a)| crate::constraints::argset_size(a)).sum::<usize>();
+        let (store_vars, store_nodes) = crate::constraints::store_size(&ctxt.cstore);
+        let (sm_n, sm_nodes) = {
+            let sm = self.summaries.borrow();
+            (sm.len(), sm.values().map(size).sum::<usize>())
+        };
+        let (wq_keys, wq_items, wq_nodes, wq_stack) = {
+            let wq = self.wq.borrow();
+            let items = wq.values().map(|v| v.len()).sum::<usize>();
+            let nodes = wq.values().flatten().map(|(_, cs, _)| cs.iter().map(size).sum::<usize>()).sum::<usize>();
+            let stack = wq.values().flatten().map(|(_, _, st)| st.len()).sum::<usize>();
+            (wq.len(), items, nodes, stack)
+        };
+        log::warn!(
+            "[verifopt memory] bb_visits={n} rss={rss_mb}MB elapsed={}s exact_memo={em_n} ({em_nodes} value nodes, {em_key_nodes} key nodes) summaries={sm_n} ({sm_nodes} value nodes, {sm_key_nodes} key nodes) stores={store_vars} vars ({store_nodes} nodes) wq={wq_keys} keys/{wq_items} items ({wq_nodes} arg nodes, {wq_stack} saved stack frames) in_queue={} dependencies={} incomplete={} dispatch_tags={} scope_epoch={} cstore_cmap={} key_stack={}",
+            self.run_start.elapsed().as_secs(),
+            self.in_queue.borrow().len(),
+            self.dependencies.borrow().len(),
+            self.incomplete.borrow().len(),
+            self.dispatch_tags.borrow().len(),
+            self.scope_epoch.borrow().len(),
+            ctxt.cstore.cmap.len(),
+            self.key_stack.borrow().len(),
+        );
+    }
 
     fn interp_static_call(
         &self,

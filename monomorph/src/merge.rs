@@ -10,6 +10,40 @@ use log::debug;
 
 const MERGE_WIDEN_THRESHOLD: usize = 50;
 
+/// Progress / growth signal for long runs: every 4096th merge, measures the
+/// merged value (a full walk, hence the sampling) and logs at warn level
+/// whenever it's the largest seen so far by at least 2x. Steadily climbing
+/// sizes mean values keep growing (e.g. closures capturing earlier
+/// iterations' values) rather than the analysis converging.
+fn note_merge_size(merged: &Constraints, scope: Option<&VOID>) {
+    use std::cell::Cell;
+    thread_local! {
+        static MERGES: Cell<u64> = const { Cell::new(0) };
+        static LARGEST: Cell<usize> = const { Cell::new(0) };
+        static START: std::time::Instant = std::time::Instant::now();
+    }
+    let n = MERGES.with(|m| {
+        m.set(m.get() + 1);
+        m.get()
+    });
+    if n % 4096 != 0 {
+        return;
+    }
+    let size = crate::constraints::constraints_size(merged);
+    if size >= 2 * LARGEST.with(|l| l.get()).max(512) {
+        LARGEST.with(|l| l.set(size));
+        let secs = START.with(|s| s.elapsed().as_secs());
+        log::warn!(
+            "[verifopt progress] merges={n} elapsed={secs}s largest merged value so far: {size} nodes, {} disjuncts, in {}",
+            merged.inner.len(),
+            scope.map(|s| s.0.name()).unwrap_or_default()
+        );
+        if size >= 1_000_000 && std::env::var_os("VERIFOPT_SIZE_HISTOGRAM").is_some() {
+            log::warn!("[verifopt progress] composition: {}", crate::constraints::size_histogram(merged, 12));
+        }
+    }
+}
+
 fn merge_constraints(
     cur_constraints: &Constraints,
     new_constraints: &Constraints,
@@ -20,6 +54,7 @@ fn merge_constraints(
         timing.map(|(pass, scope)| pass.timing_span(TimingCat::TermMergeConstraintsAppend, scope));
     merged.append(new_constraints.clone());
     drop(append_guard);
+    note_merge_size(&merged, timing.map(|(_, scope)| scope));
     debug!(
         "merge_constraints: merged_disjuncts={}",
         crate::constraints::constraints_size(&merged)

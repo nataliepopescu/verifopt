@@ -244,6 +244,8 @@ verifopt_results_verifopt_target/verifopt_mir_dumps/imix-a7028f869d0b08c6.txt: 4
  166940       0   31324  198264   30678 verifopt_target/thumbv7em-none-eabi/release/imix
 ```
 
+- size win if no switch statements and only single-candidate (exact) rewrites!
+
 # NEW BUILD (10/17/26)
 
 fix target creation when CHA finds no candidates

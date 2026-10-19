@@ -38,6 +38,9 @@ pub enum Reason {
     Intrinsic,
     /// A recursive call answered from its signature.
     RecursionCut,
+    /// A call answered from its signature because nested re-interpretation
+    /// of recursive calls exceeded MAX_DEPTH.
+    DepthLimit,
     /// Generic arguments still containing parameters.
     NonMonomorphicArgs,
     /// Generic arguments of the wrong count or kind for the callee.
@@ -90,6 +93,7 @@ impl Reason {
             Reason::NoMir => "no MIR",
             Reason::Intrinsic => "intrinsic",
             Reason::RecursionCut => "recursion cut",
+            Reason::DepthLimit => "recursion depth limit",
             Reason::NonMonomorphicArgs => "non-monomorphic args",
             Reason::ArgsMismatch => "args mismatch",
             Reason::UnresolvedInstance => "unresolved instance",
@@ -116,6 +120,7 @@ impl Reason {
             Reason::NoMir
                 | Reason::Intrinsic
                 | Reason::RecursionCut
+                | Reason::DepthLimit
                 | Reason::NonMonomorphicArgs
                 | Reason::ArgsMismatch
                 | Reason::UnresolvedInstance

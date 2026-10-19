@@ -305,12 +305,16 @@ impl<'a> InterpPass<'a> {
                 .iter()
                 .map(|v| format!("{:?}", v.0.name()))
                 .collect();
+            let keys: Vec<String> =
+                self.key_stack.borrow().iter().map(|k| format!("{:?}", k.0.0.name())).collect();
             panic!(
-                "STACK DESYNC at {}: call_stack.len()={} key_stack.len()={}\ncall_stack contents:\n{:#?}",
+                "STACK DESYNC at {}: call_stack.len()={} key_stack.len()={}\ncall_stack contents:\n{:#?}\nkey_stack contents:\n{:#?}\nlast stack operations (op, scope, call_stack.len, key_stack.len):\n{}",
                 where_,
                 call_stack.len(),
                 key_len,
-                names
+                names,
+                keys,
+                recent_stack_ops()
             );
         }
     }
@@ -318,12 +322,29 @@ impl<'a> InterpPass<'a> {
     fn prepare_call(&self, call_stack: &mut Vec<VOID>, key: &SummaryKey) {
         call_stack.push(key.0.clone());
         self.key_stack.borrow_mut().push(key.clone());
+        note_stack_op("call", &key.0, call_stack.len(), self.key_stack.borrow().len());
         self.assert_stacks_synced(call_stack, "prepare_call");
+    }
+
+    /// Error-path unwinding: truncates both stacks back to `len`, their
+    /// length before the failed call's prepare_call. Not a single
+    /// prepare_return: a callee may already have popped its own frame before
+    /// failing (finish_frame pops first, then can still fail - RecurseLimit
+    /// from a queued re-interpretation, or the re-visit), so popping again
+    /// removed the *caller's* frame - from a cloned call_stack in candidate
+    /// simulation, but always from the shared key_stack (STACK DESYNC).
+    fn unwind_stacks_to(&self, call_stack: &mut Vec<VOID>, len: usize, where_: &str) {
+        call_stack.truncate(len);
+        self.key_stack.borrow_mut().truncate(len);
+        self.assert_stacks_synced(call_stack, where_);
     }
 
     fn prepare_return(&self, call_stack: &mut Vec<VOID>) -> Option<VOID> {
         self.key_stack.borrow_mut().pop();
         let popped = call_stack.pop();
+        if let Some(p) = &popped {
+            note_stack_op("return", p, call_stack.len(), self.key_stack.borrow().len());
+        }
         self.assert_stacks_synced(call_stack, "prepare_return");
         popped
     }
@@ -1294,9 +1315,11 @@ impl<'a> InterpPass<'a> {
                                 ret_constraints.append(new_constraints);
                             }
                             Ok(None) => {}
-                            e @ Err(_) => {
-                                panic!("interping constraint as fn, got error: {:?}", e)
-                            }
+                            // e.g. RecurseLimit from a callee reached through
+                            // a fn pointer (now interpreted, not just answered
+                            // from its signature): propagated like a direct
+                            // call's, for the frames above to unwind.
+                            Err(e) => return Err(e),
                         },
                         _ => {}
                     }
@@ -1458,11 +1481,12 @@ impl<'a> InterpPass<'a> {
                 &genargs,
                 true,
             );
+            let stack_len = call_stack.len();
             self.prepare_call(call_stack, &key);
             match self.visit_body(ctxt, call_stack, &new_scope, &body) {
                 Ok(r) => Ok(r),
                 Err(e) => {
-                    self.prepare_return(call_stack);
+                    self.unwind_stacks_to(call_stack, stack_len, "interp_closure error");
                     Err(e)
                 }
             }
@@ -1630,9 +1654,16 @@ impl<'a> InterpPass<'a> {
         );
         log_scope(cur_scope);
 
-        // checking for recursive stack depths of > 50
+        // Nested re-interpretation of queued recursive calls deeper than
+        // MAX_DEPTH: answered from the signature, like a recursion cut. It
+        // used to return Err(RecurseLimit), which nothing turns back into a
+        // value - so it unwound to InterpPass::run, whose result is ignored,
+        // and silently ended the whole analysis with partial results (e.g.
+        // ripgrep through std's addr2line, reached from Backtrace's Display).
         if *self.rec_depth.borrow() > MAX_DEPTH {
-            return Err(Error::RecurseLimit(MAX_DEPTH));
+            crate::assumptions::record_call(crate::assumptions::Reason::DepthLimit, &fndef);
+            self.incomplete.borrow_mut().insert(cur_scope.clone());
+            return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
         let stdlib_result = {
@@ -2246,6 +2277,7 @@ impl<'a> InterpPass<'a> {
                 is_closure,
             );
             drop(_timing_guard);
+            let stack_len = call_stack.len();
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
 
@@ -2279,7 +2311,7 @@ impl<'a> InterpPass<'a> {
             match result {
                 Ok(r) => Ok(r),
                 Err(e) => {
-                    self.prepare_return(call_stack);
+                    self.unwind_stacks_to(call_stack, stack_len, "interp_static_call error");
                     Err(e)
                 }
             }
@@ -3719,6 +3751,7 @@ impl<'a> InterpPass<'a> {
                     self.key_stack
                         .borrow_mut()
                         .truncate(pre_candidate_key_stack_len);
+                    note_stack_op("panic-recovery truncate", cur_scope, call_stack.len(), self.key_stack.borrow().len());
                     self.assert_stacks_synced(
                         call_stack,
                         "simulate_static_calls catch_unwind recovery",
@@ -4296,6 +4329,7 @@ impl<'a> InterpPass<'a> {
                 .take(call_stack.len())
                 .collect(),
         );
+        note_stack_op("reinterp swap", callee_scope, call_stack.len(), self.key_stack.borrow().len());
 
         self.prepare_call(call_stack, &key);
         let body = self.get_body(callee_scope);
@@ -4303,10 +4337,12 @@ impl<'a> InterpPass<'a> {
             Ok(r) => r,
             Err(e) => {
                 self.key_stack.replace(saved_key_stack);
+                note_stack_op("reinterp restore (err)", callee_scope, call_stack.len(), self.key_stack.borrow().len());
                 return Err(e);
             }
         };
         self.key_stack.replace(saved_key_stack);
+        note_stack_op("reinterp restore", callee_scope, call_stack.len(), self.key_stack.borrow().len());
 
         if scope_matches_trace_filter(callee_scope) {
             debug!(
@@ -4479,6 +4515,7 @@ impl<'a> InterpPass<'a> {
                 // truncate to before call on error
                 call_stack.truncate(depth);
                 self.key_stack.borrow_mut().truncate(depth);
+                note_stack_op("RecurseLimit truncate", cur_scope, call_stack.len(), self.key_stack.borrow().len());
                 self.assert_stacks_synced(call_stack, "finish_frame RecurseLimit truncate");
 
                 self.incomplete.borrow_mut().insert(cur_scope.clone());
@@ -4542,6 +4579,7 @@ impl<'a> InterpPass<'a> {
             Box::new(MapValue::Store(substore, None)),
         );
 
+        let stack_len = call_stack.len();
         self.prepare_call(call_stack, &key);
         let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
         drop(_timing_guard);
@@ -4560,7 +4598,7 @@ impl<'a> InterpPass<'a> {
             Err(e) => {
                 let _timing_guard =
                     self.timing_span(TimingCat::TermFinishFrameSecondPrepareReturn, cur_scope);
-                self.prepare_return(call_stack);
+                self.unwind_stacks_to(call_stack, stack_len, "finish_frame re-visit error");
                 drop(_timing_guard);
                 Err(e)
             }
@@ -4771,4 +4809,37 @@ fn rust_call_arity(body: &Body, args: &[Operand], local_decls: &[LocalDecl]) -> 
         TyKind::RigidTy(RigidTy::Tuple(tys)) if tys.len() == n_params - 1 => Some(tys.len()),
         _ => None,
     }
+}
+
+thread_local! {
+    /// The last stack operations (see note_stack_op), for STACK DESYNC reports.
+    static STACK_OPS: RefCell<std::collections::VecDeque<(&'static str, Instance, usize, usize)>> =
+        RefCell::new(std::collections::VecDeque::with_capacity(64));
+}
+
+/// Records a call_stack / key_stack operation and both lengths after it.
+fn note_stack_op(op: &'static str, scope: &VOID, call_len: usize, key_len: usize) {
+    STACK_OPS.with(|ops| {
+        let mut ops = ops.borrow_mut();
+        if ops.len() == 64 {
+            ops.pop_front();
+        }
+        ops.push_back((op, scope.0, call_len, key_len));
+    });
+}
+
+fn recent_stack_ops() -> String {
+    STACK_OPS.with(|ops| {
+        ops.borrow()
+            .iter()
+            // (reinterp_recursive runs on a cloned call_stack, so its
+            // entries compare that clone with the shared key_stack: only a
+            // call/return mismatch is a real desync)
+            .map(|(op, inst, c, k)| {
+                let desync = c != k && matches!(*op, "call" | "return");
+                format!("  {op:<24} c={c:<3} k={k:<3} {}{}", inst.name(), if desync { "   <-- DESYNC" } else { "" })
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
 }

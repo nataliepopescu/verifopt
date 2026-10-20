@@ -38,6 +38,9 @@ pub enum Reason {
     Intrinsic,
     /// A recursive call answered from its signature.
     RecursionCut,
+    /// The interpreter stopped early with this error (InterpPass::run):
+    /// FSA results were discarded, every reached site uses its CHA set.
+    AnalysisAborted,
     /// A call answered from its signature because nested re-interpretation
     /// of recursive calls exceeded MAX_DEPTH.
     DepthLimit,
@@ -94,6 +97,7 @@ impl Reason {
             Reason::Intrinsic => "intrinsic",
             Reason::RecursionCut => "recursion cut",
             Reason::DepthLimit => "recursion depth limit",
+            Reason::AnalysisAborted => "ANALYSIS ABORTED - FSA discarded, CHA used at every site",
             Reason::NonMonomorphicArgs => "non-monomorphic args",
             Reason::ArgsMismatch => "args mismatch",
             Reason::UnresolvedInstance => "unresolved instance",

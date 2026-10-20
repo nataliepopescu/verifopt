@@ -160,14 +160,26 @@ pub fn start_verifopt(
     let mut ctxt = Context::empty();
     crate::assumptions::reset();
     let interp = InterpPass::new(&sigstore, &tstore, options.context_depth);
-    let _ = interp.run(&mut ctxt, entry_instance);
+    // An error that unwinds all the way here means the interpreter stopped
+    // early: whatever it found is a partial picture (FSA sets of the sites it
+    // did reach may be missing targets it never got to). So no site's FSA
+    // result is trusted - every reached site falls back to its CHA set (a
+    // sound bound), exactly as for a site depending on an incomplete scope.
+    let aborted = interp.run(&mut ctxt, entry_instance).err();
+    if let Some(e) = &aborted {
+        eprintln!(
+            "warning: verifopt: the analysis stopped early ({e}); only the dispatch sites it \
+             reached are recorded, all of them with their CHA targets instead of FSA's"
+        );
+        crate::assumptions::record(crate::assumptions::Reason::AnalysisAborted, e.to_string(), Vec::new);
+    }
 
     let incomplete = &interp.incomplete.borrow();
     let confirmed: HashMap<Span, bool> = interp
         .dependencies
         .borrow()
         .iter()
-        .map(|(&s, ds)| (s, !ds.iter().any(|d| incomplete.contains(d))))
+        .map(|(&s, ds)| (s, aborted.is_none() && !ds.iter().any(|d| incomplete.contains(d))))
         .collect();
 
     let cha = &interp.dispatch_cha.borrow();

@@ -172,3 +172,29 @@ example_test!(fnptr_args_table, "fnptr_args_table", Passing);
 // through a generic closure's capture, and with a `C` only through a closure
 // called as `dyn FnMut`. FSA at `emit` must list A, B and C.
 example_test!(closure_captures, "closure_captures", Passing);
+
+// Memo reuse under a widened key: after 50 distinct argument sets, `take`'s
+// memo keys drop ADT fields, so a `Holder` with a `C` must not reuse the
+// result cached for a `Holder` with a `B`. FSA at `use_last` must list C.
+// Red until the widened-key memo is fixed (plan B in CLAUDE.md §6): today
+// the C call hits B's entry and FSA there is {A, B}. The JSON golden is
+// hand-written (the correct FSA); re-bless the MIR dump once it passes.
+example_test!(memo_widened_reuse, "memo_widened_reuse", Passing);
+
+// Writes through `&mut` arguments of a memoized call: `set` is called on two
+// slots holding equal values, so the second call is a memo hit - it must
+// still store its A in `y`. FSA at `use_slot` (on `y`) must list A.
+// Red until memo hits replay their side effects: today the hit only returns
+// the cached value and FSA there is {B}. The JSON golden is hand-written
+// ({A, B}: the same weak update `x` gets); re-bless the MIR dump once it
+// passes.
+example_test!(memo_side_effects, "memo_side_effects", Passing);
+
+// Trait objects in a widened value's fields: `take`'s parameter collects more
+// than 50 `Holder`s differing in two fields, so it's widened (fields dropped)
+// and the last one's `B` must still reach `use_last`. Red until a dropped
+// field reads as "any value of its type" (plan A in CLAUDE.md §6): today
+// FSA there lacks B. The JSON golden is hand-written ({A, B}; a fix that
+// reads the field as any `Box<dyn Sink>` also adds D, which is fine);
+// re-bless the MIR dump once it passes.
+example_test!(merge_widened_field, "merge_widened_field", Passing);

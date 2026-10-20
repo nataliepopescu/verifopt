@@ -1,0 +1,685 @@
+{
+  "maybe_count": 52,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:64:5: 64:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:71:20: 71:72",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:80:12: 80:20",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::C as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::D as memo_widened_reuse::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_widened_reuse::A as memo_widened_reuse::Sink>::put",
+        "<memo_widened_reuse::B as memo_widened_reuse::Sink>::put"
+      ]
+    }
+  ]
+}

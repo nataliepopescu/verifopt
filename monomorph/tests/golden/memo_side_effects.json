@@ -1,0 +1,32 @@
+{
+  "maybe_count": 2,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:49:5: 49:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_side_effects::A as memo_side_effects::Sink>::put",
+        "<memo_side_effects::B as memo_side_effects::Sink>::put",
+        "<memo_side_effects::D as memo_side_effects::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_side_effects::A as memo_side_effects::Sink>::put",
+        "<memo_side_effects::B as memo_side_effects::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:57:13: 57:21",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_side_effects::A as memo_side_effects::Sink>::put",
+        "<memo_side_effects::B as memo_side_effects::Sink>::put",
+        "<memo_side_effects::D as memo_side_effects::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_side_effects::A as memo_side_effects::Sink>::put",
+        "<memo_side_effects::B as memo_side_effects::Sink>::put"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,4 @@
 use crate::constraints::VOID;
-use crate::constraints::unique_append;
 use crate::constraints::{ConstraintStore, Constraints, EnclosingScopes, MapValue};
 use crate::error::Error;
 use crate::interp::InterpPass;
@@ -117,10 +116,21 @@ pub fn merge_mapvals(
 /// would give that value back. A cheap check, not equality: false doesn't
 /// mean they differ.
 pub fn mapvals_identical(a: &MapValue, b: &MapValue) -> bool {
+    // Entries the two contexts still share (persistent-map nodes not copied
+    // since the clone) are the very same object.
+    if std::ptr::eq(a, b) {
+        return true;
+    }
     match (a, b) {
         (MapValue::Constraints(x), MapValue::Constraints(y)) => std::rc::Rc::ptr_eq(&x.inner, &y.inner),
         (MapValue::Store(sx, ex), MapValue::Store(sy, ey)) => {
-            sx.cmap.ptr_eq(&sy.cmap) && sx.refs.ptr_eq(&sy.refs) && ex == ey
+            sx.cmap.ptr_eq(&sy.cmap)
+                && sx.refs.ptr_eq(&sy.refs)
+                && match (ex, ey) {
+                    (None, None) => true,
+                    (Some(x), Some(y)) => std::rc::Rc::ptr_eq(x, y) || x == y,
+                    _ => false,
+                }
         }
         _ => false,
     }
@@ -145,16 +155,7 @@ fn merge_stores_fallback(
 ) -> (ConstraintStore, EnclosingScopes) {
     let es_guard =
         timing.map(|(pass, scope)| pass.timing_span(TimingCat::MergeStoresFallbackEs, scope));
-    let merged_es = match (cur_es, new_es) {
-        (Some(cur_es_vec), Some(new_es_vec)) => {
-            let mut merged_es_vec = cur_es_vec.clone();
-            unique_append(&mut merged_es_vec, new_es_vec.to_vec());
-            Some(merged_es_vec)
-        }
-        (Some(cur_es_vec), None) => Some(cur_es_vec.to_vec()),
-        (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
-        (None, None) => None,
-    };
+    let merged_es = crate::constraints::merge_enclosing_scopes(cur_es, new_es);
     drop(es_guard);
 
     let vec = vec![cur_store.clone(), new_store.clone()];

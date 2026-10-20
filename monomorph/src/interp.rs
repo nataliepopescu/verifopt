@@ -2356,13 +2356,13 @@ impl<'a> InterpPass<'a> {
                     &old_substore,
                     &old_es,
                     &new_ctxt.cstore,
-                    &Some(vec![caller_scope.clone()]),
+                    &Some(Rc::new(vec![caller_scope.clone()])),
                 );
                 widened = !store.0.cmap.ptr_eq(&old_substore.cmap);
             }
             Some(_) => panic!("got constraint, expected store"),
             None => {
-                store = (new_ctxt.cstore, Some(vec![caller_scope.clone()]));
+                store = (new_ctxt.cstore, Some(Rc::new(vec![caller_scope.clone()])));
             }
         }
 
@@ -3400,6 +3400,11 @@ impl<'a> InterpPass<'a> {
         debug!("\nSIMULATING STATIC CALL(S)");
         let len = assoc_fn_impls.len();
         let mut acc: Option<Context> = None;
+        // Whether this simulation runs inside an outer one (its context
+        // already records writes): if not, the result stops recording when
+        // it replaces ctxt below, so the record spans one outermost
+        // simulation instead of growing for the rest of the run.
+        let origin_tracks_writes = ctxt.cstore.cmap.dirty().is_some();
         for (i, (assoc_fn_impl, adt_genargs)) in assoc_fn_impls.iter().enumerate() {
             debug!(
                 "\n---ITER {:?} out of {:?} ({:?}/{:?})",
@@ -3629,6 +3634,10 @@ impl<'a> InterpPass<'a> {
                             let wtos_snapshot = ctxt.wtos.clone();
                             let refs_snapshot = ctxt.cstore.refs.clone();
                             let mut ctxt_clone = ctxt.clone();
+                            // Record which scopes this candidate writes, so
+                            // merging it back visits only those (see
+                            // merge_cstores_timed).
+                            ctxt_clone.cstore.cmap.track_writes();
                             let mut call_stack_clone = call_stack.clone();
 
                             let body = self.get_body(&callee_scope);
@@ -3762,7 +3771,12 @@ impl<'a> InterpPass<'a> {
 
         let _timing_guard = self.timing_span(TimingCat::TermSimulateMergeResults, cur_scope);
         match acc {
-            Some(acc) => *ctxt = acc,
+            Some(mut acc) => {
+                if !origin_tracks_writes {
+                    acc.cstore.cmap.stop_tracking();
+                }
+                *ctxt = acc
+            }
             None => {}
         }
         let result = self.merge_results_and_ret(&mut results, cur_scope);
@@ -3968,16 +3982,7 @@ impl<'a> InterpPass<'a> {
         new_es: &EnclosingScopes,
     ) -> (ConstraintStore, EnclosingScopes) {
         let _tg = self.timing_span(TimingCat::TermMergeStoresEs, scope);
-        let merged_es = match (cur_es, new_es) {
-            (Some(cur_es_vec), Some(new_es_vec)) => {
-                let mut merged_es_vec = cur_es_vec.clone();
-                unique_append(&mut merged_es_vec, new_es_vec.to_vec());
-                Some(merged_es_vec)
-            }
-            (Some(cur_es_vec), None) => Some(cur_es_vec.to_vec()),
-            (None, Some(new_es_vec)) => Some(new_es_vec.to_vec()),
-            (None, None) => None,
-        };
+        let merged_es = crate::constraints::merge_enclosing_scopes(cur_es, new_es);
         drop(_tg);
 
         let merged_store = self.merge_cstores_timed(
@@ -4024,7 +4029,25 @@ impl<'a> InterpPass<'a> {
 
             // HERE
             let _timing_guard = self.timing_span(TimingCat::TermMergePerKeyMapvals, scope);
-            for (key, val) in store.cmap.iter() {
+            // When both sides record their writes, they come from the same
+            // context (candidate clones of it, or merges of those), so an
+            // entry neither side wrote is still that context's on both and
+            // needs nothing: visit only the union of the written keys. Both
+            // sides, not just `store`'s: `merged` may hold an earlier
+            // candidate's strong update that must be joined with the
+            // original value `store` still has.
+            let written: Option<Vec<MapKey>> = match (merged.cmap.dirty(), store.cmap.dirty()) {
+                (Some(a), Some(b)) => Some(a.clone().union(b.clone()).into_iter().collect()),
+                _ => None,
+            };
+            let entries: Box<dyn Iterator<Item = (MapKey, &Box<MapValue>)>> = match &written {
+                Some(keys) => Box::new(
+                    keys.iter().filter_map(|k| store.cmap.get(k).map(|v| (k.clone(), v))),
+                ),
+                None => Box::new(store.cmap.iter().map(|(k, v)| (k.clone(), v))),
+            };
+            for (key, val) in entries {
+                let key = &key;
                 // `get`, not `get_mut`: the value is only read, and get_mut
                 // copies the map's nodes on the way down (copy-on-write).
                 match merged.cmap.get(key) {

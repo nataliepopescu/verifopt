@@ -257,7 +257,25 @@ pub enum MapKey {
     Static(DefId),
 }
 
-pub type EnclosingScopes = Option<Vec<VOID>>;
+/// The union of two stores' enclosing scopes - the same Rc back when the
+/// union adds nothing, so identity (and merge::mapvals_identical) survives.
+pub fn merge_enclosing_scopes(cur: &EnclosingScopes, new: &EnclosingScopes) -> EnclosingScopes {
+    match (cur, new) {
+        (Some(c), Some(n)) if Rc::ptr_eq(c, n) => Some(c.clone()),
+        (Some(c), Some(n)) => {
+            let mut v = (**c).clone();
+            unique_append(&mut v, n.to_vec());
+            if v.len() == c.len() { Some(c.clone()) } else { Some(Rc::new(v)) }
+        }
+        (Some(c), None) => Some(c.clone()),
+        (None, Some(n)) => Some(n.clone()),
+        (None, None) => None,
+    }
+}
+
+/// Shared (Rc), so cloning a store - e.g. when a persistent map copies a node -
+/// shares the list instead of copying it, and identity checks can use ptr_eq.
+pub type EnclosingScopes = Option<Rc<Vec<VOID>>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MapValue {
@@ -1631,9 +1649,93 @@ impl Context {
     }
 }
 
+/// A store's map, recording which keys it mutated (inserted, borrowed
+/// mutably, removed) while tracking is on (track_writes) - so merging a
+/// candidate's context back can visit just the scopes the candidates wrote
+/// rather than every scope (InterpPass::merge_cstores_timed). The same
+/// methods as the ImHashMap it wraps; equality and Debug ignore the record.
+#[derive(Clone, Default)]
+pub struct TrackedMap {
+    map: ImHashMap<MapKey, Box<MapValue>>,
+    dirty: Option<ImHashSet<MapKey>>,
+}
+
+impl std::fmt::Debug for TrackedMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.map.fmt(f)
+    }
+}
+
+impl PartialEq for TrackedMap {
+    fn eq(&self, other: &Self) -> bool {
+        self.map == other.map
+    }
+}
+
+impl TrackedMap {
+    fn mark(&mut self, key: &MapKey) {
+        if let Some(dirty) = &mut self.dirty {
+            dirty.insert(key.clone());
+        }
+    }
+
+    pub fn insert(&mut self, key: MapKey, value: Box<MapValue>) -> Option<Box<MapValue>> {
+        self.mark(&key);
+        self.map.insert(key, value)
+    }
+
+    pub fn get_mut(&mut self, key: &MapKey) -> Option<&mut Box<MapValue>> {
+        self.mark(key);
+        self.map.get_mut(key)
+    }
+
+    pub fn remove(&mut self, key: &MapKey) -> Option<Box<MapValue>> {
+        self.mark(key);
+        self.map.remove(key)
+    }
+
+    pub fn get(&self, key: &MapKey) -> Option<&Box<MapValue>> {
+        self.map.get(key)
+    }
+
+    pub fn iter(&self) -> im::hashmap::Iter<'_, MapKey, Box<MapValue>> {
+        self.map.iter()
+    }
+
+    pub fn values(&self) -> im::hashmap::Values<'_, MapKey, Box<MapValue>> {
+        self.map.values()
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        self.map.ptr_eq(&other.map)
+    }
+
+    /// Starts recording mutated keys - keeping any keys already recorded, so
+    /// a context cloned inside an outer simulation stays a superset of what
+    /// changed since the outermost one began.
+    pub fn track_writes(&mut self) {
+        if self.dirty.is_none() {
+            self.dirty = Some(ImHashSet::new());
+        }
+    }
+
+    pub fn stop_tracking(&mut self) {
+        self.dirty = None;
+    }
+
+    /// The keys mutated since tracking began; None when not tracking.
+    pub fn dirty(&self) -> Option<&ImHashSet<MapKey>> {
+        self.dirty.as_ref()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstraintStore {
-    pub cmap: ImHashMap<MapKey, Box<MapValue>>,
+    pub cmap: TrackedMap,
     /// Each place can alias *multiple* targets - e.g. the same shared,
     /// type-erased stdlib call chain (like RawVecInner's allocation
     /// machinery, generic over element size/align rather than the
@@ -1664,7 +1766,7 @@ pub fn union_refs(a: Refs, b: Refs) -> Refs {
 impl ConstraintStore {
     pub fn new() -> ConstraintStore {
         Self {
-            cmap: ImHashMap::default(),
+            cmap: TrackedMap::default(),
             refs: ImHashMap::default(),
         }
     }
@@ -1863,7 +1965,7 @@ impl ConstraintStore {
         key: &MapKey,
     ) -> Constraints {
         let mut all_constraints = Constraints::new();
-        for enclosing_scope in enclosing_scopes.as_ref().unwrap() {
+        for enclosing_scope in enclosing_scopes.as_ref().unwrap().iter() {
             match self.scoped_get(&enclosing_scope, key, false) {
                 Some(val) => match val {
                     MapValue::Constraints(constraints) => {
@@ -1972,7 +2074,7 @@ impl ConstraintStore {
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(
                     MapKey::ScopeId(base_scope_id(scope)),
-                    Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
+                    Box::new(MapValue::Store(new_store, Some(Rc::new(vec![scope.clone()])))),
                 );
             }
         }
@@ -2026,7 +2128,7 @@ impl ConstraintStore {
                     new_store.cmap.insert(key, value);
                     self.cmap.insert(
                         MapKey::ScopeId(base_scope_id(&scope)),
-                        Box::new(MapValue::Store(new_store, Some(vec![scope.clone()]))),
+                        Box::new(MapValue::Store(new_store, Some(Rc::new(vec![scope.clone()])))),
                     );
                 }
             }

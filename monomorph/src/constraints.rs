@@ -789,9 +789,16 @@ where
         }
     }
     let result = compute();
-    cache
-        .borrow_mut()
-        .insert(full_key, (Rc::downgrade(&cs.inner), result.clone()));
+    let mut cache = cache.borrow_mut();
+    // Entries outlive their keys: the result is held strongly, and the Weak
+    // keeps the key's allocation. Drop dead entries whenever the cache
+    // reaches a new power-of-two size (amortized O(1) per insert) - without
+    // this, every value ever memoized stayed alive until the end of the run
+    // (tens of GB in ripgrep, more the more values the analysis churns).
+    if cache.len() >= 4096 && cache.len().is_power_of_two() {
+        cache.retain(|_, (weak, _)| weak.strong_count() > 0);
+    }
+    cache.insert(full_key, (Rc::downgrade(&cs.inner), result.clone()));
     result
 }
 
@@ -838,6 +845,10 @@ fn record_flatten_all_rc_identity(constraints: &Constraints) {
             .get(&ptr)
             .map(|w| w.upgrade().is_some())
             .unwrap_or(false);
+        // Same purge as memoize_by_rc: a Weak keeps its allocation alive.
+        if seen.len() >= 4096 && seen.len().is_power_of_two() {
+            seen.retain(|_, w| w.strong_count() > 0);
+        }
         seen.insert(ptr, Rc::downgrade(&constraints.inner));
         hit
     });

@@ -385,13 +385,19 @@ impl Constraints {
         // time, every existing disjunct that differs from the incoming one in
         // at most one field, so values differing only in e.g. a scalar
         // capacity don't multiply into separate disjuncts.
-        while let Some(i) = self
-            .inner
-            .iter()
-            .position(|c| *c != new_constraint && merge_if_one_field_differs(c, &new_constraint).is_some())
-        {
-            let existing = self.inner[i].clone();
-            new_constraint = merge_if_one_field_differs(&existing, &new_constraint).expect("checked above");
+        //
+        // The merge is computed once, for the disjunct it absorbs: it unions
+        // the differing field, which pushes into that field's value, so
+        // merging once to test and again to apply doubled the work at every
+        // nesting level - 2^depth for deeply nested values (tock's
+        // statically wired objects stalled for hours).
+        while let Some((i, merged)) = self.inner.iter().enumerate().find_map(|(i, c)| {
+            if *c == new_constraint {
+                return None;
+            }
+            merge_if_one_field_differs(c, &new_constraint).map(|m| (i, m))
+        }) {
+            new_constraint = merged;
             Rc::make_mut(&mut self.inner).shift_remove_index(i);
         }
         if let Some(existing) = self.inner.get(&new_constraint) {

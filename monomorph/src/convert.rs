@@ -1662,3 +1662,8 @@ impl<'a> RvalConverter<'a> {
         self.convert_allocated_const(span, ty, alloc, cur_scope, timing)
     }
 }
+
+/// Diagnostics: entries / dead entries of convert_cast_helper's cache.
+pub fn cast_cache_size() -> (usize, usize) {
+    CONVERT_CAST_HELPER_CACHE.with(crate::constraints::rc_cache_size)
+}

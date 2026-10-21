@@ -2140,6 +2140,30 @@ impl<'a> InterpPass<'a> {
         };
         let sm_key_nodes =
             self.summaries.borrow().keys().map(|(_, a)| crate::constraints::argset_size(a)).sum::<usize>();
+        // Replay logs (write_log) kept by the memos: entries with one, logged
+        // values, and the distinct ones (by pointer) with their node count.
+        let (wl_entries, wl_values, wl_distinct, wl_nodes) = {
+            let mut seen: HashSet<*const IndexSet<Constraint>> = HashSet::new();
+            let (mut entries, mut values, mut nodes) = (0usize, 0usize, 0usize);
+            let em = self.exact_memo.borrow();
+            let vm = self.virtual_call_memo.borrow();
+            let sm = self.summaries.borrow();
+            let logs = em
+                .values()
+                .map(|(_, _, l)| l)
+                .chain(vm.values().map(|(_, _, l)| l))
+                .chain(sm.values().map(|(_, l)| l));
+            for log in logs.filter(|l| !l.is_empty()) {
+                entries += 1;
+                for v in log.ports.values().chain(log.statics.values()).flatten() {
+                    values += 1;
+                    if seen.insert(Rc::as_ptr(&v.inner)) {
+                        nodes += size(v);
+                    }
+                }
+            }
+            (entries, values, seen.len(), nodes)
+        };
         let (store_vars, store_nodes) = crate::constraints::store_size(&ctxt.cstore);
         let (sm_n, sm_nodes) = {
             let sm = self.summaries.borrow();
@@ -2153,8 +2177,13 @@ impl<'a> InterpPass<'a> {
             (wq.len(), items, nodes, stack)
         };
         log::warn!(
-            "[verifopt memory] bb_visits={n} rss={rss_mb}MB elapsed={}s exact_memo={em_n} ({em_nodes} value nodes, {em_key_nodes} key nodes) summaries={sm_n} ({sm_nodes} value nodes, {sm_key_nodes} key nodes) stores={store_vars} vars ({store_nodes} nodes) wq={wq_keys} keys/{wq_items} items ({wq_nodes} arg nodes, {wq_stack} saved stack frames) in_queue={} dependencies={} incomplete={} dispatch_tags={} scope_epoch={} cstore_cmap={} key_stack={}",
+            "[verifopt memory] bb_visits={n} rss={rss_mb}MB elapsed={}s exact_memo={em_n} ({em_nodes} value nodes, {em_key_nodes} key nodes) summaries={sm_n} ({sm_nodes} value nodes, {sm_key_nodes} key nodes) stores={store_vars} vars ({store_nodes} nodes) replay_logs={wl_entries} entries ({wl_values} values, {wl_distinct} distinct, {wl_nodes} nodes) rc_caches=[{}lift={}/{} cast={}/{}] wq={wq_keys} keys/{wq_items} items ({wq_nodes} arg nodes, {wq_stack} saved stack frames) in_queue={} dependencies={} incomplete={} dispatch_tags={} scope_epoch={} cstore_cmap={} key_stack={}",
             self.run_start.elapsed().as_secs(),
+            crate::constraints::rc_cache_sizes(),
+            LIFT_TRAITOBJTYS_CACHE.with(crate::constraints::rc_cache_size).0,
+            LIFT_TRAITOBJTYS_CACHE.with(crate::constraints::rc_cache_size).1,
+            crate::convert::cast_cache_size().0,
+            crate::convert::cast_cache_size().1,
             self.in_queue.borrow().len(),
             self.dependencies.borrow().len(),
             self.incomplete.borrow().len(),

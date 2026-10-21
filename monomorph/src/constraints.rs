@@ -834,6 +834,27 @@ thread_local! {
     static FLATTEN_ALL_MISSES: Cell<u64> = Cell::new(0);
 }
 
+/// Diagnostics (VERIFOPT_CACHE_SIZES): entries / dead entries (key dropped)
+/// of a memoize_by_rc cache.
+pub fn rc_cache_size<K, T>(cache: &RefCell<HashMap<(usize, K), (Weak<IndexSet<Constraint>>, T)>>) -> (usize, usize) {
+    let cache = cache.borrow();
+    (cache.len(), cache.values().filter(|(w, _)| w.strong_count() == 0).count())
+}
+
+/// Diagnostics: this module's memoize_by_rc caches, as "name=entries/dead ...".
+pub fn rc_cache_sizes() -> String {
+    let mut out = String::new();
+    let mut add = |name: &str, (n, dead): (usize, usize)| out.push_str(&format!("{name}={n}/{dead} "));
+    CONTAINS_PARAM_CACHE.with(|c| add("contains_param", rc_cache_size(c)));
+    WIDEN_CONSTRAINTS_CACHE.with(|c| add("widen", rc_cache_size(c)));
+    FLATTEN_ALL_CACHE.with(|c| add("flatten_all", rc_cache_size(c)));
+    FLATTEN_ALL_SEEN.with(|c| {
+        let c = c.borrow();
+        add("flatten_seen", (c.len(), c.values().filter(|w| w.strong_count() == 0).count()))
+    });
+    out
+}
+
 /// Diagnostic only - records whether this exact `Constraints` allocation
 /// (not just an equal one) has been seen by `flatten_all` before. Returns
 /// nothing; updates thread-local hit/miss counters that `dump_flatten_all_cache_stats`

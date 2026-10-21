@@ -40,6 +40,7 @@ use crate::sig_collect::{SigStore, SigVal};
 use crate::timing::{SelfTimeGuard, TimingCat, TimingStats};
 use crate::trait_collect::TraitStore;
 use crate::wto::BBDeps;
+use crate::write_log::SharedLog;
 use indexmap::IndexSet;
 use std::rc::{Rc, Weak};
 
@@ -140,7 +141,9 @@ pub struct InterpPass<'a> {
         RefCell<ImHashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
     pub dispatch_tags: RefCell<ImHashMap<(DefId, usize, GenericArgs), TagPlan>>,
 
-    pub summaries: RefCell<HashMap<MemoKey, Constraints>>,
+    /// Recursion summaries: the result, and the writes the summarized call
+    /// made through its pointer parameters (replayed on a hit, see write_log).
+    pub summaries: RefCell<HashMap<MemoKey, (Constraints, SharedLog)>>,
     pub in_queue: RefCell<HashSet<SummaryKey>>,
     pub key_stack: RefCell<Vec<SummaryKey>>,
     pub wq: RefCell<HashMap<SummaryKey, Vec<(VOID, Vec<Constraints>, Vec<VOID>)>>>,
@@ -166,10 +169,12 @@ pub struct InterpPass<'a> {
     pub wtos_merge_conflicts: RefCell<ImHashSet<VOID>>,
     pub refs_merge_conflicts: RefCell<ImHashSet<VOID>>,
 
-    pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, u64)>>,
+    /// Result, the callee's epoch, and what the call wrote into memory its
+    /// caller can see (replayed on a hit - see write_log).
+    pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, u64, SharedLog)>>,
 
     pub virtual_call_memo:
-        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>)>>,
+        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>, SharedLog)>>,
 
     pub scope_epoch: RefCell<HashMap<BaseScopeId, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
@@ -316,6 +321,45 @@ impl<'a> InterpPass<'a> {
                 keys,
                 recent_stack_ops()
             );
+        }
+    }
+
+    /// A memo hit's side effects: the writes the memoized call made through
+    /// its operands (and to statics), made again - through this call's
+    /// operands, so the usual alias resolution routes them to this call's
+    /// places (see write_log). Always merges.
+    fn replay_writes(
+        &self,
+        ctxt: &mut Context,
+        caller_scope: &VOID,
+        args: &[Operand],
+        writes: &crate::write_log::WriteLog,
+    ) {
+        for (idx, values) in &writes.ports {
+            if let Some(Operand::Copy(place) | Operand::Move(place)) = args.get(*idx) {
+                for value in values {
+                    ctxt.cstore.scoped_update(
+                        caller_scope,
+                        MapKey::Var(place.clone()),
+                        Box::new(MapValue::Constraints(value.clone())),
+                        Some(self),
+                    );
+                }
+            }
+        }
+        for (def, value) in writes.statics.iter().flat_map(|(d, vs)| vs.iter().map(move |v| (d, v))) {
+            let merged = match ctxt.get_static(*def) {
+                Some(old) => match crate::merge::merge_mapvals(
+                    &MapValue::Constraints(old),
+                    &MapValue::Constraints(value.clone()),
+                    None,
+                ) {
+                    MapValue::Constraints(c) => c,
+                    MapValue::Store(..) => unreachable!("merging two values gave a store"),
+                },
+                None => value.clone(),
+            };
+            ctxt.set_static(*def, merged);
         }
     }
 
@@ -1739,7 +1783,8 @@ impl<'a> InterpPass<'a> {
                 (base_scope_id(&new_scope), ArgSet::new(&new_cs))
             };
 
-            if let Some(cs) = self.summaries.borrow().get(&new_key).cloned() {
+            let summary = self.summaries.borrow().get(&new_key).cloned();
+            if let Some((cs, writes)) = summary {
                 if precise_count >= 50 {
                     crate::assumptions::record(
                         crate::assumptions::Reason::MemoWidenedReuse,
@@ -1755,6 +1800,8 @@ impl<'a> InterpPass<'a> {
                         cs
                     );
                 }
+                record_memo_hit(&new_scope, precise_count >= 50, &writes);
+                self.replay_writes(ctxt, cur_scope, args, &writes);
                 return Ok(Some(cs));
             }
 
@@ -1772,7 +1819,7 @@ impl<'a> InterpPass<'a> {
             }
             self.summaries
                 .borrow_mut()
-                .insert(new_key.clone(), retty.clone());
+                .insert(new_key.clone(), (retty.clone(), SharedLog::default()));
             if precise_count < 50 {
                 *self
                     .scope_summaries_count
@@ -2014,7 +2061,7 @@ impl<'a> InterpPass<'a> {
             let mut max = 0usize;
             let mut sum = 0usize;
             let mut max_scope = String::new();
-            for (key, (cs, _)) in em.iter() {
+            for (key, (cs, _, _)) in em.iter() {
                 if let Some(c) = cs.as_ref() {
                     let s = crate::constraints::constraints_size(c);
                     sum += s;
@@ -2031,7 +2078,7 @@ impl<'a> InterpPass<'a> {
             let mut max = 0usize;
             let mut sum = 0usize;
             let mut max_scope = String::new();
-            for (key, cs) in sm.iter() {
+            for (key, (cs, _)) in sm.iter() {
                 let s = crate::constraints::constraints_size(cs);
                 sum += s;
                 if s > max {
@@ -2087,7 +2134,7 @@ impl<'a> InterpPass<'a> {
             let em = self.exact_memo.borrow();
             (
                 em.len(),
-                em.values().map(|(c, _)| c.as_ref().map(size).unwrap_or(0)).sum::<usize>(),
+                em.values().map(|(c, _, _)| c.as_ref().map(size).unwrap_or(0)).sum::<usize>(),
                 em.keys().map(|(_, a)| crate::constraints::argset_size(a)).sum::<usize>(),
             )
         };
@@ -2096,7 +2143,7 @@ impl<'a> InterpPass<'a> {
         let (store_vars, store_nodes) = crate::constraints::store_size(&ctxt.cstore);
         let (sm_n, sm_nodes) = {
             let sm = self.summaries.borrow();
-            (sm.len(), sm.values().map(size).sum::<usize>())
+            (sm.len(), sm.values().map(|(c, _)| size(c)).sum::<usize>())
         };
         let (wq_keys, wq_items, wq_nodes, wq_stack) = {
             let wq = self.wq.borrow();
@@ -2245,8 +2292,9 @@ impl<'a> InterpPass<'a> {
             //}
 
             let epoch_before = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
-            if let Some((cached, cached_epoch)) = self.exact_memo.borrow().get(&memo_key) {
-                if *cached_epoch == epoch_before {
+            let hit = self.exact_memo.borrow().get(&memo_key).cloned();
+            if let Some((cached, cached_epoch, writes)) = hit {
+                if cached_epoch == epoch_before {
                     if precise_count >= 50 {
                         crate::assumptions::record(
                             crate::assumptions::Reason::MemoWidenedReuse,
@@ -2254,6 +2302,8 @@ impl<'a> InterpPass<'a> {
                             Vec::new,
                         );
                     }
+                    record_memo_hit(cur_scope, precise_count >= 50, &writes);
+                    self.replay_writes(ctxt, caller_scope, args, &writes);
                     debug!(
                         "exact_memo hit for {:?} at epoch {}",
                         cur_scope.0.name(),
@@ -2278,8 +2328,10 @@ impl<'a> InterpPass<'a> {
             );
             drop(_timing_guard);
             let stack_len = call_stack.len();
+            let frame = crate::write_log::push(operand_places(args), caller_scope);
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
+            let writes: SharedLog = Rc::new(frame.finish());
 
             let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
@@ -2294,7 +2346,7 @@ impl<'a> InterpPass<'a> {
                 let _g3 = self.timing_span(TimingCat::TermInterpStaticCallPost3, cur_scope);
                 self.exact_memo
                     .borrow_mut()
-                    .insert(memo_key.clone(), (cs.clone(), epoch_after));
+                    .insert(memo_key.clone(), (cs.clone(), epoch_after, writes));
                 drop(_g3);
 
                 let _g4 = self.timing_span(TimingCat::TermInterpStaticCallPost4, cur_scope);
@@ -2678,8 +2730,9 @@ impl<'a> InterpPass<'a> {
             })
             .collect();
         let virtual_key: VirtualCallKey = (key.clone(), ArgSet::new(&resolved_args));
-        match self.virtual_call_memo.borrow().get(&virtual_key) {
-            Some((cached, recorded_scopes)) => {
+        let hit = self.virtual_call_memo.borrow().get(&virtual_key).cloned();
+        match hit {
+            Some((cached, recorded_scopes, writes)) => {
                 let stale: Vec<(DefId, u64, u64)> = recorded_scopes
                     .iter()
                     .filter_map(|(scope, recorded_epoch)| {
@@ -2698,7 +2751,9 @@ impl<'a> InterpPass<'a> {
                     // `_timing_guard` (TermVirtualMemo) drops here automatically,
                     // correctly closing this span even on this early-return
                     // exit - same reasoning as `TermMemo`'s cache-hit path.
-                    return Ok(cached.clone());
+                    record_memo_hit(caller_scope, false, &writes);
+                    self.replay_writes(ctxt, caller_scope, args, &writes);
+                    return Ok(cached);
                 } else {
                     debug!(
                         "virtual_call_memo MISS (stale) for call site {:?}: {} of {} dependent scopes changed: {:?}",
@@ -2857,6 +2912,7 @@ impl<'a> InterpPass<'a> {
         drop(_timing_guard);
 
         let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
+        let frame = crate::write_log::push(operand_places(args), caller_scope);
         let result = self.simulate_static_calls(
             term_span,
             ctxt,
@@ -2874,10 +2930,11 @@ impl<'a> InterpPass<'a> {
         // Only cache on success - an `Err` (e.g. a caught-and-skipped
         // candidate panic bubbling up, or `SummaryImprecise`) shouldn't be
         // treated as a stable, reusable outcome for this call site.
+        let writes: SharedLog = Rc::new(frame.finish());
         if let Ok(ref cs) = result {
             self.virtual_call_memo
                 .borrow_mut()
-                .insert(virtual_key, (cs.clone(), touched_scopes));
+                .insert(virtual_key, (cs.clone(), touched_scopes, writes));
         }
 
         result
@@ -4362,6 +4419,13 @@ impl<'a> InterpPass<'a> {
         );
         note_stack_op("reinterp swap", callee_scope, call_stack.len(), self.key_stack.borrow().len());
 
+        // Re-interpreted on its own, with no caller: writes through its
+        // pointer parameters end at its own parameter locals, so those are
+        // this frame's ports (operand i <-> local i + 1, as in substore).
+        let frame = crate::write_log::push(
+            (0..callee_cs.len()).map(|i| (i, Place { local: i + 1, projection: vec![] })),
+            callee_scope,
+        );
         self.prepare_call(call_stack, &key);
         let body = self.get_body(callee_scope);
         let refined = match self.visit_body(ctxt, call_stack, callee_scope, &body) {
@@ -4387,7 +4451,7 @@ impl<'a> InterpPass<'a> {
         // publish refined summary for widened constraints
         self.summaries.borrow_mut().insert(
             (base_scope_id(&key.0), key.1.clone()),
-            refined.clone().unwrap_or_default(),
+            (refined.clone().unwrap_or_default(), Rc::new(frame.finish())),
         );
 
         Ok(refined)
@@ -4873,4 +4937,26 @@ fn recent_stack_ops() -> String {
             .collect::<Vec<_>>()
             .join("\n")
     })
+}
+
+/// Records a memo hit (exact_memo, or virtual_call_memo for `scope` = the
+/// caller), and whether it replayed writes (see write_log).
+fn record_memo_hit(scope: &VOID, widened: bool, writes: &crate::write_log::WriteLog) {
+    use crate::assumptions::{Reason, record};
+    record(Reason::MemoHit, if widened { "(widened)" } else { "(precise)" }.to_string(), Vec::new);
+    if !writes.is_empty() {
+        record(Reason::MemoReplay, scope.0.name(), Vec::new);
+    }
+}
+
+/// A call's place operands by index: its ports in write_log.
+fn operand_places(args: &[Operand]) -> Vec<(usize, Place)> {
+    args.iter()
+        .enumerate()
+        .filter_map(|(i, op)| match op {
+            Operand::Copy(p) | Operand::Move(p) => Some((i, p.clone())),
+            Operand::Constant(_) => None,
+            _ => None,
+        })
+        .collect()
 }

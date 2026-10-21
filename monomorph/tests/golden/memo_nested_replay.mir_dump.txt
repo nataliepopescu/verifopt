@@ -1,0 +1,1110 @@
+
+######### MIR before #########
+// crate: memo_nested_replay (package memo_nested_replay 0.1.0)
+// fn: main
+// instance: main
+fn main() -> () {
+    let mut _0: ();
+    let mut _1: std::boxed::Box<dyn Sink>;
+    let mut _2: std::boxed::Box<B>;
+    let mut _4: std::boxed::Box<B>;
+    let mut _6: std::boxed::Box<B>;
+    let mut _8: std::boxed::Box<B>;
+    let _9: ();
+    let mut _10: &mut std::boxed::Box<dyn Sink>;
+    let mut _11: &mut std::boxed::Box<dyn Sink>;
+    let _12: ();
+    let mut _13: &mut std::boxed::Box<dyn Sink>;
+    let mut _14: &mut std::boxed::Box<dyn Sink>;
+    let mut _16: usize;
+    let mut _17: usize;
+    let mut _18: usize;
+    let mut _19: &dyn Sink;
+    let mut _20: usize;
+    let _21: &dyn Sink;
+    let mut _22: usize;
+    let mut _23: &dyn Sink;
+    let mut _24: usize;
+    let _25: &dyn Sink;
+    let _26: ();
+    let _27: &str;
+    let _28: std::string::String;
+    let mut _29: std::string::String;
+    let mut _30: std::fmt::Arguments<'_>;
+    let mut _31: &usize;
+    let mut _33: core::fmt::rt::Argument<'_>;
+    let _34: &[core::fmt::rt::Argument<'_>; 1];
+    let mut _35: *const dyn Sink;
+    let mut _36: *const dyn Sink;
+    let mut _37: *const dyn Sink;
+    let mut _38: *const dyn Sink;
+    scope 1 {
+        debug x => _1;
+        let mut _3: std::boxed::Box<dyn Sink>;
+        scope 2 {
+            debug y => _3;
+            let mut _5: std::boxed::Box<dyn Sink>;
+            scope 3 {
+                debug u => _5;
+                let mut _7: std::boxed::Box<dyn Sink>;
+                scope 4 {
+                    debug v => _7;
+                    let _15: usize;
+                    scope 5 {
+                        debug r => _15;
+                        scope 6 {
+                            debug ((args: (&usize,)).0: &usize) => _31;
+                            let _32: [core::fmt::rt::Argument<'_>; 1];
+                            scope 7 {
+                                debug args => _32;
+                                scope 13 (inlined std::fmt::Arguments::<'_>::new::<5, 1>) {
+                                    let mut _45: std::ptr::NonNull<u8>;
+                                    let mut _46: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+                                }
+                            }
+                            scope 8 (inlined core::fmt::rt::Argument::<'_>::new_display::<usize>) {
+                                let mut _39: core::fmt::rt::ArgumentType<'_>;
+                                let mut _40: std::ptr::NonNull<()>;
+                                let mut _41: for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error>;
+                                let _42: for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error>;
+                                scope 9 {
+                                }
+                                scope 10 (inlined std::ptr::NonNull::<usize>::from_ref) {
+                                    let mut _43: *const usize;
+                                }
+                                scope 11 (inlined std::ptr::NonNull::<usize>::cast::<()>) {
+                                    let mut _44: *const ();
+                                    scope 12 (inlined std::ptr::NonNull::<usize>::as_ptr) {
+                                    }
+                                }
+                            }
+                        }
+                        scope 14 (inlined std::fmt::format) {
+                            let mut _47: std::option::Option<&str>;
+                            let mut _48: {closure@std::fmt::format::{closure#0}};
+                            let mut _49: &std::fmt::Arguments<'_>;
+                            scope 15 (inlined std::fmt::Arguments::<'_>::as_str) {
+                                let _50: usize;
+                                let mut _51: usize;
+                                let _52: &str;
+                                let _53: &[u8];
+                                let mut _54: *const u8;
+                                let mut _55: usize;
+                                scope 16 {
+                                    scope 17 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                    }
+                                    scope 18 (inlined #[track_caller] std::slice::from_raw_parts::<'_, u8>) {
+                                        let _56: *const [u8];
+                                        scope 19 (inlined core::ub_checks::check_language_ub) {
+                                            scope 20 (inlined core::ub_checks::check_language_ub::runtime) {
+                                            }
+                                        }
+                                        scope 21 (inlined std::mem::size_of::<u8>) {
+                                        }
+                                        scope 22 (inlined std::mem::align_of::<u8>) {
+                                        }
+                                        scope 23 (inlined std::ptr::slice_from_raw_parts::<u8>) {
+                                            scope 24 (inlined std::ptr::from_raw_parts::<[u8], u8>) {
+                                            }
+                                        }
+                                    }
+                                    scope 25 (inlined std::str::from_utf8_unchecked) {
+                                    }
+                                }
+                            }
+                        }
+                        scope 26 (inlined std::hint::must_use::<std::string::String>) {
+                        }
+                        scope 27 (inlined <std::string::String as std::ops::Deref>::deref) {
+                            scope 28 (inlined std::string::String::as_str) {
+                                let _57: &[u8];
+                                scope 29 (inlined std::vec::Vec::<u8>::as_slice) {
+                                    let _58: *const [u8];
+                                    let mut _59: *const u8;
+                                    let mut _60: usize;
+                                    scope 30 (inlined std::vec::Vec::<u8>::as_ptr) {
+                                        scope 31 (inlined alloc::raw_vec::RawVec::<u8>::ptr) {
+                                            scope 32 (inlined alloc::raw_vec::RawVecInner::ptr::<u8>) {
+                                                scope 33 (inlined alloc::raw_vec::RawVecInner::non_null::<u8>) {
+                                                    let mut _61: std::ptr::NonNull<u8>;
+                                                    scope 34 (inlined std::ptr::Unique::<u8>::cast::<u8>) {
+                                                        scope 35 (inlined std::ptr::NonNull::<u8>::cast::<u8>) {
+                                                            scope 36 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                                            }
+                                                        }
+                                                    }
+                                                    scope 37 (inlined std::ptr::Unique::<u8>::as_non_null_ptr) {
+                                                    }
+                                                }
+                                                scope 38 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                scope 39 (inlined std::str::from_utf8_unchecked) {
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _1 = move _2 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_2);
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb2, unwind: bb21];
+    }
+
+    bb2: {
+        _3 = move _4 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_4);
+        StorageLive(_5);
+        StorageLive(_6);
+        _6 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb3, unwind: bb20];
+    }
+
+    bb3: {
+        _5 = move _6 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_6);
+        StorageLive(_7);
+        StorageLive(_8);
+        _8 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb4, unwind: bb19];
+    }
+
+    bb4: {
+        _7 = move _8 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_8);
+        _10 = &mut _1;
+        _11 = &mut _3;
+        _9 = go(move _10, move _11) -> [return: bb5, unwind: bb18];
+    }
+
+    bb5: {
+        _13 = &mut _5;
+        _14 = &mut _7;
+        _12 = go(move _13, move _14) -> [return: bb6, unwind: bb18];
+    }
+
+    bb6: {
+        StorageLive(_15);
+        StorageLive(_16);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_19);
+        _35 = copy ((_1.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _19 = &(*_35);
+        _18 = <dyn Sink as Sink>::put(move _19, const 0_usize) -> [return: bb7, unwind: bb18];
+    }
+
+    bb7: {
+        StorageDead(_19);
+        StorageLive(_20);
+        _36 = copy ((_3.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _21 = &(*_36);
+        _20 = use_y(move _21) -> [return: bb8, unwind: bb18];
+    }
+
+    bb8: {
+        _17 = Add(move _18, move _20);
+        StorageDead(_20);
+        StorageDead(_18);
+        StorageLive(_22);
+        StorageLive(_23);
+        _37 = copy ((_5.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _23 = &(*_37);
+        _22 = <dyn Sink as Sink>::put(move _23, const 3_usize) -> [return: bb9, unwind: bb18];
+    }
+
+    bb9: {
+        StorageDead(_23);
+        _16 = Add(move _17, move _22);
+        StorageDead(_22);
+        StorageDead(_17);
+        StorageLive(_24);
+        _38 = copy ((_7.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _25 = &(*_38);
+        _24 = use_v(move _25) -> [return: bb10, unwind: bb18];
+    }
+
+    bb10: {
+        _15 = Add(move _16, move _24);
+        StorageDead(_24);
+        StorageDead(_16);
+        StorageLive(_28);
+        StorageLive(_29);
+        StorageLive(_30);
+        _31 = &_15;
+        StorageLive(_32);
+        StorageLive(_33);
+        StorageLive(_42);
+        StorageLive(_43);
+        StorageLive(_39);
+        StorageLive(_40);
+        _43 = &raw const (*_31);
+        StorageLive(_44);
+        _44 = copy _43 as *const () (PtrToPtr);
+        _40 = std::ptr::NonNull::<()> { pointer: copy _44 };
+        StorageDead(_44);
+        StorageLive(_41);
+        _42 = <usize as std::fmt::Display>::fmt as for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Safe), Implicit));
+        _41 = copy _42 as for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error> (Transmute);
+        _39 = core::fmt::rt::ArgumentType::<'_>::Placeholder { value: move _40, formatter: copy _41, _lifetime: const std::marker::PhantomData::<&()> };
+        StorageDead(_41);
+        StorageDead(_40);
+        _33 = core::fmt::rt::Argument::<'_> { ty: move _39 };
+        StorageDead(_39);
+        StorageDead(_43);
+        StorageDead(_42);
+        _32 = [move _33];
+        StorageDead(_33);
+        _34 = &_32;
+        _45 = const b"\x02r=\xc0\x00" as std::ptr::NonNull<u8> (Transmute);
+        _46 = copy _34 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        _30 = std::fmt::Arguments::<'_> { template: copy _45, args: copy _46 };
+        StorageLive(_47);
+        StorageLive(_50);
+        StorageLive(_52);
+        StorageLive(_53);
+        _50 = copy _46 as usize (Transmute);
+        StorageLive(_51);
+        _51 = BitAnd(copy _50, const 1_usize);
+        switchInt(move _51) -> [1: bb25, otherwise: bb26];
+    }
+
+    bb11: {
+        drop(_28) -> [return: bb12, unwind: bb18];
+    }
+
+    bb12: {
+        StorageDead(_28);
+        StorageDead(_15);
+        drop(_7) -> [return: bb13, unwind: bb19];
+    }
+
+    bb13: {
+        StorageDead(_7);
+        drop(_5) -> [return: bb14, unwind: bb20];
+    }
+
+    bb14: {
+        StorageDead(_5);
+        drop(_3) -> [return: bb15, unwind: bb21];
+    }
+
+    bb15: {
+        StorageDead(_3);
+        drop(_1) -> [return: bb16, unwind continue];
+    }
+
+    bb16: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb17 (cleanup): {
+        drop(_28) -> [return: bb18, unwind terminate(cleanup)];
+    }
+
+    bb18 (cleanup): {
+        drop(_7) -> [return: bb19, unwind terminate(cleanup)];
+    }
+
+    bb19 (cleanup): {
+        drop(_5) -> [return: bb20, unwind terminate(cleanup)];
+    }
+
+    bb20 (cleanup): {
+        drop(_3) -> [return: bb21, unwind terminate(cleanup)];
+    }
+
+    bb21 (cleanup): {
+        drop(_1) -> [return: bb22, unwind terminate(cleanup)];
+    }
+
+    bb22 (cleanup): {
+        resume;
+    }
+
+    bb23: {
+        StorageDead(_48);
+        StorageDead(_47);
+        StorageDead(_32);
+        StorageDead(_30);
+        _28 = move _29;
+        StorageDead(_29);
+        StorageLive(_57);
+        StorageLive(_58);
+        StorageLive(_59);
+        StorageLive(_61);
+        _61 = copy (((((_28.0: std::vec::Vec<u8>).0: alloc::raw_vec::RawVec<u8>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _59 = copy _61 as *const u8 (Transmute);
+        StorageDead(_61);
+        StorageLive(_60);
+        _60 = copy ((_28.0: std::vec::Vec<u8>).1: usize);
+        _58 = *const [u8] from (copy _59, move _60);
+        StorageDead(_60);
+        StorageDead(_59);
+        _57 = &(*_58);
+        StorageDead(_58);
+        _27 = copy _57 as &str (Transmute);
+        StorageDead(_57);
+        _26 = votrace::hit(move _27) -> [return: bb11, unwind: bb17];
+    }
+
+    bb24: {
+        StorageDead(_53);
+        StorageDead(_52);
+        StorageDead(_50);
+        StorageLive(_48);
+        StorageLive(_49);
+        _49 = &_30;
+        _48 = {closure@library/alloc/src/fmt.rs:654:31: 654:33} { 0: copy _49 };
+        StorageDead(_49);
+        _29 = std::option::Option::<&str>::map_or_else::<std::string::String, {closure@std::fmt::format::{closure#0}}, for<'a> fn(&'a str) -> <str as std::borrow::ToOwned>::Owned {<str as std::borrow::ToOwned>::to_owned}>(move _47, move _48, <str as std::borrow::ToOwned>::to_owned) -> [return: bb23, unwind: bb18];
+    }
+
+    bb25: {
+        StorageDead(_51);
+        StorageLive(_54);
+        _54 = copy _45 as *const u8 (Transmute);
+        StorageLive(_55);
+        _55 = Shr(copy _50, const 1_i32);
+        StorageLive(_56);
+        _56 = *const [u8] from (copy _54, copy _55);
+        _53 = &(*_56);
+        StorageDead(_56);
+        StorageDead(_55);
+        StorageDead(_54);
+        _52 = copy _53 as &str (Transmute);
+        _47 = std::option::Option::<&str>::Some(copy _52);
+        goto -> bb24;
+    }
+
+    bb26: {
+        StorageDead(_51);
+        _47 = const std::option::Option::<&str>::None;
+        goto -> bb24;
+    }
+}
+
+alloc8 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+alloc3 (size: 5, align: 1) {
+    02 72 3d c0 00                                  │ .r=..
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: memo_nested_replay (package memo_nested_replay 0.1.0)
+// fn: main
+// instance: main
+fn main() -> () {
+    let mut _0: ();
+    let mut _1: std::boxed::Box<dyn Sink>;
+    let mut _2: std::boxed::Box<B>;
+    let mut _4: std::boxed::Box<B>;
+    let mut _6: std::boxed::Box<B>;
+    let mut _8: std::boxed::Box<B>;
+    let _9: ();
+    let mut _10: &mut std::boxed::Box<dyn Sink>;
+    let mut _11: &mut std::boxed::Box<dyn Sink>;
+    let _12: ();
+    let mut _13: &mut std::boxed::Box<dyn Sink>;
+    let mut _14: &mut std::boxed::Box<dyn Sink>;
+    let mut _16: usize;
+    let mut _17: usize;
+    let mut _18: usize;
+    let mut _19: &dyn Sink;
+    let mut _20: usize;
+    let _21: &dyn Sink;
+    let mut _22: usize;
+    let mut _23: &dyn Sink;
+    let mut _24: usize;
+    let _25: &dyn Sink;
+    let _26: ();
+    let _27: &str;
+    let _28: std::string::String;
+    let mut _29: std::string::String;
+    let mut _30: std::fmt::Arguments<'_>;
+    let mut _31: &usize;
+    let mut _33: core::fmt::rt::Argument<'_>;
+    let _34: &[core::fmt::rt::Argument<'_>; 1];
+    let mut _35: *const dyn Sink;
+    let mut _36: *const dyn Sink;
+    let mut _37: *const dyn Sink;
+    let mut _38: *const dyn Sink;
+    let mut _62: std::ptr::DynMetadata<dyn Sink>;
+    let mut _63: *const ();
+    let mut _64: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _65: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _66: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _67: *const B;
+    let mut _68: &B;
+    let mut _69: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _70: bool;
+    let mut _71: *const A;
+    let mut _72: &A;
+    let mut _73: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _74: bool;
+    let mut _75: std::ptr::DynMetadata<dyn Sink>;
+    let mut _76: *const ();
+    let mut _77: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _78: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _79: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _80: *const B;
+    let mut _81: &B;
+    let mut _82: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _83: bool;
+    let mut _84: *const A;
+    let mut _85: &A;
+    let mut _86: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _87: bool;
+    scope 1 {
+        debug x => _1;
+        let mut _3: std::boxed::Box<dyn Sink>;
+        scope 2 {
+            debug y => _3;
+            let mut _5: std::boxed::Box<dyn Sink>;
+            scope 3 {
+                debug u => _5;
+                let mut _7: std::boxed::Box<dyn Sink>;
+                scope 4 {
+                    debug v => _7;
+                    let _15: usize;
+                    scope 5 {
+                        debug r => _15;
+                        scope 6 {
+                            debug ((args: (&usize,)).0: &usize) => _31;
+                            let _32: [core::fmt::rt::Argument<'_>; 1];
+                            scope 7 {
+                                debug args => _32;
+                                scope 13 (inlined std::fmt::Arguments::<'_>::new::<5, 1>) {
+                                    let mut _45: std::ptr::NonNull<u8>;
+                                    let mut _46: std::ptr::NonNull<core::fmt::rt::Argument<'_>>;
+                                }
+                            }
+                            scope 8 (inlined core::fmt::rt::Argument::<'_>::new_display::<usize>) {
+                                let mut _39: core::fmt::rt::ArgumentType<'_>;
+                                let mut _40: std::ptr::NonNull<()>;
+                                let mut _41: for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error>;
+                                let _42: for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error>;
+                                scope 9 {
+                                }
+                                scope 10 (inlined std::ptr::NonNull::<usize>::from_ref) {
+                                    let mut _43: *const usize;
+                                }
+                                scope 11 (inlined std::ptr::NonNull::<usize>::cast::<()>) {
+                                    let mut _44: *const ();
+                                    scope 12 (inlined std::ptr::NonNull::<usize>::as_ptr) {
+                                    }
+                                }
+                            }
+                        }
+                        scope 14 (inlined std::fmt::format) {
+                            let mut _47: std::option::Option<&str>;
+                            let mut _48: {closure@std::fmt::format::{closure#0}};
+                            let mut _49: &std::fmt::Arguments<'_>;
+                            scope 15 (inlined std::fmt::Arguments::<'_>::as_str) {
+                                let _50: usize;
+                                let mut _51: usize;
+                                let _52: &str;
+                                let _53: &[u8];
+                                let mut _54: *const u8;
+                                let mut _55: usize;
+                                scope 16 {
+                                    scope 17 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                    }
+                                    scope 18 (inlined #[track_caller] std::slice::from_raw_parts::<'_, u8>) {
+                                        let _56: *const [u8];
+                                        scope 19 (inlined core::ub_checks::check_language_ub) {
+                                            scope 20 (inlined core::ub_checks::check_language_ub::runtime) {
+                                            }
+                                        }
+                                        scope 21 (inlined std::mem::size_of::<u8>) {
+                                        }
+                                        scope 22 (inlined std::mem::align_of::<u8>) {
+                                        }
+                                        scope 23 (inlined std::ptr::slice_from_raw_parts::<u8>) {
+                                            scope 24 (inlined std::ptr::from_raw_parts::<[u8], u8>) {
+                                            }
+                                        }
+                                    }
+                                    scope 25 (inlined std::str::from_utf8_unchecked) {
+                                    }
+                                }
+                            }
+                        }
+                        scope 26 (inlined std::hint::must_use::<std::string::String>) {
+                        }
+                        scope 27 (inlined <std::string::String as std::ops::Deref>::deref) {
+                            scope 28 (inlined std::string::String::as_str) {
+                                let _57: &[u8];
+                                scope 29 (inlined std::vec::Vec::<u8>::as_slice) {
+                                    let _58: *const [u8];
+                                    let mut _59: *const u8;
+                                    let mut _60: usize;
+                                    scope 30 (inlined std::vec::Vec::<u8>::as_ptr) {
+                                        scope 31 (inlined alloc::raw_vec::RawVec::<u8>::ptr) {
+                                            scope 32 (inlined alloc::raw_vec::RawVecInner::ptr::<u8>) {
+                                                scope 33 (inlined alloc::raw_vec::RawVecInner::non_null::<u8>) {
+                                                    let mut _61: std::ptr::NonNull<u8>;
+                                                    scope 34 (inlined std::ptr::Unique::<u8>::cast::<u8>) {
+                                                        scope 35 (inlined std::ptr::NonNull::<u8>::cast::<u8>) {
+                                                            scope 36 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                                            }
+                                                        }
+                                                    }
+                                                    scope 37 (inlined std::ptr::Unique::<u8>::as_non_null_ptr) {
+                                                    }
+                                                }
+                                                scope 38 (inlined std::ptr::NonNull::<u8>::as_ptr) {
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                scope 39 (inlined std::str::from_utf8_unchecked) {
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bb0: {
+        StorageLive(_1);
+        StorageLive(_2);
+        _2 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        _1 = move _2 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_2);
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb2, unwind: bb21];
+    }
+
+    bb2: {
+        _3 = move _4 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_4);
+        StorageLive(_5);
+        StorageLive(_6);
+        _6 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb3, unwind: bb20];
+    }
+
+    bb3: {
+        _5 = move _6 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_6);
+        StorageLive(_7);
+        StorageLive(_8);
+        _8 = std::boxed::Box::<B>::new(const B(1_usize)) -> [return: bb4, unwind: bb19];
+    }
+
+    bb4: {
+        _7 = move _8 as std::boxed::Box<dyn Sink> (PointerCoercion(Unsize, Implicit));
+        StorageDead(_8);
+        _10 = &mut _1;
+        _11 = &mut _3;
+        _9 = go(move _10, move _11) -> [return: bb5, unwind: bb18];
+    }
+
+    bb5: {
+        _13 = &mut _5;
+        _14 = &mut _7;
+        _12 = go(move _13, move _14) -> [return: bb6, unwind: bb18];
+    }
+
+    bb6: {
+        StorageLive(_15);
+        StorageLive(_16);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_19);
+        _35 = copy ((_1.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _19 = &(*_35);
+        _62 = PtrMetadata(move _19);
+        _63 = move _62 as *const () (Transmute);
+        _64 = copy _63 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _65 = Offset(copy _64, const 3_usize);
+        _66 = copy (*_65);
+        _69 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _73 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _74 = Eq(copy _66, copy _73);
+        switchInt(copy _74) -> [1: bb33, otherwise: bb31];
+    }
+
+    bb7: {
+        StorageDead(_19);
+        StorageLive(_20);
+        _36 = copy ((_3.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _21 = &(*_36);
+        _20 = use_y(move _21) -> [return: bb8, unwind: bb18];
+    }
+
+    bb8: {
+        _17 = Add(move _18, move _20);
+        StorageDead(_20);
+        StorageDead(_18);
+        StorageLive(_22);
+        StorageLive(_23);
+        _37 = copy ((_5.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _23 = &(*_37);
+        _75 = PtrMetadata(move _23);
+        _76 = move _75 as *const () (Transmute);
+        _77 = copy _76 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _78 = Offset(copy _77, const 3_usize);
+        _79 = copy (*_78);
+        _82 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _86 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _87 = Eq(copy _79, copy _86);
+        switchInt(copy _87) -> [1: bb40, otherwise: bb38];
+    }
+
+    bb9: {
+        StorageDead(_23);
+        _16 = Add(move _17, move _22);
+        StorageDead(_22);
+        StorageDead(_17);
+        StorageLive(_24);
+        _38 = copy ((_7.0: std::ptr::Unique<dyn Sink>).0: std::ptr::NonNull<dyn Sink>) as *const dyn Sink (Transmute);
+        _25 = &(*_38);
+        _24 = use_v(move _25) -> [return: bb10, unwind: bb18];
+    }
+
+    bb10: {
+        _15 = Add(move _16, move _24);
+        StorageDead(_24);
+        StorageDead(_16);
+        StorageLive(_28);
+        StorageLive(_29);
+        StorageLive(_30);
+        _31 = &_15;
+        StorageLive(_32);
+        StorageLive(_33);
+        StorageLive(_42);
+        StorageLive(_43);
+        StorageLive(_39);
+        StorageLive(_40);
+        _43 = &raw const (*_31);
+        StorageLive(_44);
+        _44 = copy _43 as *const () (PtrToPtr);
+        _40 = std::ptr::NonNull::<()> { pointer: copy _44 };
+        StorageDead(_44);
+        StorageLive(_41);
+        _42 = <usize as std::fmt::Display>::fmt as for<'a, 'b, 'c> fn(&'a usize, &'b mut std::fmt::Formatter<'c>) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Safe), Implicit));
+        _41 = copy _42 as for<'a, 'b> unsafe fn(std::ptr::NonNull<()>, &'a mut std::fmt::Formatter<'b>) -> std::result::Result<(), std::fmt::Error> (Transmute);
+        _39 = core::fmt::rt::ArgumentType::<'_>::Placeholder { value: move _40, formatter: copy _41, _lifetime: const std::marker::PhantomData::<&()> };
+        StorageDead(_41);
+        StorageDead(_40);
+        _33 = core::fmt::rt::Argument::<'_> { ty: move _39 };
+        StorageDead(_39);
+        StorageDead(_43);
+        StorageDead(_42);
+        _32 = [move _33];
+        StorageDead(_33);
+        _34 = &_32;
+        _45 = const b"\x02r=\xc0\x00" as std::ptr::NonNull<u8> (Transmute);
+        _46 = copy _34 as std::ptr::NonNull<core::fmt::rt::Argument<'_>> (Transmute);
+        _30 = std::fmt::Arguments::<'_> { template: copy _45, args: copy _46 };
+        StorageLive(_47);
+        StorageLive(_50);
+        StorageLive(_52);
+        StorageLive(_53);
+        _50 = copy _46 as usize (Transmute);
+        StorageLive(_51);
+        _51 = BitAnd(copy _50, const 1_usize);
+        switchInt(move _51) -> [1: bb25, otherwise: bb26];
+    }
+
+    bb11: {
+        drop(_28) -> [return: bb12, unwind: bb18];
+    }
+
+    bb12: {
+        StorageDead(_28);
+        StorageDead(_15);
+        drop(_7) -> [return: bb13, unwind: bb19];
+    }
+
+    bb13: {
+        StorageDead(_7);
+        drop(_5) -> [return: bb14, unwind: bb20];
+    }
+
+    bb14: {
+        StorageDead(_5);
+        drop(_3) -> [return: bb15, unwind: bb21];
+    }
+
+    bb15: {
+        StorageDead(_3);
+        drop(_1) -> [return: bb16, unwind continue];
+    }
+
+    bb16: {
+        StorageDead(_1);
+        return;
+    }
+
+    bb17 (cleanup): {
+        drop(_28) -> [return: bb18, unwind terminate(cleanup)];
+    }
+
+    bb18 (cleanup): {
+        drop(_7) -> [return: bb19, unwind terminate(cleanup)];
+    }
+
+    bb19 (cleanup): {
+        drop(_5) -> [return: bb20, unwind terminate(cleanup)];
+    }
+
+    bb20 (cleanup): {
+        drop(_3) -> [return: bb21, unwind terminate(cleanup)];
+    }
+
+    bb21 (cleanup): {
+        drop(_1) -> [return: bb22, unwind terminate(cleanup)];
+    }
+
+    bb22 (cleanup): {
+        resume;
+    }
+
+    bb23: {
+        StorageDead(_48);
+        StorageDead(_47);
+        StorageDead(_32);
+        StorageDead(_30);
+        _28 = move _29;
+        StorageDead(_29);
+        StorageLive(_57);
+        StorageLive(_58);
+        StorageLive(_59);
+        StorageLive(_61);
+        _61 = copy (((((_28.0: std::vec::Vec<u8>).0: alloc::raw_vec::RawVec<u8>).0: alloc::raw_vec::RawVecInner).0: std::ptr::Unique<u8>).0: std::ptr::NonNull<u8>);
+        _59 = copy _61 as *const u8 (Transmute);
+        StorageDead(_61);
+        StorageLive(_60);
+        _60 = copy ((_28.0: std::vec::Vec<u8>).1: usize);
+        _58 = *const [u8] from (copy _59, move _60);
+        StorageDead(_60);
+        StorageDead(_59);
+        _57 = &(*_58);
+        StorageDead(_58);
+        _27 = copy _57 as &str (Transmute);
+        StorageDead(_57);
+        _26 = votrace::hit(move _27) -> [return: bb11, unwind: bb17];
+    }
+
+    bb24: {
+        StorageDead(_53);
+        StorageDead(_52);
+        StorageDead(_50);
+        StorageLive(_48);
+        StorageLive(_49);
+        _49 = &_30;
+        _48 = {closure@library/alloc/src/fmt.rs:654:31: 654:33} { 0: copy _49 };
+        StorageDead(_49);
+        _29 = std::option::Option::<&str>::map_or_else::<std::string::String, {closure@std::fmt::format::{closure#0}}, for<'a> fn(&'a str) -> <str as std::borrow::ToOwned>::Owned {<str as std::borrow::ToOwned>::to_owned}>(move _47, move _48, <str as std::borrow::ToOwned>::to_owned) -> [return: bb23, unwind: bb18];
+    }
+
+    bb25: {
+        StorageDead(_51);
+        StorageLive(_54);
+        _54 = copy _45 as *const u8 (Transmute);
+        StorageLive(_55);
+        _55 = Shr(copy _50, const 1_i32);
+        StorageLive(_56);
+        _56 = *const [u8] from (copy _54, copy _55);
+        _53 = &(*_56);
+        StorageDead(_56);
+        StorageDead(_55);
+        StorageDead(_54);
+        _52 = copy _53 as &str (Transmute);
+        _47 = std::option::Option::<&str>::Some(copy _52);
+        goto -> bb24;
+    }
+
+    bb26: {
+        StorageDead(_51);
+        _47 = const std::option::Option::<&str>::None;
+        goto -> bb24;
+    }
+
+    bb27: {
+        goto -> bb7;
+    }
+
+    bb28: {
+        _18 = <dyn Sink as Sink>::put(move _19, const 0_usize) -> [return: bb27, unwind: bb18];
+    }
+
+    bb29: {
+        goto -> bb7;
+    }
+
+    bb30: {
+        _67 = move _19 as *const B (PtrToPtr);
+        _68 = &(*_67);
+        _18 = <B as Sink>::put(move _68, const 0_usize) -> [return: bb29, unwind: bb18];
+    }
+
+    bb31: {
+        _70 = Eq(copy _66, copy _69);
+        switchInt(copy _70) -> [1: bb30, otherwise: bb28];
+    }
+
+    bb32: {
+        goto -> bb7;
+    }
+
+    bb33: {
+        _71 = move _19 as *const A (PtrToPtr);
+        _72 = &(*_71);
+        _18 = <A as Sink>::put(move _72, const 0_usize) -> [return: bb32, unwind: bb18];
+    }
+
+    bb34: {
+        goto -> bb9;
+    }
+
+    bb35: {
+        _22 = <dyn Sink as Sink>::put(move _23, const 3_usize) -> [return: bb34, unwind: bb18];
+    }
+
+    bb36: {
+        goto -> bb9;
+    }
+
+    bb37: {
+        _80 = move _23 as *const B (PtrToPtr);
+        _81 = &(*_80);
+        _22 = <B as Sink>::put(move _81, const 3_usize) -> [return: bb36, unwind: bb18];
+    }
+
+    bb38: {
+        _83 = Eq(copy _79, copy _82);
+        switchInt(copy _83) -> [1: bb37, otherwise: bb35];
+    }
+
+    bb39: {
+        goto -> bb9;
+    }
+
+    bb40: {
+        _84 = move _23 as *const A (PtrToPtr);
+        _85 = &(*_84);
+        _22 = <A as Sink>::put(move _85, const 3_usize) -> [return: bb39, unwind: bb18];
+    }
+}
+
+alloc8 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+
+alloc3 (size: 5, align: 1) {
+    02 72 3d c0 00                                  │ .r=..
+}
+######### END after #########
+
+
+######### MIR before #########
+// crate: memo_nested_replay (package memo_nested_replay 0.1.0)
+// fn: use_v
+// instance: use_v
+fn use_v(_1: &dyn Sink) -> usize {
+    debug s => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = <dyn Sink as Sink>::put(move _1, const 2_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: memo_nested_replay (package memo_nested_replay 0.1.0)
+// fn: use_v
+// instance: use_v
+fn use_v(_1: &dyn Sink) -> usize {
+    debug s => _1;
+    let mut _0: usize;
+    let mut _2: std::ptr::DynMetadata<dyn Sink>;
+    let mut _3: *const ();
+    let mut _4: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _5: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _6: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _7: *const B;
+    let mut _8: &B;
+    let mut _9: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _10: bool;
+    let mut _11: *const A;
+    let mut _12: &A;
+    let mut _13: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _14: bool;
+
+    bb0: {
+        _2 = PtrMetadata(move _1);
+        _3 = move _2 as *const () (Transmute);
+        _4 = copy _3 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _5 = Offset(copy _4, const 3_usize);
+        _6 = copy (*_5);
+        _9 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _13 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _14 = Eq(copy _6, copy _13);
+        switchInt(copy _14) -> [1: bb8, otherwise: bb6];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        _0 = <dyn Sink as Sink>::put(move _1, const 2_usize) -> [return: bb2, unwind continue];
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _7 = move _1 as *const B (PtrToPtr);
+        _8 = &(*_7);
+        _0 = <B as Sink>::put(move _8, const 2_usize) -> [return: bb4, unwind continue];
+    }
+
+    bb6: {
+        _10 = Eq(copy _6, copy _9);
+        switchInt(copy _10) -> [1: bb5, otherwise: bb3];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _11 = move _1 as *const A (PtrToPtr);
+        _12 = &(*_11);
+        _0 = <A as Sink>::put(move _12, const 2_usize) -> [return: bb7, unwind continue];
+    }
+}
+######### END after #########
+
+
+######### MIR before #########
+// crate: memo_nested_replay (package memo_nested_replay 0.1.0)
+// fn: use_y
+// instance: use_y
+fn use_y(_1: &dyn Sink) -> usize {
+    debug s => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = <dyn Sink as Sink>::put(move _1, const 1_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: memo_nested_replay (package memo_nested_replay 0.1.0)
+// fn: use_y
+// instance: use_y
+fn use_y(_1: &dyn Sink) -> usize {
+    debug s => _1;
+    let mut _0: usize;
+    let mut _2: std::ptr::DynMetadata<dyn Sink>;
+    let mut _3: *const ();
+    let mut _4: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _5: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _6: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _7: *const B;
+    let mut _8: &B;
+    let mut _9: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _10: bool;
+    let mut _11: *const A;
+    let mut _12: &A;
+    let mut _13: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _14: bool;
+
+    bb0: {
+        _2 = PtrMetadata(move _1);
+        _3 = move _2 as *const () (Transmute);
+        _4 = copy _3 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _5 = Offset(copy _4, const 3_usize);
+        _6 = copy (*_5);
+        _9 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _13 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _14 = Eq(copy _6, copy _13);
+        switchInt(copy _14) -> [1: bb8, otherwise: bb6];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        _0 = <dyn Sink as Sink>::put(move _1, const 1_usize) -> [return: bb2, unwind continue];
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _7 = move _1 as *const B (PtrToPtr);
+        _8 = &(*_7);
+        _0 = <B as Sink>::put(move _8, const 1_usize) -> [return: bb4, unwind continue];
+    }
+
+    bb6: {
+        _10 = Eq(copy _6, copy _9);
+        switchInt(copy _10) -> [1: bb5, otherwise: bb3];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _11 = move _1 as *const A (PtrToPtr);
+        _12 = &(*_11);
+        _0 = <A as Sink>::put(move _12, const 1_usize) -> [return: bb7, unwind continue];
+    }
+}
+######### END after #########
+

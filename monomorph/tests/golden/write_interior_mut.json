@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:34:5: 34:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<write_interior_mut::A as write_interior_mut::Sink>::put",
+        "<write_interior_mut::B as write_interior_mut::Sink>::put",
+        "<write_interior_mut::D as write_interior_mut::Sink>::put"
+      ],
+      "fsa": [
+        "<write_interior_mut::A as write_interior_mut::Sink>::put",
+        "<write_interior_mut::B as write_interior_mut::Sink>::put"
+      ]
+    }
+  ]
+}

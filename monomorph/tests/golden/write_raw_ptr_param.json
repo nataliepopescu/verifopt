@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:33:5: 33:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<write_raw_ptr_param::A as write_raw_ptr_param::Sink>::put",
+        "<write_raw_ptr_param::B as write_raw_ptr_param::Sink>::put",
+        "<write_raw_ptr_param::D as write_raw_ptr_param::Sink>::put"
+      ],
+      "fsa": [
+        "<write_raw_ptr_param::A as write_raw_ptr_param::Sink>::put",
+        "<write_raw_ptr_param::B as write_raw_ptr_param::Sink>::put"
+      ]
+    }
+  ]
+}

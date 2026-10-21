@@ -1,0 +1,42 @@
+{
+  "maybe_count": 2,
+  "not_count": 1,
+  "sites": [
+    {
+      "span": "src/main.rs:47:5: 47:20",
+      "is_maybe_example": false,
+      "cha": [
+        "<memo_virtual_replay::I as memo_virtual_replay::Installer>::install"
+      ],
+      "fsa": [
+        "<memo_virtual_replay::I as memo_virtual_replay::Installer>::install"
+      ]
+    },
+    {
+      "span": "src/main.rs:52:5: 52:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_virtual_replay::A as memo_virtual_replay::Sink>::put",
+        "<memo_virtual_replay::B as memo_virtual_replay::Sink>::put",
+        "<memo_virtual_replay::D as memo_virtual_replay::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_virtual_replay::A as memo_virtual_replay::Sink>::put",
+        "<memo_virtual_replay::B as memo_virtual_replay::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:61:13: 61:21",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_virtual_replay::A as memo_virtual_replay::Sink>::put",
+        "<memo_virtual_replay::B as memo_virtual_replay::Sink>::put",
+        "<memo_virtual_replay::D as memo_virtual_replay::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_virtual_replay::A as memo_virtual_replay::Sink>::put",
+        "<memo_virtual_replay::B as memo_virtual_replay::Sink>::put"
+      ]
+    }
+  ]
+}

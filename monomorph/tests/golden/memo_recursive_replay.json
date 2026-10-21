@@ -1,0 +1,21 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:60:5: 60:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_recursive_replay::A as memo_recursive_replay::Sink>::put",
+        "<memo_recursive_replay::B as memo_recursive_replay::Sink>::put",
+        "<memo_recursive_replay::C as memo_recursive_replay::Sink>::put",
+        "<memo_recursive_replay::D as memo_recursive_replay::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_recursive_replay::A as memo_recursive_replay::Sink>::put",
+        "<memo_recursive_replay::B as memo_recursive_replay::Sink>::put",
+        "<memo_recursive_replay::C as memo_recursive_replay::Sink>::put"
+      ]
+    }
+  ]
+}

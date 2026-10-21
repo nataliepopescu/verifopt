@@ -198,3 +198,24 @@ example_test!(memo_side_effects, "memo_side_effects", Passing);
 // reads the field as any `Box<dyn Sink>` also adds D, which is fine);
 // re-bless the MIR dump once it passes.
 example_test!(merge_widened_field, "merge_widened_field", Passing);
+
+// Writes that reach the caller other than through a `&mut` parameter: a
+// `*mut` parameter, a `&mut` inside a parameter's field, and `RefCell`
+// through a shared reference. Each replaces the caller's B with an A, so
+// FSA at `use_slot` must list A. All three are red: none of these writes
+// reaches the caller today (no alias edge for raw-pointer parameters, a
+// pointer in a field holds a copy of its pointee, and `resolve_mut_ref` stops
+// at shared borrows). JSON goldens are hand-written ({A, B}: writes through
+// aliases merge); re-bless the MIR dumps once they pass.
+example_test!(write_raw_ptr_param, "write_raw_ptr_param", Passing);
+example_test!(write_ref_in_field, "write_ref_in_field", Passing);
+example_test!(write_interior_mut, "write_interior_mut", Passing);
+
+// Memo hits replaying a call's writes (write_log): through nested calls and
+// an alias chain, including writes that were themselves replays
+// (memo_nested_replay), and on a virtual_call_memo hit (memo_virtual_replay).
+example_test!(memo_nested_replay, "memo_nested_replay", Passing);
+example_test!(memo_virtual_replay, "memo_virtual_replay", Passing);
+// Recursion with writes through `&mut`, partly answered from recursion
+// summaries (which replay their writes too - but see the fixture's comment).
+example_test!(memo_recursive_replay, "memo_recursive_replay", Passing);

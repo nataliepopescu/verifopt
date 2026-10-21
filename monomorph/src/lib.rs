@@ -33,6 +33,7 @@ pub mod timing;
 pub mod trait_collect;
 pub mod util;
 pub mod wto;
+pub mod write_log;
 
 use crate::constraints::Context;
 use crate::interp::{InterpPass, TagPlan};

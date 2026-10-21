@@ -1870,6 +1870,16 @@ impl ConstraintStore {
     /// reference, matching the original single-valued version's own
     /// `return cur` (not `return (p, s)`) behavior on that branch.
     fn resolve_mut_ref(&self, place: Place, scope: VOID) -> ImHashSet<(Place, VOID)> {
+        self.resolve_mut_ref_visiting(place, scope).0
+    }
+
+    /// resolve_mut_ref, also returning every place the alias walk visited
+    /// (for write_log: which calls' ports a write passes through).
+    fn resolve_mut_ref_visiting(
+        &self,
+        place: Place,
+        scope: VOID,
+    ) -> (ImHashSet<(Place, VOID)>, ImHashSet<(Place, VOID)>) {
         let mut results = ImHashSet::new();
         let mut visited: ImHashSet<(Place, VOID)> = ImHashSet::new();
         let mut worklist = vec![(place, scope)];
@@ -1893,7 +1903,43 @@ impl ConstraintStore {
                 }
             }
         }
-        results
+        (results, visited)
+    }
+
+    /// The places a write to `key` in `scope` goes to (resolve's mutable
+    /// alias walk), after logging the write for write_log: a Var write by
+    /// the places its walk visited, a Static write by its static.
+    fn write_targets(&self, scope: &VOID, key: &MapKey, value: &MapValue) -> Vec<(VOID, MapKey)> {
+        match key {
+            MapKey::Var(place) => {
+                let (base, rest) = if place.projection.first() == Some(&ProjectionElem::Deref) {
+                    (Place { local: place.local, projection: vec![] }, Some(place.projection[1..].to_vec()))
+                } else {
+                    (place.clone(), None)
+                };
+                let (targets, visited) = self.resolve_mut_ref_visiting(base.clone(), scope.clone());
+                crate::write_log::record_write(visited.iter(), value);
+                targets
+                    .into_iter()
+                    .map(|(tplace, tscope)| match &rest {
+                        // As in resolve: a Deref write that resolves to its own
+                        // base stays the original place.
+                        Some(_) if tplace == base && tscope == *scope => (scope.clone(), MapKey::Var(place.clone())),
+                        Some(rest) => {
+                            let mut projection = tplace.projection.clone();
+                            projection.extend(rest.iter().cloned());
+                            (tscope, MapKey::Var(Place { local: tplace.local, projection }))
+                        }
+                        None => (tscope, MapKey::Var(tplace)),
+                    })
+                    .collect()
+            }
+            MapKey::Static(def) => {
+                crate::write_log::record_static(*def, value);
+                vec![(scope.clone(), key.clone())]
+            }
+            MapKey::ScopeId(_) => vec![(scope.clone(), key.clone())],
+        }
     }
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
@@ -1987,17 +2033,7 @@ impl ConstraintStore {
         timing: Option<&InterpPass>,
     ) {
         let _resolve_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateResolve, scope));
-        let targets: Vec<(VOID, MapKey)> = match &key {
-            MapKey::Var(place) => self
-                .resolve(place.clone(), scope.clone(), true)
-                .into_iter()
-                .map(|(p, s)| {
-                    debug!("scoped_update: local={}", p.local);
-                    (s, MapKey::Var(p))
-                })
-                .collect(),
-            MapKey::ScopeId(_) | MapKey::Static(_) => vec![(scope.clone(), key.clone())],
-        };
+        let targets = self.write_targets(scope, &key, &value);
         drop(_resolve_guard);
 
         // A Var write can now resolve to multiple possible places (see
@@ -2087,14 +2123,7 @@ impl ConstraintStore {
     // branching by MIR's own definition, so there's no alternative
     // incoming path the prior value could represent.
     pub fn scoped_replace(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
-        let targets: Vec<(VOID, MapKey)> = match &key {
-            MapKey::Var(place) => self
-                .resolve(place.clone(), scope.clone(), true)
-                .into_iter()
-                .map(|(p, s)| (s, MapKey::Var(p)))
-                .collect(),
-            MapKey::ScopeId(_) | MapKey::Static(_) => vec![(scope.clone(), key.clone())],
-        };
+        let targets = self.write_targets(scope, &key, &value);
 
         // The "always overwrites outright" contract only holds when
         // there's exactly one possible target - the original

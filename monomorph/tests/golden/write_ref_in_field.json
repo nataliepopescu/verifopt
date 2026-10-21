@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:34:5: 34:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<write_ref_in_field::A as write_ref_in_field::Sink>::put",
+        "<write_ref_in_field::B as write_ref_in_field::Sink>::put",
+        "<write_ref_in_field::D as write_ref_in_field::Sink>::put"
+      ],
+      "fsa": [
+        "<write_ref_in_field::A as write_ref_in_field::Sink>::put",
+        "<write_ref_in_field::B as write_ref_in_field::Sink>::put"
+      ]
+    }
+  ]
+}

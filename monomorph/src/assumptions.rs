@@ -88,6 +88,13 @@ pub enum Reason {
     /// interpreted - e.g. `core::fmt::rt::Argument::fmt` calling a
     /// `Display::fmt` impl.
     FnPtrCall,
+    /// Every memo hit (exact_memo and virtual_call_memo; named "(precise)"
+    /// or "(widened)"). Not an assumption - the denominator for MemoReplay.
+    MemoHit,
+    /// A memo hit that replayed the memoized call's writes into memory its
+    /// caller can see (write_log). Not an assumption either: the count of
+    /// hits that used to skip those writes.
+    MemoReplay,
 }
 
 impl Reason {
@@ -113,6 +120,8 @@ impl Reason {
             Reason::MemoWidenedReuse => "memo reuse under widened key",
             Reason::WidenCapture => "widened (captured value size) - dropped fields of",
             Reason::FnPtrCall => "fn-pointer call (not followed)",
+            Reason::MemoHit => "memo hit",
+            Reason::MemoReplay => "memo hit, writes replayed",
         }
     }
 

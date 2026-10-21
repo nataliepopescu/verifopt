@@ -1,0 +1,58 @@
+{
+  "maybe_count": 4,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:59:5: 59:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::D as memo_nested_replay::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:64:5: 64:13",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::D as memo_nested_replay::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:74:13: 74:21",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::D as memo_nested_replay::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:74:37: 74:45",
+      "is_maybe_example": true,
+      "cha": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::D as memo_nested_replay::Sink>::put"
+      ],
+      "fsa": [
+        "<memo_nested_replay::A as memo_nested_replay::Sink>::put",
+        "<memo_nested_replay::B as memo_nested_replay::Sink>::put"
+      ]
+    }
+  ]
+}

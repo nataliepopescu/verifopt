@@ -1,0 +1,112 @@
+
+######### MIR before #########
+// crate: memo_recursive_replay (package memo_recursive_replay 0.1.0)
+// fn: use_slot
+// instance: use_slot
+fn use_slot(_1: &dyn Sink) -> usize {
+    debug s => _1;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = <dyn Sink as Sink>::put(move _1, const 2_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: memo_recursive_replay (package memo_recursive_replay 0.1.0)
+// fn: use_slot
+// instance: use_slot
+fn use_slot(_1: &dyn Sink) -> usize {
+    debug s => _1;
+    let mut _0: usize;
+    let mut _2: std::ptr::DynMetadata<dyn Sink>;
+    let mut _3: *const ();
+    let mut _4: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _5: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _6: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _7: *const C;
+    let mut _8: &C;
+    let mut _9: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _10: bool;
+    let mut _11: *const A;
+    let mut _12: &A;
+    let mut _13: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _14: bool;
+    let mut _15: *const B;
+    let mut _16: &B;
+    let mut _17: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _18: bool;
+
+    bb0: {
+        _2 = PtrMetadata(move _1);
+        _3 = move _2 as *const () (Transmute);
+        _4 = copy _3 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _5 = Offset(copy _4, const 3_usize);
+        _6 = copy (*_5);
+        _9 = <C as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _13 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _17 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _18 = Eq(copy _6, copy _17);
+        switchInt(copy _18) -> [1: bb11, otherwise: bb9];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        _0 = <dyn Sink as Sink>::put(move _1, const 2_usize) -> [return: bb2, unwind continue];
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _7 = move _1 as *const C (PtrToPtr);
+        _8 = &(*_7);
+        _0 = <C as Sink>::put(move _8, const 2_usize) -> [return: bb4, unwind continue];
+    }
+
+    bb6: {
+        _10 = Eq(copy _6, copy _9);
+        switchInt(copy _10) -> [1: bb5, otherwise: bb3];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _11 = move _1 as *const A (PtrToPtr);
+        _12 = &(*_11);
+        _0 = <A as Sink>::put(move _12, const 2_usize) -> [return: bb7, unwind continue];
+    }
+
+    bb9: {
+        _14 = Eq(copy _6, copy _13);
+        switchInt(copy _14) -> [1: bb8, otherwise: bb6];
+    }
+
+    bb10: {
+        goto -> bb1;
+    }
+
+    bb11: {
+        _15 = move _1 as *const B (PtrToPtr);
+        _16 = &(*_15);
+        _0 = <B as Sink>::put(move _16, const 2_usize) -> [return: bb10, unwind continue];
+    }
+}
+######### END after #########
+

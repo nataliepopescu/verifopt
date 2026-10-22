@@ -62,4 +62,16 @@
 
 ## notes
 
+which rewrites make a difference?
+
+tock runtime hack for avoiding dynamic dispatch
+- revert these hacks back to dyn dispatch to check tool impact
+- leon; more of these places in tock?
+- hudson: reducing binary size in tock
+
+want at least one slam dunk use case
+
+speed of light vs speed of sound
+
+prioritize understanding whats going on at a particular point
 

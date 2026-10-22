@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:19:16: 19:24",
+      "is_maybe_example": true,
+      "cha": [
+        "<slice_iter_flatten::A as slice_iter_flatten::Sink>::put",
+        "<slice_iter_flatten::B as slice_iter_flatten::Sink>::put",
+        "<slice_iter_flatten::D as slice_iter_flatten::Sink>::put"
+      ],
+      "fsa": [
+        "<slice_iter_flatten::A as slice_iter_flatten::Sink>::put",
+        "<slice_iter_flatten::B as slice_iter_flatten::Sink>::put"
+      ]
+    }
+  ]
+}

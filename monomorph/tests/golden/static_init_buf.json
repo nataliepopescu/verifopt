@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:44:9: 44:21",
+      "is_maybe_example": true,
+      "cha": [
+        "<static_init_buf::A as static_init_buf::Sink>::put",
+        "<static_init_buf::B as static_init_buf::Sink>::put",
+        "<static_init_buf::D as static_init_buf::Sink>::put"
+      ],
+      "fsa": [
+        "<static_init_buf::A as static_init_buf::Sink>::put",
+        "<static_init_buf::B as static_init_buf::Sink>::put"
+      ]
+    }
+  ]
+}

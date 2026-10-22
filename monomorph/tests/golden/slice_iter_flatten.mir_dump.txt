@@ -1,0 +1,388 @@
+
+######### MIR before #########
+// crate: slice_iter_flatten (package slice_iter_flatten 0.1.0)
+// fn: run_all
+// instance: run_all
+fn run_all(_1: &[std::option::Option<&dyn Sink>; 2]) -> usize {
+    debug procs => _1;
+    let mut _0: usize;
+    let mut _2: std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+    let mut _3: std::slice::Iter<'_, std::option::Option<&dyn Sink>>;
+    let mut _4: &[std::option::Option<&dyn Sink>];
+    let mut _6: std::option::Option<&&dyn Sink>;
+    let mut _7: isize;
+    let mut _9: usize;
+    let mut _10: &dyn Sink;
+    scope 1 {
+        debug acc => _0;
+        let mut _5: std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+        scope 2 {
+            debug iter => _5;
+            let _8: &&dyn Sink;
+            scope 3 {
+                debug p => _8;
+            }
+            scope 25 (inlined <std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> as std::iter::Iterator>::next) {
+                let mut _20: &mut std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>;
+            }
+        }
+        scope 4 (inlined core::slice::<impl [std::option::Option<&dyn Sink>]>::iter) {
+            scope 5 (inlined std::slice::Iter::<'_, std::option::Option<&dyn Sink>>::new) {
+                let mut _13: *mut std::option::Option<&dyn Sink>;
+                let mut _14: *mut std::option::Option<&dyn Sink>;
+                scope 6 {
+                    let _11: std::ptr::NonNull<std::option::Option<&dyn Sink>>;
+                    scope 7 {
+                        let _12: *const std::option::Option<&dyn Sink>;
+                        scope 8 {
+                        }
+                        scope 12 (inlined std::ptr::without_provenance::<std::option::Option<&dyn Sink>>) {
+                            scope 13 (inlined std::ptr::without_provenance_mut::<std::option::Option<&dyn Sink>>) {
+                            }
+                        }
+                        scope 14 (inlined std::ptr::NonNull::<std::option::Option<&dyn Sink>>::as_ptr) {
+                        }
+                        scope 15 (inlined #[track_caller] std::ptr::mut_ptr::<impl *mut std::option::Option<&dyn Sink>>::add) {
+                            scope 16 (inlined core::ub_checks::check_language_ub) {
+                                scope 17 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 18 (inlined std::mem::size_of::<std::option::Option<&dyn Sink>>) {
+                            }
+                        }
+                    }
+                    scope 9 (inlined std::ptr::NonNull::<[std::option::Option<&dyn Sink>]>::from_ref) {
+                        let mut _15: *const [std::option::Option<&dyn Sink>];
+                    }
+                    scope 10 (inlined std::ptr::NonNull::<[std::option::Option<&dyn Sink>]>::cast::<std::option::Option<&dyn Sink>>) {
+                        let mut _16: *const std::option::Option<&dyn Sink>;
+                        scope 11 (inlined std::ptr::NonNull::<[std::option::Option<&dyn Sink>]>::as_ptr) {
+                        }
+                    }
+                }
+            }
+        }
+        scope 19 (inlined <std::slice::Iter<'_, std::option::Option<&dyn Sink>> as std::iter::Iterator>::flatten) {
+            scope 20 (inlined std::iter::Flatten::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>::new) {
+                let mut _17: std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>;
+                scope 21 (inlined std::iter::adapters::flatten::FlattenCompat::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>::new) {
+                    let mut _18: std::iter::Fuse<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+                    scope 22 (inlined <std::slice::Iter<'_, std::option::Option<&dyn Sink>> as std::iter::Iterator>::fuse) {
+                        scope 23 (inlined std::iter::Fuse::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>::new) {
+                            let mut _19: std::option::Option<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+                        }
+                    }
+                }
+            }
+        }
+        scope 24 (inlined <std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> as std::iter::IntoIterator>::into_iter) {
+        }
+    }
+
+    bb0: {
+        _0 = const 0_usize;
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = copy _1 as &[std::option::Option<&dyn Sink>] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_11);
+        StorageLive(_12);
+        StorageLive(_15);
+        _15 = &raw const (*_4);
+        StorageLive(_16);
+        _16 = copy _15 as *const std::option::Option<&dyn Sink> (PtrToPtr);
+        _11 = std::ptr::NonNull::<std::option::Option<&dyn Sink>> { pointer: copy _16 };
+        StorageDead(_16);
+        StorageLive(_13);
+        StorageLive(_14);
+        _14 = copy _15 as *mut std::option::Option<&dyn Sink> (PtrToPtr);
+        _13 = Offset(copy _14, const 2_usize);
+        StorageDead(_14);
+        _12 = copy _13 as *const std::option::Option<&dyn Sink> (PtrToPtr);
+        StorageDead(_13);
+        _3 = std::slice::Iter::<'_, std::option::Option<&dyn Sink>> { ptr: copy _11, end_or_len: copy _12, _marker: const std::marker::PhantomData::<&std::option::Option<&dyn Sink>> };
+        StorageDead(_15);
+        StorageDead(_12);
+        StorageDead(_11);
+        StorageDead(_4);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_19);
+        _19 = std::option::Option::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>::Some(copy _3);
+        _18 = std::iter::Fuse::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> { iter: move _19 };
+        StorageDead(_19);
+        _17 = std::iter::adapters::flatten::FlattenCompat::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>> { iter: move _18, frontiter: const std::option::Option::<std::option::Iter<'_, &dyn Sink>>::None, backiter: const std::option::Option::<std::option::Iter<'_, &dyn Sink>>::None };
+        StorageDead(_18);
+        _2 = std::iter::Flatten::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> { inner: move _17 };
+        StorageDead(_17);
+        StorageDead(_3);
+        StorageLive(_5);
+        _5 = copy _2;
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_6);
+        StorageLive(_20);
+        _20 = &mut (_5.0: std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>);
+        _6 = <std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>> as std::iter::Iterator>::next(move _20) -> [return: bb6, unwind continue];
+    }
+
+    bb2: {
+        unreachable;
+    }
+
+    bb3: {
+        StorageLive(_8);
+        _8 = copy ((_6 as Some).0: &&dyn Sink);
+        StorageLive(_9);
+        _10 = copy (*_8);
+        _9 = <dyn Sink as Sink>::put(move _10, const 1_usize) -> [return: bb5, unwind continue];
+    }
+
+    bb4: {
+        StorageDead(_6);
+        StorageDead(_5);
+        return;
+    }
+
+    bb5: {
+        _0 = Add(copy _0, move _9);
+        StorageDead(_9);
+        StorageDead(_8);
+        StorageDead(_6);
+        goto -> bb1;
+    }
+
+    bb6: {
+        StorageDead(_20);
+        _7 = discriminant(_6);
+        switchInt(move _7) -> [0: bb4, 1: bb3, otherwise: bb2];
+    }
+}
+
+alloc34 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: slice_iter_flatten (package slice_iter_flatten 0.1.0)
+// fn: run_all
+// instance: run_all
+fn run_all(_1: &[std::option::Option<&dyn Sink>; 2]) -> usize {
+    debug procs => _1;
+    let mut _0: usize;
+    let mut _2: std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+    let mut _3: std::slice::Iter<'_, std::option::Option<&dyn Sink>>;
+    let mut _4: &[std::option::Option<&dyn Sink>];
+    let mut _6: std::option::Option<&&dyn Sink>;
+    let mut _7: isize;
+    let mut _9: usize;
+    let mut _10: &dyn Sink;
+    let mut _21: std::ptr::DynMetadata<dyn Sink>;
+    let mut _22: *const ();
+    let mut _23: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _24: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _25: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _26: *const A;
+    let mut _27: &A;
+    let mut _28: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _29: bool;
+    let mut _30: *const B;
+    let mut _31: &B;
+    let mut _32: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _33: bool;
+    scope 1 {
+        debug acc => _0;
+        let mut _5: std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+        scope 2 {
+            debug iter => _5;
+            let _8: &&dyn Sink;
+            scope 3 {
+                debug p => _8;
+            }
+            scope 25 (inlined <std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> as std::iter::Iterator>::next) {
+                let mut _20: &mut std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>;
+            }
+        }
+        scope 4 (inlined core::slice::<impl [std::option::Option<&dyn Sink>]>::iter) {
+            scope 5 (inlined std::slice::Iter::<'_, std::option::Option<&dyn Sink>>::new) {
+                let mut _13: *mut std::option::Option<&dyn Sink>;
+                let mut _14: *mut std::option::Option<&dyn Sink>;
+                scope 6 {
+                    let _11: std::ptr::NonNull<std::option::Option<&dyn Sink>>;
+                    scope 7 {
+                        let _12: *const std::option::Option<&dyn Sink>;
+                        scope 8 {
+                        }
+                        scope 12 (inlined std::ptr::without_provenance::<std::option::Option<&dyn Sink>>) {
+                            scope 13 (inlined std::ptr::without_provenance_mut::<std::option::Option<&dyn Sink>>) {
+                            }
+                        }
+                        scope 14 (inlined std::ptr::NonNull::<std::option::Option<&dyn Sink>>::as_ptr) {
+                        }
+                        scope 15 (inlined #[track_caller] std::ptr::mut_ptr::<impl *mut std::option::Option<&dyn Sink>>::add) {
+                            scope 16 (inlined core::ub_checks::check_language_ub) {
+                                scope 17 (inlined core::ub_checks::check_language_ub::runtime) {
+                                }
+                            }
+                            scope 18 (inlined std::mem::size_of::<std::option::Option<&dyn Sink>>) {
+                            }
+                        }
+                    }
+                    scope 9 (inlined std::ptr::NonNull::<[std::option::Option<&dyn Sink>]>::from_ref) {
+                        let mut _15: *const [std::option::Option<&dyn Sink>];
+                    }
+                    scope 10 (inlined std::ptr::NonNull::<[std::option::Option<&dyn Sink>]>::cast::<std::option::Option<&dyn Sink>>) {
+                        let mut _16: *const std::option::Option<&dyn Sink>;
+                        scope 11 (inlined std::ptr::NonNull::<[std::option::Option<&dyn Sink>]>::as_ptr) {
+                        }
+                    }
+                }
+            }
+        }
+        scope 19 (inlined <std::slice::Iter<'_, std::option::Option<&dyn Sink>> as std::iter::Iterator>::flatten) {
+            scope 20 (inlined std::iter::Flatten::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>::new) {
+                let mut _17: std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>;
+                scope 21 (inlined std::iter::adapters::flatten::FlattenCompat::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>::new) {
+                    let mut _18: std::iter::Fuse<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+                    scope 22 (inlined <std::slice::Iter<'_, std::option::Option<&dyn Sink>> as std::iter::Iterator>::fuse) {
+                        scope 23 (inlined std::iter::Fuse::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>::new) {
+                            let mut _19: std::option::Option<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>;
+                        }
+                    }
+                }
+            }
+        }
+        scope 24 (inlined <std::iter::Flatten<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> as std::iter::IntoIterator>::into_iter) {
+        }
+    }
+
+    bb0: {
+        _0 = const 0_usize;
+        StorageLive(_3);
+        StorageLive(_4);
+        _4 = copy _1 as &[std::option::Option<&dyn Sink>] (PointerCoercion(Unsize, Implicit));
+        StorageLive(_11);
+        StorageLive(_12);
+        StorageLive(_15);
+        _15 = &raw const (*_4);
+        StorageLive(_16);
+        _16 = copy _15 as *const std::option::Option<&dyn Sink> (PtrToPtr);
+        _11 = std::ptr::NonNull::<std::option::Option<&dyn Sink>> { pointer: copy _16 };
+        StorageDead(_16);
+        StorageLive(_13);
+        StorageLive(_14);
+        _14 = copy _15 as *mut std::option::Option<&dyn Sink> (PtrToPtr);
+        _13 = Offset(copy _14, const 2_usize);
+        StorageDead(_14);
+        _12 = copy _13 as *const std::option::Option<&dyn Sink> (PtrToPtr);
+        StorageDead(_13);
+        _3 = std::slice::Iter::<'_, std::option::Option<&dyn Sink>> { ptr: copy _11, end_or_len: copy _12, _marker: const std::marker::PhantomData::<&std::option::Option<&dyn Sink>> };
+        StorageDead(_15);
+        StorageDead(_12);
+        StorageDead(_11);
+        StorageDead(_4);
+        StorageLive(_17);
+        StorageLive(_18);
+        StorageLive(_19);
+        _19 = std::option::Option::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>>::Some(copy _3);
+        _18 = std::iter::Fuse::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> { iter: move _19 };
+        StorageDead(_19);
+        _17 = std::iter::adapters::flatten::FlattenCompat::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>> { iter: move _18, frontiter: const std::option::Option::<std::option::Iter<'_, &dyn Sink>>::None, backiter: const std::option::Option::<std::option::Iter<'_, &dyn Sink>>::None };
+        StorageDead(_18);
+        _2 = std::iter::Flatten::<std::slice::Iter<'_, std::option::Option<&dyn Sink>>> { inner: move _17 };
+        StorageDead(_17);
+        StorageDead(_3);
+        StorageLive(_5);
+        _5 = copy _2;
+        goto -> bb1;
+    }
+
+    bb1: {
+        StorageLive(_6);
+        StorageLive(_20);
+        _20 = &mut (_5.0: std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>>);
+        _6 = <std::iter::adapters::flatten::FlattenCompat<std::slice::Iter<'_, std::option::Option<&dyn Sink>>, std::option::Iter<'_, &dyn Sink>> as std::iter::Iterator>::next(move _20) -> [return: bb6, unwind continue];
+    }
+
+    bb2: {
+        unreachable;
+    }
+
+    bb3: {
+        StorageLive(_8);
+        _8 = copy ((_6 as Some).0: &&dyn Sink);
+        StorageLive(_9);
+        _10 = copy (*_8);
+        _21 = PtrMetadata(move _10);
+        _22 = move _21 as *const () (Transmute);
+        _23 = copy _22 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _24 = Offset(copy _23, const 3_usize);
+        _25 = copy (*_24);
+        _28 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _32 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _33 = Eq(copy _25, copy _32);
+        switchInt(copy _33) -> [1: bb13, otherwise: bb11];
+    }
+
+    bb4: {
+        StorageDead(_6);
+        StorageDead(_5);
+        return;
+    }
+
+    bb5: {
+        _0 = Add(copy _0, move _9);
+        StorageDead(_9);
+        StorageDead(_8);
+        StorageDead(_6);
+        goto -> bb1;
+    }
+
+    bb6: {
+        StorageDead(_20);
+        _7 = discriminant(_6);
+        switchInt(move _7) -> [0: bb4, 1: bb3, otherwise: bb2];
+    }
+
+    bb7: {
+        goto -> bb5;
+    }
+
+    bb8: {
+        _9 = <dyn Sink as Sink>::put(move _10, const 1_usize) -> [return: bb7, unwind continue];
+    }
+
+    bb9: {
+        goto -> bb5;
+    }
+
+    bb10: {
+        _26 = move _10 as *const A (PtrToPtr);
+        _27 = &(*_26);
+        _9 = <A as Sink>::put(move _27, const 1_usize) -> [return: bb9, unwind continue];
+    }
+
+    bb11: {
+        _29 = Eq(copy _25, copy _28);
+        switchInt(copy _29) -> [1: bb10, otherwise: bb8];
+    }
+
+    bb12: {
+        goto -> bb5;
+    }
+
+    bb13: {
+        _30 = move _10 as *const B (PtrToPtr);
+        _31 = &(*_30);
+        _9 = <B as Sink>::put(move _31, const 1_usize) -> [return: bb12, unwind continue];
+    }
+}
+
+alloc34 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+######### END after #########
+

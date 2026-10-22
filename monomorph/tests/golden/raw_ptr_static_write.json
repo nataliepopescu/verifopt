@@ -1,0 +1,44 @@
+{
+  "maybe_count": 3,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:54:14: 54:26",
+      "is_maybe_example": true,
+      "cha": [
+        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::B as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::D as raw_ptr_static_write::Sink>::put"
+      ],
+      "fsa": [
+        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::B as raw_ptr_static_write::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:59:14: 59:44",
+      "is_maybe_example": true,
+      "cha": [
+        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::B as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::D as raw_ptr_static_write::Sink>::put"
+      ],
+      "fsa": [
+        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put"
+      ]
+    },
+    {
+      "span": "src/main.rs:64:14: 64:26",
+      "is_maybe_example": true,
+      "cha": [
+        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::B as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::D as raw_ptr_static_write::Sink>::put"
+      ],
+      "fsa": [
+        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put",
+        "<raw_ptr_static_write::B as raw_ptr_static_write::Sink>::put"
+      ]
+    }
+  ]
+}

@@ -166,15 +166,28 @@ pub struct InterpPass<'a> {
     pub(crate) timing_window_exclusive: RefCell<HashMap<TimingCat, TimingStats>>,
     pub dependencies: RefCell<ImHashMap<Span, HashSet<VOID>>>,
     pub incomplete: RefCell<ImHashSet<VOID>>,
+    /// Per returning scope: the places the alias walk from its `_0` visited
+    /// (interp_return), to find which operands its return value aliases.
+    /// (visited places, static places reached).
+    pub return_walks: RefCell<HashMap<VOID, (ImHashSet<(Place, VOID)>, ImHashSet<(Place, VOID)>)>>,
+    /// The operands (by index) the call being returned from aliases through
+    /// its return value - set by interp_static_call / interp_virtual_call,
+    /// consumed by interp_direct_call when it assigns the destination.
+    /// A stack: one frame per direct/indirect call being dispatched, so
+    /// nested calls (and a virtual call's other candidates) don't mix theirs.
+    pub pending_return_aliases: RefCell<Vec<Vec<crate::write_log::ReturnAlias>>>,
     pub wtos_merge_conflicts: RefCell<ImHashSet<VOID>>,
     pub refs_merge_conflicts: RefCell<ImHashSet<VOID>>,
 
     /// Result, the callee's epoch, and what the call wrote into memory its
     /// caller can see (replayed on a hit - see write_log).
-    pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, u64, SharedLog)>>,
+    /// The epoch is the callee's scope epoch and the static epoch before the
+    /// call (constraints::static_epoch: a result may have read statics).
+    pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, (u64, u64), SharedLog)>>,
 
+    /// The last field: the static epoch before the dispatch.
     pub virtual_call_memo:
-        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>, SharedLog)>>,
+        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>, SharedLog, u64)>>,
 
     pub scope_epoch: RefCell<HashMap<BaseScopeId, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
@@ -280,6 +293,8 @@ impl<'a> InterpPass<'a> {
             timing_window_exclusive: HashMap::new().into(),
             dependencies: ImHashMap::new().into(),
             incomplete: ImHashSet::new().into(),
+            return_walks: HashMap::new().into(),
+            pending_return_aliases: Vec::new().into(),
             wtos_merge_conflicts: ImHashSet::new().into(),
             refs_merge_conflicts: ImHashSet::new().into(),
             exact_memo: HashMap::new().into(),
@@ -348,18 +363,58 @@ impl<'a> InterpPass<'a> {
             }
         }
         for (def, value) in writes.statics.iter().flat_map(|(d, vs)| vs.iter().map(move |v| (d, v))) {
-            let merged = match ctxt.get_static(*def) {
-                Some(old) => match crate::merge::merge_mapvals(
-                    &MapValue::Constraints(old),
-                    &MapValue::Constraints(value.clone()),
-                    None,
-                ) {
-                    MapValue::Constraints(c) => c,
-                    MapValue::Store(..) => unreachable!("merging two values gave a store"),
+            let (place, scope) = self.static_place(ctxt, *def);
+            ctxt.cstore.scoped_update_local(
+                &scope,
+                MapKey::Var(place),
+                Box::new(MapValue::Constraints(value.clone())),
+                Some(self),
+            );
+        }
+    }
+
+    /// Adds to the innermost dispatching call's pending return aliases.
+    fn add_pending_return_aliases(&self, operands: impl IntoIterator<Item = crate::write_log::ReturnAlias>) {
+        if let Some(top) = self.pending_return_aliases.borrow_mut().last_mut() {
+            top.extend(operands);
+        }
+    }
+
+    /// The operands (by index) whose caller-side places the alias walk from
+    /// `callee`'s return value passed through (interp_return): the return
+    /// value points into what they point to.
+    fn return_alias_operands(&self, callee: &VOID, caller: &VOID, args: &[Operand]) -> Vec<crate::write_log::ReturnAlias> {
+        use crate::write_log::ReturnAlias;
+        let Some((walk, statics)) = self.return_walks.borrow_mut().remove(callee) else { return Vec::new() };
+        operand_places(args)
+            .into_iter()
+            .filter(|(_, place)| walk.contains(&(place.clone(), caller.clone())))
+            .map(|(i, _)| ReturnAlias::Operand(i))
+            .chain(statics.into_iter().map(|(p, s)| ReturnAlias::Static(p, s)))
+            .collect()
+    }
+
+    /// A call's destination aliases the operands its return value does
+    /// (pending_return_aliases): e.g. `p = cell.get()` points where `cell`
+    /// does, so a write through `p` reaches the Cell's owner.
+    fn add_return_aliases(
+        &self,
+        ctxt: &mut Context,
+        cur_scope: &VOID,
+        args: &[Operand],
+        destination: &Place,
+        aliases: Vec<crate::write_log::ReturnAlias>,
+    ) {
+        use crate::write_log::ReturnAlias;
+        for alias in aliases {
+            let to = match alias {
+                ReturnAlias::Operand(idx) => match args.get(idx) {
+                    Some(Operand::Copy(place) | Operand::Move(place)) => (place.clone(), cur_scope.clone()),
+                    _ => continue,
                 },
-                None => value.clone(),
+                ReturnAlias::Static(place, scope) => (place, scope),
             };
-            ctxt.set_static(*def, merged);
+            ctxt.cstore.add_ref((destination.clone(), cur_scope.clone()), to, Mutability::Mut);
         }
     }
 
@@ -482,6 +537,9 @@ impl<'a> InterpPass<'a> {
             "###### INTERP-ING NEW BODY for func {:?}",
             cur_scope.0.name()
         );
+        if scope_matches_trace_filter(cur_scope) {
+            log::warn!("[verifopt trace] enter {:?} (called from {:?})", cur_scope.0.name(), call_stack.last().map(|s| s.0.name()));
+        }
         log_call_stack(call_stack);
 
         self.check_call_stack(call_stack, cur_scope);
@@ -787,6 +845,24 @@ impl<'a> InterpPass<'a> {
         None
     }
 
+    /// Static `def`'s place (`_0` of its synthetic scope, see
+    /// constraints::static_scope), holding its initial value if nothing has
+    /// been stored there yet.
+    fn static_place(&self, ctxt: &mut Context, def: DefId) -> (Place, VOID) {
+        let scope = crate::constraints::static_scope(def);
+        let place = Place { local: 0, projection: vec![] };
+        let key = MapKey::Var(place.clone());
+        if !ctxt.cstore.has_own_entry(&scope, &key) {
+            // Its initializer, lifted to its type's trait objects like any
+            // assigned value (`static mut S: &dyn T = &X` holds a `dyn T`).
+            let init = self.static_get_constraints(ctxt, def);
+            let ty = StaticDef(def).ty();
+            let init = self.lift_traitobjtys(&self.contains_dyn(&ty), init, &scope);
+            ctxt.cstore.scoped_update_local(&scope, key, Box::new(MapValue::Constraints(init)), Some(self));
+        }
+        (place, scope)
+    }
+
     fn static_get_constraints(&self, ctxt: &mut Context, defid: DefId) -> Constraints {
         if let Some(cs) = ctxt.get_static(defid) {
             return cs;
@@ -822,6 +898,14 @@ impl<'a> InterpPass<'a> {
         };
 
         let mut seen = Vec::new();
+        // Its initializer is its value only if it can't change. A `static
+        // mut` (or an interior-mutable static) starts as any value of its
+        // type, and its place collects every write the analysis sees
+        // (static_place): starting from the initializer instead is only
+        // sound if no write is missed - and some still are (through pointers
+        // kept in fields), which left e.g. tock's process table `[None; N]`
+        // forever, so the closures `process_until` calls on its processes
+        // were never interpreted.
         let frozen =
             matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
 
@@ -949,6 +1033,28 @@ impl<'a> InterpPass<'a> {
                     );
                     debug!("stmt: FROM REF (empty)");
                     Constraints::new()
+                } else if place.projection.is_empty()
+                    && let Some((to, mt)) = pointer_alias_source(rvalue, &dest_ty, local_decls)
+                {
+                    // A raw pointer to a place, or a pointer copied / cast
+                    // from a pointer local: an alias edge, like a borrow, so
+                    // writes through it reach the pointee (and reads see its
+                    // current value) instead of a copy of it.
+                    ctxt.cstore.add_ref(
+                        (place.clone(), cur_scope.clone()),
+                        (to, cur_scope.clone()),
+                        mt,
+                    );
+                    debug!("stmt: FROM POINTER ALIAS (empty)");
+                    Constraints::new()
+                } else if place.projection.is_empty()
+                    && let Some(def) = static_pointer_rvalue(rvalue, &dest_ty)
+                {
+                    // A pointer to a static: an alias edge to its place.
+                    let to = self.static_place(ctxt, def);
+                    ctxt.cstore.add_ref((place.clone(), cur_scope.clone()), to, Mutability::Mut);
+                    debug!("stmt: FROM STATIC POINTER (empty)");
+                    Constraints::new()
                 } else if let Some(defid) = self.static_rvalue(rvalue) {
                     let _timing_guard =
                         self.timing_span(TimingCat::StmtNewConstraintsStatic, cur_scope);
@@ -1007,7 +1113,7 @@ impl<'a> InterpPass<'a> {
 
                 if write_proj.is_empty() {
                     let _timing_guard = self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                    ctxt.set_scoped_constraints(cur_scope, place, final_constraints, Some(self));
+                    ctxt.assign_constraints(cur_scope, place, place, final_constraints, Some(self));
                     drop(_timing_guard);
                 } else {
                     let base = Place {
@@ -1039,8 +1145,9 @@ impl<'a> InterpPass<'a> {
                             );
                             let _timing_guard =
                                 self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                            ctxt.set_scoped_constraints(
+                            ctxt.assign_constraints(
                                 cur_scope,
+                                place,
                                 &base,
                                 base_constraints,
                                 Some(self),
@@ -1067,8 +1174,9 @@ impl<'a> InterpPass<'a> {
                             );
                             let _timing_guard =
                                 self.timing_span(TimingCat::StmtSetScoped, cur_scope);
-                            ctxt.set_scoped_constraints(
+                            ctxt.assign_constraints(
                                 cur_scope,
+                                place,
                                 &base,
                                 base_constraints,
                                 Some(self),
@@ -1302,7 +1410,34 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// An indirect call has its own pending-return-aliases frame (so its
+    /// callees' don't land on an enclosing call's destination); its own
+    /// return aliases aren't used yet.
     fn interp_indirect_call(
+        &self,
+        term_span: &Span,
+        ctxt: &mut Context,
+        call_stack: &mut Vec<VOID>,
+        cur_scope: &VOID,
+        local_decls: &[LocalDecl],
+        bb: usize,
+        place: &Place,
+        args: &Vec<Operand>,
+        destination: &Place,
+    ) -> Result<Option<Constraints>, Error> {
+        let depth = {
+            let mut p = self.pending_return_aliases.borrow_mut();
+            p.push(Vec::new());
+            p.len() - 1
+        };
+        let result = self.interp_indirect_call_inner(
+            term_span, ctxt, call_stack, cur_scope, local_decls, bb, place, args, destination,
+        );
+        self.pending_return_aliases.borrow_mut().truncate(depth);
+        result
+    }
+
+    fn interp_indirect_call_inner(
         &self,
         term_span: &Span,
         ctxt: &mut Context,
@@ -1382,7 +1517,7 @@ impl<'a> InterpPass<'a> {
             crate::constraints::constraints_size(&constraints)
         );
         //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
-        ctxt.set_scoped_constraints(cur_scope, destination, constraints, Some(self));
+        ctxt.assign_constraints(cur_scope, destination, destination, constraints, Some(self));
 
         Ok(None)
     }
@@ -1440,6 +1575,13 @@ impl<'a> InterpPass<'a> {
                     "interp_constraint_as_fn: constraint isn't fn-like, falling back to imprecise (Ok(None)): {:?}",
                     constraint
                 );
+                if scope_matches_trace_filter(cur_scope) {
+                    log::warn!(
+                        "[verifopt trace] {:?}: indirect call on a non-fn value {}",
+                        cur_scope.0.name(),
+                        format!("{:?}", constraint).chars().take(400).collect::<String>()
+                    );
+                }
                 crate::assumptions::record(
                     crate::assumptions::Reason::FnPtrCall,
                     format!("indirect call in {} (callee value not fn-like)", cur_scope.0.name()),
@@ -1567,6 +1709,7 @@ impl<'a> InterpPass<'a> {
     ) -> Result<Option<Constraints>, Error> {
         let dest_ty = destination.ty(local_decls).unwrap();
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
+        self.pending_return_aliases.borrow_mut().push(Vec::new());
         let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
@@ -1597,6 +1740,8 @@ impl<'a> InterpPass<'a> {
             kind @ _ => todo!("funccall const is another kind: {:?}", kind),
         };
 
+        let return_aliases = self.pending_return_aliases.borrow_mut().pop().unwrap_or_default();
+
         log_scope(cur_scope);
         debug!("destination: {:?}", destination);
 
@@ -1611,12 +1756,14 @@ impl<'a> InterpPass<'a> {
                     crate::constraints::constraints_size(&constraints)
                 );
 
-                ctxt.set_scoped_constraints(
+                ctxt.assign_constraints(
                     cur_scope,
+                    destination,
                     destination,
                     constraints.clone(),
                     Some(self),
                 );
+                self.add_return_aliases(ctxt, cur_scope, args, destination, return_aliases);
 
                 //debug!("\n\n####### RETURNED VAL (CONSTRAINTS): {:?}", constraints);
 
@@ -2151,7 +2298,7 @@ impl<'a> InterpPass<'a> {
             let logs = em
                 .values()
                 .map(|(_, _, l)| l)
-                .chain(vm.values().map(|(_, _, l)| l))
+                .chain(vm.values().map(|(_, _, l, _)| l))
                 .chain(sm.values().map(|(_, l)| l));
             for log in logs.filter(|l| !l.is_empty()) {
                 entries += 1;
@@ -2320,7 +2467,9 @@ impl<'a> InterpPass<'a> {
             //    );
             //}
 
-            let epoch_before = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
+            let static_before = crate::constraints::static_epoch();
+            let epoch_before =
+                (*self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0), static_before);
             let hit = self.exact_memo.borrow().get(&memo_key).cloned();
             if let Some((cached, cached_epoch, writes)) = hit {
                 if cached_epoch == epoch_before {
@@ -2333,8 +2482,9 @@ impl<'a> InterpPass<'a> {
                     }
                     record_memo_hit(cur_scope, precise_count >= 50, &writes);
                     self.replay_writes(ctxt, caller_scope, args, &writes);
+                    self.add_pending_return_aliases(writes.returns.iter().cloned());
                     debug!(
-                        "exact_memo hit for {:?} at epoch {}",
+                        "exact_memo hit for {:?} at epoch {:?}",
                         cur_scope.0.name(),
                         epoch_before
                     );
@@ -2360,12 +2510,16 @@ impl<'a> InterpPass<'a> {
             let frame = crate::write_log::push(operand_places(args), caller_scope);
             self.prepare_call(call_stack, &key);
             let result = self.visit_body(ctxt, call_stack, cur_scope, &body);
-            let writes: SharedLog = Rc::new(frame.finish());
+            let mut log = frame.finish();
+            log.returns = self.return_alias_operands(cur_scope, caller_scope, args);
+            self.add_pending_return_aliases(log.returns.iter().cloned());
+            let writes: SharedLog = Rc::new(log);
 
             let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
                 let _g1 = self.timing_span(TimingCat::TermInterpStaticCallPost1, cur_scope);
-                let epoch_after = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
+                let epoch_after =
+                    (*self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0), static_before);
                 drop(_g1);
 
                 let _g2 = self.timing_span(TimingCat::TermInterpStaticCallPost2, cur_scope);
@@ -2550,13 +2704,16 @@ impl<'a> InterpPass<'a> {
 
             if local < body.locals().len() && (!rust_call || i == 0) {
                 let arg_ty = place.ty(body.locals()).unwrap();
-                if let TyKind::RigidTy(RigidTy::Ref(_, _, mt)) = arg_ty.kind() {
+                if let TyKind::RigidTy(RigidTy::Ref(_, _, mt) | RigidTy::RawPtr(_, mt)) = arg_ty.kind() {
                     if let Operand::Copy(caller_place) | Operand::Move(caller_place) = &args[i] {
                         ctxt.cstore.add_ref(
                             (place.clone(), callee_scope.clone()),
                             (caller_place.clone(), caller_scope.clone()),
                             mt,
                         );
+                    } else if let Some(def) = static_pointer_operand(&args[i], &arg_ty) {
+                        let to = self.static_place(ctxt, def);
+                        ctxt.cstore.add_ref((place.clone(), callee_scope.clone()), to, mt);
                     }
                 }
             }
@@ -2761,7 +2918,7 @@ impl<'a> InterpPass<'a> {
         let virtual_key: VirtualCallKey = (key.clone(), ArgSet::new(&resolved_args));
         let hit = self.virtual_call_memo.borrow().get(&virtual_key).cloned();
         match hit {
-            Some((cached, recorded_scopes, writes)) => {
+            Some((cached, recorded_scopes, writes, static_at)) if static_at == crate::constraints::static_epoch() => {
                 let stale: Vec<(DefId, u64, u64)> = recorded_scopes
                     .iter()
                     .filter_map(|(scope, recorded_epoch)| {
@@ -2782,6 +2939,7 @@ impl<'a> InterpPass<'a> {
                     // exit - same reasoning as `TermMemo`'s cache-hit path.
                     record_memo_hit(caller_scope, false, &writes);
                     self.replay_writes(ctxt, caller_scope, args, &writes);
+                    self.add_pending_return_aliases(writes.returns.iter().cloned());
                     return Ok(cached);
                 } else {
                     debug!(
@@ -2793,7 +2951,7 @@ impl<'a> InterpPass<'a> {
                     );
                 }
             }
-            None => {
+            _ => {
                 debug!("virtual_call_memo MISS (no entry) for call site {:?}", key);
             }
         }
@@ -2940,6 +3098,7 @@ impl<'a> InterpPass<'a> {
         }
         drop(_timing_guard);
 
+        let static_before = crate::constraints::static_epoch();
         let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
         let frame = crate::write_log::push(operand_places(args), caller_scope);
         let result = self.simulate_static_calls(
@@ -2959,11 +3118,23 @@ impl<'a> InterpPass<'a> {
         // Only cache on success - an `Err` (e.g. a caught-and-skipped
         // candidate panic bubbling up, or `SummaryImprecise`) shouldn't be
         // treated as a stable, reusable outcome for this call site.
-        let writes: SharedLog = Rc::new(frame.finish());
+        let mut log = frame.finish();
+        // The candidates' return aliases (simulate_static_calls passes them
+        // this call's operands), for the memo.
+        log.returns = {
+            let mut r: Vec<crate::write_log::ReturnAlias> = Vec::new();
+            for a in self.pending_return_aliases.borrow().last().cloned().unwrap_or_default() {
+                if !r.contains(&a) {
+                    r.push(a);
+                }
+            }
+            r
+        };
+        let writes: SharedLog = Rc::new(log);
         if let Ok(ref cs) = result {
             self.virtual_call_memo
                 .borrow_mut()
-                .insert(virtual_key, (cs.clone(), touched_scopes, writes));
+                .insert(virtual_key, (cs.clone(), touched_scopes, writes, static_before));
         }
 
         result
@@ -3138,6 +3309,28 @@ impl<'a> InterpPass<'a> {
         //    constraint_defids
         //);
         self.get_impls_from_defids(assoc_fn_defid, &constraint_defids, false)
+    }
+
+    /// get_cha_tyconstraint_defids for a trait object's own args (the
+    /// existential trait ref's: no `Self`), compared with each impl's
+    /// trait args after `Self`.
+    fn get_cha_defids_for_object_args(
+        &self,
+        trait_defid: &DefId,
+        object_args: &GenericArgs,
+    ) -> Vec<(DefId, Option<GenericArgs>)> {
+        match self.tstore.trait_structs.get(trait_defid) {
+            Some(tyconstraints) => tyconstraints
+                .iter()
+                .filter(|(_, impl_genargs)| {
+                    let rest = impl_genargs.0.get(1..).unwrap_or(&[]);
+                    rest.len() == object_args.0.len()
+                        && object_args.0.iter().zip(rest).all(|(a, b)| generic_arg_may_unify(a, b))
+                })
+                .map(|(defid, _)| (defid.clone(), None))
+                .collect(),
+            None => Vec::new(),
+        }
     }
 
     fn get_cha_tyconstraint_defids(
@@ -3362,11 +3555,17 @@ impl<'a> InterpPass<'a> {
                     }
                 }
                 RunningConstraint::Scalar(_) | RunningConstraint::Float => (false, vec![]),
+                // An unknown trait object: any implementor (CHA). Its args are
+                // the trait object's - without `Self` - so they're compared
+                // against the impls' args after `Self` (with the call-site
+                // comparison, whose args start with `Self`, the arities never
+                // matched and every impl was dropped: an unknown object
+                // contributed no targets at all).
                 RunningConstraint::Dynamic(tys) => {
                     match tys.iter().find(|ty| ty.def.0 == *trait_defid) {
                         Some(matching_ty) => (
                             false,
-                            self.get_cha_tyconstraint_defids(trait_defid, &matching_ty.genargs),
+                            self.get_cha_defids_for_object_args(trait_defid, &matching_ty.genargs),
                         ),
                         None => (false, vec![]),
                     }
@@ -4260,6 +4459,19 @@ impl<'a> InterpPass<'a> {
         match discr {
             Operand::Copy(place) | Operand::Move(place) => {
                 match ctxt.get_constraints(cur_scope, local_decls, place, false, Some(self)) {
+                    // No value at all (a read that found nothing): unknown, so
+                    // every branch is possible - pruning them all made the
+                    // code after the switch unreachable, and everything it
+                    // calls unanalyzed (tock's IPC `command` closures).
+                    Some(constraints) if constraints.inner.is_empty() => {
+                        if scope_matches_trace_filter(cur_scope) {
+                            log::warn!(
+                                "[verifopt trace] {:?} bb{bb}: switch on {:?} with no value - all branches kept",
+                                cur_scope.0.name(),
+                                place
+                            );
+                        }
+                    }
                     Some(constraints) => {
                         if crate::constraints::contains_param(&constraints) {
                             if let Some(tainted) =
@@ -4275,6 +4487,15 @@ impl<'a> InterpPass<'a> {
 
                         // Populate byte-map with possible branch values, based on constraints
                         self.set_bytemap(&constraints, targets, discr_vals);
+                        if scope_matches_trace_filter(cur_scope) {
+                            log::warn!(
+                                "[verifopt trace] {:?} bb{bb}: switch on {:?} = {} -> branch counts {:?}",
+                                cur_scope.0.name(),
+                                place,
+                                format!("{:?}", constraints).chars().take(300).collect::<String>(),
+                                &discr_vals[..]
+                            );
+                        }
 
                         self.prune_switchint_targets(
                             bb,
@@ -4529,6 +4750,21 @@ impl<'a> InterpPass<'a> {
                 None
             }
         };
+
+        // Before finish_frame drops this scope's alias edges.
+        let (visited, targets) = ctxt.cstore.alias_walk(ret_place, cur_scope.clone());
+        if visited.len() > 1 {
+            // The visited places (for the operands) and the static places
+            // reached (statics are the same place for the caller).
+            let statics: ImHashSet<(Place, VOID)> = targets
+                .into_iter()
+                .filter(|(_, s)| crate::constraints::static_of_scope(s).is_some())
+                .collect();
+            let mut walks = self.return_walks.borrow_mut();
+            let entry = walks.entry(cur_scope.clone()).or_default();
+            entry.0.extend(visited);
+            entry.1.extend(statics);
+        }
 
         let _timing_guard = self.timing_span(TimingCat::TermReturnFinishFrame, cur_scope);
         let result = self.finish_frame(ctxt, call_stack, cur_scope, retval);
@@ -4988,4 +5224,175 @@ fn operand_places(args: &[Operand]) -> Vec<(usize, Place)> {
             _ => None,
         })
         .collect()
+}
+
+/// For an assignment of `rvalue` to a local (not a store through a pointer
+/// or into a field - that writes the pointer's value) of type `dest_ty`: the place the
+/// result aliases, if it's a pointer to a place - `&raw mut x` / `&raw const
+/// x` (a leading Deref stripped, as for `&`) - or a pointer-typed copy, move
+/// or pointer-to-pointer cast of a pointer local. Unsizing casts are left out:
+/// they turn the value into a trait-object value (lift_traitobjtys), which an
+/// alias edge would skip. So are copies of places with projections (a pointer
+/// read out of a field): their pointer is the field's value.
+/// Whether `ty` is a pointer to a slice or `str` - the target of an array
+/// unsizing (`&[T; N]` -> `&[T]`), which keeps pointing at the same place
+/// (unlike an unsizing to `dyn Trait`, which makes the value a trait-object
+/// value).
+fn is_slice_pointer(ty: &Ty) -> bool {
+    match ty.kind() {
+        TyKind::RigidTy(RigidTy::Ref(_, t, _)) | TyKind::RigidTy(RigidTy::RawPtr(t, _)) => {
+            matches!(t.kind(), TyKind::RigidTy(RigidTy::Slice(_) | RigidTy::Str))
+        }
+        _ => false,
+    }
+}
+
+fn pointer_alias_source(rvalue: &Rvalue, dest_ty: &Ty, local_decls: &[LocalDecl]) -> Option<(Place, Mutability)> {
+    let dest_mt = match dest_ty.kind() {
+        TyKind::RigidTy(RigidTy::Ref(_, _, mt)) | TyKind::RigidTy(RigidTy::RawPtr(_, mt)) => mt,
+        _ => return None,
+    };
+    match rvalue {
+        Rvalue::AddressOf(kind, to) => {
+            let to = match to.projection.as_slice() {
+                [ProjectionElem::Deref] => Place { local: to.local, projection: vec![] },
+                _ => to.clone(),
+            };
+            let mt = match kind {
+                rustc_public::mir::RawPtrKind::Mut => Mutability::Mut,
+                _ => Mutability::Not,
+            };
+            Some((to, mt))
+        }
+        Rvalue::Use(Operand::Copy(src) | Operand::Move(src))
+        | Rvalue::Cast(
+            rustc_public::mir::CastKind::PtrToPtr
+            | rustc_public::mir::CastKind::Transmute
+            | rustc_public::mir::CastKind::PointerCoercion(
+                rustc_public::mir::PointerCoercion::MutToConstPointer
+                | rustc_public::mir::PointerCoercion::ArrayToPointer,
+            ),
+            Operand::Copy(src) | Operand::Move(src),
+            _,
+        ) if src.projection.is_empty() => pointer_cast_alias(src, dest_ty, dest_mt, local_decls),
+        // An array-to-slice unsizing: the slice points at the same array
+        // (lost as a value copy, the callee's writes through a `&mut [T]`
+        // made from `&mut ARRAY` never reached the array).
+        Rvalue::Cast(
+            rustc_public::mir::CastKind::PointerCoercion(rustc_public::mir::PointerCoercion::Unsize),
+            Operand::Copy(src) | Operand::Move(src),
+            _,
+        ) if src.projection.is_empty() && is_slice_pointer(dest_ty) => Some((src.clone(), dest_mt)),
+        _ => None,
+    }
+}
+
+/// The alias of a pointer-to-pointer cast of local `src` (see
+/// pointer_alias_source).
+fn pointer_cast_alias(src: &Place, dest_ty: &Ty, dest_mt: Mutability, local_decls: &[LocalDecl]) -> Option<(Place, Mutability)> {
+    // A cast from a pointer to a wrapper to a pointer to what it wraps
+    // (`*const UnsafeCell<T>` -> `*mut T`, MaybeUninit's `as_mut_ptr`,
+    // Cell/ManuallyDrop/#[repr(transparent)]): the pointer is to the field at
+    // offset 0, so it aliases that field - not the wrapper, which would mix
+    // the wrapper's value and the field's (cell_client_wiring).
+    let pointee = |ty: &Ty| match ty.kind() {
+        TyKind::RigidTy(RigidTy::Ref(_, t, _)) | TyKind::RigidTy(RigidTy::RawPtr(t, _)) => Some(t),
+        _ => None,
+    };
+    let path = src
+        .ty(local_decls)
+        .ok()
+        .as_ref()
+        .and_then(pointee)
+        .zip(pointee(dest_ty))
+        .and_then(|(from, to)| field_path_at_offset_zero(from, to, 0))
+        .unwrap_or_default();
+    if path.is_empty() {
+        Some((src.clone(), dest_mt))
+    } else {
+        let mut projection = vec![ProjectionElem::Deref];
+        projection.extend(path);
+        Some((Place { local: src.local, projection }, dest_mt))
+    }
+}
+
+/// The field path from type `from` to a field of type `to` at offset 0 -
+/// what a pointer cast from `*from` to `*to` points at - through struct
+/// fields at offset 0 (per the layout) and union fields. Empty if
+/// `from == to`, None if there's no such field.
+fn field_path_at_offset_zero(from: Ty, to: Ty, depth: usize) -> Option<Vec<ProjectionElem>> {
+    if from == to {
+        return Some(Vec::new());
+    }
+    if depth >= 4 {
+        return None;
+    }
+    let TyKind::RigidTy(RigidTy::Adt(def, args)) = from.kind() else { return None };
+    let kind = def.kind();
+    if !(kind.is_struct() || kind.is_union()) {
+        return None;
+    }
+    let offsets = match from.layout().ok()?.shape().fields {
+        rustc_public::abi::FieldsShape::Arbitrary { offsets } => Some(offsets),
+        _ => None, // a union: every field at offset 0
+    };
+    let variant = def.variants_iter().next()?;
+    for (i, field) in variant.fields().into_iter().enumerate() {
+        let at_zero = match &offsets {
+            Some(offsets) => offsets.get(i).is_some_and(|o| o.bytes() == 0),
+            None => kind.is_union(),
+        };
+        if !at_zero {
+            continue;
+        }
+        let fty = field.ty_with_args(&args);
+        if let Some(rest) = field_path_at_offset_zero(fty, to, depth + 1) {
+            let mut path = vec![ProjectionElem::Field(i, fty)];
+            path.extend(rest);
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// The static `rvalue` points to, if it's exactly a pointer to one: a use or
+/// cast of a constant of pointer type (`dest_ty`) whose only provenance is a
+/// static at offset 0 - not a constant that merely contains such pointers
+/// (e.g. a promoted `[&A, &B]`), which keeps being a value.
+fn static_pointer_rvalue(rvalue: &Rvalue, dest_ty: &Ty) -> Option<DefId> {
+    use rustc_public::mir::{CastKind, PointerCoercion};
+    match rvalue {
+        // Not unsizing casts (`&STATIC as &dyn Trait`): those make the value
+        // a trait-object value (lift_traitobjtys), which an alias edge would
+        // skip - as for pointer_alias_source.
+        Rvalue::Use(op)
+        | Rvalue::Cast(
+            CastKind::PtrToPtr
+            | CastKind::Transmute
+            | CastKind::PointerCoercion(PointerCoercion::MutToConstPointer | PointerCoercion::ArrayToPointer),
+            op,
+            _,
+        ) => static_pointer_operand(op, dest_ty),
+        // `&mut STATIC_ARRAY as &mut [T]` points at the static too.
+        Rvalue::Cast(CastKind::PointerCoercion(PointerCoercion::Unsize), op, _) if is_slice_pointer(dest_ty) => {
+            static_pointer_operand(op, dest_ty)
+        }
+        _ => None,
+    }
+}
+
+/// See static_pointer_rvalue.
+fn static_pointer_operand(op: &Operand, ty: &Ty) -> Option<DefId> {
+    if !matches!(ty.kind(), TyKind::RigidTy(RigidTy::Ref(..) | RigidTy::RawPtr(..))) {
+        return None;
+    }
+    let Operand::Constant(co) = op else { return None };
+    let ConstantKind::Allocated(alloc) = co.const_.kind() else { return None };
+    match alloc.provenance.ptrs.as_slice() {
+        [(0, Prov(aid))] => match GlobalAlloc::from(*aid) {
+            GlobalAlloc::Static(StaticDef(def)) => Some(def),
+            _ => None,
+        },
+        _ => None,
+    }
 }

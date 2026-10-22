@@ -1,0 +1,18 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:46:41: 46:49",
+      "is_maybe_example": true,
+      "cha": [
+        "<cell_client_wiring::A as cell_client_wiring::Sink>::put",
+        "<cell_client_wiring::B as cell_client_wiring::Sink>::put",
+        "<cell_client_wiring::D as cell_client_wiring::Sink>::put"
+      ],
+      "fsa": [
+        "<cell_client_wiring::A as cell_client_wiring::Sink>::put"
+      ]
+    }
+  ]
+}

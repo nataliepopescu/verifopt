@@ -1,0 +1,144 @@
+
+######### MIR before #########
+// crate: static_slice_table (package static_slice_table 0.1.0)
+// fn: main::{closure#0}
+// instance: main::{closure#0}
+fn main::{closure#0}(_1: &{closure@src/main.rs:60:27: 60:30}, _2: &dyn Sink) -> std::option::Option<usize> {
+    debug p => _2;
+    let mut _0: std::option::Option<usize>;
+    let _3: usize;
+    let mut _4: bool;
+    scope 1 {
+        debug v => _3;
+    }
+
+    bb0: {
+        _3 = <dyn Sink as Sink>::put(move _2, const 1_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageLive(_4);
+        _4 = Gt(copy _3, const 30_usize);
+        switchInt(move _4) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        _0 = std::option::Option::<usize>::Some(copy _3);
+        goto -> bb4;
+    }
+
+    bb3: {
+        _0 = const std::option::Option::<usize>::None;
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageDead(_4);
+        return;
+    }
+}
+
+alloc45 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: static_slice_table (package static_slice_table 0.1.0)
+// fn: main::{closure#0}
+// instance: main::{closure#0}
+fn main::{closure#0}(_1: &{closure@src/main.rs:60:27: 60:30}, _2: &dyn Sink) -> std::option::Option<usize> {
+    debug p => _2;
+    let mut _0: std::option::Option<usize>;
+    let _3: usize;
+    let mut _4: bool;
+    let mut _5: std::ptr::DynMetadata<dyn Sink>;
+    let mut _6: *const ();
+    let mut _7: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _8: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _9: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _10: *const A;
+    let mut _11: &A;
+    let mut _12: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _13: bool;
+    let mut _14: *const B;
+    let mut _15: &B;
+    let mut _16: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _17: bool;
+    scope 1 {
+        debug v => _3;
+    }
+
+    bb0: {
+        _5 = PtrMetadata(move _2);
+        _6 = move _5 as *const () (Transmute);
+        _7 = copy _6 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _8 = Offset(copy _7, const 3_usize);
+        _9 = copy (*_8);
+        _12 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _16 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _17 = Eq(copy _9, copy _16);
+        switchInt(copy _17) -> [1: bb11, otherwise: bb9];
+    }
+
+    bb1: {
+        StorageLive(_4);
+        _4 = Gt(copy _3, const 30_usize);
+        switchInt(move _4) -> [0: bb3, otherwise: bb2];
+    }
+
+    bb2: {
+        _0 = std::option::Option::<usize>::Some(copy _3);
+        goto -> bb4;
+    }
+
+    bb3: {
+        _0 = const std::option::Option::<usize>::None;
+        goto -> bb4;
+    }
+
+    bb4: {
+        StorageDead(_4);
+        return;
+    }
+
+    bb5: {
+        goto -> bb1;
+    }
+
+    bb6: {
+        _3 = <dyn Sink as Sink>::put(move _2, const 1_usize) -> [return: bb5, unwind continue];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _10 = move _2 as *const A (PtrToPtr);
+        _11 = &(*_10);
+        _3 = <A as Sink>::put(move _11, const 1_usize) -> [return: bb7, unwind continue];
+    }
+
+    bb9: {
+        _13 = Eq(copy _9, copy _12);
+        switchInt(copy _13) -> [1: bb8, otherwise: bb6];
+    }
+
+    bb10: {
+        goto -> bb1;
+    }
+
+    bb11: {
+        _14 = move _2 as *const B (PtrToPtr);
+        _15 = &(*_14);
+        _3 = <B as Sink>::put(move _15, const 1_usize) -> [return: bb10, unwind continue];
+    }
+}
+
+alloc45 (size: 16, align: 8) {
+    00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
+}
+######### END after #########
+

@@ -1,6 +1,7 @@
 use rustc_data_structures::fx::FxHashMap as HashMap;
 use rustc_public::DefId;
 use rustc_public::abi::FieldsShape;
+use rustc_public_bridge::IndexedVal;
 use rustc_public::mir::{
     AggregateKind, BinOp, CastKind, ConstOperand, LocalDecl, Operand, Place, ProjectionElem,
     Rvalue, UnOp,
@@ -326,6 +327,12 @@ impl<'a> RvalConverter<'a> {
                     )),
                 }
             }
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) if adtdef.kind().is_enum() => {
+                match self.convert_allocated_enum(span, &adtdef, &genargs, ty, alloc, cur_scope, timing) {
+                    Some(c) => Constraints::from(c),
+                    None => self.convert_const_fallback(span, ty, cur_scope, timing),
+                }
+            }
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Constraints::from(Constraint::new(
                 None,
                 Some(RunningConstraint::Adt(
@@ -339,6 +346,95 @@ impl<'a> RvalConverter<'a> {
             )),
             _ => self.convert_const_fallback(span, ty, cur_scope, timing),
         }
+    }
+
+    /// An enum constant: its variant (from the tag - direct, or a niche),
+    /// with that variant's fields. Decoded as "variant 0's fields, variant
+    /// unknown" before, a constant `None` read as an Option whose `Some`
+    /// payload is any value - an unknown trait object, once missing fields
+    /// read as unknown. None if the tag can't be read.
+    fn convert_allocated_enum(
+        &self,
+        span: &Location,
+        adtdef: &AdtDef,
+        genargs: &GenericArgs,
+        ty: &Ty,
+        alloc: &Allocation,
+        cur_scope: Option<&VOID>,
+        timing: Option<&InterpPass>,
+    ) -> Option<Constraint> {
+        use rustc_public::abi::{TagEncoding, VariantsShape};
+        let shape = ty.layout().ok()?.shape();
+        let variants = adtdef.variants();
+        let (vidx, vshape_fields) = match &shape.variants {
+            VariantsShape::Single { index } => (*index, shape.fields.clone()),
+            VariantsShape::Multiple { tag, tag_encoding, tag_field, variants: vshapes } => {
+                let FieldsShape::Arbitrary { offsets, .. } = &shape.fields else { return None };
+                let off = offsets.get(*tag_field)?.bytes();
+                let prim = match tag {
+                    rustc_public::abi::Scalar::Initialized { value, .. }
+                    | rustc_public::abi::Scalar::Union { value } => *value,
+                };
+                let size = prim.size(&rustc_public::target::MachineInfo::target()).bytes();
+                let is_pointer = alloc.provenance.ptrs.iter().any(|(o, _)| *o >= off && *o < off + size);
+                let raw = alloc.bytes.get(off..off + size)?;
+                let value: Option<u128> = if is_pointer || raw.iter().any(|b| b.is_none()) {
+                    None
+                } else {
+                    // little endian (the targets here)
+                    Some(raw.iter().rev().fold(0u128, |acc, b| (acc << 8) | b.unwrap() as u128))
+                };
+                let vidx = match tag_encoding {
+                    TagEncoding::Direct => {
+                        let v = value?;
+                        variants.iter().map(|d| d.idx).find(|&i| adtdef.discriminant_for_variant(i).val == v)?
+                    }
+                    TagEncoding::Niche { untagged_variant, niche_variants, niche_start } => match value {
+                        // a pointer (non-null) in the niche: the untagged variant
+                        None if is_pointer => *untagged_variant,
+                        None => return None,
+                        Some(v) => {
+                            let start = niche_variants.start().to_index();
+                            let count = (niche_variants.end().to_index() - start) as u128;
+                            let rel = v.wrapping_sub(*niche_start) & (u128::MAX >> (128 - 8 * size as u32));
+                            if rel <= count {
+                                variants.get(start + rel as usize)?.idx
+                            } else {
+                                *untagged_variant
+                            }
+                        }
+                    },
+                };
+                (vidx, vshapes.get(vidx.to_index())?.fields.clone())
+            }
+            VariantsShape::Empty => return None,
+        };
+        let FieldsShape::Arbitrary { offsets, .. } = &vshape_fields else {
+            return Some(Constraint::new(
+                None,
+                Some(RunningConstraint::Adt(adtdef.clone(), genargs.clone(), Some(vidx), ADTFields::new())),
+            ));
+        };
+        let mut fields = ADTFields::new();
+        for (i, field_def) in variants.get(vidx.to_index())?.fields().iter().enumerate() {
+            let field_ty = field_def.ty_with_args(genargs);
+            let Ok(field_layout) = field_ty.layout() else { continue };
+            let offset = offsets.get(i)?.bytes();
+            let size = field_layout.shape().size.bytes();
+            let Some(bytes) = alloc.bytes.get(offset..offset + size) else { continue };
+            let sub_alloc = Allocation {
+                bytes: bytes.to_vec(),
+                provenance: Self::slice_provenance(&alloc.provenance, offset, size),
+                align: field_layout.shape().abi_align,
+                mutability: alloc.mutability,
+            };
+            let c = self.convert_sub_alloc(span, &field_ty, &sub_alloc, cur_scope, timing);
+            fields.insert(i, Constraints::from(c));
+        }
+        Some(Constraint::new(
+            None,
+            Some(RunningConstraint::Adt(adtdef.clone(), genargs.clone(), Some(vidx), fields)),
+        ))
     }
 
     fn convert_zero_sized_const(
@@ -383,8 +479,33 @@ impl<'a> RvalConverter<'a> {
 
         let offsets = match &shape.fields {
             FieldsShape::Arbitrary { offsets, .. } => offsets,
-            // Primitive/Union/Array shapes shouldn't reach here for a
-            // plain struct; fall back gracefully rather than panic if they do
+            // A union (e.g. a `MaybeUninit` constant, which is how
+            // static_init! writes its buffers): every field is at offset 0;
+            // decode each one whose bytes are all initialized - an
+            // uninitialized `MaybeUninit`'s `value` holds nothing.
+            FieldsShape::Union(_) => {
+                let mut fields = ADTFields::new();
+                for (i, field_def) in adtdef.variants()[0].fields().iter().enumerate() {
+                    let field_ty = field_def.ty_with_args(genargs);
+                    let Ok(field_layout) = field_ty.layout() else { continue };
+                    let size = field_layout.shape().size.bytes();
+                    let Some(bytes) = alloc.bytes.get(..size) else { continue };
+                    if bytes.iter().any(|b| b.is_none()) {
+                        continue;
+                    }
+                    let sub_alloc = Allocation {
+                        bytes: bytes.to_vec(),
+                        provenance: Self::slice_provenance(&alloc.provenance, 0, size),
+                        align: field_layout.shape().abi_align,
+                        mutability: alloc.mutability,
+                    };
+                    let c = self.convert_sub_alloc(span, &field_ty, &sub_alloc, cur_scope, timing);
+                    fields.insert(i, Constraints::from(c));
+                }
+                return fields;
+            }
+            // Primitive/Array shapes shouldn't reach here for a plain
+            // struct; fall back gracefully rather than panic if they do
             _ => return ADTFields::new(),
         };
 
@@ -433,6 +554,12 @@ impl<'a> RvalConverter<'a> {
                     Err(_) => Constraint::new(None, Some(RunningConstraint::Scalar(None))),
                 }
             }
+
+            // An enum field (e.g. the `None` inside a constant `Cell::new(None)`):
+            // its variant from the tag, like a top-level enum constant.
+            TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) if adtdef.kind().is_enum() => self
+                .convert_allocated_enum(span, &adtdef, &genargs, ty, alloc, cur_scope, timing)
+                .unwrap_or_else(|| self.convert_ty(span, ty, cur_scope, timing).1),
 
             TyKind::RigidTy(RigidTy::Adt(adtdef, genargs)) => Constraint::new(
                 None,

@@ -45,6 +45,22 @@ pub struct WriteLog {
     pub ports: BTreeMap<usize, Vec<Constraints>>,
     /// Static -> the distinct values written to it.
     pub statics: HashMap<DefId, Vec<Constraints>>,
+    /// The operands (by index) the call's return value aliases - e.g.
+    /// `UnsafeCell::get(&self)`, `as_mut_ptr`, `RefMut::deref_mut` return a
+    /// pointer to (part of) an argument's pointee. The caller's destination
+    /// gets alias edges to them (InterpPass::take_return_aliases).
+    pub returns: Vec<ReturnAlias>,
+}
+
+/// What a call's return value points into (WriteLog::returns).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReturnAlias {
+    /// The pointee of the call's operand at this index.
+    Operand(usize),
+    /// A place of a static (its synthetic scope, constraints::static_scope)
+    /// - e.g. `static_init!`'s `&'static mut T` into its buffer; statics are
+    /// the same place for every caller.
+    Static(Place, VOID),
 }
 
 /// Up to how many distinct values a port keeps before they're merged.
@@ -52,7 +68,7 @@ const MAX_VALUES: usize = 8;
 
 impl WriteLog {
     pub fn is_empty(&self) -> bool {
-        self.ports.is_empty() && self.statics.is_empty()
+        self.ports.is_empty() && self.statics.is_empty() && self.returns.is_empty()
     }
 
     /// Number of logged values.

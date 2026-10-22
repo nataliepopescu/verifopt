@@ -1,0 +1,42 @@
+
+######### MIR before #########
+// crate: cell_client_wiring (package cell_client_wiring 0.1.0)
+// fn: Capsule::fire::{closure#0}
+// instance: Capsule::fire::{closure#0}
+fn <impl at src/main.rs:38:1: 38:13>::fire::{closure#0}(_1: {closure@src/main.rs:46:37: 46:40}, _2: &dyn Sink) -> usize {
+    debug c => _2;
+    let mut _0: usize;
+
+    bb0: {
+        _0 = <dyn Sink as Sink>::put(move _2, const 3_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: cell_client_wiring (package cell_client_wiring 0.1.0)
+// fn: Capsule::fire::{closure#0}
+// instance: Capsule::fire::{closure#0}
+fn <impl at src/main.rs:38:1: 38:13>::fire::{closure#0}(_1: {closure@src/main.rs:46:37: 46:40}, _2: &dyn Sink) -> usize {
+    debug c => _2;
+    let mut _0: usize;
+    let mut _3: *const A;
+    let mut _4: &A;
+
+    bb0: {
+        _3 = move _2 as *const A (PtrToPtr);
+        _4 = &(*_3);
+        _0 = <A as Sink>::put(move _4, const 3_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        return;
+    }
+}
+######### END after #########
+

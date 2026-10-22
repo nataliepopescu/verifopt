@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:61:17: 61:25",
+      "is_maybe_example": true,
+      "cha": [
+        "<static_slice_table::A as static_slice_table::Sink>::put",
+        "<static_slice_table::B as static_slice_table::Sink>::put",
+        "<static_slice_table::D as static_slice_table::Sink>::put"
+      ],
+      "fsa": [
+        "<static_slice_table::A as static_slice_table::Sink>::put",
+        "<static_slice_table::B as static_slice_table::Sink>::put"
+      ]
+    }
+  ]
+}

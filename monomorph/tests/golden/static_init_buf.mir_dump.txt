@@ -1,0 +1,130 @@
+
+######### MIR before #########
+// crate: static_init_buf (package static_init_buf 0.1.0)
+// fn: Board::fire
+// instance: Board::fire
+fn <impl at src/main.rs:40:1: 40:11>::fire(_1: &Board, _2: usize) -> usize {
+    debug self => _1;
+    debug which => _2;
+    let mut _0: usize;
+    let _3: &dyn Sink;
+    scope 1 {
+        debug s => _3;
+    }
+
+    bb0: {
+        switchInt(move _2) -> [0: bb1, otherwise: bb2];
+    }
+
+    bb1: {
+        _3 = copy ((*_1).0: &dyn Sink);
+        goto -> bb3;
+    }
+
+    bb2: {
+        _3 = copy ((*_1).1: &dyn Sink);
+        goto -> bb3;
+    }
+
+    bb3: {
+        _0 = <dyn Sink as Sink>::put(move _3, move _2) -> [return: bb4, unwind continue];
+    }
+
+    bb4: {
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: static_init_buf (package static_init_buf 0.1.0)
+// fn: Board::fire
+// instance: Board::fire
+fn <impl at src/main.rs:40:1: 40:11>::fire(_1: &Board, _2: usize) -> usize {
+    debug self => _1;
+    debug which => _2;
+    let mut _0: usize;
+    let _3: &dyn Sink;
+    let mut _4: std::ptr::DynMetadata<dyn Sink>;
+    let mut _5: *const ();
+    let mut _6: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _7: *const for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _8: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _9: *const A;
+    let mut _10: &A;
+    let mut _11: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _12: bool;
+    let mut _13: *const B;
+    let mut _14: &B;
+    let mut _15: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _16: bool;
+    scope 1 {
+        debug s => _3;
+    }
+
+    bb0: {
+        switchInt(move _2) -> [0: bb1, otherwise: bb2];
+    }
+
+    bb1: {
+        _3 = copy ((*_1).0: &dyn Sink);
+        goto -> bb3;
+    }
+
+    bb2: {
+        _3 = copy ((*_1).1: &dyn Sink);
+        goto -> bb3;
+    }
+
+    bb3: {
+        _4 = PtrMetadata(move _3);
+        _5 = move _4 as *const () (Transmute);
+        _6 = copy _5 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
+        _7 = Offset(copy _6, const 3_usize);
+        _8 = copy (*_7);
+        _11 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _15 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _16 = Eq(copy _8, copy _15);
+        switchInt(copy _16) -> [1: bb11, otherwise: bb9];
+    }
+
+    bb4: {
+        return;
+    }
+
+    bb5: {
+        goto -> bb4;
+    }
+
+    bb6: {
+        _0 = <dyn Sink as Sink>::put(move _3, move _2) -> [return: bb5, unwind continue];
+    }
+
+    bb7: {
+        goto -> bb4;
+    }
+
+    bb8: {
+        _9 = move _3 as *const A (PtrToPtr);
+        _10 = &(*_9);
+        _0 = <A as Sink>::put(move _10, move _2) -> [return: bb7, unwind continue];
+    }
+
+    bb9: {
+        _12 = Eq(copy _8, copy _11);
+        switchInt(copy _12) -> [1: bb8, otherwise: bb6];
+    }
+
+    bb10: {
+        goto -> bb4;
+    }
+
+    bb11: {
+        _13 = move _3 as *const B (PtrToPtr);
+        _14 = &(*_13);
+        _0 = <B as Sink>::put(move _14, move _2) -> [return: bb10, unwind continue];
+    }
+}
+######### END after #########
+

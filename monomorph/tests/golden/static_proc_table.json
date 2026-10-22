@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:51:20: 51:28",
+      "is_maybe_example": true,
+      "cha": [
+        "<static_proc_table::A as static_proc_table::Sink>::put",
+        "<static_proc_table::B as static_proc_table::Sink>::put",
+        "<static_proc_table::D as static_proc_table::Sink>::put"
+      ],
+      "fsa": [
+        "<static_proc_table::A as static_proc_table::Sink>::put",
+        "<static_proc_table::B as static_proc_table::Sink>::put"
+      ]
+    }
+  ]
+}

@@ -219,3 +219,31 @@ example_test!(memo_virtual_replay, "memo_virtual_replay", Passing);
 // Recursion with writes through `&mut`, partly answered from recursion
 // summaries (which replay their writes too - but see the fixture's comment).
 example_test!(memo_recursive_replay, "memo_recursive_replay", Passing);
+
+// tock's patterns: a `static mut` process table written through `&mut`
+// (static_proc_table), static_init!-style MaybeUninit buffers handing out
+// `&'static mut` (static_init_buf), clients wired through `&self` into a Cell
+// (cell_client_wiring), and writes to statics through raw pointers - direct,
+// from `as_mut_ptr`, and kept in a struct field (raw_ptr_static_write).
+// Red until statics are written (pointer-to-static locations) and writes
+// follow shared borrows: today FSA finds nothing at every site and falls
+// back to CHA. JSON goldens are hand-written - the sets a weak-update model
+// gives (a static keeps its initial value alongside what was written);
+// re-bless the MIR dumps once they pass.
+example_test!(static_proc_table, "static_proc_table", Passing);
+example_test!(static_init_buf, "static_init_buf", Passing);
+example_test!(cell_client_wiring, "cell_client_wiring", Passing);
+example_test!(raw_ptr_static_write, "raw_ptr_static_write", Passing);
+
+// Iterating a slice of `Option<&dyn T>` with `.iter().flatten()` loses the
+// elements (FSA falls back to CHA) - with or without statics. Red; the JSON
+// golden is hand-written.
+example_test!(slice_iter_flatten, "slice_iter_flatten", Passing);
+
+// The process table filled through a slice and walked with a closure
+// (tock's `process_until`): the closure's dispatch must be reached.
+example_test!(static_slice_table, "static_slice_table", Passing);
+
+// A pointer into a static returned by a call, written through one result and
+// read through another (static_init!'s `&'static mut T`).
+example_test!(static_return_alias, "static_return_alias", Unclassified);

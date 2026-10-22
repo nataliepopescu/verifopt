@@ -112,6 +112,26 @@ fn merge_if_one_field_differs(a: &Constraint, b: &Constraint) -> Option<Constrai
     if cfc_diff.len() + toc_diff.len() > 1 {
         return None;
     }
+    // A field one side lacks is unknown there (see step_field_one): the
+    // union would replace "unknown" with the other side's value, so those
+    // stay separate disjuncts.
+    let present_on_both = |fa: Option<&ADTFields>, fb: Option<&ADTFields>, k: usize| {
+        fa.is_some_and(|f| f.contains_key(&k)) && fb.is_some_and(|f| f.contains_key(&k))
+    };
+    if let Some(&k) = cfc_diff.first()
+        && !present_on_both(cfc_fields(&a.cfc), cfc_fields(&b.cfc), k)
+    {
+        return None;
+    }
+    if let Some(&k) = toc_diff.first()
+        && !present_on_both(
+            a.toc.as_ref().map(|(_, c)| toc_fields(c)),
+            b.toc.as_ref().map(|(_, c)| toc_fields(c)),
+            k,
+        )
+    {
+        return None;
+    }
     let mut merged = a.clone();
     let union_at = |into: &mut ADTFields, from: &ADTFields, k: usize| {
         if let Some(v) = from.get(&k) {
@@ -419,6 +439,23 @@ impl Constraints {
     // Write: strong-update the field within EVERY disjunct currently in scope.
     // This is what makes {A, B}.f = C become {A{f:C}, B} instead of touching a global table.
     pub fn write_field(&mut self, projection: Vec<ProjectionElem>, new: Constraints) {
+        // An array's or slice's value is the union of its elements (index
+        // projections are no-ops on values), so a write to one element is a
+        // weak update: the strong one, joined with the old value - the other
+        // elements keep theirs. (Done as a strong update, `t[0] = a; t[1] =
+        // b` left only `b`.)
+        let is_index = |e: &ProjectionElem| {
+            matches!(
+                e,
+                ProjectionElem::Index(_) | ProjectionElem::ConstantIndex { .. } | ProjectionElem::Subslice { .. }
+            )
+        };
+        if projection.iter().any(is_index) {
+            let mut updated = self.clone();
+            updated.write_field(projection.into_iter().filter(|e| !is_index(e)).collect(), new);
+            self.append(updated);
+            return;
+        }
         // The base-size cap below only catches "many base disjuncts, each
         // getting a copy of new". It misses the other half: new itself
         // already being huge before it ever reaches here, in which case
@@ -516,13 +553,13 @@ impl Constraints {
                             };
                             if applies {
                                 let mut nested =
-                                    fields.get(&idx).cloned().unwrap_or_else(Constraints::new);
+                                    fields.get(&idx).cloned().unwrap_or_else(|| field_skeleton(first));
                                 nested.write_field(rest.clone(), new.clone());
                                 fields.insert(idx, nested);
                             }
                         } else if let Some(RunningConstraint::Closure(_, _, captures)) = &mut c.cfc {
                             let mut nested =
-                                captures.get(&idx).cloned().unwrap_or_else(Constraints::new);
+                                captures.get(&idx).cloned().unwrap_or_else(|| field_skeleton(first));
                             nested.write_field(rest.clone(), new.clone());
                             captures.insert(idx, nested);
                         }
@@ -1325,6 +1362,49 @@ impl Context {
         constraints: Constraints,
         timing: Option<&InterpPass>,
     ) {
+        self.set_constraints(scope, place, constraints, timing, true);
+    }
+
+    /// The write of an assignment to `written` (a statement's or a call's
+    /// destination), stored at `target` (`written` itself, or its base local
+    /// for a field write): through alias edges only if `written` goes
+    /// through a Deref - otherwise it's an assignment to the place itself
+    /// (see set_local_constraints).
+    pub fn assign_constraints(
+        &mut self,
+        scope: &VOID,
+        written: &Place,
+        target: &Place,
+        constraints: Constraints,
+        timing: Option<&InterpPass>,
+    ) {
+        let through_pointer = written.projection.contains(&ProjectionElem::Deref);
+        self.set_constraints(scope, target, constraints, timing, through_pointer);
+    }
+
+    /// set_scoped_constraints for an assignment *to* `place` rather than
+    /// through it: `place` has no Deref (e.g. `_2 = copy _5`, a call's
+    /// destination), so it's written itself, without following its alias
+    /// edges - for a pointer-typed local that's a rebinding, not a write
+    /// into its old pointee.
+    pub fn set_local_constraints(
+        &mut self,
+        scope: &VOID,
+        place: &Place,
+        constraints: Constraints,
+        timing: Option<&InterpPass>,
+    ) {
+        self.set_constraints(scope, place, constraints, timing, false);
+    }
+
+    fn set_constraints(
+        &mut self,
+        scope: &VOID,
+        place: &Place,
+        constraints: Constraints,
+        timing: Option<&InterpPass>,
+        follow_refs: bool,
+    ) {
         let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraints, scope));
         let already_written = self
             .bb_written_places
@@ -1334,11 +1414,12 @@ impl Context {
         if already_written {
             debug!("REPLACE value (already written)");
             let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraintsReplace, scope));
-            self.cstore.scoped_replace(
-                scope,
-                MapKey::Var(place.clone()),
-                Box::new(MapValue::Constraints(constraints)),
-            );
+            let (key, value) = (MapKey::Var(place.clone()), Box::new(MapValue::Constraints(constraints)));
+            if follow_refs {
+                self.cstore.scoped_replace(scope, key, value);
+            } else {
+                self.cstore.scoped_replace_local(scope, key, value);
+            }
         } else {
             debug!("UPDATE value");
             self.bb_written_places
@@ -1346,12 +1427,12 @@ impl Context {
                 .or_default()
                 .insert(place.clone());
             let _g = timing.map(|p| p.timing_span(TimingCat::SetScopedConstraintsUpdate, scope));
-            self.cstore.scoped_update(
-                scope,
-                MapKey::Var(place.clone()),
-                Box::new(MapValue::Constraints(constraints)),
-                timing,
-            );
+            let (key, value) = (MapKey::Var(place.clone()), Box::new(MapValue::Constraints(constraints)));
+            if follow_refs {
+                self.cstore.scoped_update(scope, key, value, timing);
+            } else {
+                self.cstore.scoped_update_local(scope, key, value, timing);
+            }
         }
     }
 
@@ -1503,24 +1584,44 @@ impl Context {
         timing: Option<&InterpPass>,
     ) -> Constraints {
         match &constraint.cfc {
+            // A union's fields share storage: reading one sees what was
+            // written through any of them (MaybeUninit written as a whole -
+            // its aggregate names one field - and read through `as_ptr`,
+            // which points at `value`).
+            Some(RunningConstraint::Adt(def, _, _, fields)) if def.kind().is_union() => {
+                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneAdt, scope));
+                let mut out = Constraints::new();
+                for v in fields.values() {
+                    out.append(v.clone());
+                }
+                out
+            }
+            // A field the value doesn't have - widened away, or of an "any
+            // value of the type" value - is any value of the field's type,
+            // not nothing: reading it as nothing lost trait objects and made
+            // branches on it unreachable (plan A, merge_widened_field).
             Some(RunningConstraint::Adt(_, _, _, fields)) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneAdt, scope));
                 fields
                     .get(&adt_field_idx(elem))
                     .cloned()
-                    .unwrap_or_else(Constraints::new) // unknown/never-written field -> fallback, see below
+                    .unwrap_or_else(|| unknown_field_value(elem, scope, timing))
             }
             // An upvar read in a closure body: `(*_1).i` / `_1.i`.
             Some(RunningConstraint::Closure(_, _, captures)) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneAdt, scope));
-                captures.get(&adt_field_idx(elem)).cloned().unwrap_or_else(Constraints::new)
+                captures
+                    .get(&adt_field_idx(elem))
+                    .cloned()
+                    .unwrap_or_else(|| unknown_field_value(elem, scope, timing))
             }
             Some(RunningConstraint::Tuple(inner)) => {
                 let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneTuple, scope));
                 match elem {
-                    ProjectionElem::Field(idx, _) => {
-                        inner.get(*idx).cloned().unwrap_or_else(Constraints::new)
-                    }
+                    ProjectionElem::Field(idx, _) => inner
+                        .get(*idx)
+                        .cloned()
+                        .unwrap_or_else(|| unknown_field_value(elem, scope, timing)),
                     _ => Constraints::new(),
                 }
             }
@@ -1809,45 +1910,6 @@ impl ConstraintStore {
         }
     }
 
-    fn resolve(&self, place: Place, scope: VOID, for_mut: bool) -> ImHashSet<(Place, VOID)> {
-        if place.projection.first() == Some(&ProjectionElem::Deref) {
-            let base = Place {
-                local: place.local,
-                projection: vec![],
-            };
-            let rest = place.projection[1..].to_vec();
-
-            let targets = if for_mut {
-                self.resolve_mut_ref(base.clone(), scope.clone())
-            } else {
-                self.resolve_ref(base.clone(), scope.clone())
-            };
-
-            targets
-                .into_iter()
-                .map(|(tplace, tscope)| {
-                    if tplace == base && tscope == scope {
-                        (place.clone(), scope.clone())
-                    } else {
-                        let mut projection = tplace.projection.clone();
-                        projection.extend(rest.clone());
-                        (
-                            Place {
-                                local: tplace.local,
-                                projection,
-                            },
-                            tscope,
-                        )
-                    }
-                })
-                .collect()
-        } else if for_mut {
-            self.resolve_mut_ref(place, scope)
-        } else {
-            self.resolve_ref(place, scope)
-        }
-    }
-
     pub fn add_ref(&mut self, from: (Place, VOID), to: (Place, VOID), bk: Mutability) {
         let (place, scope) = from;
         self.refs
@@ -1869,16 +1931,79 @@ impl ConstraintStore {
         self.refs.get(&cur.1).and_then(|m| m.get(&cur.0))
     }
 
-    /// Explores every possible alias path from (place, scope), since a
-    /// single hop can now have multiple recorded targets (see `refs`'s
-    /// own field doc). Returns the set of all terminal (no-further-
-    /// alias) places reached - a sound read/write must consider all of
-    /// them, since which one is "real" isn't known at analysis time.
-    /// `visited` guards against a cycle in the alias graph turning this
-    /// into an infinite loop (shouldn't happen with well-formed data,
-    /// but this makes termination a guarantee rather than an
-    /// assumption).
-    fn resolve_ref(&self, place: Place, scope: VOID) -> ImHashSet<(Place, VOID)> {
+    /// The places `place` in `scope` denotes once its alias edges are
+    /// followed - including through a Deref *inside* an alias target: a
+    /// target `(*_1).0.0` (e.g. `&raw const (*self).value`, or `&mut
+    /// (*x).f`) is resolved further through `_1`'s edges, with `.0.0`
+    /// appended to whatever `_1` reaches. Terminals can then carry a field
+    /// path (`x.0.0`); scoped_get / the writes handle those as field reads /
+    /// field writes of their base. A Deref whose base has no edge (a pointer
+    /// read out of a value) stays as it is. Collects every visited place
+    /// (for write_log's ports).
+    fn canonical_places(
+        &self,
+        place: Place,
+        scope: VOID,
+        visited: &mut ImHashSet<(Place, VOID)>,
+        out: &mut ImHashSet<(Place, VOID)>,
+        depth: usize,
+    ) {
+        const MAX_DEPTH: usize = 16;
+        if place.projection.first() == Some(&ProjectionElem::Deref) {
+            let base = Place { local: place.local, projection: vec![] };
+            let rest = place.projection[1..].to_vec();
+            let (terms, vis) = self.resolve_mut_ref_visiting(base.clone(), scope.clone());
+            visited.extend(vis);
+            for (tplace, tscope) in terms {
+                if tplace == base && tscope == scope {
+                    out.insert((place.clone(), scope.clone()));
+                } else {
+                    let mut projection = tplace.projection.clone();
+                    projection.extend(rest.iter().cloned());
+                    let next = Place { local: tplace.local, projection };
+                    if depth < MAX_DEPTH {
+                        self.canonical_places(next, tscope, visited, out, depth + 1);
+                    } else {
+                        out.insert((next, tscope));
+                    }
+                }
+            }
+        } else {
+            let (terms, vis) = self.resolve_mut_ref_visiting(place.clone(), scope.clone());
+            visited.extend(vis);
+            for t in terms {
+                if t.0.projection.first() == Some(&ProjectionElem::Deref) && t != (place.clone(), scope.clone()) && depth < MAX_DEPTH {
+                    self.canonical_places(t.0, t.1, visited, out, depth + 1);
+                } else {
+                    out.insert(t);
+                }
+            }
+        }
+    }
+
+    /// Every place the alias walk from `place` in `scope` visits (itself
+    /// included), and the places it denotes (canonical_places) - see
+    /// InterpPass::interp_return.
+    pub fn alias_walk(&self, place: Place, scope: VOID) -> (ImHashSet<(Place, VOID)>, ImHashSet<(Place, VOID)>) {
+        let mut visited = ImHashSet::new();
+        let mut targets = ImHashSet::new();
+        self.canonical_places(place, scope, &mut visited, &mut targets, 0);
+        (visited, targets)
+    }
+
+    /// The terminal places of `place`'s alias edges (reads and writes alike),
+    /// and every place the walk visited (for write_log: which calls' ports a
+    /// write passes through). It follows mutable *and* shared borrows: a
+    /// write through a shared reference is interior mutability (Cell,
+    /// RefCell, OptionalCell, Mutex, atomics - anything else is undefined
+    /// behavior), and it reaches the borrowed place just the same; stopping
+    /// at shared borrows, as the write walk used to, kept those writes in
+    /// the callee's own local (`write_interior_mut`, `cell_client_wiring`).
+    fn resolve_mut_ref_visiting(
+        &self,
+        place: Place,
+        scope: VOID,
+    ) -> (ImHashSet<(Place, VOID)>, ImHashSet<(Place, VOID)>) {
         let mut results = ImHashSet::new();
         let mut visited: ImHashSet<(Place, VOID)> = ImHashSet::new();
         let mut worklist = vec![(place, scope)];
@@ -1898,49 +2023,6 @@ impl ConstraintStore {
                 }
             }
         }
-        results
-    }
-
-    /// Same traversal as `resolve_ref`, but stops (treating the place
-    /// *before* the borrow, not the aliased-to place, as terminal) the
-    /// moment it hits a `Not` (immutable) borrow along any path - a
-    /// mutable write can't soundly be pushed through an immutable
-    /// reference, matching the original single-valued version's own
-    /// `return cur` (not `return (p, s)`) behavior on that branch.
-    fn resolve_mut_ref(&self, place: Place, scope: VOID) -> ImHashSet<(Place, VOID)> {
-        self.resolve_mut_ref_visiting(place, scope).0
-    }
-
-    /// resolve_mut_ref, also returning every place the alias walk visited
-    /// (for write_log: which calls' ports a write passes through).
-    fn resolve_mut_ref_visiting(
-        &self,
-        place: Place,
-        scope: VOID,
-    ) -> (ImHashSet<(Place, VOID)>, ImHashSet<(Place, VOID)>) {
-        let mut results = ImHashSet::new();
-        let mut visited: ImHashSet<(Place, VOID)> = ImHashSet::new();
-        let mut worklist = vec![(place, scope)];
-        while let Some(cur) = worklist.pop() {
-            if visited.contains(&cur) {
-                continue;
-            }
-            visited.insert(cur.clone());
-            match self.ref_targets(&cur) {
-                Some(targets) if !targets.is_empty() => {
-                    for (to, bk) in targets.iter() {
-                        if matches!(bk, Mutability::Mut) {
-                            worklist.push(to.clone());
-                        } else {
-                            results.insert(cur.clone());
-                        }
-                    }
-                }
-                _ => {
-                    results.insert(cur);
-                }
-            }
-        }
         (results, visited)
     }
 
@@ -1950,27 +2032,11 @@ impl ConstraintStore {
     fn write_targets(&self, scope: &VOID, key: &MapKey, value: &MapValue) -> Vec<(VOID, MapKey)> {
         match key {
             MapKey::Var(place) => {
-                let (base, rest) = if place.projection.first() == Some(&ProjectionElem::Deref) {
-                    (Place { local: place.local, projection: vec![] }, Some(place.projection[1..].to_vec()))
-                } else {
-                    (place.clone(), None)
-                };
-                let (targets, visited) = self.resolve_mut_ref_visiting(base.clone(), scope.clone());
+                let mut visited = ImHashSet::new();
+                let mut targets = ImHashSet::new();
+                self.canonical_places(place.clone(), scope.clone(), &mut visited, &mut targets, 0);
                 crate::write_log::record_write(visited.iter(), value);
-                targets
-                    .into_iter()
-                    .map(|(tplace, tscope)| match &rest {
-                        // As in resolve: a Deref write that resolves to its own
-                        // base stays the original place.
-                        Some(_) if tplace == base && tscope == *scope => (scope.clone(), MapKey::Var(place.clone())),
-                        Some(rest) => {
-                            let mut projection = tplace.projection.clone();
-                            projection.extend(rest.iter().cloned());
-                            (tscope, MapKey::Var(Place { local: tplace.local, projection }))
-                        }
-                        None => (tscope, MapKey::Var(tplace)),
-                    })
-                    .collect()
+                targets.into_iter().map(|(p, s)| (s, MapKey::Var(p))).collect()
             }
             MapKey::Static(def) => {
                 crate::write_log::record_static(*def, value);
@@ -1982,11 +2048,12 @@ impl ConstraintStore {
 
     pub fn scoped_get(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
         let targets: Vec<(VOID, MapKey)> = match key {
-            MapKey::Var(place) => self
-                .resolve(place.clone(), scope.clone(), false)
-                .into_iter()
-                .map(|(p, s)| (s, MapKey::Var(p)))
-                .collect(),
+            MapKey::Var(place) => {
+                let mut visited = ImHashSet::new();
+                let mut out = ImHashSet::new();
+                self.canonical_places(place.clone(), scope.clone(), &mut visited, &mut out, 0);
+                out.into_iter().map(|(p, s)| (s, MapKey::Var(p))).collect()
+            }
             MapKey::ScopeId(_) => vec![(scope.clone(), key.clone())],
             MapKey::Static(_) => panic!("use get_static/set_static"),
         };
@@ -2017,6 +2084,18 @@ impl ConstraintStore {
     }
 
     fn scoped_get_single(&self, scope: &VOID, key: &MapKey, is_closure: bool) -> Option<MapValue> {
+        // A field path (an alias target like `x.0.0`, see canonical_places):
+        // the base's value, projected.
+        if let MapKey::Var(place) = key
+            && !place.projection.is_empty()
+            && !self.has_own_entry(scope, key)
+        {
+            let base = MapKey::Var(Place { local: place.local, projection: vec![] });
+            return match self.scoped_get_single(scope, &base, is_closure)? {
+                MapValue::Constraints(cs) => project_value(&cs, &place.projection).map(MapValue::Constraints),
+                other => Some(other),
+            };
+        }
         match self.cmap.get(&MapKey::ScopeId(base_scope_id(scope))) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scopes) => {
@@ -2074,6 +2153,20 @@ impl ConstraintStore {
         let targets = self.write_targets(scope, &key, &value);
         drop(_resolve_guard);
 
+        // A write that can only reach one static's whole value overwrites it
+        // (a strong update): a static is one location, and on this path it
+        // definitely holds the new value now - which a field write also
+        // computes from its current value. Without it a `static mut` that
+        // starts as any value of its type (static_place) would stay "any"
+        // after its first write - every static_init! buffer.
+        if let [(target_scope, MapKey::Var(p))] = targets.as_slice()
+            && p.projection.is_empty()
+            && static_of_scope(target_scope).is_some()
+        {
+            self.replace_targets(targets, value);
+            return;
+        }
+
         // A Var write can now resolve to multiple possible places (see
         // `refs`'s own field doc) - apply the same write to every one
         // of them, since which one is "real" isn't known at analysis
@@ -2085,6 +2178,32 @@ impl ConstraintStore {
         }
     }
 
+    /// Whether `scope`'s store has an entry under exactly `key`.
+    pub fn has_own_entry(&self, scope: &VOID, key: &MapKey) -> bool {
+        match self.cmap.get(&MapKey::ScopeId(base_scope_id(scope))) {
+            Some(b) => matches!(&**b, MapValue::Store(store, _) if store.cmap.get(key).is_some()),
+            None => false,
+        }
+    }
+
+    /// A write of `value` to the field path of `key` (an alias target like
+    /// `x.0.0`, see canonical_places): the base's value with that field
+    /// written - the base value to store instead, if `key` has a path and
+    /// the base has a value.
+    fn field_write(&self, scope: &VOID, key: &MapKey, value: &MapValue) -> Option<(MapKey, Box<MapValue>)> {
+        let MapKey::Var(place) = key else { return None };
+        if place.projection.is_empty() {
+            return None;
+        }
+        let MapValue::Constraints(new) = value else { return None };
+        let base = MapKey::Var(Place { local: place.local, projection: vec![] });
+        let Some(MapValue::Constraints(mut cs)) = self.scoped_get_single(scope, &base, false) else {
+            return None;
+        };
+        cs.write_field(place.projection.clone(), new.clone());
+        Some((base, Box::new(MapValue::Constraints(cs))))
+    }
+
     fn scoped_update_single(
         &mut self,
         scope: &VOID,
@@ -2092,6 +2211,7 @@ impl ConstraintStore {
         value: Box<MapValue>,
         timing: Option<&InterpPass>,
     ) {
+        let (key, value) = self.field_write(scope, &key, &value).unwrap_or((key, value));
         let _get_guard = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateGetScope, scope));
         let mapres = self.cmap.get(&MapKey::ScopeId(base_scope_id(scope)));
         drop(_get_guard);
@@ -2131,6 +2251,7 @@ impl ConstraintStore {
                     // modify scope w new key/val
                     let _g2 =
                         timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, scope));
+                    note_static_write(scope, store.cmap.get(&key), &new_val);
                     store.cmap.insert(key, new_val);
                     self.cmap.insert(
                         MapKey::ScopeId(base_scope_id(scope)),
@@ -2144,6 +2265,7 @@ impl ConstraintStore {
             None => {
                 // initialize new scope w key/val
                 let _g = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateInitScope, scope));
+                note_static_write(scope, None, &value);
                 let mut new_store = ConstraintStore::new();
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(
@@ -2162,7 +2284,39 @@ impl ConstraintStore {
     // incoming path the prior value could represent.
     pub fn scoped_replace(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
         let targets = self.write_targets(scope, &key, &value);
+        self.replace_targets(targets, value);
+    }
 
+    /// A write to `key` itself, not through it: a plain assignment to a
+    /// pointer-typed local (`_2 = copy _5`) rebinds the local, it doesn't
+    /// write into what the local pointed at before - so no alias edges are
+    /// followed (see Context::set_scoped_constraints).
+    pub fn scoped_replace_local(&mut self, scope: &VOID, key: MapKey, value: Box<MapValue>) {
+        self.replace_targets(vec![(scope.clone(), key)], value);
+    }
+
+    /// scoped_update's merge into `key` itself (see scoped_replace_local).
+    pub fn scoped_update_local(
+        &mut self,
+        scope: &VOID,
+        key: MapKey,
+        value: Box<MapValue>,
+        timing: Option<&InterpPass>,
+    ) {
+        self.scoped_update_single(scope, key, value, timing);
+    }
+
+    fn replace_targets(&mut self, targets: Vec<(VOID, MapKey)>, value: Box<MapValue>) {
+        // A field-path target is a field write into its base: a merge with
+        // the base's other fields' values, so through scoped_update_single.
+        if targets.len() == 1
+            && let MapKey::Var(p) = &targets[0].1
+            && !p.projection.is_empty()
+        {
+            let (scope, key) = targets.into_iter().next().unwrap();
+            self.scoped_update_single(&scope, key, value, None);
+            return;
+        }
         // The "always overwrites outright" contract only holds when
         // there's exactly one possible target - the original
         // rationale (no branching within a BB, so no alternative
@@ -2179,6 +2333,7 @@ impl ConstraintStore {
             match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {
                 Some(vartype) => match *vartype.clone() {
                     MapValue::Store(mut store, enclosing_scope) => {
+                        note_static_write(&scope, store.cmap.get(&key), &value);
                         store.cmap.insert(key, value);
                         self.cmap.insert(
                             MapKey::ScopeId(base_scope_id(&scope)),
@@ -2283,4 +2438,150 @@ pub fn store_size(store: &ConstraintStore) -> (usize, usize) {
         }
     }
     (vars, nodes)
+}
+
+/// `cs` projected along `projection` (the field path of an alias target, see
+/// ConstraintStore::canonical_places): fields of ADTs, closures and tuples,
+/// through pointers and sequence elements, downcasts filtering variants;
+/// Deref and indexing are no-ops on values (a pointer's value is its
+/// pointee's, an array's the union of its elements). None if some step
+/// can't be followed (a type with no field structure, a parametric
+/// placeholder) - "unknown", like a missing entry.
+pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<Constraints> {
+    fn field(c: &Constraint, idx: usize, out: &mut Constraints) -> bool {
+        match &c.cfc {
+            // A union's fields share storage: any field's value, whichever
+            // one it was written through (see Context::step_field_one).
+            Some(RunningConstraint::Adt(def, _, _, fields)) if def.kind().is_union() => {
+                for v in fields.values() {
+                    out.append(v.clone());
+                }
+                true
+            }
+            // A missing field is unknown (see Context::step_field_one), so
+            // the whole projected read is - the caller falls back to any
+            // value of the read place's type.
+            Some(RunningConstraint::Adt(_, _, _, fields)) | Some(RunningConstraint::Closure(_, _, fields)) => {
+                match fields.get(&idx) {
+                    Some(v) => {
+                        out.append(v.clone());
+                        true
+                    }
+                    None => false,
+                }
+            }
+            Some(RunningConstraint::Tuple(inner)) => match inner.get(idx) {
+                Some(v) => {
+                    out.append(v.clone());
+                    true
+                }
+                None => false,
+            },
+            Some(RunningConstraint::Ptr(box inner)) | Some(RunningConstraint::List(box inner)) => {
+                field(inner, idx, out)
+            }
+            Some(RunningConstraint::Idk(box inner)) => inner.inner.iter().all(|ic| field(ic, idx, out)),
+            // No field structure, and nothing unknown about that: contributes
+            // nothing (e.g. a MaybeUninit's uninitialized `()` field).
+            None
+            | Some(RunningConstraint::Scalar(_))
+            | Some(RunningConstraint::Float)
+            | Some(RunningConstraint::FnDef(..))
+            | Some(RunningConstraint::FnPtr(_)) => true,
+            // A parametric placeholder or an unknown object: unknown.
+            _ => false,
+        }
+    }
+    let mut cur = cs.clone();
+    for elem in projection {
+        cur = match elem {
+            ProjectionElem::Field(idx, _) => {
+                let mut out = Constraints::new();
+                for c in cur.inner.iter() {
+                    if !field(c, *idx, &mut out) {
+                        return None;
+                    }
+                }
+                out
+            }
+            ProjectionElem::Downcast(v) => cur.filter_variant(*v, None, None),
+            _ => cur,
+        };
+    }
+    Some(cur)
+}
+
+// Statics as places: each static's value lives at `_0` of a synthetic scope
+// of its own (static_scope), and a pointer to a static is an alias edge to
+// that place (InterpPass::static_place) - so writes through any pointer to it
+// (`&mut STATIC`, `&raw mut`, a pointer passed down or stored) reach it, and
+// every read sees its current value, through the same alias resolution as
+// other places. The scope's store is part of the flow-sensitive context.
+thread_local! {
+    static STATIC_SCOPES: RefCell<HashMap<Instance, DefId>> = RefCell::new(HashMap::new());
+    static STATIC_EPOCH: Cell<u64> = const { Cell::new(0) };
+}
+
+/// The synthetic scope holding static `def`'s value (at `_0`).
+pub fn static_scope(def: DefId) -> VOID {
+    let instance = Instance::from(rustc_public::mir::mono::StaticDef(def));
+    STATIC_SCOPES.with(|s| s.borrow_mut().insert(instance, def));
+    (instance, GenericArgs(Vec::new()), Vec::new())
+}
+
+/// The static whose synthetic scope `scope` is, if it is one.
+pub fn static_of_scope(scope: &VOID) -> Option<DefId> {
+    if !scope.2.is_empty() {
+        return None;
+    }
+    STATIC_SCOPES.with(|s| s.borrow().get(&scope.0).copied())
+}
+
+/// Bumped whenever a static's value changes: a memoized result may have
+/// read statics, so it's only reused while this is unchanged (see
+/// InterpPass's exact_memo / virtual_call_memo).
+pub fn static_epoch() -> u64 {
+    STATIC_EPOCH.with(|e| e.get())
+}
+
+/// After a write into `scope`'s store: if `scope` is a static's, and its value
+/// changed, a new static epoch, and the write logged for memo replay
+/// (write_log::record_static - the static's whole new value).
+fn note_static_write(scope: &VOID, old: Option<&Box<MapValue>>, new: &MapValue) {
+    let Some(def) = static_of_scope(scope) else { return };
+    if old.is_some_and(|o| **o == *new) {
+        return;
+    }
+    STATIC_EPOCH.with(|e| e.set(e.get() + 1));
+    crate::write_log::record_static(def, new);
+}
+
+/// A missing field's value as something a nested write can go into: "any
+/// value" of the field's type with no fields known (an ADT or closure of
+/// that type - its other fields then read as unknown, see step_field_one).
+/// Writing a nested path into a missing field used to write into nothing, so
+/// the write was lost (e.g. `set_client` on a `static mut` capsule that
+/// starts as any value of its type).
+fn field_skeleton(elem: &ProjectionElem) -> Constraints {
+    use rustc_public::ty::{RigidTy, TyKind};
+    let ProjectionElem::Field(_, ty) = elem else { return Constraints::new() };
+    match ty.kind() {
+        TyKind::RigidTy(RigidTy::Adt(def, args)) => {
+            Constraints::from(Constraint::new(None, Some(RunningConstraint::Adt(def, args, None, ADTFields::new()))))
+        }
+        TyKind::RigidTy(RigidTy::Closure(def, args)) => {
+            Constraints::from(Constraint::new(None, Some(RunningConstraint::Closure(def, args, ADTFields::new()))))
+        }
+        _ => Constraints::new(),
+    }
+}
+
+/// Any value of the type of the field `elem` projects to (see
+/// step_field_one).
+fn unknown_field_value(elem: &ProjectionElem, scope: &VOID, timing: Option<&InterpPass>) -> Constraints {
+    let ProjectionElem::Field(_, ty) = elem else { return Constraints::new() };
+    match timing {
+        Some(p) => Constraints::from(p.converter.convert_ty(&Location::unknown(), ty, Some(scope), timing).1),
+        None => field_skeleton(elem),
+    }
 }

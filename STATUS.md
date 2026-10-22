@@ -256,3 +256,138 @@ fix rewrite unsoundness due to fnptr fallbacks
 closure captures fix
 - big impact on analysis time b/c state starts to grow again, working on alleviating this
 
+## ripgrep
+
+max candidates == 1
+
+```sh
+      9 pointers n=1
+      2 single exact
+      1 skipped too_many_targets n=10
+      2 skipped too_many_targets n=100
+      4 skipped too_many_targets n=101
+     60 skipped too_many_targets n=104
+     18 skipped too_many_targets n=12
+      3 skipped too_many_targets n=15
+     75 skipped too_many_targets n=16
+      3 skipped too_many_targets n=17
+     13 skipped too_many_targets n=2
+      4 skipped too_many_targets n=256
+      8 skipped too_many_targets n=3
+      4 skipped too_many_targets n=3149
+      1 skipped too_many_targets n=3150
+      1 skipped too_many_targets n=3151
+      5 skipped too_many_targets n=4
+      5 skipped too_many_targets n=5
+      5 skipped too_many_targets n=6
+      1 skipped too_many_targets n=7
+     11 skipped too_many_targets n=8
+     22 skipped too_many_targets n=9
+      1 skipped too_many_targets n=95
+
+[nix-shell:~/hack/verifopt-examples/ripgrep]$ size baseline_target/x86_64-unknown-linux-gnu/release/rg partitioning_baseline_target/x86_64-unknown-linux-gnu/release/rg clean_target/x86_64-unknown-linux-gnu/release/rg
+   text    data     bss     dec     hex filename
+4509880  347905     440 4858225  4a2171 baseline_target/x86_64-unknown-linux-gnu/release/rg
+4502756  348145     424 4851325  4a067d partitioning_baseline_target/x86_64-unknown-linux-gnu/release/rg
+4504612  348145     424 4853181  4a0dbd clean_target/x86_64-unknown-linux-gnu/release/rg
+```
+
+- we added a partitioning change that marks some functions external that weren't
+  before, so that rewrites that need crate items from other CGUswithin the same
+  crate can actually access them
+- turns out this change is actually responsible for a healthy size reduction,
+  apart from the rewrites themselves
+
+
+# NEW BUILD (10/20)
+
+- fix memo bug
+    - when hit memo limit, interp w concrete args but store in widened args -
+      incorrect!
+    - was also ignoring side effects (doesn't register writes through arg ref,
+      statics, interior mutability, raw ptrs, etc) / callee writes
+
+- fixed memory leak that was affecting ripgrep
+
+- fixed performance bug that was stalling the tock run
+
+
+## ripgrep
+
+analysis still over 3 hours long
+
+```sh
+      9 pointers n=1
+      2 single exact
+      1 skipped too_many_targets n=10
+      2 skipped too_many_targets n=100
+      4 skipped too_many_targets n=101
+     60 skipped too_many_targets n=104
+     18 skipped too_many_targets n=12
+      3 skipped too_many_targets n=15
+     75 skipped too_many_targets n=16
+      3 skipped too_many_targets n=17
+     13 skipped too_many_targets n=2
+      4 skipped too_many_targets n=256
+      8 skipped too_many_targets n=3
+      4 skipped too_many_targets n=3149
+      1 skipped too_many_targets n=3150
+      1 skipped too_many_targets n=3151
+      5 skipped too_many_targets n=4
+      5 skipped too_many_targets n=5
+      5 skipped too_many_targets n=6
+      1 skipped too_many_targets n=7
+     11 skipped too_many_targets n=8
+     22 skipped too_many_targets n=9
+      1 skipped too_many_targets n=95
+
+[nix-shell:~/hack/verifopt-examples/ripgrep]$ size plain_target/x86_64-unknown-linux-gnu/release/rg hook_target/x86_64-unknown-linux-gnu/release/rg timing_target/x86_64-unknown-linux-gnu/release/rg
+   text    data     bss     dec     hex filename
+4509880  347905     440 4858225  4a2171 plain_target/x86_64-unknown-linux-gnu/release/rg
+4502756  348145     424 4851325  4a067d hook_target/x86_64-unknown-linux-gnu/release/rg
+4504612  348145     424 4853181  4a0dbd timing_target/x86_64-unknown-linux-gnu/release/rg
+```
+
+- partitioning hook reduces binary size
+- rewrite adds size back
+
+## tock
+
+analysis down from 12 hours to 42 minutes
+
+```sh
+      2 pointers n=1
+    134 single exact
+      1 skipped too_many_targets n=11
+      2 skipped too_many_targets n=13
+      1 skipped too_many_targets n=14
+      1 skipped too_many_targets n=1968
+      1 skipped too_many_targets n=1969
+      7 skipped too_many_targets n=2
+      1 skipped too_many_targets n=22
+      1 skipped too_many_targets n=39
+      2 skipped too_many_targets n=4
+      2 skipped too_many_targets n=7
+      4 skipped too_many_targets n=8
+      2 skipped too_many_targets n=82
+     14 skipped too_many_targets n=9
+
+[nix-shell:~/hack/verifopt-examples/tock/boards/imix]$ size plain_target/thumbv7em-none-eabi/release/imix hook_target/thumbv7em-none-eabi/release/imix timing_target/thumbv7em-none-eabi/release/imix
+   text    data     bss     dec     hex filename
+ 167200       0   31324  198524   3077c plain_target/thumbv7em-none-eabi/release/imix
+ 167200       0   31324  198524   3077c hook_target/thumbv7em-none-eabi/release/imix
+ 166676       0   31324  198000   30570 timing_target/thumbv7em-none-eabi/release/imix
+ ```
+
+- partitioning hook does not change binary size (CGU already == 1)
+- rewrite reduces size
+
+ # NEW BUILD (10/21)
+
+- fallback to CHAmax (candidate's compiled instances)
+
+- better pointer model
+    - write aliasing instead of copying when *mut args, raw ptrs, interior mutability, etc
+
+- actually write statics
+

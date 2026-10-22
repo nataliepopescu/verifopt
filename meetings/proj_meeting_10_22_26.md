@@ -14,7 +14,7 @@
 
     - doesn't apply to tock since tock's CGU == 1
 
-- https://github.com/nataliepopescu/verifopt/blob/ripgrep/STATUS.md#tock-1
+- https://github.com/nataliepopescu/verifopt/blob/ripgrep/STATUS.md
 
 - FSA soundness issues makes the no-dyn-fallback switch statement unsound
     - currently using a "CHAmax" baseline: checks which instances are actually

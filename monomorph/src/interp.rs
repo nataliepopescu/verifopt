@@ -2324,7 +2324,7 @@ impl<'a> InterpPass<'a> {
             (wq.len(), items, nodes, stack)
         };
         log::warn!(
-            "[verifopt memory] bb_visits={n} rss={rss_mb}MB elapsed={}s exact_memo={em_n} ({em_nodes} value nodes, {em_key_nodes} key nodes) summaries={sm_n} ({sm_nodes} value nodes, {sm_key_nodes} key nodes) stores={store_vars} vars ({store_nodes} nodes) replay_logs={wl_entries} entries ({wl_values} values, {wl_distinct} distinct, {wl_nodes} nodes) rc_caches=[{}lift={}/{} cast={}/{}] wq={wq_keys} keys/{wq_items} items ({wq_nodes} arg nodes, {wq_stack} saved stack frames) in_queue={} dependencies={} incomplete={} dispatch_tags={} scope_epoch={} cstore_cmap={} key_stack={}",
+            "[verifopt memory] bb_visits={n} rss={rss_mb}MB elapsed={}s exact_memo={em_n} ({em_nodes} value nodes, {em_key_nodes} key nodes) summaries={sm_n} ({sm_nodes} value nodes, {sm_key_nodes} key nodes) stores={store_vars} vars ({store_nodes} nodes) replay_logs={wl_entries} entries ({wl_values} values, {wl_distinct} distinct, {wl_nodes} nodes) rc_caches=[{}lift={}/{} cast={}/{}] wq={wq_keys} keys/{wq_items} items ({wq_nodes} arg nodes, {wq_stack} saved stack frames) in_queue={} dependencies={} incomplete={} dispatch_tags={} scope_epoch={} cstore_cmap={} key_stack={} stack=[{}]",
             self.run_start.elapsed().as_secs(),
             crate::constraints::rc_cache_sizes(),
             LIFT_TRAITOBJTYS_CACHE.with(crate::constraints::rc_cache_size).0,
@@ -2338,6 +2338,7 @@ impl<'a> InterpPass<'a> {
             self.scope_epoch.borrow().len(),
             ctxt.cstore.cmap.len(),
             self.key_stack.borrow().len(),
+            self.key_stack.borrow().iter().rev().take(6).map(|k| k.0.0.name()).collect::<Vec<_>>().join(" < "),
         );
     }
 

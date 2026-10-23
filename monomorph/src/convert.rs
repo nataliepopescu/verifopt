@@ -968,7 +968,7 @@ impl<'a> RvalConverter<'a> {
         timing: Option<&InterpPass>,
     ) -> Constraints {
         match kind {
-            AggregateKind::Adt(def, variant_idx, genargs, _, _field_idx) => {
+            AggregateKind::Adt(def, variant_idx, genargs, _, active_field) => {
                 if is_opaque_internal_defid(def) {
                     let adt_name = def.0.name();
                     let _g =
@@ -1019,7 +1019,10 @@ impl<'a> RvalConverter<'a> {
                     };
                     let _g =
                         timing.map(|p| p.timing_span(TimingCat::ConvertAggFieldsInsert, cur_scope));
-                    fields.insert(i, op_constraints);
+                    // A union aggregate has one operand, for its active field
+                    // (`MaybeUninit { value: .. }` - stored under index 0, it
+                    // read back as `uninit`).
+                    fields.insert(active_field.unwrap_or(i), op_constraints);
                 }
 
                 let _g =

@@ -181,13 +181,12 @@ pub struct InterpPass<'a> {
 
     /// Result, the callee's epoch, and what the call wrote into memory its
     /// caller can see (replayed on a hit - see write_log).
-    /// The epoch is the callee's scope epoch and the static epoch before the
-    /// call (constraints::static_epoch: a result may have read statics).
-    pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, (u64, u64), SharedLog)>>,
+    /// A hit also needs the statics the call read unchanged (the log's
+    /// `reads`, write_log::reads_fresh).
+    pub exact_memo: RefCell<HashMap<MemoKey, (Option<Constraints>, u64, SharedLog)>>,
 
-    /// The last field: the static epoch before the dispatch.
     pub virtual_call_memo:
-        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>, SharedLog, u64)>>,
+        RefCell<HashMap<VirtualCallKey, (Option<Constraints>, Vec<(VOID, u64)>, SharedLog)>>,
 
     pub scope_epoch: RefCell<HashMap<BaseScopeId, u64>>,
     pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
@@ -350,6 +349,7 @@ impl<'a> InterpPass<'a> {
         args: &[Operand],
         writes: &crate::write_log::WriteLog,
     ) {
+        crate::write_log::replay_reads(writes);
         for (idx, values) in &writes.ports {
             if let Some(Operand::Copy(place) | Operand::Move(place)) = args.get(*idx) {
                 for value in values {
@@ -2298,7 +2298,7 @@ impl<'a> InterpPass<'a> {
             let logs = em
                 .values()
                 .map(|(_, _, l)| l)
-                .chain(vm.values().map(|(_, _, l, _)| l))
+                .chain(vm.values().map(|(_, _, l)| l))
                 .chain(sm.values().map(|(_, l)| l));
             for log in logs.filter(|l| !l.is_empty()) {
                 entries += 1;
@@ -2467,12 +2467,10 @@ impl<'a> InterpPass<'a> {
             //    );
             //}
 
-            let static_before = crate::constraints::static_epoch();
-            let epoch_before =
-                (*self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0), static_before);
+            let epoch_before = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
             let hit = self.exact_memo.borrow().get(&memo_key).cloned();
             if let Some((cached, cached_epoch, writes)) = hit {
-                if cached_epoch == epoch_before {
+                if cached_epoch == epoch_before && crate::write_log::reads_fresh(&writes) {
                     if precise_count >= 50 {
                         crate::assumptions::record(
                             crate::assumptions::Reason::MemoWidenedReuse,
@@ -2518,8 +2516,7 @@ impl<'a> InterpPass<'a> {
             let _timing_guard = self.timing_span(TimingCat::TermInterpStaticCallPost, cur_scope);
             if let Ok(ref cs) = result {
                 let _g1 = self.timing_span(TimingCat::TermInterpStaticCallPost1, cur_scope);
-                let epoch_after =
-                    (*self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0), static_before);
+                let epoch_after = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
                 drop(_g1);
 
                 let _g2 = self.timing_span(TimingCat::TermInterpStaticCallPost2, cur_scope);
@@ -2918,7 +2915,7 @@ impl<'a> InterpPass<'a> {
         let virtual_key: VirtualCallKey = (key.clone(), ArgSet::new(&resolved_args));
         let hit = self.virtual_call_memo.borrow().get(&virtual_key).cloned();
         match hit {
-            Some((cached, recorded_scopes, writes, static_at)) if static_at == crate::constraints::static_epoch() => {
+            Some((cached, recorded_scopes, writes)) if crate::write_log::reads_fresh(&writes) => {
                 let stale: Vec<(DefId, u64, u64)> = recorded_scopes
                     .iter()
                     .filter_map(|(scope, recorded_epoch)| {
@@ -3098,7 +3095,6 @@ impl<'a> InterpPass<'a> {
         }
         drop(_timing_guard);
 
-        let static_before = crate::constraints::static_epoch();
         let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
         let frame = crate::write_log::push(operand_places(args), caller_scope);
         let result = self.simulate_static_calls(
@@ -3134,7 +3130,7 @@ impl<'a> InterpPass<'a> {
         if let Ok(ref cs) = result {
             self.virtual_call_memo
                 .borrow_mut()
-                .insert(virtual_key, (cs.clone(), touched_scopes, writes, static_before));
+                .insert(virtual_key, (cs.clone(), touched_scopes, writes));
         }
 
         result

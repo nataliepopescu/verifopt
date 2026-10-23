@@ -50,6 +50,10 @@ pub struct WriteLog {
     /// pointer to (part of) an argument's pointee. The caller's destination
     /// gets alias edges to them (InterpPass::take_return_aliases).
     pub returns: Vec<ReturnAlias>,
+    /// Static -> its version (constraints::static_version) when the call
+    /// first read or wrote it: the result is reusable only while every one
+    /// is unchanged (reads_fresh).
+    pub reads: HashMap<DefId, u64>,
 }
 
 /// What a call's return value points into (WriteLog::returns).
@@ -217,6 +221,37 @@ pub fn record_static(def: DefId, value: &MapValue) {
             add(frame.log.statics.entry(def).or_default(), value);
         }
     })
+}
+
+/// A read of static `def` at `version` (or a write over that version):
+/// noted in every frame that hasn't seen `def` yet. A frame's first touch of
+/// a static sees its value from before the call - nothing else runs between.
+pub fn record_static_read(def: DefId, version: u64) {
+    FRAMES.with(|f| {
+        for frame in f.borrow_mut().stack.iter_mut() {
+            frame.log.reads.entry(def).or_insert(version);
+        }
+    })
+}
+
+/// A memo hit's reads, in the enclosing frames: their results depend on
+/// them too.
+pub fn replay_reads(log: &WriteLog) {
+    if log.reads.is_empty() {
+        return;
+    }
+    FRAMES.with(|f| {
+        for frame in f.borrow_mut().stack.iter_mut() {
+            for (def, v) in &log.reads {
+                frame.log.reads.entry(*def).or_insert(*v);
+            }
+        }
+    })
+}
+
+/// Whether every static the call read still has the version it read.
+pub fn reads_fresh(log: &WriteLog) -> bool {
+    log.reads.iter().all(|(def, v)| crate::constraints::static_version(*def) == *v)
 }
 
 /// Shared form stored in the memos.

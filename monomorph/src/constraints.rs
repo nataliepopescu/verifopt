@@ -1584,18 +1584,6 @@ impl Context {
         timing: Option<&InterpPass>,
     ) -> Constraints {
         match &constraint.cfc {
-            // A union's fields share storage: reading one sees what was
-            // written through any of them (MaybeUninit written as a whole -
-            // its aggregate names one field - and read through `as_ptr`,
-            // which points at `value`).
-            Some(RunningConstraint::Adt(def, _, _, fields)) if def.kind().is_union() => {
-                let _g = timing.map(|p| p.timing_span(TimingCat::StepFieldOneAdt, scope));
-                let mut out = Constraints::new();
-                for v in fields.values() {
-                    out.append(v.clone());
-                }
-                out
-            }
             // A field the value doesn't have - widened away, or of an "any
             // value of the type" value - is any value of the field's type,
             // not nothing: reading it as nothing lost trait objects and made
@@ -2096,6 +2084,7 @@ impl ConstraintStore {
                 other => Some(other),
             };
         }
+        note_static_read(scope);
         match self.cmap.get(&MapKey::ScopeId(base_scope_id(scope))) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scopes) => {
@@ -2450,14 +2439,6 @@ pub fn store_size(store: &ConstraintStore) -> (usize, usize) {
 pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<Constraints> {
     fn field(c: &Constraint, idx: usize, out: &mut Constraints) -> bool {
         match &c.cfc {
-            // A union's fields share storage: any field's value, whichever
-            // one it was written through (see Context::step_field_one).
-            Some(RunningConstraint::Adt(def, _, _, fields)) if def.kind().is_union() => {
-                for v in fields.values() {
-                    out.append(v.clone());
-                }
-                true
-            }
             // A missing field is unknown (see Context::step_field_one), so
             // the whole projected read is - the caller falls back to any
             // value of the read place's type.
@@ -2519,7 +2500,7 @@ pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<
 // other places. The scope's store is part of the flow-sensitive context.
 thread_local! {
     static STATIC_SCOPES: RefCell<HashMap<Instance, DefId>> = RefCell::new(HashMap::new());
-    static STATIC_EPOCH: Cell<u64> = const { Cell::new(0) };
+    static STATIC_VERSIONS: RefCell<HashMap<DefId, u64>> = RefCell::new(HashMap::new());
 }
 
 /// The synthetic scope holding static `def`'s value (at `_0`).
@@ -2537,22 +2518,34 @@ pub fn static_of_scope(scope: &VOID) -> Option<DefId> {
     STATIC_SCOPES.with(|s| s.borrow().get(&scope.0).copied())
 }
 
-/// Bumped whenever a static's value changes: a memoized result may have
-/// read statics, so it's only reused while this is unchanged (see
-/// InterpPass's exact_memo / virtual_call_memo).
-pub fn static_epoch() -> u64 {
-    STATIC_EPOCH.with(|e| e.get())
+/// Static `def`'s version: bumped whenever its value changes. A memoized
+/// result is reused only while the statics it read keep the versions it saw
+/// (write_log::reads_fresh) - per static, so one written all the time (a
+/// writer, a counter) doesn't invalidate every memo entry.
+pub fn static_version(def: DefId) -> u64 {
+    STATIC_VERSIONS.with(|v| v.borrow().get(&def).copied().unwrap_or(0))
+}
+
+/// A read of `scope`'s store: if it is a static's, noted in the write-log
+/// frames (write_log::record_static_read).
+fn note_static_read(scope: &VOID) {
+    if let Some(def) = static_of_scope(scope) {
+        crate::write_log::record_static_read(def, static_version(def));
+    }
 }
 
 /// After a write into `scope`'s store: if `scope` is a static's, and its value
-/// changed, a new static epoch, and the write logged for memo replay
+/// changed, a new version (the old one noted as read: a field write computes
+/// from the old value), and the write logged for memo replay
 /// (write_log::record_static - the static's whole new value).
 fn note_static_write(scope: &VOID, old: Option<&Box<MapValue>>, new: &MapValue) {
     let Some(def) = static_of_scope(scope) else { return };
     if old.is_some_and(|o| **o == *new) {
         return;
     }
-    STATIC_EPOCH.with(|e| e.set(e.get() + 1));
+    let version = static_version(def);
+    crate::write_log::record_static_read(def, version);
+    STATIC_VERSIONS.with(|v| v.borrow_mut().insert(def, version + 1));
     crate::write_log::record_static(def, new);
 }
 

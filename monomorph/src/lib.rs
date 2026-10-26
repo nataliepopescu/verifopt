@@ -43,6 +43,7 @@ use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(
     options: AnalysisOptions,
+    cha_only: Option<Vec<Instance>>,
 ) -> (
     HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     HashMap<(DefId, usize, GenericArgs), TagPlan>,
@@ -161,6 +162,19 @@ pub fn start_verifopt(
     let mut ctxt = Context::empty();
     crate::assumptions::reset();
     let interp = InterpPass::new(&sigstore, &tstore, options.context_depth);
+
+    // CHAmax-only mode (the evaluation's "CHAmax everywhere" rung): no
+    // interpretation; every compiled dispatch site gets its CHA candidates
+    // as its targets, so CHAmax alone decides what is rewritten.
+    if let Some(instances) = cha_only {
+        let sites = interp.enumerate_sites(&instances);
+        eprintln!(
+            "verifopt: CHAmax-only mode: {} dispatch sites in {} compiled instances",
+            sites.len(),
+            instances.len()
+        );
+        return (sites.clone(), HashMap::new(), sites, String::new());
+    }
     // An error that unwinds all the way here means the interpreter stopped
     // early: whatever it found is a partial picture (FSA sets of the sites it
     // did reach may be missing targets it never got to). So no site's FSA

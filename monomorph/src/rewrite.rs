@@ -116,7 +116,9 @@ impl Callbacks for FsaCallbacks {
 
         let _ = rustc_internal::run(tcx, || {
             let Ok((targets, tags, cha, assumptions)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                start_verifopt(self.options.clone())
+                let cha_only = std::env::var_os("VERIFOPT_CHA_ONLY")
+                    .map(|_| crate::chamax::compiled_instances(tcx));
+                start_verifopt(self.options.clone(), cha_only)
             })) else {
                 debug!(
                     "[verifopt debug] start_verifopt itself panicked - no store written this run"

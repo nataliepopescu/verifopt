@@ -3378,6 +3378,49 @@ impl<'a> InterpPass<'a> {
         assoc_fn_impls
     }
 
+    /// The CHAmax-only mode (`VERIFOPT_CHA_ONLY`): instead of interpreting
+    /// from the entry point, every dynamic dispatch in `instances`' bodies
+    /// (chamax::compiled_instances - all compiled code, reached by FSA or
+    /// not) with its CHA candidates, keyed like interp_virtual_call's sites.
+    /// The caller uses these as the "FSA" sets too, so each site gets exactly
+    /// what CHAmax allows.
+    pub fn enumerate_sites(
+        &self,
+        instances: &[Instance],
+    ) -> HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)> {
+        let mut out = HashMap::new();
+        for instance in instances {
+            let Ok(Some(body)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| instance.body())) else {
+                continue;
+            };
+            for (bb, block) in body.blocks.iter().enumerate() {
+                let TerminatorKind::Call { func: Operand::Constant(co), .. } = &block.terminator.kind else {
+                    continue;
+                };
+                let TyKind::RigidTy(RigidTy::FnDef(fndef, genargs)) = co.const_.ty().kind() else {
+                    continue;
+                };
+                if has_unresolved_param(&genargs) {
+                    continue;
+                }
+                let is_virtual = matches!(
+                    Instance::resolve(fndef, &genargs),
+                    Ok(Instance { kind: InstanceKind::Virtual { .. }, .. })
+                );
+                if !is_virtual {
+                    continue;
+                }
+                let Some(trait_defid) = self.tstore.assoc_fn_traits.get(&fndef.0).copied() else {
+                    warn!("[verifopt cha-only] {:?}: no trait for {:?}, site skipped", instance.def.name(), fndef);
+                    continue;
+                };
+                let cha = self.get_impls_cha(&fndef.0, &trait_defid, &genargs);
+                out.insert((instance.def.def_id(), bb, instance.args()), (block.terminator.span, cha));
+            }
+        }
+        out
+    }
+
     fn get_impls_cha(
         &self,
         //callee_scope: &VOID,

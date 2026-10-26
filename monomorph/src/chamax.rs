@@ -249,3 +249,46 @@ fn has_builtin_impls(tcx: TyCtxt<'_>, t: rustc_span::def_id::DefId) -> bool {
             .into_iter()
             .any(|item| tcx.is_lang_item(t, item))
 }
+
+/// Every function instance this program compiles, for the CHAmax-only mode
+/// (`VERIFOPT_CHA_ONLY`, InterpPass::enumerate_sites): this crate's mono items,
+/// plus each dependency's non-generic functions (compiled in that crate; the
+/// second pass rewrites them there). Generic instances a dependency compiles
+/// for its own use (not instantiated here) are not listed.
+///
+/// Runs the partitioning before the store exists: the partitioning hook then
+/// adds no rewrite edges in this pass - the second pass (which a store with
+/// dependency sites always triggers) rebuilds this crate with them.
+pub fn compiled_instances<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<rustc_public::mir::mono::Instance> {
+    use rustc_middle::mir::mono::MonoItem;
+    let mut out = Vec::new();
+    for cgu in tcx.collect_and_partition_mono_items(()).codegen_units {
+        for (item, _) in cgu.items() {
+            if let MonoItem::Fn(instance) = item
+                && let Ok(i) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    rustc_internal::stable(*instance)
+                }))
+            {
+                out.push(i);
+            }
+        }
+    }
+    for krate in rustc_public::external_crates() {
+        for fd in krate.fn_defs() {
+            let did = rustc_internal::internal(tcx, rustc_public::CrateDef::def_id(&fd));
+            let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                !tcx.generics_of(did).requires_monomorphization(tcx) && tcx.is_mir_available(did)
+            }))
+            .unwrap_or(false);
+            if !ok {
+                continue;
+            }
+            if let Ok(i) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                rustc_internal::stable(rustc_middle::ty::Instance::mono(tcx, did))
+            })) {
+                out.push(i);
+            }
+        }
+    }
+    out
+}

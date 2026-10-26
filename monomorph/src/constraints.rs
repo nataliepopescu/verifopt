@@ -834,11 +834,24 @@ where
     let result = compute();
     let mut cache = cache.borrow_mut();
     // Entries outlive their keys: the result is held strongly, and the Weak
-    // keeps the key's allocation. Drop dead entries whenever the cache
-    // reaches a new power-of-two size (amortized O(1) per insert) - without
-    // this, every value ever memoized stayed alive until the end of the run
-    // (tens of GB in ripgrep, more the more values the analysis churns).
-    if cache.len() >= 4096 && cache.len().is_power_of_two() {
+    // keeps the key's allocation. Drop dead entries every PURGE_EVERY
+    // insertions into this cache (amortized O(live entries / PURGE_EVERY)
+    // per insert) - without it every value ever memoized stayed alive until
+    // the end of the run. Purging only at power-of-two sizes (the first fix)
+    // still let dead entries pile up between purges: in ripgrep ~200k dead
+    // widen_constraints results (~100 KB each) held 20-30 GB, until the
+    // memory guard stopped the run before the cache reached 2^20.
+    // Also at power-of-two sizes, as before: early on, while the caches are
+    // small, that purges more often than every PURGE_EVERY insertions.
+    const PURGE_EVERY: u64 = 1 << 14;
+    thread_local!(static INSERTS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new()));
+    let purge = INSERTS.with(|m| {
+        let mut m = m.borrow_mut();
+        let n = m.entry(&*cache as *const HashMap<_, _> as usize).or_default();
+        *n += 1;
+        *n % PURGE_EVERY == 0
+    });
+    if purge || (cache.len() >= 4096 && cache.len().is_power_of_two()) {
         cache.retain(|_, (weak, _)| weak.strong_count() > 0);
     }
     cache.insert(full_key, (Rc::downgrade(&cs.inner), result.clone()));

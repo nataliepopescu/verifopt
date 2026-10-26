@@ -294,6 +294,11 @@ pub fn note_dropped_fields(adt: &str) {
     }
 }
 
+/// Diagnostics: distinct (reason, name) entries in this thread's log.
+pub fn entries() -> usize {
+    LOG.with(|log| log.borrow().entries.len())
+}
+
 /// Starts a fresh log (one analysis per process, but don't rely on it).
 pub fn reset() {
     LOG.with(|log| *log.borrow_mut() = Assumptions::default());

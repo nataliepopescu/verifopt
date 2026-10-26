@@ -192,6 +192,11 @@ pub struct InterpPass<'a> {
     pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
     pub scope_summaries_count: RefCell<HashMap<BaseScopeId, u32>>,
     body_cache: RefCell<HashMap<Instance, Rc<Body>>>,
+    /// Memory diagnostics (VERIFOPT_CACHE_SIZES): one entry per active
+    /// candidate simulation (simulate_static_calls), outermost first - the
+    /// dispatching function, candidate index, candidate count, and the
+    /// merged context's (`acc`'s) written scopes and their size in nodes.
+    sim_levels: RefCell<Vec<(String, usize, usize, usize, usize)>>,
     wto_templates: RefCell<HashMap<Instance, BBDeps>>,
     //pub param_summaries: RefCell<HashMap<VOID, ParamSummary>>,
     pub summary_build_taint_stack: RefCell<Vec<bool>>,
@@ -302,6 +307,7 @@ impl<'a> InterpPass<'a> {
             scope_exact_memo_count: HashMap::new().into(),
             scope_summaries_count: HashMap::new().into(),
             body_cache: HashMap::new().into(),
+            sim_levels: RefCell::new(Vec::new()),
             wto_templates: HashMap::new().into(),
             //param_summaries: HashMap::new().into(),
             summary_build_taint_stack: Vec::new().into(),
@@ -650,10 +656,7 @@ impl<'a> InterpPass<'a> {
                 }
                 // Memory diagnostics for long runs: every N bb visits (env
                 // VERIFOPT_CACHE_SIZES=N), the caches' sizes at warn level.
-                static CACHE_SIZES_EVERY: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
-                if let Some(every) = *CACHE_SIZES_EVERY.get_or_init(|| {
-                    std::env::var("VERIFOPT_CACHE_SIZES").ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0)
-                }) && *n % every == 0
+                if let Some(every) = cache_sizes_every() && *n % every == 0
                 {
                     self.log_memory_diag(*n, ctxt);
                 }
@@ -2323,6 +2326,90 @@ impl<'a> InterpPass<'a> {
             let stack = wq.values().flatten().map(|(_, _, st)| st.len()).sum::<usize>();
             (wq.len(), items, nodes, stack)
         };
+        // Bytes the allocator has handed out and not got back (all arenas,
+        // plus mmapped chunks), vs RSS: tells live growth from memory freed
+        // but kept by the allocator (RSS rarely shrinks).
+        let malloc_mb = {
+            #[repr(C)]
+            struct Mallinfo2 {
+                arena: usize,
+                ordblks: usize,
+                smblks: usize,
+                hblks: usize,
+                hblkhd: usize,
+                usmblks: usize,
+                fsmblks: usize,
+                uordblks: usize,
+                fordblks: usize,
+                keepcost: usize,
+            }
+            unsafe extern "C" {
+                fn mallinfo2() -> Mallinfo2;
+            }
+            let m = unsafe { mallinfo2() };
+            let _ = (m.arena, m.ordblks, m.smblks, m.hblks, m.usmblks, m.fsmblks, m.fordblks, m.keepcost);
+            (m.uordblks + m.hblkhd) / (1024 * 1024)
+        };
+        // The functions whose exact_memo keys are largest (entries, key
+        // nodes): memo keys are the calls' argument values.
+        let memo_top = {
+            let mut by: HashMap<String, (usize, usize)> = HashMap::new();
+            for (k, a) in self.exact_memo.borrow().keys() {
+                let e = by.entry(k.0.name()).or_default();
+                e.0 += 1;
+                e.1 += crate::constraints::argset_size(a);
+            }
+            let mut v: Vec<_> = by.into_iter().collect();
+            v.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+            v.iter()
+                .take(10)
+                .map(|(name, (n, nodes))| format!("{name}:{n}/{}M", nodes / 1_000_000))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        let (vm_n, vm_key_nodes) = {
+            let vm = self.virtual_call_memo.borrow();
+            (vm.len(), vm.keys().map(|(_, a)| crate::constraints::argset_size(a)).sum::<usize>())
+        };
+        let (refs_scopes, refs_places, refs_edges) = {
+            let refs = &ctxt.cstore.refs;
+            let places = refs.values().map(|m| m.len()).sum::<usize>();
+            let edges = refs.values().flat_map(|m| m.values()).map(|s| s.len()).sum::<usize>();
+            (refs.len(), places, edges)
+        };
+        let (dt_n, dt_targets) = {
+            let dt = self.dispatch_targets.borrow();
+            (dt.len(), dt.values().map(|(_, t)| t.len()).sum::<usize>())
+        };
+        {
+            let levels = self.sim_levels.borrow();
+            let held: usize = levels.iter().map(|l| l.4).sum();
+            let shown = levels
+                .iter()
+                .map(|(name, i, len, d, nodes)| format!("{name} {i}/{len} dirty={d} {}M", nodes / 1_000_000))
+                .collect::<Vec<_>>();
+            let shown = if shown.len() > 24 {
+                let mut s = shown[..12].to_vec();
+                s.push(format!("... {} more ...", shown.len() - 24));
+                s.extend_from_slice(&shown[shown.len() - 12..]);
+                s
+            } else {
+                shown
+            };
+            log::warn!(
+                "[verifopt memory sim] bb_visits={n} depth={} held_nodes={held} levels=[{}]",
+                levels.len(),
+                shown.join(" > ")
+            );
+        }
+        log::warn!(
+            "[verifopt memory extra] bb_visits={n} malloc_in_use={malloc_mb}MB rss={rss_mb}MB virtual_memo={vm_n} ({vm_key_nodes} key nodes) refs={refs_scopes} scopes/{refs_places} places/{refs_edges} edges return_walks={} body_cache={} wto_templates={} dispatch_targets={dt_n} ({dt_targets} targets) dispatch_cha={} assumptions={} memo_top=[{memo_top}]",
+            self.return_walks.borrow().len(),
+            self.body_cache.borrow().len(),
+            self.wto_templates.borrow().len(),
+            self.dispatch_cha.borrow().len(),
+            crate::assumptions::entries(),
+        );
         log::warn!(
             "[verifopt memory] bb_visits={n} rss={rss_mb}MB elapsed={}s exact_memo={em_n} ({em_nodes} value nodes, {em_key_nodes} key nodes) summaries={sm_n} ({sm_nodes} value nodes, {sm_key_nodes} key nodes) stores={store_vars} vars ({store_nodes} nodes) replay_logs={wl_entries} entries ({wl_values} values, {wl_distinct} distinct, {wl_nodes} nodes) rc_caches=[{}lift={}/{} cast={}/{}] wq={wq_keys} keys/{wq_items} items ({wq_nodes} arg nodes, {wq_stack} saved stack frames) in_queue={} dependencies={} incomplete={} dispatch_tags={} scope_epoch={} cstore_cmap={} key_stack={} stack=[{}]",
             self.run_start.elapsed().as_secs(),
@@ -3687,7 +3774,22 @@ impl<'a> InterpPass<'a> {
         // it replaces ctxt below, so the record spans one outermost
         // simulation instead of growing for the rest of the run.
         let origin_tracks_writes = ctxt.cstore.cmap.dirty().is_some();
+        // Diagnostics: this simulation's level (sim_levels), popped on exit.
+        struct LevelGuard<'a>(&'a RefCell<Vec<(String, usize, usize, usize, usize)>>);
+        impl Drop for LevelGuard<'_> {
+            fn drop(&mut self) {
+                self.0.borrow_mut().pop();
+            }
+        }
+        let diag = cache_sizes_every().is_some();
+        let _level = diag.then(|| {
+            self.sim_levels.borrow_mut().push((cur_scope.0.name(), 0, len, 0, 0));
+            LevelGuard(&self.sim_levels)
+        });
         for (i, (assoc_fn_impl, adt_genargs)) in assoc_fn_impls.iter().enumerate() {
+            if diag && let Some(l) = self.sim_levels.borrow_mut().last_mut() {
+                l.1 = i + 1;
+            }
             debug!(
                 "\n---ITER {:?} out of {:?} ({:?}/{:?})",
                 i,
@@ -3987,6 +4089,31 @@ impl<'a> InterpPass<'a> {
                                 }
                             });
                             drop(_timing_guard);
+                            if diag
+                                && let Some(a) = &acc
+                                && let Some(dirty) = a.cstore.cmap.dirty()
+                            {
+                                // Sizing the written scopes walks them: sampled.
+                                thread_local!(static MERGES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) });
+                                let sample = MERGES.with(|m| {
+                                    m.set(m.get() + 1);
+                                    m.get() % 32 == 0
+                                });
+                                let nodes = if !sample {
+                                    self.sim_levels.borrow().last().map_or(0, |l| l.4)
+                                } else { dirty
+                                    .iter()
+                                    .filter_map(|k| a.cstore.cmap.get(k))
+                                    .map(|v| match &**v {
+                                        MapValue::Constraints(cs) => crate::constraints::constraints_size(cs),
+                                        MapValue::Store(inner, _) => crate::constraints::store_size(inner).1,
+                                    })
+                                    .sum::<usize>() };
+                                if let Some(l) = self.sim_levels.borrow_mut().last_mut() {
+                                    l.3 = dirty.len();
+                                    l.4 = nodes;
+                                }
+                            }
                         }
                     }
                     Ok(())
@@ -5199,6 +5326,12 @@ fn recent_stack_ops() -> String {
             .collect::<Vec<_>>()
             .join("\n")
     })
+}
+
+/// Memory diagnostics every N bb visits (env VERIFOPT_CACHE_SIZES=N).
+fn cache_sizes_every() -> Option<u64> {
+    static EVERY: OnceLock<Option<u64>> = OnceLock::new();
+    *EVERY.get_or_init(|| std::env::var("VERIFOPT_CACHE_SIZES").ok().and_then(|v| v.parse().ok()).filter(|n| *n > 0))
 }
 
 /// Records a memo hit (exact_memo, or virtual_call_memo for `scope` = the

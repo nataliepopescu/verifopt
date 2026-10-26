@@ -868,6 +868,7 @@ thread_local! {
     static CONSTRAINTS_SIZE_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, usize)>> = RefCell::new(HashMap::new());
     static CONTAINS_PARAM_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, bool)>> = RefCell::new(HashMap::new());
     static WIDEN_CONSTRAINTS_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
+    static WIDEN_SCALARS_CACHE: RefCell<HashMap<(usize, ()), (Weak<IndexSet<Constraint>>, Constraints)>> = RefCell::new(HashMap::new());
     // Real cache (not diagnostic) - flatten_all's own output, keyed on the
     // same Rc identity the diagnostic above confirmed is redundant ~99.96%
     // of the time. Separate from FLATTEN_ALL_SEEN, which stays purely as a
@@ -995,6 +996,73 @@ pub fn widen_constraints(cs: &Constraints) -> Constraints {
             out
         })
     })
+}
+
+/// Forgets the scalars in `cs` (and enum variants, with their fields) but
+/// keeps its structure: struct fields, the objects pointers lead to (a
+/// pointer's value is its pointee's), trait objects' concrete types. For
+/// values a skipped call could have written through a `&mut` whose type's
+/// pointer fields aren't public (InterpPass::havoc_mut_args, `fmt::Formatter`):
+/// the callee can change data, not which objects those fields point to -
+/// unlike widen_constraints, which forgets the pointers too, so the writer
+/// behind a Formatter became every `fmt::Write` impl.
+pub fn widen_scalars(cs: &Constraints) -> Constraints {
+    WIDEN_SCALARS_CACHE.with(|cache| {
+        memoize_by_rc(cache, cs, (), || {
+            let mut out = Constraints::new();
+            for c in cs.inner.iter() {
+                out.push(widen_scalars_one(c));
+            }
+            out
+        })
+    })
+}
+
+/// Diagnosis only (VERIFOPT_CUT_KEEP_ENUMS=1): widen_scalars keeps enum
+/// variants and their fields, like a struct's.
+fn keep_enums() -> bool {
+    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *KEEP.get_or_init(|| std::env::var_os("VERIFOPT_CUT_KEEP_ENUMS").is_some())
+}
+
+fn widen_scalars_fields(fields: &ADTFields) -> ADTFields {
+    fields.iter().map(|(k, v)| (*k, widen_scalars(v))).collect()
+}
+
+fn widen_scalars_one(c: &Constraint) -> Constraint {
+    let toc = c.toc.as_ref().map(|(ty, tc)| {
+        let tc = match tc {
+            TraitObjConstraint::Adt(def, genargs, variant, fields) => {
+                if def.kind().is_enum() && !keep_enums() {
+                    TraitObjConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
+                } else {
+                    TraitObjConstraint::Adt(def.clone(), genargs.clone(), *variant, widen_scalars_fields(fields))
+                }
+            }
+            TraitObjConstraint::Closure(cdef, genargs, captures) => {
+                TraitObjConstraint::Closure(*cdef, genargs.clone(), widen_scalars_fields(captures))
+            }
+        };
+        (ty.clone(), tc)
+    });
+    let cfc = c.cfc.as_ref().map(|rc| match rc {
+        RunningConstraint::Scalar(_) => RunningConstraint::Scalar(None),
+        RunningConstraint::Adt(def, genargs, _, _) if def.kind().is_enum() && !keep_enums() => {
+            RunningConstraint::Adt(def.clone(), genargs.clone(), None, ADTFields::new())
+        }
+        RunningConstraint::Adt(def, genargs, variant, fields) => {
+            RunningConstraint::Adt(def.clone(), genargs.clone(), *variant, widen_scalars_fields(fields))
+        }
+        RunningConstraint::Ptr(inner) => RunningConstraint::Ptr(Box::new(widen_scalars_one(inner))),
+        RunningConstraint::Closure(cdef, genargs, captures) => {
+            RunningConstraint::Closure(*cdef, genargs.clone(), widen_scalars_fields(captures))
+        }
+        RunningConstraint::List(inner) => RunningConstraint::List(Box::new(widen_scalars_one(inner))),
+        RunningConstraint::Tuple(elems) => RunningConstraint::Tuple(elems.iter().map(widen_scalars).collect()),
+        RunningConstraint::Idk(inner) => RunningConstraint::Idk(Box::new(widen_scalars(inner))),
+        other => other.clone(),
+    });
+    Constraint::new(toc, cfc)
 }
 
 fn widen_constraint(c: &Constraint) -> Constraint {

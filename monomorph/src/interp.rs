@@ -379,6 +379,59 @@ impl<'a> InterpPass<'a> {
         }
     }
 
+    /// For a call answered without interpreting it (megamorphic_cap): what
+    /// each `&mut`/`*mut` argument points to, widened - same types, fields
+    /// forgotten (a missing field reads as any value of its type), scalars
+    /// unknown - merged back in: sound for whatever the callee could write
+    /// there, since a call can't change the concrete type behind the
+    /// pointer. ("Any value of the pointee's type" instead turned a `dyn`
+    /// receiver into every implementor of its trait, and ripgrep's values
+    /// snowballed to trillions of nodes at cap 128.) Only when nothing is
+    /// known there yet, and the pointee isn't a trait object, does it fall
+    /// back to any value of the type. Writes the callee could make through
+    /// pointers *inside* the pointee aren't modelled (as for other calls
+    /// answered from their signature).
+    fn havoc_mut_args(&self, ctxt: &mut Context, caller_scope: &VOID, local_decls: &[LocalDecl], args: &[Operand]) {
+        for op in args {
+            let (Operand::Copy(place) | Operand::Move(place)) = op else { continue };
+            let Ok(ty) = place.ty(local_decls) else { continue };
+            let pointee = match ty.kind() {
+                TyKind::RigidTy(RigidTy::Ref(_, inner, Mutability::Mut)) => inner,
+                TyKind::RigidTy(RigidTy::RawPtr(inner, Mutability::Mut)) => inner,
+                _ => continue,
+            };
+            let mut target = place.clone();
+            target.projection.push(ProjectionElem::Deref);
+            let current = match ctxt.cstore.scoped_get(caller_scope, &MapKey::Var(target.clone()), false) {
+                Some(MapValue::Constraints(cs)) if !cs.is_empty() => Some(cs),
+                _ => None,
+            };
+            // `fmt::Formatter`'s fields are private to core, and its `&mut
+            // self` API never re-points `buf`: a formatting impl can change
+            // the data reachable from it (the writer's contents, options),
+            // not the writer it formats into.
+            let keeps_pointers = matches!(
+                pointee.kind(),
+                TyKind::RigidTy(RigidTy::Adt(def, _)) if def.name().ends_with("fmt::Formatter")
+            );
+            let value = match current {
+                Some(cs) if keeps_pointers => crate::constraints::widen_scalars(&cs),
+                Some(cs) => crate::constraints::widen_constraints(&cs),
+                None if matches!(pointee.kind(), TyKind::RigidTy(RigidTy::Dynamic(..))) => continue,
+                None => {
+                    let (_, c) = self.converter.convert_ty(&Location::unknown(), &pointee, None, Some(self));
+                    self.lift_traitobjtys(&self.contains_dyn(&pointee), Constraints::from(c), caller_scope)
+                }
+            };
+            ctxt.cstore.scoped_update(
+                caller_scope,
+                MapKey::Var(target),
+                Box::new(MapValue::Constraints(value)),
+                Some(self),
+            );
+        }
+    }
+
     /// Adds to the innermost dispatching call's pending return aliases.
     fn add_pending_return_aliases(&self, operands: impl IntoIterator<Item = crate::write_log::ReturnAlias>) {
         if let Some(top) = self.pending_return_aliases.borrow_mut().last_mut() {
@@ -3183,6 +3236,35 @@ impl<'a> InterpPass<'a> {
         }
         drop(_timing_guard);
 
+        // Megamorphic dispatch (opt-in: more than VERIFOPT_MEGAMORPHIC_CAP candidates,
+        // e.g. ripgrep's `&dyn Debug` with 3,149 impls, nested): interpreting
+        // every candidate took most of the analysis time and memory, and such
+        // a site is never rewritten anyway. The site stays recorded with all
+        // its candidates (above); the call is answered from the signature,
+        // with "any value" written through its `&mut`/`*mut` arguments - so
+        // the code only reachable through these candidates isn't analyzed
+        // (listed in --ASSUMPTIONS-- as "megamorphic dispatch cut").
+        if assoc_fn_impls_fsa.len() > megamorphic_cap() {
+            crate::assumptions::record_call(crate::assumptions::Reason::MegamorphicCut, fndef);
+            // Each cut site once, so a run that doesn't finish (no stats)
+            // still shows which sites were cut.
+            thread_local!(static CUT: RefCell<HashSet<(DefId, usize)>> = RefCell::new(HashSet::new()));
+            if CUT.with(|c| c.borrow_mut().insert((caller_scope.0.def.def_id(), bb))) {
+                warn!(
+                    "[verifopt megamorphic cut] {} bb{} -> {} ({} candidates)",
+                    caller_scope.0.name(),
+                    bb,
+                    fndef.0.name(),
+                    assoc_fn_impls_fsa.len()
+                );
+            }
+            // Diagnosis only (unsound): VERIFOPT_CUT_NO_HAVOC=1 skips the writes.
+            if std::env::var_os("VERIFOPT_CUT_NO_HAVOC").is_none() {
+                self.havoc_mut_args(ctxt, caller_scope, local_decls, args);
+            }
+            return self.retty_fallback_from_poly(fndef.fn_sig());
+        }
+
         let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
         let frame = crate::write_log::push(operand_places(args), caller_scope);
         let result = self.simulate_static_calls(
@@ -5369,6 +5451,15 @@ fn recent_stack_ops() -> String {
             .collect::<Vec<_>>()
             .join("\n")
     })
+}
+
+/// Dispatch sites with more candidates than this aren't interpreted (see
+/// interp_virtual_call). Opt-in, env VERIFOPT_MEGAMORPHIC_CAP: an experiment
+/// to let ripgrep's analysis finish, at a precision cost - unset, every
+/// candidate is interpreted.
+fn megamorphic_cap() -> usize {
+    static CAP: OnceLock<usize> = OnceLock::new();
+    *CAP.get_or_init(|| std::env::var("VERIFOPT_MEGAMORPHIC_CAP").ok().and_then(|v| v.parse().ok()).unwrap_or(usize::MAX))
 }
 
 /// Memory diagnostics every N bb visits (env VERIFOPT_CACHE_SIZES=N).

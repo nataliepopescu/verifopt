@@ -88,6 +88,10 @@ pub enum Reason {
     /// interpreted - e.g. `core::fmt::rt::Argument::fmt` calling a
     /// `Display::fmt` impl.
     FnPtrCall,
+    /// A dynamic dispatch with more than VERIFOPT_MEGAMORPHIC_CAP candidates,
+    /// answered from the signature (interp_virtual_call): its candidates
+    /// aren't interpreted; `&mut`/`*mut` arguments get "any value".
+    MegamorphicCut,
     /// Every memo hit (exact_memo and virtual_call_memo; named "(precise)"
     /// or "(widened)"). Not an assumption - the denominator for MemoReplay.
     MemoHit,
@@ -120,6 +124,7 @@ impl Reason {
             Reason::MemoWidenedReuse => "memo reuse under widened key",
             Reason::WidenCapture => "widened (captured value size) - dropped fields of",
             Reason::FnPtrCall => "fn-pointer call (not followed)",
+            Reason::MegamorphicCut => "megamorphic dispatch cut (candidates not interpreted)",
             Reason::MemoHit => "memo hit",
             Reason::MemoReplay => "memo hit, writes replayed",
         }
@@ -140,6 +145,7 @@ impl Reason {
                 | Reason::VirtualInstance
                 | Reason::CandidatePanicked
                 | Reason::FnPtrCall
+                | Reason::MegamorphicCut
         )
     }
 }

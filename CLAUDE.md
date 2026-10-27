@@ -694,6 +694,8 @@ K; results dirs are named with K):
 | 3 | CHAmax everywhere (K) | best sound result without points-to: every compiled site rewritten from compiled instances, no FSA |
 | 4 | verifopt (K) | CHAmax + FSA (today's pipeline) |
 | 5 | verifopt + VFE (K) | what LLVM still adds on top of the rewrite (5 vs 4), and what verifopt adds on top of VFE (5 vs 2) |
+| 3a | RTA (K) | classic baseline: CHA restricted to types whose vtable for the trait is created in reachable code (planned Oct 27, see "Analysis baselines") |
+| 4a | rupta (K) | published Rust pointer analysis (rupta, CC'24 / CGO'25) in place of FSA, same rewrite (planned Oct 27, see "Analysis baselines") |
 | 6s | size oracle | speed of light for code size on the workload (see "Two oracles" below) |
 | 6p | performance oracle | speed of light for run time on the workload (see "Two oracles" below) |
 
@@ -734,6 +736,102 @@ run; report executed and never-executed sites separately.
   regex engine, searcher, printer).
 - tock: boot + one app's workload on the imix board (QEMU has no sam4l;
   waits for hardware, like the boot test).
+
+**Analysis baselines: RTA and rupta** (added Oct 27, not implemented). Each
+produces a store (per site: its target set) that goes through the *same*
+rewrite as verifopt, so rungs differ only in the analysis. The rewrite
+guards every non-CHAmax-proven target set (`pointers` with dyn fallback),
+so even an unsound analysis gives a sound binary; `single exact` still comes
+only from CHAmax. Besides the binary metrics, report per-site precision
+(target-set sizes against CHA / CHAmax / the oracle's observed sets) - and
+use the oracle's observed sets as a soundness check: an observed target an
+analysis left out is a missed target (it only costs speed/size in the
+binary, but it makes the analysis's "precision" look better than it is).
+- **RTA** (Bacon & Sweeney): dyn targets = impls of the method for the types
+  whose vtable for that trait is *created* (unsize coercion to `dyn Trait`,
+  `GlobalAlloc::VTable` in constants/statics) in reachable code, iterated
+  with reachability from the entry points. Close to CHAmax, which must be
+  kept apart: CHAmax counts *compiled instances* of the method, which include
+  instances compiled for static calls on types never cast to `dyn` - RTA's
+  set is a subset. Cheapest implementation: the fork's instance manifests
+  also list the vtables each crate emits ((type, trait) pairs; rustc's mono
+  collector creates them only for reachable unsize casts), and RTA = impls
+  for types with a vtable of the dispatched trait. Collector reachability
+  roots every non-generic item of library crates, so it over-approximates a
+  from-`main` RTA. Decided Oct 27: start with this manifest version; later
+  (or in addition, as a second RTA row) a precise from-entry-points walk in
+  the plugin - iterate reachable bodies from the same roots verifopt uses,
+  collecting vtable-creating casts and resolving dyn calls against them
+  until nothing new is reachable. The manifest pass also gives the
+  *address-taken functions* that §9 gap 4(b) needs as its fn-pointer
+  fallback.
+- **rupta** (https://github.com/rustanlys/rupta; Li et al., "A
+  Context-Sensitive Pointer Analysis Framework for Rust and Its Application
+  to Call Graph Construction", CC'24; "Stack Filtering", CGO'25): Andersen
+  (`--pta-type ander`) and callsite-sensitive (`cs`, `--context-depth k`,
+  default 1); `cargo pta -- --entry-func main`; dumps a DOT call graph and
+  points-to sets. Pinned to `nightly-2024-02-03` (rustc_private). Run both
+  `ander` and `cs` k=1 (k=2 if it scales). Problems to solve first:
+  (1) toolchain - ripgrep and merged tock are edition 2024 (stable 1.85, Feb
+  2025), so they don't build on rupta's nightly; and our store keys are the
+  fork's DefPathHashes/bb indices, so rupta must run on the fork's compiler.
+  Decided Oct 27: port rupta to the fork's nightly (rustc 1.94.0, ~Jan 2026
+  base) rather than run old sources. Existing ports (checked Oct 27, all 14
+  GitHub forks): every fork pins `nightly-2024-02-03` except
+  `kevindadi/rupta` branch `kevin` (one commit, "update nightly-2024-12-11",
+  27 files, 3 commits behind upstream `main`), still a year older than the
+  fork - so ported ourselves, from upstream (decided Oct 27: don't build on
+  kevin's commit).
+  **Port status (Oct 27): builds and runs on `rust-mono-rewrite`.** Done
+  directly from upstream, *not* on kevin's commit (that one is mostly rustfmt
+  reflow and introduced bugs - `&raw const` treated as a copy, `todo!()`
+  panics, a guessed raw-pointer aggregate; it was only a reference for API
+  mappings). Worktree `~/hack/rupta-port`, branch `port-fork-nightly` of the
+  `~/hack/rupta` clone, from upstream `main` (`b19f187`), port uncommitted
+  (22 files, +305/-255, in-place edits, no reformatting). Unmodified upstream
+  for comparison: worktree `~/hack/rupta-orig` on `nightly-2024-02-03`
+  (already installed). (A first attempt on kevin's commit was deleted.)
+  Changes: API renames (`erase_and_anonymize_regions`, `rustc_abi`,
+  `GenericArg::kind`, `TypingEnv::fully_monomorphized` for
+  `ParamEnv::reveal_all` and `post_analysis` for `param_env(def)`,
+  `try_resolve`, `InstanceKind`, `hir_*`, `run_compiler`, `FnPtr(sig_tys,
+  hdr)`, `Dynamic` without kind, `ExistentialTraitRef::new_from_args`,
+  `in_memory_order`, `Operand::RuntimeChecks`, removed `Rvalue::Len` /
+  `NullaryOp` / `CheckedBinaryOp`, `AddressOf` -> `RawPtr` (still an
+  address), `Subtype` projection -> `UnwrapUnsafeBinder`, `CastKind::Subtype`
+  as a direct assignment, ...); `Ord` dropped from `FunctionReference` /
+  `GenericArgE` (unused; `DefId`/`Ty` no longer implement it); `cargo-pta`
+  links `rustc_driver` (else std is linked twice). Semantic additions needed
+  by the newer core: intrinsics are now plain `core::intrinsics` fns (no
+  `extern "rust-intrinsic"` block), so the intrinsic name table applies to
+  them too (`transmute`/`offset`/... resolve again); models for
+  `read_via_copy` / `write_via_move` (newer `mem::replace`, `ptr::read`);
+  `AggregateKind::RawPtr` (`ptr::from_raw_parts`) points where its data
+  pointer points; `AggregateKind::CoroutineClosure` like a closure.
+  Check: every fixture that builds standalone on both toolchains (strip
+  `votrace`, edition 2021; job tmp `rupta_eq/run.sh`) gives the same
+  `--dump-dyn-calls` targets as upstream, except printing (`Binder(..)` vs
+  `Binder {..}`, moved std impls) and one extra site in the newer std's
+  `fmt`; e.g. `fnptr_static_table`: `Holder::handle` -> A, B (not D),
+  `run_all`'s fn pointer -> the closure, in `cs` and `ander`. Usage:
+  `pta [rupta opts] -- file.rs --edition 2021 --sysroot $SR`, or
+  `cargo-pta pta -- --entry-func main --pta-type ander|cs ...` in a crate
+  (`LD_LIBRARY_PATH=$SR/lib`). Next: run on tock / ripgrep (std MIR needs
+  build-std or `-Zalways-encode-mir`; ripgrep on the bigger machine), then
+  the per-site store export. `--dump-dyn-calls` already lists per call site
+  (caller instance, `bbN[i]`) its targets - the export needs DefPathHashes /
+  instance arg hashes instead of names. (2) output - the DOT
+  graph is function-level; for a store we need per call site (caller
+  instance, bb) the dyn targets, so add a dump inside rupta (it resolves dyn
+  calls per call site internally; union contexts per site). (3) scale - its
+  README suggests ~128 GB for large projects; this machine has 62 GB - a
+  bigger machine is available, so not a blocker (run ripgrep there).
+  (4) entry points: rupta gets exactly the roots verifopt gets. Whatever
+  additional entry points verifopt uses (§9 gap 3: panic handler,
+  interrupt/fault handlers, `#[used]`/`#[no_mangle]` roots, thread spawns)
+  must be given to rupta too (rupta takes one `--entry-func`; add a
+  multi-root option in the port), and to the RTA plugin walk - otherwise the
+  comparison measures entry points, not the analyses.
 
 **Two oracles: size and performance** (agreed Oct 27). Both use the same
 instrumentation and recorder (steps 1-3 below); they differ in what they

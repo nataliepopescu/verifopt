@@ -116,9 +116,12 @@ impl Callbacks for FsaCallbacks {
 
         let _ = rustc_internal::run(tcx, || {
             let Ok((targets, tags, cha, assumptions)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let cha_only = std::env::var_os("VERIFOPT_CHA_ONLY")
-                    .map(|_| crate::chamax::compiled_instances(tcx));
-                start_verifopt(self.options.clone(), cha_only)
+                // The program's compiled instances: the CHA fallback's
+                // candidates (InterpPass::expand_cha_candidates), and every
+                // site in CHAmax-only mode.
+                let compiled = crate::chamax::compiled_instances(tcx);
+                let cha_only = std::env::var_os("VERIFOPT_CHA_ONLY").is_some();
+                start_verifopt(self.options.clone(), compiled, cha_only)
             })) else {
                 debug!(
                     "[verifopt debug] start_verifopt itself panicked - no store written this run"
@@ -321,6 +324,10 @@ impl Callbacks for FsaCallbacks {
                     .chain(store.tags.keys())
                     .any(|(hash, _bb, _caller_genargs)| hash.stable_crate_id() != primary_crate_id);
 
+                // Always: compiled_instances ran this crate's partitioning
+                // before the store existed, so this pass's partitioning has
+                // none of the rewrite's edges; the second pass rebuilds it.
+                let needs_rewrite_pass = needs_rewrite_pass || true;
                 if needs_rewrite_pass {
                     let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
                 }

@@ -274,7 +274,13 @@ pub fn compiled_instances<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<rustc_public::mir::mon
         }
     }
     for krate in rustc_public::external_crates() {
-        for fd in krate.fn_defs() {
+        // Proc-macro crates (and any other whose item list can't be read
+        // from metadata) panic in the decoder: none of their code runs in
+        // the program anyway.
+        let Ok(fn_defs) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| krate.fn_defs())) else {
+            continue;
+        };
+        for fd in fn_defs {
             let did = rustc_internal::internal(tcx, rustc_public::CrateDef::def_id(&fd));
             let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 !tcx.generics_of(did).requires_monomorphization(tcx) && tcx.is_mir_available(did)

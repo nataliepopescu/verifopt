@@ -192,6 +192,11 @@ pub struct InterpPass<'a> {
     pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
     pub scope_summaries_count: RefCell<HashMap<BaseScopeId, u32>>,
     body_cache: RefCell<HashMap<Instance, Rc<Body>>>,
+    /// The program's compiled instances by function (chamax::compiled_instances):
+    /// the CHA fallback's candidates (expand_cha_candidates).
+    compiled_by_def: RefCell<HashMap<DefId, Vec<GenericArgs>>>,
+    /// (candidates expanded, instances simulated in their place).
+    pub cha_expansions: RefCell<(usize, usize)>,
     /// Memory diagnostics (VERIFOPT_CACHE_SIZES): one entry per active
     /// candidate simulation (simulate_static_calls), outermost first - the
     /// dispatching function, candidate index, candidate count, and the
@@ -307,6 +312,8 @@ impl<'a> InterpPass<'a> {
             scope_exact_memo_count: HashMap::new().into(),
             scope_summaries_count: HashMap::new().into(),
             body_cache: HashMap::new().into(),
+            compiled_by_def: HashMap::new().into(),
+            cha_expansions: RefCell::new((0, 0)),
             sim_levels: RefCell::new(Vec::new()),
             wto_templates: HashMap::new().into(),
             //param_summaries: HashMap::new().into(),
@@ -3265,6 +3272,14 @@ impl<'a> InterpPass<'a> {
             return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
+        // The site is recorded with its candidates (above); what's simulated
+        // is the compiled instances of any candidate without generic args -
+        // a CHA fallback, or FSA's own CHA-sized set where the receiver was
+        // an unknown `dyn` (get_cha_defids_for_object_args): both list bare
+        // impl fns.
+        let to_simulate = self.expand_cha_candidates(&assoc_fn_impls_fsa, &fndef.0);
+        let _ = fsa_empty;
+
         let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
         let frame = crate::write_log::push(operand_places(args), caller_scope);
         let result = self.simulate_static_calls(
@@ -3273,7 +3288,7 @@ impl<'a> InterpPass<'a> {
             call_stack,
             caller_scope,
             local_decls,
-            assoc_fn_impls_fsa,
+            to_simulate,
             genargs,
             args,
             is_closure,
@@ -3498,6 +3513,56 @@ impl<'a> InterpPass<'a> {
                 };
                 let cha = self.get_impls_cha(&fndef.0, &trait_defid, &genargs);
                 out.insert((instance.def.def_id(), bb, instance.args()), (block.terminator.span, cha));
+            }
+        }
+        out
+    }
+
+    pub fn set_compiled_instances(&self, instances: &[Instance]) {
+        let mut by = self.compiled_by_def.borrow_mut();
+        for i in instances {
+            let e = by.entry(i.def.def_id()).or_default();
+            let args = i.args();
+            if !e.contains(&args) {
+                e.push(args);
+            }
+        }
+    }
+
+    /// The candidates to simulate where FSA fell back to CHA: each impl
+    /// method's *compiled instances*, with their generic args, instead of the
+    /// bare impl fn - which simulate_static_calls can only interpret when it
+    /// has no generic params at all (lifetimes included: "args mismatch"),
+    /// and which it interprets even when nothing compiles it. A candidate
+    /// with no compiled instance listed (e.g. a generic instance a
+    /// dependency compiles for its own use) and trait default methods stay
+    /// as they were, so this never drops a candidate.
+    fn expand_cha_candidates(
+        &self,
+        candidates: &[(DefId, Option<GenericArgs>)],
+        assoc_fn_defid: &DefId,
+    ) -> Vec<(DefId, Option<GenericArgs>)> {
+        let by = self.compiled_by_def.borrow();
+        let mut out: Vec<(DefId, Option<GenericArgs>)> = Vec::new();
+        for (d, a) in candidates {
+            match (a, by.get(d)) {
+                (None, Some(instances)) if d != assoc_fn_defid => {
+                    let mut s = self.cha_expansions.borrow_mut();
+                    s.0 += 1;
+                    s.1 += instances.len();
+                    for args in instances {
+                        let c = (*d, Some(args.clone()));
+                        if !out.contains(&c) {
+                            out.push(c);
+                        }
+                    }
+                }
+                _ => {
+                    let c = (*d, a.clone());
+                    if !out.contains(&c) {
+                        out.push(c);
+                    }
+                }
             }
         }
         out

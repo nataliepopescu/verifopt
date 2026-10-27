@@ -429,16 +429,16 @@ binary size is 1,096 B smaller!
 
 - rewritten calls get inlined into their callers
 
-| Trait | Sites | Target (the only compiled impl) │
+| Trait | Sites | Target (the only compiled impl) |
 | --- | --- | --- |
-| Process | 212 | ProcessStandard<Sam4l<…>, ProcessStandardDebugFull> │
-| usb Client | 10 | usbc_client::Client<Usbc> │
-| SchedulerTimer | 8 | SysTick │
-| flash Client<FLASHCALW> + NonvolatileStorage | 10 | NonvolatileToPages<FLASHCALW> │
-| DebugWriter | 5 | UartDebugWriter │
-| NineDof | 4 | Fxos8700cq │
-| analog-comparator / adc / crc Client | 6 | the one driver each │
-| about 15 others (I2C, USART, GPIO Interrupt, Sixlowpan, UDP, Rng, …) | 17 | │
+| Process | 212 | ProcessStandard<Sam4l<…>, ProcessStandardDebugFull> |
+| usb Client | 10 | usbc_client::Client<Usbc> |
+| SchedulerTimer | 8 | SysTick |
+| flash Client<FLASHCALW> + NonvolatileStorage | 10 | NonvolatileToPages<FLASHCALW> |
+| DebugWriter | 5 | UartDebugWriter |
+| NineDof | 4 | Fxos8700cq |
+| analog-comparator / adc / crc Client | 6 | the one driver each |
+| about 15 others (I2C, USART, GPIO Interrupt, Sixlowpan, UDP, Rng, …) | 17 | |
   
   - Mostly Process. Process::processid (85 sites) and Process::enter_grant (62) alone are over half of all rewrites.
   - Where the sites are:
@@ -465,12 +465,12 @@ vs VFE (LLVM's virtual function elimination): (`-Zvirtual-function-elimination`)
 Enabling LLVM's existing virtual-function elimination (VFE) saves far more than our rewrite: −5,400 B of .text on its own, against −1,096 B for the
   rewrite. With both, it's −5,640 B, so on top of VFE the rewrite adds only −240 B. Whole vtables still don't disappear, even with both.
 
-| Build | .text | vs plain | Indirect calls (blx rN) │
+| Build | .text | vs plain | Indirect calls (blx rN) |
 | --- | --- | --- | --- |
-| plain   | 164,068 |          | 731 │
-| rewritten | 162,972 | −1,096   | 526 │
-| plain + VFE | 158,668 | −5,400   | 250 │
-| rewritten + VFE | 158,428 | −5,640   | 249 │
+| plain   | 164,068 |          | 731 |
+| rewritten | 162,972 | −1,096   | 526 |
+| plain + VFE | 158,668 | −5,400   | 250 |
+| rewritten + VFE | 158,428 | −5,640   | 249 |
 
 - Where the rewrite still adds on top of VFE:
   - In ProcessStandard's Process vtable, 15 of 60 slots become null instead of 9.

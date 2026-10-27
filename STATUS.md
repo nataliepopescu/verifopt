@@ -382,7 +382,7 @@ analysis down from 12 hours to 42 minutes
 - partitioning hook does not change binary size (CGU already == 1)
 - rewrite reduces size
 
- # NEW BUILD (10/21)
+# NEW BUILD (10/21)
 
 - fallback to CHAmax (candidate's compiled instances)
 
@@ -390,4 +390,144 @@ analysis down from 12 hours to 42 minutes
     - write aliasing instead of copying when *mut args, raw ptrs, interior mutability, etc
 
 - actually write statics
+
+## ripgrep
+
+## tock
+
+```sh
+      2 pointers n=1
+    270 single exact
+     14 skipped too_many_targets n=10
+      2 skipped too_many_targets n=100
+      1 skipped too_many_targets n=11
+      2 skipped too_many_targets n=13
+      1 skipped too_many_targets n=14
+      1 skipped too_many_targets n=1968
+      1 skipped too_many_targets n=1970
+     11 skipped too_many_targets n=2
+      2 skipped too_many_targets n=33
+      1 skipped too_many_targets n=39
+      5 skipped too_many_targets n=4
+      1 skipped too_many_targets n=40
+      2 skipped too_many_targets n=7
+      8 skipped too_many_targets n=9
+
+[nix-shell:~/hack/verifopt-examples/tock/boards/imix]$ size plain_target/thumbv7em-none-eabi/release/imix statics_target/thumbv7em-none-eabi/release/imix
+   text    data     bss     dec     hex filename
+ 167200       0   31324  198524   3077c plain_target/thumbv7em-none-eabi/release/imix
+ 166104       0   31324  197428   30334 statics_target/thumbv7em-none-eabi/release/imix
+```
+
+binary size is 1,096 B smaller!
+
+- no vtables eliminated (two diff numbers, based on a heuristic scan):
+    - 120 vtables (2,896 B)
+    - all vtables together are only about 3.1 KB (132 vtables in plain)
+        - the later number
+    - 158? (3.6 KB)
+
+- rewritten calls get inlined into their callers
+
+  ┌──────────────────────────────────────────────────────────────────────┬───────┬─────────────────────────────────────────────────────┐
+  │                                Trait                                 │ Sites │           Target (the only compiled impl)           │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ Process                                                              │ 212   │ ProcessStandard<Sam4l<…>, ProcessStandardDebugFull> │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ usb Client                                                           │ 10    │ usbc_client::Client<Usbc>                           │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ SchedulerTimer                                                       │ 8     │ SysTick                                             │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ flash Client<FLASHCALW> + NonvolatileStorage                         │ 10    │ NonvolatileToPages<FLASHCALW>                       │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ DebugWriter                                                          │ 5     │ UartDebugWriter                                     │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ NineDof                                                              │ 4     │ Fxos8700cq                                          │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ analog-comparator / adc / crc Client                                 │ 6     │ the one driver each                                 │
+  ├──────────────────────────────────────────────────────────────────────┼───────┼─────────────────────────────────────────────────────┤
+  │ about 15 others (I2C, USART, GPIO Interrupt, Sixlowpan, UDP, Rng, …) │ 17    │                                                     │
+  └──────────────────────────────────────────────────────────────────────┴───────┴─────────────────────────────────────────────────────┘
+  
+  - Mostly Process. Process::processid (85 sites) and Process::enter_grant (62) alone are over half of all rewrites.
+  - Where the sites are:
+    - 120 are in the many instances of ProcessGrant::access_grant_with_allocator, one per capsule.
+    - 20 are in Kernel::do_process and 14 in memop.
+    - The rest are scattered through the syscall path and the chip drivers' interrupt closures.
+  - The 2 guarded sites are USART as uart::Transmit and USART as uart::Receive.
+  - What's left untouched: the 52 too_many_targets sites keep their dyn calls. They include SyscallDriver dispatch (about 1,970 candidates) and
+    Ast::handle_interrupt. 
+
+inlining itself removes instructions:
+
+  plain:      ldr r2, [r6, #0xc]   ; vtable slot of Process::processid                                                                                
+              mov r0, sp                                                                                                                              
+              mov r1, r4                                                                                                                              
+              blx r2                                                                                                                                  
+  rewritten:  ldr r6, [sp, #0xc]   ; processid inlined: a single field load
+
+vs VFE (LLVM's virtual function elimination): (`-Zvirtual-function-elimination`)
+- only works w LTO
+    - is LTO already enabled in the non-VFE build? yes
+- also, VFE adds extra trait tags to vtables + dyn calls
+
+Enabling LLVM's existing virtual-function elimination (VFE) saves far more than our rewrite: −5,400 B of .text on its own, against −1,096 B for the
+  rewrite. With both, it's −5,640 B, so on top of VFE the rewrite adds only −240 B. Whole vtables still don't disappear, even with both.
+
+  ┌─────────────────┬─────────┬──────────┬─────────────────────────┐
+  │      Build      │  .text  │ vs plain │ Indirect calls (blx rN) │
+  ├─────────────────┼─────────┼──────────┼─────────────────────────┤
+  │ plain           │ 164,068 │          │ 731                     │
+  ├─────────────────┼─────────┼──────────┼─────────────────────────┤
+  │ rewritten       │ 162,972 │ −1,096   │ 526                     │
+  ├─────────────────┼─────────┼──────────┼─────────────────────────┤
+  │ plain + VFE     │ 158,668 │ −5,400   │ 250                     │
+  ├─────────────────┼─────────┼──────────┼─────────────────────────┤
+  │ rewritten + VFE │ 158,428 │ −5,640   │ 249                     │
+  └─────────────────┴─────────┴──────────┴─────────────────────────┘
+
+- Where the rewrite still adds on top of VFE:
+  - In ProcessStandard's Process vtable, 15 of 60 slots become null instead of 9.
+  - A few more usb, flash and Sixlowpan slots are emptied.
+  - 13 more functions are removed (328 B).
+
+- no vtables are eliminated in _any_ of the four builds
+
+- VFE has already emptied the slots that matter, so
+  dropping whole vtables would add at most a few hundred bytes.
+
+- the difference between rewritten and rewritten+VFE could be the vtable-removal
+  that verifopt currently lacks
+
+a bounded gain, a.k.a. "speed of light"
+- what is the theoretical maximum here?
+
+  What this means for the evaluation. For tock's size, the baseline to compare against is plain + VFE, not plain. Against it, verifopt saves 240 B: it
+  removes some vtable slots LLVM can't prove dead, but its devirtualization adds little. Where verifopt can still win over VFE is at sites with more
+  than one implementation that FSA narrows down. In tock that's rare (FSA falls back to CHA at 332 of 369 sites), but ripgrep is the case where FSA
+  matters. A ripgrep + VFE comparison is worth doing once its run finishes. That one is a performance comparison, since LLVM's devirtualization helps
+  speed too.
+
+224 dyn dispatch locations (338 calls) were never recorded by the analysis
+- interpreter currently ignores drops (it shouldn't b/c these are just like any
+  other dyn call)
+  drops)
+    - 108 calls
+- capsule code
+    - analysis skips CHA calls w generic params (including lifetime params) b/c
+      they're not correctly compared
+    - 230 calls
+
+-> more coverage
+
+
+# NEW BUILD (10/23)
+
+WAIT FOR RIPGREP
+
+- analyze drop glue
+
+- fix CHA generic params mismatch issue
+
+
 

@@ -7,7 +7,7 @@
         - [x] hierarchical field support
         - [x] exact function memoization
         - [x] generalize function summaries
-        - [ ] inline asm
+        - [x] inline asm
 
         - [ ] widening vs stubbing
         - [ ] loops
@@ -18,16 +18,21 @@
         - [x] naive Rust
             - already implemented (ofc), but still need machinery to check against
             - [x] votrace!
+        - [x] VFE
         - [x] CHA
             - fixed one bug already
             - [ ] correct?
+        - [x] compiled-instances only
         - [ ] Rupta
         - [ ] RTA
             - either skip or do _after_ Rupta
+        - [ ] oracle (speed of light)
 
     - [ ] general rewrite
         - [x] tag-based rewrite (doesn't use vtables)
-        - [ ] vtable ptr mod?
+        - [ ] ~vtable ptr mod?~
+        - [x] vtable ptr rewrite
+        - [ ] vtable elimination post-rewrite (LTO)
 
     - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
         - [ ] make call_stack and friends use interior mutability
@@ -38,7 +43,7 @@
     - [x] perf bottlenecks / tool benchmarks (verifopt performance)
 
     - [ ] how to validate FSA
-        - run binary tests
+        - run project/binary tests
         - sample dynamic dispatches
 
     - [x] hook verifopt into non-main entry points (for benchmarks)
@@ -49,15 +54,23 @@
 
     - [ ] complete runs on _at least_ 10 full binaries
         - [x] ripgrep
+        - [x] tock
         - [ ] dynolog cli
-        - [ ] quixote
-        - [ ] zellij
-        - [ ] tock
-        - [ ] ?
-        - [ ] ?
-        - [ ] ?
-        - [ ] ?
-        - [ ] ?
+
+        - small:
+            - [ ] rpg-cli
+            - [ ] mcfly
+            - [ ] hyperfine
+            - [ ] dust?
+            - [ ] xcp?
+            - [ ] weggli?
+
+        - large
+            - [ ] quixote
+            - [ ] zellij
+            - [ ] ?
+            - [ ] ?
+            - [ ] ?
 
     - [ ] macrobenchmarks
 
@@ -79,10 +92,10 @@ as of aug 27
 
 ## Deadlines
 
-ASPLOS - Sept 9
+~ASPLOS - Sept 9~
 
-CGO - Sept 11
+~CGO - Sept 11~
 
-OOPSLA - Oct 10
+~OOPSLA - Oct 10~
 
 CC - Nov 11

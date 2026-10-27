@@ -192,11 +192,9 @@ example_test!(memo_side_effects, "memo_side_effects", Passing);
 
 // Trait objects in a widened value's fields: `take`'s parameter collects more
 // than 50 `Holder`s differing in two fields, so it's widened (fields dropped)
-// and the last one's `B` must still reach `use_last`. Red until a dropped
-// field reads as "any value of its type" (plan A in CLAUDE.md §6): today
-// FSA there lacks B. The JSON golden is hand-written ({A, B}; a fix that
-// reads the field as any `Box<dyn Sink>` also adds D, which is fine);
-// re-bless the MIR dump once it passes.
+// and the last one's `B` must still reach `use_last`. Passes since a
+// dropped field reads as "any value of its type" (plan A, 371af2f): FSA is
+// {A, B, D} - the field read as any `Box<dyn Sink>` adds D.
 example_test!(merge_widened_field, "merge_widened_field", Passing);
 
 // Writes that reach the caller other than through a `&mut` parameter: a
@@ -225,11 +223,16 @@ example_test!(memo_recursive_replay, "memo_recursive_replay", Passing);
 // `&'static mut` (static_init_buf), clients wired through `&self` into a Cell
 // (cell_client_wiring), and writes to statics through raw pointers - direct,
 // from `as_mut_ptr`, and kept in a struct field (raw_ptr_static_write).
-// Red until statics are written (pointer-to-static locations) and writes
-// follow shared borrows: today FSA finds nothing at every site and falls
-// back to CHA. JSON goldens are hand-written - the sets a weak-update model
-// gives (a static keeps its initial value alongside what was written);
-// re-bless the MIR dumps once they pass.
+// Statics are written since 371af2f (pointer-to-static locations, writes
+// through shared borrows); static_proc_table and cell_client_wiring pass.
+// JSON goldens are hand-written. static_init_buf and raw_ptr_static_write's
+// use_2 / use_3 are still red but sound: a mutable static starts as "any
+// value" (soundness hedge), and writes through `as_mut_ptr` / a pointer in
+// a field add to it rather than replace it, so FSA there also lists D.
+// raw_ptr_static_write's use_1 golden is {A}: the write through
+// `&raw mut SLOT1` has a single known target and runs before use_1, so it
+// replaces the initial `&PB` (strong update). Re-bless the MIR dumps once
+// they pass.
 example_test!(static_proc_table, "static_proc_table", Passing);
 example_test!(static_init_buf, "static_init_buf", Passing);
 example_test!(cell_client_wiring, "cell_client_wiring", Passing);

@@ -1,10 +1,10 @@
 {
-  "maybe_count": 51,
-  "not_count": 0,
+  "maybe_count": 50,
+  "not_count": 1,
   "sites": [
     {
       "span": "src/main.rs:56:5: 56:13",
-      "is_maybe_example": true,
+      "is_maybe_example": false,
       "cha": [
         "<merge_widened_field::A as merge_widened_field::Sink>::put",
         "<merge_widened_field::B as merge_widened_field::Sink>::put",
@@ -12,7 +12,8 @@
       ],
       "fsa": [
         "<merge_widened_field::A as merge_widened_field::Sink>::put",
-        "<merge_widened_field::B as merge_widened_field::Sink>::put"
+        "<merge_widened_field::B as merge_widened_field::Sink>::put",
+        "<merge_widened_field::D as merge_widened_field::Sink>::put"
       ]
     },
     {

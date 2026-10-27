@@ -11,8 +11,7 @@
         "<raw_ptr_static_write::D as raw_ptr_static_write::Sink>::put"
       ],
       "fsa": [
-        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put",
-        "<raw_ptr_static_write::B as raw_ptr_static_write::Sink>::put"
+        "<raw_ptr_static_write::A as raw_ptr_static_write::Sink>::put"
       ]
     },
     {

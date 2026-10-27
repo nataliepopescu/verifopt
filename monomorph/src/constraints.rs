@@ -2632,6 +2632,22 @@ fn note_static_read(scope: &VOID) {
 /// (write_log::record_static - the static's whole new value).
 fn note_static_write(scope: &VOID, old: Option<&Box<MapValue>>, new: &MapValue) {
     let Some(def) = static_of_scope(scope) else { return };
+    // Diagnostics: VERIFOPT_TRACE_STATICS=<name part> logs each write to a
+    // matching static, old and new value.
+    if let Ok(filter) = std::env::var("VERIFOPT_TRACE_STATICS")
+        && def.name().contains(filter.as_str())
+    {
+        let short = |v: &MapValue| match v {
+            MapValue::Constraints(cs) => shape(cs, 6),
+            other => format!("{other:?}").chars().take(200).collect(),
+        };
+        log::warn!(
+            "[verifopt static trace] {} old={} new={}",
+            def.name(),
+            old.map(|o| short(o)).unwrap_or_else(|| "-".into()),
+            short(new)
+        );
+    }
     if old.is_some_and(|o| **o == *new) {
         return;
     }
@@ -2639,6 +2655,33 @@ fn note_static_write(scope: &VOID, old: Option<&Box<MapValue>>, new: &MapValue) 
     crate::write_log::record_static_read(def, version);
     STATIC_VERSIONS.with(|v| v.borrow_mut().insert(def, version + 1));
     crate::write_log::record_static(def, new);
+}
+
+// Each disjunct as its known field indices, recursively, e.g.
+// `{0:{0:{0:Some{0:..}}},1:..}`.
+pub fn shape(cs: &Constraints, depth: usize) -> String {
+    let one = |c: &Constraint| -> String {
+        match &c.cfc {
+            Some(RunningConstraint::Adt(def, _, v, f)) => {
+                let name = def.0.name().rsplit("::").next().unwrap_or("").to_string();
+                let var = v.map(|v| format!("#{v:?}")).unwrap_or_default();
+                if depth == 0 || f.is_empty() {
+                    format!("{name}{var}{{{}}}", f.keys().map(|k| k.to_string()).collect::<Vec<_>>().join(","))
+                } else {
+                    format!(
+                        "{name}{var}{{{}}}",
+                        f.iter().map(|(k, v)| format!("{k}:{}", shape(v, depth - 1))).collect::<Vec<_>>().join(",")
+                    )
+                }
+            }
+            Some(RunningConstraint::Closure(cd, ..)) => format!("closure({})", cd.0.name().rsplit("::").next().unwrap_or("")),
+            Some(RunningConstraint::FnPtr(_)) => "fnptr".into(),
+            Some(RunningConstraint::FnDef(fd, _)) => format!("fndef({})", fd.0.name()),
+            Some(other) => format!("{other:?}").split('(').next().unwrap_or("").to_string(),
+            None => "-".into(),
+        }
+    };
+    format!("[{}]", cs.inner.iter().map(one).collect::<Vec<_>>().join(" | "))
 }
 
 /// A missing field's value as something a nested write can go into: "any

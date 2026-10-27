@@ -1248,6 +1248,15 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                 }
+                if scope_matches_trace_filter(cur_scope) {
+                    let base = Place { local: place.local, projection: vec![] };
+                    let v = ctxt.get_constraints(cur_scope, local_decls, &base, false, Some(self));
+                    log::warn!(
+                        "[verifopt trace] {:?} bb{bb}[{stmt_idx}] {place:?} := {}",
+                        cur_scope.0.name(),
+                        v.map(|v| crate::constraints::shape(&v, 6)).unwrap_or_else(|| "none".into())
+                    );
+                }
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -1529,6 +1538,13 @@ impl<'a> InterpPass<'a> {
                 } else {
                     None
                 };
+                if scope_matches_trace_filter(cur_scope) {
+                    log::warn!(
+                        "[verifopt trace] {:?}: indirect call, callee {}",
+                        cur_scope.0.name(),
+                        format!("{:?}", constraints).chars().take(1500).collect::<String>()
+                    );
+                }
                 if let Some(what) = unknown {
                     crate::assumptions::record(
                         crate::assumptions::Reason::FnPtrCall,

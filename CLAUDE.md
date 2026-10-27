@@ -765,6 +765,26 @@ binary, but it makes the analysis's "precision" look better than it is).
   until nothing new is reachable. The manifest pass also gives the
   *address-taken functions* that §9 gap 4(b) needs as its fn-pointer
   fallback.
+  *Definition (from the paper, Bacon & Sweeney, "Fast Static Analysis of
+  C++ Virtual Function Calls", OOPSLA '96, doi 10.1145/236337.236371; from
+  memory - the ACM PDF needs a login, check against it):* RTA builds the
+  call graph optimistically from `main`; a class is *live* once an object of
+  it is created in a function already known to be reachable; a virtual call
+  resolves to the CHA targets in live classes only, and targets deferred
+  because their class wasn't live yet are added when it becomes live.
+  Instantiation counts only in reachable code. *Mapping to Rust:* in C++,
+  creating an object of a polymorphic class is creating its vptr; in Rust
+  construction and vtable creation are separate, and a value can only reach
+  a dyn call through an unsize coercion (or a vtable constant). So
+  "instantiated" = "its vtable for the dispatched trait is created in
+  reachable code" - the faithful analog, not mere construction (which would
+  be a weaker RTA). Three nested sets: CHA (all impls) >= CHAmax (compiled
+  instances, including ones compiled only for static calls) >= RTA (types
+  whose vtable is created). The manifest version uses rustc's collector
+  reachability (every non-generic item of every crate is a root), so it lies
+  between CHAmax and the paper's from-`main` RTA; the plugin walk is the
+  faithful one. RTA works on types; CHAmax on instances (a generic impl's
+  instances per type args) - compare at the instance level.
 - **rupta** (https://github.com/rustanlys/rupta; Li et al., "A
   Context-Sensitive Pointer Analysis Framework for Rust and Its Application
   to Call Graph Construction", CC'24; "Stack Filtering", CGO'25): Andersen
@@ -832,6 +852,37 @@ binary, but it makes the analysis's "precision" look better than it is).
   must be given to rupta too (rupta takes one `--entry-func`; add a
   multi-root option in the port), and to the RTA plugin walk - otherwise the
   comparison measures entry points, not the analyses.
+
+**Experiment: tock deferred calls back to `dyn`** (planned Oct 27). Tock's
+`kernel/deferred_call.rs` hand-devirtualizes: `DynDefCallRef { data: *const
+(), callback: fn(*const ()) }`, the callback a closure in generic
+`new<T>` calling `T::handle_deferred_call`, kept in `static DEFCALLS:
+SingleThreadValue<[OptionalCell<DynDefCallRef>; 32]>`, called by
+`service_next_pending` ("saves the 20 B vtable per client"). Question: does
+verifopt let tock go back to plain `&dyn DeferredCallClient` (willtrojniak's
+port, https://github.com/willtrojniak/tock/blob/deferred-call-dyn-dispatch-port/kernel/src/deferred_call.rs)
+at no cost? Branch `verifopt-dyn-defcall` (tock worktree
+`~/hack/verifopt-examples/tock-dyndefcall`, commit `63d5217de` on
+`verifopt`): the port applied to the merged imix crate, keeping this tree's
+`SingleThreadValue` API (values passed at bind time, not in `new`). Plain
+build (fork compiler, `--skip-analysis --skip-rewrite`, its `plain_target`):
+`.text` 164,068 -> 164,356 (+288 B, ~16 client vtables minus the closure
+shims), `.sram` unchanged; imix has 16 `DeferredCallClient` impls.
+Expectation: the one new site, `dc.handle_deferred_call()` in
+`service_next_pending`, is megamorphic by design (`bit` comes from
+`BITMASK`; an array's value is the union of its elements) - FSA ~= CHAmax ~=
+the ~16 registered clients, so K=1 skips it and K>=16 is a compare chain
+bigger than the indirect call: plain verifopt can't close the +288 B. What
+could: VFE nulls the never-virtually-called `register` slots; the size
+oracle (6s) rewrites the site with PointersExact over the ~16 clients so the
+`DeferredCallClient` vtables become unread and shrink to placeholders (~16 x
+8 B of compares vs ~16 x 20 B of vtables) - i.e. rewriting + vtable
+elimination would recover the hand optimization automatically. Coverage
+side effect: through `&dyn` the analysis follows the clients without any
+fn-pointer casts (gap 4a doesn't arise). Runs: both versions x {plain,
+plain+VFE, verifopt K=1, K=16, verifopt+VFE}, later 6s; metrics flash,
+vtable bytes, `blx` count, FSA/CHAmax at the site. Needs a ~5 h tock
+analysis on the branch (after `fsa3_target`).
 
 **Two oracles: size and performance** (agreed Oct 27). Both use the same
 instrumentation and recorder (steps 1-3 below); they differ in what they

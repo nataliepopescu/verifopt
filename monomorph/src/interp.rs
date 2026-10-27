@@ -1749,7 +1749,13 @@ impl<'a> InterpPass<'a> {
             panic!("no closure kind in genargs (empty)");
         }
 
-        match genargs.0[0].expect_ty().kind() {
+        // A closure's args are its parent's generic args, then the closure
+        // kind, its signature (as a fn pointer type) and its tupled
+        // captures: the kind is third from the end - at index 0 only when
+        // the parent isn't generic (a closure made in `fn new<T>` starts
+        // with `T`, and calling it through a fn pointer panicked here).
+        let kind_idx = genargs.0.len().saturating_sub(3);
+        match genargs.0[kind_idx].expect_ty().kind() {
             // Rustc encodings for closure kinds
             TyKind::RigidTy(RigidTy::Int(IntTy::I8)) => ClosureKind::Fn,
             TyKind::RigidTy(RigidTy::Int(IntTy::I16)) => ClosureKind::FnMut,

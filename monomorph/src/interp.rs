@@ -744,6 +744,89 @@ impl<'a> InterpPass<'a> {
 
             let bb = bb_deps.ordering.pop_front().unwrap();
 
+            // Diagnostics: VERIFOPT_TRACE_SIZES=<name part> logs, at every
+            // block visit in matching functions, the scope's total size and
+            // its largest locals - how values grow around a loop.
+            if let Some(filter) = trace_sizes_filter()
+                && filter.split('|').any(|f| cur_scope.0.name().contains(f))
+            {
+                let mut locals: Vec<(usize, String)> = Vec::new();
+                if let Some(v) = ctxt.cstore.cmap.get(&MapKey::ScopeId(base_scope_id(cur_scope)))
+                    && let MapValue::Store(inner, _) = &**v
+                {
+                    for (k, val) in inner.cmap.iter() {
+                        let n = match &**val {
+                            MapValue::Constraints(cs) => crate::constraints::constraints_size(cs),
+                            MapValue::Store(s, _) => crate::constraints::store_size(s).1,
+                        };
+                        let disj = match &**val {
+                            MapValue::Constraints(cs) => cs.inner.len(),
+                            _ => 0,
+                        };
+                        locals.push((n, format!("{k:?}/{disj}d")));
+                    }
+                }
+                let total: usize = locals.iter().map(|l| l.0).sum();
+                locals.sort_by(|a, b| b.0.cmp(&a.0));
+                // For the largest local over 10M nodes: which ADT types its
+                // nodes are, counted as constraints_size counts them.
+                if let Some((n, k)) = locals.first()
+                    && *n > 10_000_000
+                    && let Some(v) = ctxt.cstore.cmap.get(&MapKey::ScopeId(base_scope_id(cur_scope)))
+                    && let MapValue::Store(inner, _) = &**v
+                {
+                    let mut memo = HashMap::new();
+                    let mut hist: Vec<(String, usize)> = inner
+                        .cmap
+                        .iter()
+                        .find(|(kk, _)| format!("{kk:?}/") == k.split('/').next().unwrap_or("").to_string() + "/")
+                        .and_then(|(_, val)| match &**val {
+                            MapValue::Constraints(cs) => Some(crate::constraints::adt_histogram(cs, &mut memo)),
+                            _ => None,
+                        })
+                        .map(|h| h.iter().map(|(a, b)| (a.clone(), *b)).collect())
+                        .unwrap_or_default();
+                    hist.sort_by(|a, b| b.1.cmp(&a.1));
+                    warn!(
+                        "[verifopt size histogram] {} {}: {}",
+                        cur_scope.0.name().chars().take(60).collect::<String>(),
+                        k,
+                        hist.iter().take(15).map(|(a, b)| format!("{a}:{b}")).collect::<Vec<_>>().join(" | ")
+                    );
+                }
+                // Its statements too, once the scope is large (they're
+                // where values are built).
+                if total as u64 > std::env::var("VERIFOPT_TRACE_STMTS_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(500_000u64)
+                    && let Some(b) = body.blocks.get(bb)
+                {
+                    for s in &b.statements {
+                        let t = format!("{:?}", s.kind);
+                        warn!("[verifopt size trace]   bb{} stmt: {}", bb, t.chars().take(400).collect::<String>());
+                    }
+                }
+                // What this block's terminator calls (from this body: other
+                // MIR dumps number blocks differently).
+                let callee = match &body.blocks.get(bb).map(|b| &b.terminator.kind) {
+                    Some(TerminatorKind::Call { func: Operand::Constant(co), .. }) => match co.const_.ty().kind() {
+                        TyKind::RigidTy(RigidTy::FnDef(fd, _)) => fd.0.name(),
+                        _ => "?".to_string(),
+                    },
+                    Some(TerminatorKind::Call { .. }) => "<indirect>".to_string(),
+                    Some(k) => format!("{k:?}").split([' ', '{', '(']).next().unwrap_or("").to_string(),
+                    None => String::new(),
+                };
+                warn!(
+                    "[verifopt size trace] {} ctx={} bb{} calls={} visit={} total={} top=[{}]",
+                    cur_scope.0.name().chars().take(60).collect::<String>(),
+                    cur_scope.2.len(),
+                    bb,
+                    callee.chars().take(90).collect::<String>(),
+                    *self.bb_visit_count.borrow(),
+                    total,
+                    locals.iter().take(4).map(|(n, k)| format!("{k}:{n}")).collect::<Vec<_>>().join(" ")
+                );
+            }
+
             let data = body.blocks.get(bb).unwrap();
             if matches!(data.terminator.kind, TerminatorKind::Return) {
                 saw_return = true;
@@ -2420,6 +2503,64 @@ impl<'a> InterpPass<'a> {
                 .collect::<Vec<_>>()
                 .join(" | ")
         };
+        // The functions whose memoized results are largest (entries, nodes).
+        let memo_val_top = {
+            let mut by: HashMap<String, (usize, usize)> = HashMap::new();
+            for ((k, _), (c, _, _)) in self.exact_memo.borrow().iter() {
+                let e = by.entry(k.0.name()).or_default();
+                e.0 += 1;
+                e.1 += c.as_ref().map(size).unwrap_or(0);
+            }
+            let mut v: Vec<_> = by.into_iter().collect();
+            v.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+            v.iter()
+                .take(8)
+                .map(|(name, (n, nodes))| format!("{name}:{n}/{}M", nodes / 1_000_000))
+                .collect::<Vec<_>>()
+                .join(" | ")
+        };
+        // The analysis state by function (scopes' stores, summed per
+        // instance) and its largest variables.
+        let (store_top, var_top) = {
+            let mut by: HashMap<String, (usize, usize)> = HashMap::new();
+            let mut vars: Vec<(usize, String)> = Vec::new();
+            for (k, v) in ctxt.cstore.cmap.iter() {
+                let (MapKey::ScopeId(scope), MapValue::Store(inner, _)) = (k, &**v) else { continue };
+                let name = scope.0.name();
+                let mut total = 0;
+                for (vk, vv) in inner.cmap.iter() {
+                    let n = match &**vv {
+                        MapValue::Constraints(cs) => size(cs),
+                        MapValue::Store(s, _) => crate::constraints::store_size(s).1,
+                    };
+                    total += n;
+                    if n >= 1_000_000 {
+                        vars.push((n, format!("{name} {vk:?}")));
+                    }
+                }
+                let e = by.entry(name).or_default();
+                e.0 += 1;
+                e.1 += total;
+            }
+            let mut v: Vec<_> = by.into_iter().collect();
+            v.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+            vars.sort_by(|a, b| b.0.cmp(&a.0));
+            (
+                v.iter()
+                    .take(8)
+                    .map(|(name, (n, nodes))| format!("{name}:{n}/{}M", nodes / 1_000_000))
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+                vars.iter()
+                    .take(8)
+                    .map(|(n, what)| format!("{}M {}", n / 1_000_000, what.chars().take(200).collect::<String>()))
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+            )
+        };
+        log::warn!(
+            "[verifopt memory top] bb_visits={n} memo_values=[{memo_val_top}] stores=[{store_top}] vars=[{var_top}]"
+        );
         let (vm_n, vm_key_nodes) = {
             let vm = self.virtual_call_memo.borrow();
             (vm.len(), vm.keys().map(|(_, a)| crate::constraints::argset_size(a)).sum::<usize>())
@@ -5451,6 +5592,12 @@ fn recent_stack_ops() -> String {
             .collect::<Vec<_>>()
             .join("\n")
     })
+}
+
+/// VERIFOPT_TRACE_SIZES: see the size trace in visit_body.
+fn trace_sizes_filter() -> Option<&'static String> {
+    static F: OnceLock<Option<String>> = OnceLock::new();
+    F.get_or_init(|| std::env::var("VERIFOPT_TRACE_SIZES").ok().filter(|s| !s.is_empty())).as_ref()
 }
 
 /// Dispatch sites with more candidates than this aren't interpreted (see

@@ -998,6 +998,90 @@ pub fn widen_constraints(cs: &Constraints) -> Constraints {
     })
 }
 
+/// Diagnostics: node counts of `cs` by ADT (or node kind), counted as
+/// constraints_size counts them (a shared value once per occurrence);
+/// `memo` by value identity keeps the walk linear in distinct values.
+pub fn adt_histogram(
+    cs: &Constraints,
+    memo: &mut HashMap<usize, Rc<HashMap<String, usize>>>,
+) -> Rc<HashMap<String, usize>> {
+    let key = Rc::as_ptr(&cs.inner) as usize;
+    if let Some(h) = memo.get(&key) {
+        return h.clone();
+    }
+    let mut h: HashMap<String, usize> = HashMap::new();
+    let mut add = |h: &mut HashMap<String, usize>, sub: &HashMap<String, usize>| {
+        for (k, v) in sub {
+            *h.entry(k.clone()).or_default() += v;
+        }
+    };
+    fn one(c: &Constraint, h: &mut HashMap<String, usize>, memo: &mut HashMap<usize, Rc<HashMap<String, usize>>>) {
+        let mut fields = |f: &ADTFields, h: &mut HashMap<String, usize>, memo: &mut HashMap<usize, Rc<HashMap<String, usize>>>| {
+            for v in f.values() {
+                let sub = adt_histogram(v, memo);
+                for (k, n) in sub.iter() {
+                    *h.entry(k.clone()).or_default() += n;
+                }
+            }
+        };
+        if let Some((_, tc)) = &c.toc {
+            match tc {
+                TraitObjConstraint::Adt(def, _, _, f) => {
+                    *h.entry(def.0.name()).or_default() += 1;
+                    fields(f, h, memo);
+                }
+                TraitObjConstraint::Closure(_, _, f) => {
+                    *h.entry("<closure>".to_string()).or_default() += 1;
+                    fields(f, h, memo);
+                }
+            }
+        }
+        match &c.cfc {
+            Some(RunningConstraint::Adt(def, _, _, f)) => {
+                *h.entry(def.0.name()).or_default() += 1;
+                fields(f, h, memo);
+            }
+            Some(RunningConstraint::Closure(_, _, f)) => {
+                *h.entry("<closure>".to_string()).or_default() += 1;
+                fields(f, h, memo);
+            }
+            Some(RunningConstraint::Ptr(i)) | Some(RunningConstraint::List(i)) => {
+                *h.entry("<ptr/list>".to_string()).or_default() += 1;
+                one(i, h, memo);
+            }
+            Some(RunningConstraint::Tuple(es)) => {
+                *h.entry("<tuple>".to_string()).or_default() += 1;
+                for e in es {
+                    let sub = adt_histogram(e, memo);
+                    for (k, n) in sub.iter() {
+                        *h.entry(k.clone()).or_default() += n;
+                    }
+                }
+            }
+            Some(RunningConstraint::Idk(i)) => {
+                *h.entry("<idk>".to_string()).or_default() += 1;
+                let sub = adt_histogram(i, memo);
+                for (k, n) in sub.iter() {
+                    *h.entry(k.clone()).or_default() += n;
+                }
+            }
+            Some(other) => {
+                let k = format!("{:?}", other).split('(').next().unwrap_or("?").to_string();
+                *h.entry(format!("<{k}>")).or_default() += 1;
+            }
+            None => {}
+        }
+    }
+    for c in cs.inner.iter() {
+        let mut sub = HashMap::new();
+        one(c, &mut sub, memo);
+        add(&mut h, &sub);
+    }
+    let r = Rc::new(h);
+    memo.insert(key, r.clone());
+    r
+}
+
 /// Forgets the scalars in `cs` (and enum variants, with their fields) but
 /// keeps its structure: struct fields, the objects pointers lead to (a
 /// pointer's value is its pointee's), trait objects' concrete types. For

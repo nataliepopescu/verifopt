@@ -1105,7 +1105,7 @@ entries in statics - with a compatible signature (arity and argument kinds;
 cost concerns as ripgrep's `&dyn Debug` sites.
 
 **Status, Oct 27.** Step 1 implemented on branch `fsa-gaps` (worktree
-`~/hack/verifopt-fsa`, from `ee0d35c`, uncommitted): compiled instances
+`~/hack/verifopt-fsa`, from `ee0d35c`): compiled instances
 (chamax::compiled_instances) collected before the analysis; at every
 dispatch, candidates without generic args (CHA fallback *and* FSA's own
 CHA-sized sets for unknown `dyn` receivers - expanding only on an empty
@@ -1118,6 +1118,29 @@ capsules 169 -> 32, other instances 91 -> 6), args-mismatch skips 667 ->
 pipeline 19,073 s (was 8,362 s). What's left of the 111: the panic path
 (~39), deferred-call / fn-pointer code (~27), fmt number formatting (~7) -
 steps 3 and 4 - plus 32 capsule sites.
+Committed on `fsa-gaps` (Oct 27): `a2a6ad2` step 1; `cfebc51` closure kind
+read at index len-3 (panicked for closures made in generic fns and called
+through fn pointers); `882dd06` static values written over the initial
+"any" value survive field-path reads (`project_value`) and array-element
+writes (`type_skeleton`), fixture `fnptr_static_table` (tock's deferred
+calls; FSA {A, B}); `3395c28` value-shape diagnostics
+(`VERIFOPT_TRACE_STATICS`, assignments / indirect callees under
+`VERIFOPT_TRACE_SCOPE`). tock run `boards/imix/fsa3_target` (plugin
+`/tmp/vo_fsa3`, started Oct 27 13:56) measures these against `fsa2_target`:
+deferred-call coverage, remaining fn-pointer calls (unknown vs partly
+unknown callee - decides step 4b's scope), cost.
+
+**Branches `ripgrep` and `fsa-gaps` stay separate** (decided Oct 27) until
+ripgrep's value growth is fixed - no merge before then, so the ripgrep work
+doesn't have to be sorted through alongside the gap fixes. `ripgrep` has the
+flatten fix (`2cff554`), growth diagnostics (`5a6d58a`), warning fix and
+fixture updates (`1951384`, `f2692c9`: 53 pass / 6 red); `fsa-gaps` has the
+gap work above but not those (7 red there: `merge_widened_field` and
+`raw_ptr_static_write` still fail on their old goldens). Consequences: tock
+runs (incl. the deferred-call dyn experiment) use `fsa-gaps`; ripgrep runs
+use `ripgrep` - never analyze ripgrep from `fsa-gaps` (no flatten fix: it
+explodes). If a fixed ripgrep run needs gap fixes before the merge,
+cherry-pick just those commits.
 
 Related: the megamorphic cutoff (`VERIFOPT_MEGAMORPHIC_CAP`, opt-in, ripgrep
 experiments only) and its havoc of `&mut` args are *not* part of the tool;

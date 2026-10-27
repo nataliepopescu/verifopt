@@ -1010,13 +1010,13 @@ pub fn adt_histogram(
         return h.clone();
     }
     let mut h: HashMap<String, usize> = HashMap::new();
-    let mut add = |h: &mut HashMap<String, usize>, sub: &HashMap<String, usize>| {
+    let add = |h: &mut HashMap<String, usize>, sub: &HashMap<String, usize>| {
         for (k, v) in sub {
             *h.entry(k.clone()).or_default() += v;
         }
     };
     fn one(c: &Constraint, h: &mut HashMap<String, usize>, memo: &mut HashMap<usize, Rc<HashMap<String, usize>>>) {
-        let mut fields = |f: &ADTFields, h: &mut HashMap<String, usize>, memo: &mut HashMap<usize, Rc<HashMap<String, usize>>>| {
+        let fields = |f: &ADTFields, h: &mut HashMap<String, usize>, memo: &mut HashMap<usize, Rc<HashMap<String, usize>>>| {
             for v in f.values() {
                 let sub = adt_histogram(v, memo);
                 for (k, n) in sub.iter() {

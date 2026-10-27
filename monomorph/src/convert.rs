@@ -60,6 +60,16 @@ pub fn is_btree_iter_suffix(suffix: &str) -> bool {
     )
 }
 
+/// Opaque ADTs (is_opaque_internal_defid) that only point to (or hold) one
+/// value: convert_agg stores their operands as their contents unflattened.
+pub fn is_pointer_wrapper_adt(adtdef: &AdtDef) -> bool {
+    let name = adtdef.0.name();
+    matches!(
+        name.splitn(2, "::").nth(1).unwrap_or(""),
+        "boxed::Box" | "sync::Arc" | "rc::Rc" | "sync::ArcInner" | "rc::RcInner" | "ptr::Unique" | "ptr::NonNull"
+    )
+}
+
 pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
     let name = adtdef.0.name();
     let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
@@ -980,7 +990,18 @@ impl<'a> RvalConverter<'a> {
                                 timing.map(|p| p.timing_span(TimingCat::ConvertOp, cur_scope));
                             self.convert_op(ctxt, span, local_decls, cur_scope, op, destty, timing)
                         };
-                        let res = ctxt.flatten_all(&op_constraints, cur_scope, timing);
+                        // Pure pointer wrappers hold exactly their operands:
+                        // flattening (the union of every sub-value) added a
+                        // copy of each nested level per wrapper, and values
+                        // grew by a constant factor per level (each
+                        // `Arc::new` passes through ArcInner, Box, Unique,
+                        // NonNull and Arc: ~12x per nested Arc - ripgrep's
+                        // `ignore` values reached billions of nodes).
+                        let res = if is_pointer_wrapper_adt(def) {
+                            op_constraints.clone()
+                        } else {
+                            ctxt.flatten_all(&op_constraints, cur_scope, timing)
+                        };
 
                         // Logged on *every* call, not just the first time this
                         // ADT is seen - a later invocation on the same type

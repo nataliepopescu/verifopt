@@ -1,0 +1,19 @@
+{
+  "maybe_count": 1,
+  "not_count": 0,
+  "sites": [
+    {
+      "span": "src/main.rs:47:9: 47:25",
+      "is_maybe_example": true,
+      "cha": [
+        "<fnptr_static_table::A as fnptr_static_table::Sink>::put",
+        "<fnptr_static_table::B as fnptr_static_table::Sink>::put",
+        "<fnptr_static_table::D as fnptr_static_table::Sink>::put"
+      ],
+      "fsa": [
+        "<fnptr_static_table::A as fnptr_static_table::Sink>::put",
+        "<fnptr_static_table::B as fnptr_static_table::Sink>::put"
+      ]
+    }
+  ]
+}

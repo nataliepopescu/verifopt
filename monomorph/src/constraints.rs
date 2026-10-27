@@ -2559,9 +2559,20 @@ pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<
         cur = match elem {
             ProjectionElem::Field(idx, _) => {
                 let mut out = Constraints::new();
+                // An ADT- or closure-typed field a disjunct lacks is any value
+                // of that type - a fieldless value of it, joined with the
+                // other disjuncts' values, as step_field_one does. Giving up
+                // on the whole read instead let an interior-mutable static's
+                // initial "any" disjunct hide every value written into it (a
+                // fn pointer registered in a `Cell` in a static: tock's
+                // deferred calls). Other field types have no such value here.
+                let skeleton = field_skeleton(elem);
                 for c in cur.inner.iter() {
                     if !field(c, *idx, &mut out) {
-                        return None;
+                        if skeleton.inner.is_empty() {
+                            return None;
+                        }
+                        out.append(skeleton.clone());
                     }
                 }
                 out
@@ -2637,8 +2648,12 @@ fn note_static_write(scope: &VOID, old: Option<&Box<MapValue>>, new: &MapValue) 
 /// the write was lost (e.g. `set_client` on a `static mut` capsule that
 /// starts as any value of its type).
 fn field_skeleton(elem: &ProjectionElem) -> Constraints {
-    use rustc_public::ty::{RigidTy, TyKind};
     let ProjectionElem::Field(_, ty) = elem else { return Constraints::new() };
+    type_skeleton(ty)
+}
+
+fn type_skeleton(ty: &rustc_public::ty::Ty) -> Constraints {
+    use rustc_public::ty::{RigidTy, TyKind};
     match ty.kind() {
         TyKind::RigidTy(RigidTy::Adt(def, args)) => {
             Constraints::from(Constraint::new(None, Some(RunningConstraint::Adt(def, args, None, ADTFields::new()))))
@@ -2646,6 +2661,11 @@ fn field_skeleton(elem: &ProjectionElem) -> Constraints {
         TyKind::RigidTy(RigidTy::Closure(def, args)) => {
             Constraints::from(Constraint::new(None, Some(RunningConstraint::Closure(def, args, ADTFields::new()))))
         }
+        // An array's value is the union of its elements (index projections
+        // are no-ops on values): any element. Without this, a write into an
+        // element of a missing array field (`STATIC.slots[i].set(..)` on a
+        // static's initial "any" value) went into nothing.
+        TyKind::RigidTy(RigidTy::Array(elem, _) | RigidTy::Slice(elem)) => type_skeleton(&elem),
         _ => Constraints::new(),
     }
 }

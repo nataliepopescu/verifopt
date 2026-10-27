@@ -1,0 +1,108 @@
+
+######### MIR before #########
+// crate: fnptr_static_table (package fnptr_static_table 0.1.0)
+// fn: <Holder as Client>::handle
+// instance: <Holder as Client>::handle
+fn <impl at src/main.rs:45:1: 45:23>::handle(_1: &Holder) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+    let mut _2: &dyn Sink + std::marker::Sync;
+    let mut _3: *const dyn Sink + std::marker::Sync;
+    let mut _4: std::ptr::NonNull<dyn Sink + std::marker::Sync>;
+
+    bb0: {
+        StorageLive(_2);
+        _4 = copy ((((*_1).0: std::boxed::Box<dyn Sink + std::marker::Sync>).0: std::ptr::Unique<dyn Sink + std::marker::Sync>).0: std::ptr::NonNull<dyn Sink + std::marker::Sync>);
+        _3 = copy _4 as *const dyn Sink + std::marker::Sync (Transmute);
+        _2 = &(*_3);
+        _0 = <dyn Sink + std::marker::Sync as Sink>::put(move _2, const 3_usize) -> [return: bb1, unwind continue];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        return;
+    }
+}
+######### END before #########
+
+
+######### MIR after #########
+// crate: fnptr_static_table (package fnptr_static_table 0.1.0)
+// fn: <Holder as Client>::handle
+// instance: <Holder as Client>::handle
+fn <impl at src/main.rs:45:1: 45:23>::handle(_1: &Holder) -> usize {
+    debug self => _1;
+    let mut _0: usize;
+    let mut _2: &dyn Sink + std::marker::Sync;
+    let mut _3: *const dyn Sink + std::marker::Sync;
+    let mut _4: std::ptr::NonNull<dyn Sink + std::marker::Sync>;
+    let mut _5: std::ptr::DynMetadata<dyn Sink + std::marker::Sync>;
+    let mut _6: *const ();
+    let mut _7: *const for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize;
+    let mut _8: *const for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize;
+    let mut _9: for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize;
+    let mut _10: *const A;
+    let mut _11: &A;
+    let mut _12: for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize;
+    let mut _13: bool;
+    let mut _14: *const B;
+    let mut _15: &B;
+    let mut _16: for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize;
+    let mut _17: bool;
+
+    bb0: {
+        StorageLive(_2);
+        _4 = copy ((((*_1).0: std::boxed::Box<dyn Sink + std::marker::Sync>).0: std::ptr::Unique<dyn Sink + std::marker::Sync>).0: std::ptr::NonNull<dyn Sink + std::marker::Sync>);
+        _3 = copy _4 as *const dyn Sink + std::marker::Sync (Transmute);
+        _2 = &(*_3);
+        _5 = PtrMetadata(move _2);
+        _6 = move _5 as *const () (Transmute);
+        _7 = copy _6 as *const for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize (PtrToPtr);
+        _8 = Offset(copy _7, const 3_usize);
+        _9 = copy (*_8);
+        _12 = <A as Sink>::put as for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _16 = <B as Sink>::put as for<'a> fn(&'a dyn Sink + std::marker::Sync, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _17 = Eq(copy _9, copy _16);
+        switchInt(copy _17) -> [1: bb8, otherwise: bb6];
+    }
+
+    bb1: {
+        StorageDead(_2);
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        _0 = <dyn Sink + std::marker::Sync as Sink>::put(move _2, const 3_usize) -> [return: bb2, unwind continue];
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _10 = move _2 as *const A (PtrToPtr);
+        _11 = &(*_10);
+        _0 = <A as Sink>::put(move _11, const 3_usize) -> [return: bb4, unwind continue];
+    }
+
+    bb6: {
+        _13 = Eq(copy _9, copy _12);
+        switchInt(copy _13) -> [1: bb5, otherwise: bb3];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _14 = move _2 as *const B (PtrToPtr);
+        _15 = &(*_14);
+        _0 = <B as Sink>::put(move _15, const 3_usize) -> [return: bb7, unwind continue];
+    }
+}
+######### END after #########
+

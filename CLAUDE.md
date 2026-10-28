@@ -1096,6 +1096,68 @@ target probe must find the fork's rustc (put
 cargo's probe also needs `-C lto` in RUSTFLAGS for VFE (the profile's `lto`
 isn't applied there). Next: step 4 (PointersExact), ripgrep validation.
 
+**Oct 28 follow-ups** (fork `e23f8c809cb`, `5c0f29b3ca6`; installed as
+`rust-mono-rewrite`):
+- VFE bugs vs upstream: known upstream - rust-lang/rust#98132 (open since
+  2022: VFE with a prebuilt std; their diagnosis matches ours) and #164774
+  (opened Oct 23 2026: a vtable created by const evaluation - a static
+  `&dyn`, a promoted constant, a supertrait vtable another vtable points
+  to - gets no `!type`, so VFE devirtualizes calls on it to another impl).
+  Not found upstream (apparently new): the `size_of_val` ICE, the
+  `vtable_size`/`vtable_align` `bug!`, the prefix-upcast miscompile.
+  Fixed locally under `-Zverifopt-vfe-fixes`: all three new ones and
+  #164774 (`e23f8c809cb`: const-created vtables typed like `get_vtable`'s -
+  it also matters for the shrinking, which would renumber reads such a
+  vtable's layout doesn't follow); #98132 only warned about.
+- `5c0f29b3ca6`: the prefix-supertrait `!type` had also tagged 127 of
+  tock's 160 vtables with `core::marker::MetaSized` (every trait's implicit,
+  method-less supertrait), which put almost every trait in one shrinking
+  group; now the sizedness markers and non-dyn-compatible supertraits are
+  skipped. Big precision gain (table below).
+- Correctness test (`vtelim_test`) now also covers #164774 (a static `&dyn`)
+  and a non-prefix upcast: VFE + fixes and every shrinking level print the
+  non-VFE output; upstream VFE ICEs (`size_of_val`).
+- tock has no const-created vtables (160 typed vtables with and without the
+  fixes; `py/typecount.py`), so #164774 didn't affect its numbers.
+- **tock imix `.text`** (K=1, verifopt = gap-fixed `fsa3` store, VFE rows
+  with our VFE fixes, after `5c0f29b3ca6`):
+
+| build | `.text` (B) | vs plain |
+|---|---|---|
+| plain | 164,068 | - |
+| plain + VFE | 158,592 | -5,476 |
+| plain + VFE + vtable elim | 156,016 | -8,052 |
+| verifopt | 161,916 | -2,152 |
+| verifopt + VFE | 157,864 | -6,204 |
+| verifopt + VFE + vtable elim | 154,132 | -9,936 (-6.1%) |
+
+  Upstream VFE (no fixes): plain 158,668, verifopt 157,940. Also rung 3
+  (CHAmax everywhere) + VFE + elim: 153,724. Rows "+ vtable elim" without
+  VFE don't exist: the pass needs VFE's `!type` tags and typed loads (could
+  be decoupled - emit them without LLVM's slot nulling).
+- Vtables left after LTO (post-LTO IR, `py/vtfinal.py`; tock): plain + VFE
+  + fixes 122 / 3,040 B; plain + VFE + elim 122 / 1,164 B (2 placeholders);
+  verifopt + VFE + elim 120 / 868 B (30 placeholders, 79 one-word vtables,
+  largest 52 B). The pass never deletes a vtable: fat pointers still hold
+  their addresses. Option (undecided): placeholders of traits no PointersExact
+  site compares could share one global (Rust doesn't guarantee vtable
+  uniqueness anyway) - ~116 B on tock.
+- The 4 `pointers n=1` guards in that build (`dyn Iterator<Item = u32>::next`
+  x2, `dyn Uart::set_transmit_client` / `set_receive_client`) are the only
+  readers of their slots; their fallback dyn calls still use the slot value,
+  so those slots stay - with complete-set PointersExact they'd go (the
+  `Iterator<Item = u32>` vtables entirely).
+- ripgrep (build-std, fat LTO via `CARGO_PROFILE_RELEASE_LTO=fat` - `-C lto`
+  in RUSTFLAGS alone clashes with cargo's `-C embed-bitcode=no` for deps;
+  keep it in RUSTFLAGS too for cargo's probe): upstream VFE can't build rg
+  (`size_of_val` ICE). VFE + fixes and VFE + elim produce the plain output
+  on all 22 `rg_cmp.sh` commands (`rg_cmp.sh` now also strips `--json`
+  `nanos` and `--stats` seconds; `rg fn core` has no `--sort` and can
+  differ run to run). Vtable bytes 75,104 -> 73,328 (1,501 vtables; was
+  -> 75,024 before the MetaSized fix). The Oct 21 store matches nothing under
+  the LTO profile (0 edits), so verifopt + VFE + elim on ripgrep needs a new
+  analysis.
+
 **Rung 3 implementation** (Oct 23, plugin only, uncommitted): env
 `VERIFOPT_CHA_ONLY=1` - `chamax::compiled_instances` lists this crate's mono
 items plus every dependency's non-generic functions (generic instances a

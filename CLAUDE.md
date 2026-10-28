@@ -960,25 +960,95 @@ are valid only on their workload.
    Through today's edit kinds this already gives a first rung 6 (1 target ->
    `single exact`, 2..K -> `pointers`, > K -> dyn); 6p adds frequency
    ordering.
-4. New edit kind PointersExact (6s): compare the vtable *address* against each
-   candidate's, direct call on match, no dyn fallback (so the comparison
-   doesn't keep vtables read). Oracle rewrite: 1 target -> `single exact`,
-   2..K -> PointersExact, > K -> stays dyn. Catch: Rust doesn't guarantee one
-   vtable per (type, trait) - with several CGUs it can be emitted more than
-   once, and with no fallback a duplicate takes the wrong branch even on the
-   workload. tock is safe (codegen-units=1, fat LTO); ripgrep needs the fork
-   to give vtables a fixed symbol name with linkonce semantics so the linker
-   merges duplicates.
-5. Vtable elimination: unread = no remaining dyn call of its trait and no
-   drop/size/align/upcast read. Measure analytically first; to build it, a
-   second pass (like the two-pass flow) where `get_vtable`
-   (`rustc_codegen_ssa/src/meth.rs`) emits a small unique placeholder for each
-   unread (type, trait) - PointersExact compares by identity - and the linker
-   drops the methods.
+4. Edit kind PointersExact: compare the vtable *address* against each
+   candidate's vtable, direct call on match, no dyn fallback (so the site
+   reads no vtable). One kind, two justifications: *oracle* (6s: the targets
+   observed on the workload - valid only there) and *complete set* (sound: the
+   site's candidate set is provably complete, e.g. complete CHAmax; then the
+   last candidate is called unconditionally - n vtables, n-1 compares).
+   "Complete" is over *vtables*, not methods: every type whose vtable for the
+   trait is created - the vtable list the manifest RTA records (the same
+   manifest data serves both). Oracle rewrite: 1 target -> `single exact`,
+   2..K -> PointersExact, > K -> stays dyn. Needs one vtable per (type,
+   trait): Rust doesn't guarantee it (several CGUs can each emit one), and
+   with no fallback a duplicate takes the wrong branch. tock is safe
+   (codegen-units=1, fat LTO); generally the fork emits vtables
+   `linkonce_odr` under a mangled (type, trait) name so LTO merges them.
+5. Vtable elimination - see "Vtable elimination at LTO" below.
 6. VFE rungs: RUSTFLAGS must repeat the project's config flags (the env var
    replaces them) and add `-Zvirtual-function-elimination` (needs fat LTO:
    tock has it; ripgrep needs `-C lto`). Check the store still matches
    (tock's did: crate ids unchanged; edit counts identical).
+
+**Vtable elimination at LTO** (plan, Oct 27; prioritized over Phase 4).
+What exists: with `-Zvirtual-function-elimination` + fat LTO, the fork's
+`rustc_codegen_ssa/src/meth.rs` `load_vtable` emits every vtable read whose
+type has a principal trait as `llvm.type.checked.load(vtable, offset,
+typeid(trait))` - method slots and drop/size/align (`get_usize`) alike -
+and vtables carry `!type` + `!vcall_visibility`
+(`rustc_codegen_llvm/src/debuginfo/metadata.rs`
+`apply_vcall_visibility_metadata`). LLVM's GlobalDCE then nulls every slot
+no checked load reads and drops the functions that become dead - but never
+shrinks the vtable objects (nulled slots stay; a vtable nobody reads stays
+full size).
+Design - an LTO pass in the fork's `rustc_llvm` (C++,
+`llvm-wrapper/PassWrapper.cpp`; LLVM is the system LLVM 21 from nix -
+`download-ci-llvm = false`, `llvm-config` in `bootstrap.toml` - so the pass
+lives in rustc's wrapper, not in LLVM), registered at the start of the fat-LTO
+pipeline: run GlobalDCE (VFE) first so only live code counts; collect per
+trait typeid the offsets any remaining `type.checked.load` reads; then
+shrink each tagged vtable of that trait: (a) *placeholder* - no offset read:
+a minimal unique global (address kept distinct for identity compares);
+(b) *truncate* - drop the tail past the last read offset; (c) *compact* -
+renumber the live slots per trait and rewrite every checked load's offset
+for it (possible because fat LTO sees all of them; biggest win, most work).
+Preconditions: (1) every vtable read must be typed - our `pointers` guard
+reads the slot with a plain MIR load (make it a typed load - keeps that slot
+- or don't read: PointersExact); audit reads that bypass `load_vtable`
+(`vtable_size`/`vtable_align` intrinsics, ...); vtables without a principal
+trait get no `!type` and are never touched. (2) Rewritten sites must stop
+reading: `single exact` does; guarded `pointers` keeps a checked load in its
+dyn fallback, so it never frees anything - complete-set PointersExact does.
+Steps: (1) analytic estimate - extend `py/vtread.py` (job tmp) for (a)/(b)/(c)
+on tock rungs 2-5 and the `verifopt-dyn-defcall` branch, from VFE +
+`-C save-temps` builds (LTO input IR, `*.lto.after-restriction.bc`); decides
+whether (c) is worth building; (2) fork: a flag (e.g.
+`-Zverifopt-vtable-elim`, implies VFE, requires fat LTO), typed guard loads,
+the untyped-read audit; (3) the LTO pass, (a)+(b) first, (c) if the numbers
+justify it; (4) PointersExact (complete set) + canonical vtables; (5)
+validation - ripgrep output equivalence (`rg_cmp.sh`; needs `-C lto` + VFE),
+fixtures under a fat-LTO profile, tock size (correctness waits on hardware).
+Note: VFE already frees the *methods* of unread slots (including drop glue at
+offset 0), so what this adds over a VFE build is mainly vtable bytes - plus
+whatever more sites become rewritten without a vtable read.
+Step 1 results (Oct 27, `py/vtlevels.py` in the job tmp - reproduces VFE's
+liveness from the LTO input IR `*.lto.after-restriction.bc` (llvm-dis from
+nix llvm-21), then the bytes each level saves on the live vtables; builds:
+VFE + `-C save-temps`, dirs `*vfeir_target` / `rwvfeir_target`, script
+`vtir_builds.sh`). tock, cumulative savings beyond VFE:
+
+| build (+VFE) | `.text` | live vtables | (a) | (b) | (c) | left after (c) |
+|---|---|---|---|---|---|---|
+| plain | 158,668 | 139 / 3,340 B | 12 | 160 | 2,144 | 1,196 B |
+| rung 3 CHAmax everywhere | 157,616 | 137 / 3,288 B | 964 | 1,124 | 2,472 | 816 B |
+| rung 5 (Oct 22 store) | 158,428 | 138 / 3,308 B | 220 | 356 | 2,340 | 968 B |
+| verifopt, `fsa3` store | 157,940 | 138 / 3,308 B | 516 | 716 | 2,428 | 880 B |
+| dyn deferred calls, plain | 158,932 | 149 / 3,540 B | 12 | 200 | 2,304 | 1,236 B |
+| dyn deferred calls, rung 3 | 157,872 | 147 / 3,488 B | 964 | 1,164 | 2,632 | 856 B |
+
+(c) is the level that matters (64-75% of live vtable bytes; much of it the
+3-word drop/size/align header tock never reads); removing words in the middle
+needs offset renumbering anyway, so build (a)+(b)+(c). Rewriting and
+elimination compound: traits still read 70 (plain) / 40 (fsa3) / 28 (rung 3).
+Dyn deferred calls: +264 B over the fn-pointer version (plain+VFE), +256 B
+(rung 3); with (c) ~+100 B (the 10 `DeferredCallClient` vtables, 200 B,
+compact to one word each; the rest is code). Caveats: assumes every vtable
+read is typed (the verifopt builds' 4 `pointers n=1` guards read untyped -
+those slots must stay); (c) must handle a deduplicated vtable serving
+several traits (several `!type`s - union of their reads) and trait
+upcasting (a `dyn Sub` vtable read through `dyn Super` with `Super`'s typeid
+but no `!type` for it - the fork should emit supertrait `!type`s; possibly a
+VFE soundness question too).
 
 **Rung 3 implementation** (Oct 23, plugin only, uncommitted): env
 `VERIFOPT_CHA_ONLY=1` - `chamax::compiled_instances` lists this crate's mono

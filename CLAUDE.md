@@ -1050,6 +1050,52 @@ upcasting (a `dyn Sub` vtable read through `dyn Super` with `Super`'s typeid
 but no `!type` for it - the fork should emit supertrait `!type`s; possibly a
 VFE soundness question too).
 
+Steps 2-3 done (Oct 28), fork branch `verifopt-vtable-elim` (from
+`verifopt-monomorph-rewrite-pinned` `73da158f0d5`): `70c77a914f3` flags +
+VFE fixes, `a19ce4c390a` the LTO pass (`rustc_llvm/llvm-wrapper/VerifoptVtableShrink.cpp`)
++ typed guard loads, `bb8ccddc2c1` prebuilt-std warning. Installed as
+`rust-mono-rewrite` (old build kept in `~/hack/rust/build_cp_pinned`; the
+`rust-vtelim` rustup toolchain links `build/`). Flags:
+- `-Zverifopt-vfe-fixes`: fixes for upstream VFE bugs, off = upstream VFE
+  (so plain+VFE is measurable both ways): (1) `size_of_val` on a `dyn` ICEs
+  ("only allows integer types in const_uint_big" - the typed load returns a
+  pointer for the size/align words; fix: ptrtoint); (2) `vtable_size`/
+  `vtable_align` (`DynMetadata`) hit `bug!` (no `dyn` in the intrinsic's
+  type; fix: wildcard typeid `verifopt.any`); (3) trait upcasting to a prefix
+  supertrait reuses the vtable pointer but the vtable has only the subtrait's
+  `!type`, so VFE nulls the slot and the call jumps to 0 (fix: `!type` for
+  each prefix supertrait).
+- `-Zverifopt-vtable-elim` (requires VFE + fat LTO, implies the fixes): the
+  pass; `VERIFOPT_VTABLE_ELIM_LEVEL=a|b|c` (default c),
+  `VERIFOPT_VTABLE_ELIM_STATS=1`; Pointers guards' slot loads become typed.
+- Warning under these flags if a crate in the LTO unit comes from the
+  sysroot: VFE with a prebuilt std is unsound (std reads vtables untyped -
+  e.g. `lang_start`'s `dyn Fn` call of `main` traps); use `-Zbuild-std`.
+Correctness test (job tmp `vtelim_test`, `run_bstd.sh`: drops, `size_of_val`,
+`Any`, upcast, `DynMetadata`): levels a/b/c with build-std print exactly
+the plain output; plain VFE (no fixes) segfaults at the upcast.
+tock `.text` (job tmp `tock_elim2.sh`; dirs `*vfefix_target`, `*elim_target`):
+
+| build | VFE | VFE + fixes | + pass (c) | vtable bytes with pass |
+|---|---|---|---|---|
+| plain | 158,668 | 158,592 | 157,100 | 3,496 -> 1,700 |
+| rung 3 | 157,616 | 157,616 | 155,656 | 3,416 -> 1,456 |
+| verifopt (`fsa3` store) | 157,940 | 157,864 | 156,176 | 3,436 -> 1,524 |
+| dyn deferred calls, plain | 158,932 | 158,856 | 157,244 | 3,696 -> 1,780 |
+| dyn deferred calls, rung 3 | 157,872 | 157,872 | 155,796 | 3,616 -> 1,536 |
+
+The dyn deferred-call overhead over the fn-pointer version: +264 B with VFE,
++140-144 B with the pass. Real savings are a bit below the estimate (plain:
+1,796 B of vtables vs 2,144 estimated). tock correctness unchecked (no
+hardware). Gotchas from installing it: `cargo install --path` builds in the
+package's own `target/` and reused binaries linked to the old
+`librustc_driver` (cp.sh prunes it) - `cargo clean` in both monomorph dirs
+after a compiler rebuild; with RUSTFLAGS carrying `-Zverifopt-*`, cargo's
+target probe must find the fork's rustc (put
+`~/.rustup/toolchains/rust-mono-rewrite/bin` before the nightly on PATH);
+cargo's probe also needs `-C lto` in RUSTFLAGS for VFE (the profile's `lto`
+isn't applied there). Next: step 4 (PointersExact), ripgrep validation.
+
 **Rung 3 implementation** (Oct 23, plugin only, uncommitted): env
 `VERIFOPT_CHA_ONLY=1` - `chamax::compiled_instances` lists this crate's mono
 items plus every dependency's non-generic functions (generic instances a

@@ -611,6 +611,31 @@ Gotchas hit doing it:
 - Per-target result/store files (multiple analyzed targets overwrite each
   other); debug-profile harness runs; value-dependent fixture behaviour.
 - tock boot test on hardware; perf measurements (e.g. hyperfine for ripgrep).
+- **Branch-aware refinement** (todo, added Oct 29): when a `switchInt`
+  branch is taken, remember the value that selected it for the duration of
+  that branch - the discriminant is the branch's value (the `otherwise` edge:
+  none of the listed values), and so is its source: the enum behind
+  `_d = discriminant(x)` is narrowed to that variant (its other variants'
+  fields and trait objects drop out), the operands of an `Eq`/`Ne` compare
+  feeding the switch are narrowed to the constant. Until the branches join,
+  where values merge again. Today `interp_switchint` only prunes successors
+  no value can take (`set_bytemap` / `prune_switchint_targets`); the
+  successors are then interpreted with the unrefined value, so e.g. a
+  `match opt { Some(x) => x.method(), None => .. }` arm still sees the
+  `None`-side value, and an enum holding different `dyn` objects per variant
+  dispatches each arm to all of them. Decided (Oct 29): a refinement
+  *overlay*, not per-block entry states - merging is already the dominant
+  cost on ripgrep, and per-block states would add a merge at every join.
+  Sketch: entering a successor of the switch pushes (place -> allowed values /
+  variant) for the discriminant and its source; reads of a refined place
+  intersect the stored value with the refinement (applied on read, nothing
+  copied); a write to a refined place (or through an alias of it) drops its
+  refinement; the overlay is popped at the switch's immediate post-dominator,
+  where the branches rejoin. To check while designing: blocks reachable from
+  several arms before the post-dominator (shared tails), loops whose back
+  edge re-enters the branch, and refined values passed to callees (memo keys
+  see the refined argument - intended).
+  Related: the low-priority constant-byte pruning below (same switch code).
 - **(Low priority) Prune branches on constant byte data**: precision/noise
   only, not soundness. The analysis is flow-sensitive but merges at joins
   and prunes `switchInt` targets only for a single known scalar / variant

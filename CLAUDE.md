@@ -1158,6 +1158,72 @@ isn't applied there). Next: step 4 (PointersExact), ripgrep validation.
   the LTO profile (0 edits), so verifopt + VFE + elim on ripgrep needs a new
   analysis.
 
+**Minimal tock kernels (Oct 29).** The minimal nRF52840DK targets of
+https://www.tockos.org/blog/2024/tock-binary-size-bloat/ (tweedegolf/tock
+branches `min-size-kernel-uart` = kernel only, `min-size-kernel-with-app-support`
+= one process + LED/alarm drivers; fetched as `tg/*` refs in the tock
+checkout), ported to current tock: worktree
+`~/hack/verifopt-examples/tock-minsize`, branch `verifopt-minsize` (from
+`verifopt`). Boards in `boards/nordic/`: `nrf52840dk-min`, `nrf52840dk-min-app`
+(faithful unmerged ports) and `*-merged` (everything merged into the board
+crate, mostly reusing imix's merged copies; script `minsize/merge.sh` in the
+job tmp, nrf52/nrf52840 migrated to 2024 with `cargo fix --edition`).
+Differences from the blog: peripherals cut in a board-local struct (not by
+editing `chips/nrf52`); `debug!` a no-op via a new kernel feature
+`debug_noop` (off by default); process printing off via the existing
+`no_debug_panics`; a board-local layout without the `.storage` page padding;
+the blog's `memmove` commit has no counterpart (that code is gone). Sanity:
+full upstream `nrf52840dk` 172,972 B `.text` (blog 2024: ~196.6 KB); unmerged
+ports 5,636 / 21,512 B (blog: 6.8 / 19.8 KB). No hardware: sizes only.
+Analysis (`fsa-gaps` plugin, `/tmp/vo_fsa4`) < 2 min each; FSA sites vs
+rung 3: 15 vs 42 (kernel only), 105 vs 141 (app). Merged boards, K=1, VFE =
+with our fixes (upstream VFE gives identical numbers on both); script
+`minsize/matrix.sh`, results `minsize/results.txt`, dirs `<board>/<row>_target`.
+"Indirect calls" counts `blx rN` only - see the note below the tables.
+
+Kernel only (`nrf52840dk-min-merged`):
+
+| build | `.text` | vs plain | indirect calls | vtables left after LTO |
+|---|---|---|---|---|
+| plain | 5,476 | - | 45 | - |
+| plain + VFE | 5,516 | +40 | 51 | 2 / 36 B |
+| plain + VFE + vtable elim | 5,488 | +12 | 51 | 2 / 8 B |
+| verifopt | 5,460 | -16 | 43 | - |
+| verifopt + VFE | 5,512 | +36 | 51 | 2 / 36 B |
+| verifopt + VFE + vtable elim | 5,480 | +4 | 51 | 2 / 8 B (2 placeholders) |
+| rung 3 + VFE + vtable elim | 5,480 | +4 | 51 | 2 / 8 B (2 placeholders) |
+
+App (`nrf52840dk-min-app-merged`):
+
+| build | `.text` | vs plain | indirect calls | vtables left after LTO |
+|---|---|---|---|---|
+| plain | 21,012 | - | 100 | - |
+| plain + VFE | 19,212 | -1,800 | 25 | 6 / 348 B |
+| plain + VFE + vtable elim | 19,016 | -1,996 | 25 | 6 / 180 B |
+| verifopt | 20,600 | -412 | 38 | - |
+| verifopt + VFE | 19,024 | -1,988 | 25 | 6 / 348 B |
+| verifopt + VFE + vtable elim | 18,424 | -2,588 (-12.3%) | 25 | 6 / 48 B (1 placeholder) |
+| rung 3 + VFE + vtable elim | 18,408 | -2,604 | 25 | 6 / 40 B (2 placeholders) |
+
+Why VFE makes the kernel-only board bigger (investigated Oct 29; IR and
+`calllines.py` in `minsize/`): (1) `SysTick::start` is called through a
+`dyn SchedulerTimer` (one vtable). Plain: the load from the constant vtable
+folds to a direct call before LTO and the LTO inliner inlines it. VFE: the
+load is an opaque `llvm.type.checked.load` until late in LTO, after the
+inliner, so `start` stays out of line (+76 B, `kernel_loop` -32 B,
+`Uarte::handle_interrupt` -16 B, outliner stubs ~+6 B). A general VFE cost:
+calls through constant vtables lose inlining; on the app board slot removal
+outweighs it. (2) The extra "indirect calls" are a counting artifact: the
+post-LTO IR has the same indirect call sites in `kernel_loop` (52 plain, 51
+VFE); in plain, the machine outliner moved 9 of them into two stubs ending in
+`bx r2`, which a `blx` count misses. Counting `bx rN` too: kernel only 47
+plain / 52 VFE, app 103 / 25 - still per instruction, so it understates call
+sites when stubs are shared; count call sites (IR) for the indirect-call
+metric. (3) Of kernel-only's remaining indirect calls, 46 are `dyn Process`
+calls in `kernel/kernel.rs` and `kernel/memop.rs`, dead with `NUM_PROCS = 0`
+(no `Process` type is ever created); LLVM can't prove it (process array in a
+static), and the rewrite doesn't delete sites with an empty target set.
+
 **Rung 3 implementation** (Oct 23, plugin only, uncommitted): env
 `VERIFOPT_CHA_ONLY=1` - `chamax::compiled_instances` lists this crate's mono
 items plus every dependency's non-generic functions (generic instances a

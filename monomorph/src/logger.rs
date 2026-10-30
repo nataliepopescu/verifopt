@@ -94,6 +94,31 @@ impl VOLogger {
             dispatch_targets.len(),
         )?;
 
+        // VTmax vs CHAmax at the complete sites: how many each proves single
+        // (the `single exact` candidates), and where vtables cut the bound.
+        let (mut cm_one, mut vt_one, mut vt_lower, mut vt_zero, mut vt_unknown) = (0, 0, 0, 0, 0);
+        for key in dispatch_targets.keys() {
+            let Some(c) = chamax.get(key) else { continue };
+            if c.not_applicable.is_some() || c.incomplete.is_some() {
+                continue;
+            }
+            let Some(vt) = c.vt_total else {
+                vt_unknown += 1;
+                continue;
+            };
+            cm_one += (c.total == 1) as usize;
+            vt_one += (vt == 1) as usize;
+            vt_lower += (vt < c.total) as usize;
+            vt_zero += (vt == 0 && c.total > 0) as usize;
+        }
+        write!(
+            &mut self.stats_file,
+            "VTmax summary (complete sites): single target by CHAmax {cm_one}, by VTmax \
+             {vt_one}; VTmax < CHAmax at {vt_lower} (to 0 at {vt_zero}); no vtable data at \
+             {vt_unknown}; single exact taken from {:?}\n",
+            crate::chamax::exact_from(),
+        )?;
+
         write!(&mut self.stats_file, "--MAYBE EXAMPLES--\n")?;
         for (key, span, cha, fsa) in &diff {
             let (caller_def_id, bb_index, caller_genargs) = key;
@@ -149,7 +174,20 @@ fn write_chamax_line(out: &mut File, chamax: Option<&crate::chamax::ChaMax>) -> 
             let incomplete = c.incomplete.as_ref().map_or(String::new(), |why| format!(", incomplete: {why}"));
             let parts: Vec<String> =
                 c.per_candidate.iter().map(|(d, n)| format!("{} x{n}", d.name())).collect();
-            writeln!(out, "CHAmax ({}{incomplete}): [{}]", c.total, parts.join(", "))
+            writeln!(out, "CHAmax ({}{incomplete}): [{}]", c.total, parts.join(", "))?;
+            // VTmax: CHAmax restricted to instances in some vtable (chamax.rs).
+            match c.vt_total {
+                None => writeln!(out, "VTmax (?): no vtable lists in the manifests"),
+                Some(total) => {
+                    let parts: Vec<String> = c
+                        .vt_per_candidate
+                        .iter()
+                        .filter(|(_, n)| *n > 0)
+                        .map(|(d, n)| format!("{} x{n}", d.name()))
+                        .collect();
+                    writeln!(out, "VTmax ({total}{incomplete}): [{}]", parts.join(", "))
+                }
+            }
         }
     }
 }

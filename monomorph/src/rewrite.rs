@@ -357,14 +357,18 @@ impl Callbacks for FsaCallbacks {
                 let mut store = crate::rewrite::store().lock().unwrap();
                 let mut exact = 0usize;
                 for (key, c) in &chamax {
+                    // CHAmax, or VTmax under VERIFOPT_EXACT_FROM=vtables.
+                    let Some((total, instances)) = c.exact_bound() else {
+                        continue;
+                    };
                     if c.not_applicable.is_some()
                         || c.incomplete.is_some()
-                        || c.total != 1
-                        || c.instances.len() != 1
+                        || total != 1
+                        || instances.len() != 1
                     {
                         continue;
                     }
-                    let (function, Some(args)) = c.instances[0].clone() else {
+                    let (function, Some(args)) = instances[0].clone() else {
                         continue;
                     };
                     let Some(site_key) = site_keys.get(key) else {
@@ -380,7 +384,7 @@ impl Callbacks for FsaCallbacks {
                         && fsa_targets.iter().any(|(d, _)| to_hash(*d) != Some(function))
                     {
                         warn!(
-                            "[verifopt][store] {:?} bb{}: CHAmax's single instance {:?} isn't among \
+                            "[verifopt][store] {:?} bb{}: the single instance {:?} isn't among \
                              FSA's targets {:?} - not recording it as exact",
                             key.0, key.1, function, fsa_targets
                         );
@@ -404,7 +408,10 @@ impl Callbacks for FsaCallbacks {
                         Err(e) => warn!("[verifopt][store] Store::to_json failed: {e:?}"),
                     }
                 }
-                warn!("[verifopt][store] {exact} sites recorded as exact single targets (CHAmax)");
+                warn!(
+                    "[verifopt][store] {exact} sites recorded as exact single targets ({:?})",
+                    crate::chamax::exact_from()
+                );
             }
 
             let mut logger = crate::logger::VOLogger::new();

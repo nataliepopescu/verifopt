@@ -4910,12 +4910,16 @@ impl<'a> InterpPass<'a> {
         targets: &SwitchTargets,
         discr_vals: &mut [u8],
     ) {
+        // Counts saturate (as u8 they used to wrap to 0 at 256 disjuncts on
+        // one branch, which then looked like "no possible branch").
+        let bump = |v: &mut u8| *v = v.saturating_add(1);
+        let last = discr_vals.len() - 1;
         if constraints.is_empty() {
             // Increment all branch counters (since no statically-known discr value)
             for (i, _) in targets.branches().enumerate() {
-                discr_vals[usize::try_from(i).unwrap()] += 1;
+                bump(&mut discr_vals[i]);
             }
-            discr_vals[discr_vals.len() - 1] += 1;
+            bump(&mut discr_vals[last]);
             return;
         }
 
@@ -4923,35 +4927,27 @@ impl<'a> InterpPass<'a> {
             match constraint {
                 Constraint {
                     toc: _,
-                    cfc: Some(RunningConstraint::Scalar(num_opt)),
+                    cfc: Some(RunningConstraint::Scalar(Some(num))),
                     prov: _,
                 } => {
-                    if let Some(num) = num_opt {
-                        // Increment matching branch counters
-                        let mut set = false;
-                        for (i, (val, _bb)) in targets.branches().enumerate() {
-                            if *num == <u128 as TryInto<i128>>::try_into(val).unwrap() {
-                                discr_vals[usize::try_from(i).unwrap()] += 1;
-                                set = true;
-                            }
+                    // Increment matching branch counters
+                    let mut set = false;
+                    for (i, (val, _bb)) in targets.branches().enumerate() {
+                        if *num == <u128 as TryInto<i128>>::try_into(val).unwrap() {
+                            bump(&mut discr_vals[i]);
+                            set = true;
                         }
-                        if !set {
-                            discr_vals[discr_vals.len() - 1] += 1;
-                        }
-                    } else {
-                        // Increment all branch counters (since no statically-known discr value)
-                        for (i, _) in targets.branches().enumerate() {
-                            discr_vals[usize::try_from(i).unwrap()] += 1;
-                        }
-                        discr_vals[discr_vals.len() - 1] += 1;
+                    }
+                    if !set {
+                        bump(&mut discr_vals[last]);
                     }
                 }
                 _ => {
                     // Increment all branch counters (since no statically-known discr value)
                     for (i, _) in targets.branches().enumerate() {
-                        discr_vals[usize::try_from(i).unwrap()] += 1;
+                        bump(&mut discr_vals[i]);
                     }
-                    discr_vals[discr_vals.len() - 1] += 1;
+                    bump(&mut discr_vals[last]);
                 }
             }
         }
@@ -5006,9 +5002,10 @@ impl<'a> InterpPass<'a> {
             }
         }
 
-        // If no possible indices, error?
+        // Can't happen: every disjunct counts for at least one branch (an
+        // empty value is handled before set_bytemap) and the counts saturate.
         if poss_idxs.is_empty() {
-            panic!("no possible branches");
+            panic!("no possible branches (counts {discr_vals:?})");
         }
 
         // If some impossible indices, prune

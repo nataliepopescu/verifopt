@@ -1232,13 +1232,19 @@ App (`nrf52840dk-min-app-merged`):
 
 Why VFE makes the kernel-only board bigger (investigated Oct 29; IR and
 `calllines.py` in `minsize/`): (1) `SysTick::start` is called through a
-`dyn SchedulerTimer` (one vtable). Plain: the load from the constant vtable
-folds to a direct call before LTO and the LTO inliner inlines it. VFE: the
-load is an opaque `llvm.type.checked.load` until late in LTO, after the
-inliner, so `start` stays out of line (+76 B, `kernel_loop` -32 B,
+`dyn SchedulerTimer` (one vtable). In both builds the call is direct before
+the LTO inliner (plain: folded before LTO; VFE: whole-program
+devirtualization early in LTO). Plain inlines it (remark: cost -14,960 =
+40 minus the 15,000 last-call-to-a-local-function bonus); VFE doesn't ("too
+costly, cost=40, threshold=5"), because the `SysTick` vtable still
+references `start` - VFE keeps every slot until its GlobalDCE at the end of
+LTO, so `start` has two uses (+76 B, `kernel_loop` -32 B,
 `Uarte::handle_interrupt` -16 B, outliner stubs ~+6 B). A general VFE cost:
-calls through constant vtables lose inlining; on the app board slot removal
-outweighs it. (2) The extra "indirect calls" are a counting artifact: the
+functions referenced only from (eventually dead) vtable slots lose the
+single-use inlining bonus; on the app board slot removal outweighs it. (An
+earlier reading - the checked load stays opaque until after the inliner -
+was wrong: replaying the LTO pipeline with `opt` on the saved LTO input shows
+the direct call before both inliner runs.) (2) The extra "indirect calls" are a counting artifact: the
 post-LTO IR has the same indirect call sites in `kernel_loop` (52 plain, 51
 VFE); in plain, the machine outliner moved 9 of them into two stubs ending in
 `bx r2`, which a `blx` count misses. Counting `bx rN` too: kernel only 47

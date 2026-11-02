@@ -1255,6 +1255,90 @@ calls in `kernel/kernel.rs` and `kernel/memop.rs`, dead with `NUM_PROCS = 0`
 (no `Process` type is ever created); LLVM can't prove it (process array in a
 static), and the rewrite doesn't delete sites with an empty target set.
 
+**Vtable elimination without VFE, VTmax, every site decided** (Oct 29 - Nov 2;
+fork `7e3e57baefe`, `e9f83e3e836`, `83c3793b9dd`; `fsa-gaps` `8748acf`,
+`2222fdc`, `caedf03`; `ripgrep` `dc530df`; none cherry-picked onto `ripgrep`
+yet - pinned).
+- **Standalone vtable elimination** (`-Zverifopt-vtable-elim` without VFE):
+  rustc still types vtable reads and tags vtables, but sets no VFE module
+  flag; the LTO pass alternates plain GlobalDCE and shrinking until nothing
+  changes, then lowers every checked load to a plain load and drops the type
+  metadata - LTO continues as without VFE (no slot nulling, no whole-program
+  devirtualization). `VERIFOPT_VTABLE_ELIM_LEVEL=n`: lowering only (control:
+  the typed reads cost ~nothing, within 36 B of plain everywhere).
+- **Why VFE costs bytes** (corrected): VFE keeps every vtable slot until its
+  GlobalDCE at the end of LTO, so a function referenced only by a soon-dead
+  slot has two uses when the inliner runs and loses LLVM's 15,000
+  last-call-to-local bonus (kernel-only board: `SysTick::start`, cost 40 vs
+  threshold 5). Standalone elimination drops unread slots before inlining.
+- **VTmax** (manifests list each crate's vtables: type, trait, slot
+  instances; plugin `VTmax (n)` stats line, `VERIFOPT_EXACT_FROM=chamax|
+  vtables`): CHAmax restricted to instances in some vtable - RTA's criterion
+  with the collector's reachability (between CHAmax and from-`main` RTA).
+  imix rung 3: single exact 513 -> 533, `.text` 160,312 -> 160,232, with
+  elim 153,784 -> 153,808 (the newly direct calls' callees get inlined: code
+  moves, 18 fewer `blx`). The 35 calls LLVM's devirtualization still makes
+  direct over rung 3 + elim are capsule calls to hardware trait objects (UART,
+  GPIO pins, MAC device, AES client) whose other compiled impl is never a
+  vtable of that trait; 5 of them keep 2 vtables (probably same slot
+  function - unverified).
+- **Every compiled site gets a decision**: sites the analysis never reached
+  (rung 3's enumeration) get CHA candidates, so CHAmax/VTmax decides them as
+  in rung 3 (`VERIFOPT_NO_UNREACHED_FALLBACK=1` off; stats `Source:` per site
+  and a `Sources:` summary; the harness skips not-reached sites). The bound
+  replaces the analysis's set wherever it is smaller: 1 instance -> single
+  exact, 2..=K -> exact instances as targets (fork `pointers n=K exact`;
+  `VERIFOPT_NO_EXACT_MULTI=1` off; not over planned tags). The old "single
+  instance isn't among FSA's targets" refusal was a bug in the check: at all
+  129 such tock sites the compiled function is in FSA's set (the extras are
+  never-compiled impls); a real miss now logs "analysis bug" and uses the
+  bound. `--no-guarded` (`VERIFOPT_NO_GUARDED`): only single exact rewrites,
+  every guarded edit stays dyn (size setting).
+- imix K=1: fallback run (`fsafb_target`, 6.4 h) single exact 453 -> 512
+  (rung 3 513), `.text` 161,916 -> 160,368 (rung 3 160,312); `--no-guarded`
+  160,336 (the 4 unproven RNG / UART-mux guards); the rest (+24 B) is the
+  I2C interrupt site the bound rule now fixes (run `fsabd_target`, not
+  needed for now). K=4 (rung 3): 7 more sites rewritten, `.text` 162,768 ->
+  163,180 - guards add code, so K=1 is the size setting on tock.
+
+imix `.text` (K=1; VFE = with our fixes; verifopt = `fsa3` store unless noted):
+
+| build | `.text` | vs plain |
+|---|---|---|
+| plain | 164,068 | - |
+| typed reads only (control) | 164,032 | -36 |
+| elim (no VFE) | 159,712 | -4,356 |
+| VFE | 158,592 | -5,476 |
+| VFE + elim | 156,016 | -8,052 |
+| verifopt + elim (no VFE) | 155,760 | -8,308 |
+| verifopt + VFE + elim | 154,132 | -9,936 |
+| rung 3 + elim (no VFE) | 153,784 | -10,284 |
+| rung 3 + VFE + elim | 153,724 | -10,344 |
+
+Minimal nRF52840DK boards (K=1; verifopt = final plugin: fallback + bound
+rule, `fsabd` stores; `--no-guarded` identical in every verifopt row):
+
+| build | kernel-only | app |
+|---|---|---|
+| plain | 5,476 | 21,012 |
+| plain + VFE | 5,516 | 19,212 |
+| plain + elim (no VFE) | 5,412 | 19,564 |
+| plain + VFE + elim | 5,488 | 19,016 |
+| verifopt | 5,460 | 20,496 |
+| verifopt + VFE | 5,512 | 19,012 |
+| verifopt + elim (no VFE) | **5,368** | 18,440 |
+| verifopt + VFE + elim | 5,480 | **18,408** |
+| rung 3 | 5,460 | 20,496 |
+| rung 3 + VFE | 5,512 | 19,012 |
+| rung 3 + elim (no VFE) | 5,368 | 18,440 |
+| rung 3 + VFE + elim | 5,480 | 18,408 |
+
+(Rung-3 rows: Oct 29 runs, before the vtable-manifest change, which doesn't
+affect rung 3 at K=1. Verifopt equals rung 3 in every build on both boards.)
+
+Best: kernel-only verifopt + elim without VFE (-108 B), app verifopt + VFE +
+elim (-2,604 B, -12.4%; equal to rung 3 + VFE + elim).
+
 **Rung 3 implementation** (Oct 23, plugin only, uncommitted): env
 `VERIFOPT_CHA_ONLY=1` - `chamax::compiled_instances` lists this crate's mono
 items plus every dependency's non-generic functions (generic instances a

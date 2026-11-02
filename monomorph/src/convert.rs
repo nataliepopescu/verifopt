@@ -70,6 +70,31 @@ pub fn is_pointer_wrapper_adt(adtdef: &AdtDef) -> bool {
     )
 }
 
+/// Opaque ADTs whose operands convert_agg stores unflattened: the pointer
+/// wrappers, and `Vec`'s buffer and pointer plumbing (RawVec, RawVecInner,
+/// and what they're made of). Their fields hold one value each - a buffer
+/// pointer, whose value already is the union of the elements, a capacity, a
+/// layout - so flattening only added copies: every sub-value of the
+/// elements, once more per nesting level (a `Vec` of structs holding `Vec`s
+/// doubled per level - ripgrep's regex automata tables reached 136M nodes,
+/// with ~100 NonNull per Vec). Reads through them still flatten (opaque
+/// mode), so this stays sound. B-tree nodes keep flattening.
+pub fn stores_operands_unflattened(adtdef: &AdtDef) -> bool {
+    let name = adtdef.0.name();
+    is_pointer_wrapper_adt(adtdef)
+        || matches!(
+            name.splitn(2, "::").nth(1).unwrap_or(""),
+            "raw_vec::RawVec"
+                | "raw_vec::RawVecInner"
+                | "ptr::Alignment"
+                | "ptr::alignment::AlignmentEnum"
+                | "num::niche_types::UsizeNoHighBit"
+                | "marker::PhantomData"
+                | "mem::ManuallyDrop"
+                | "alloc::Global"
+        )
+}
+
 pub fn is_opaque_internal_defid(adtdef: &AdtDef) -> bool {
     let name = adtdef.0.name();
     let suffix = name.splitn(2, "::").nth(1).unwrap_or("");
@@ -996,8 +1021,9 @@ impl<'a> RvalConverter<'a> {
                         // grew by a constant factor per level (each
                         // `Arc::new` passes through ArcInner, Box, Unique,
                         // NonNull and Arc: ~12x per nested Arc - ripgrep's
-                        // `ignore` values reached billions of nodes).
-                        let res = if is_pointer_wrapper_adt(def) {
+                        // `ignore` values reached billions of nodes). The
+                        // same for Vec's buffer (stores_operands_unflattened).
+                        let res = if stores_operands_unflattened(def) {
                             op_constraints.clone()
                         } else {
                             ctxt.flatten_all(&op_constraints, cur_scope, timing)

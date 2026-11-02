@@ -1372,10 +1372,7 @@ impl<'a> InterpPass<'a> {
                                 let pointee = if always_one {
                                     (**inner).clone()
                                 } else {
-                                    Constraint::new(
-                                        inner.toc.clone(),
-                                        Some(RunningConstraint::List(inner.clone())),
-                                    )
+                                    as_list(inner)
                                 };
                                 Some(Constraint::new(
                                     c.toc.clone(),
@@ -1401,10 +1398,7 @@ impl<'a> InterpPass<'a> {
                         .iter()
                         .filter_map(|c| match &c.cfc {
                             Some(RunningConstraint::Ptr(inner)) => {
-                                let pointee = Constraint::new(
-                                    inner.toc.clone(),
-                                    Some(RunningConstraint::List(inner.clone())),
-                                );
+                                let pointee = as_list(inner);
                                 Some(Constraint::new(
                                     c.toc.clone(),
                                     Some(RunningConstraint::Ptr(Box::new(pointee))),
@@ -5589,6 +5583,21 @@ fn recent_stack_ops() -> String {
             .collect::<Vec<_>>()
             .join("\n")
     })
+}
+
+/// copy_nonoverlapping's destination pointee for a copy of several
+/// elements: a sequence of the source's elements. Idempotent - copying from a
+/// pointer that already points into a sequence (`List(x)`) gives the same
+/// sequence, not `List(List(x))`: one more layer per copy made every buffer
+/// that's copied repeatedly (a growing `Vec`, `extend_from_slice` in a loop)
+/// a new, deeper value each time, so they never merged (ripgrep's regex
+/// builders: 75M `<ptr/list>` nodes in one value).
+fn as_list(inner: &Constraint) -> Constraint {
+    if matches!(inner.cfc, Some(RunningConstraint::List(_))) {
+        inner.clone()
+    } else {
+        Constraint::new(inner.toc.clone(), Some(RunningConstraint::List(Box::new(inner.clone()))))
+    }
 }
 
 /// VERIFOPT_TRACE_SIZES: see the size trace in visit_body.

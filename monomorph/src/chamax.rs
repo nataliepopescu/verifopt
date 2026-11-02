@@ -44,7 +44,7 @@ pub struct ChaMax {
     pub not_applicable: Option<String>,
     /// The instances themselves, as (function, its own generic-arg hashes)
     /// from the manifests - only filled in when there are few of them (see
-    /// MAX_LISTED_INSTANCES); used to record a provably single target as an
+    /// max_listed_instances); used to record a provably single target as an
     /// exact instance (Store::exact).
     pub instances: Vec<(DefPathHash, Option<Vec<DefPathHash>>)>,
     /// "VTmax": the same, restricted to instances that sit in the slots of
@@ -99,8 +99,21 @@ impl ChaMax {
     }
 }
 
-/// Up to how many instances a site's ChaMax lists individually.
-const MAX_LISTED_INSTANCES: usize = 4;
+/// K: the most candidates a Pointers rewrite compares (`--max-candidates`,
+/// env VERIFOPT_MAX_CANDIDATES, default 4 - as the compiler reads it).
+pub fn max_candidates() -> usize {
+    std::env::var("VERIFOPT_MAX_CANDIDATES")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n >= 1)
+        .unwrap_or(4)
+}
+
+/// Up to how many instances a site's ChaMax lists individually: enough for a
+/// Pointers rewrite over them (K), and at least 4.
+fn max_listed_instances() -> usize {
+    max_candidates().max(4)
+}
 
 /// Computes CHAmax for every site in `cha`. Must run *after* the store has
 /// been written: it first makes rustc monomorphize (and partition) this crate
@@ -259,23 +272,27 @@ pub fn compute<'tcx>(
             total += count;
             per_candidate.push((*candidate, count));
             if let Some(set) = found
-                && listed.len() + set.len() <= MAX_LISTED_INSTANCES
+                && listed.len() + set.len() <= max_listed_instances()
             {
-                listed.extend(set.iter().map(|args| (hash, args.clone())));
+                // Sorted: a stable order for the rewrite's candidate list.
+                let mut sorted: Vec<&Option<Vec<DefPathHash>>> = set.iter().collect();
+                sorted.sort();
+                listed.extend(sorted.into_iter().map(|args| (hash, args.clone())));
             }
             // VTmax: the instances found in some vtable (an unhashable one,
             // `None`, is kept - it can't be matched, and CHAmax is already
             // incomplete for it).
-            let in_vt: Vec<&Option<Vec<DefPathHash>>> = found
+            let mut in_vt: Vec<&Option<Vec<DefPathHash>>> = found
                 .map(|set| {
                     set.iter()
                         .filter(|args| args.is_none() || in_vtable.contains(&(hash, (*args).clone())))
                         .collect()
                 })
                 .unwrap_or_default();
+            in_vt.sort();
             vt_total += in_vt.len();
             vt_per_candidate.push((*candidate, in_vt.len()));
-            if vt_listed.len() + in_vt.len() <= MAX_LISTED_INSTANCES {
+            if vt_listed.len() + in_vt.len() <= max_listed_instances() {
                 vt_listed.extend(in_vt.into_iter().map(|args| (hash, args.clone())));
             }
         }

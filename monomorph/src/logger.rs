@@ -1,7 +1,7 @@
 use rustc_public::DefId;
 use rustc_public::ty::{GenericArgs, Span};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{Error, Write};
 
@@ -30,6 +30,7 @@ impl VOLogger {
         dispatch_targets: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
         dispatch_cha: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
         chamax: &HashMap<(DefId, usize, GenericArgs), crate::chamax::ChaMax>,
+        unreached: &HashSet<(DefId, usize, GenericArgs)>,
     ) -> Result<(), Error> {
         let mut diff = Vec::new();
         let mut same = Vec::new();
@@ -119,6 +120,26 @@ impl VOLogger {
             crate::chamax::exact_from(),
         )?;
 
+        // Where each site's targets come from.
+        let (mut by_analysis, mut by_fallback) = (0, 0);
+        for (key, (_, fsa)) in dispatch_targets {
+            if unreached.contains(key) {
+                continue;
+            }
+            if dispatch_cha.get(key).map(|(_, v)| v) == Some(fsa) {
+                by_fallback += 1;
+            } else {
+                by_analysis += 1;
+            }
+        }
+        write!(
+            &mut self.stats_file,
+            "Sources: {} sites: analysis {by_analysis}, analysis fell back to CHA {by_fallback}, \
+             not reached by the analysis (CHA, as in CHAmax-only mode) {}\n",
+            dispatch_targets.len(),
+            unreached.len(),
+        )?;
+
         write!(&mut self.stats_file, "--MAYBE EXAMPLES--\n")?;
         for (key, span, cha, fsa) in &diff {
             let (caller_def_id, bb_index, caller_genargs) = key;
@@ -135,6 +156,7 @@ impl VOLogger {
                 fsa
             )?;
             write_chamax_line(&mut self.stats_file, chamax.get(key))?;
+            write_source_line(&mut self.stats_file, unreached.contains(key), cha, fsa)?;
             // (entries in this section end with a blank line)
             writeln!(&mut self.stats_file)?;
         }
@@ -155,10 +177,24 @@ impl VOLogger {
                 fsa
             )?;
             write_chamax_line(&mut self.stats_file, chamax.get(key))?;
+            write_source_line(&mut self.stats_file, unreached.contains(key), cha, fsa)?;
         }
 
         Ok(())
     }
+}
+
+/// The `Source: ...` line after a site's CHAmax/VTmax lines: where its
+/// targets come from.
+fn write_source_line<T: PartialEq>(out: &mut File, unreached: bool, cha: &T, fsa: &T) -> Result<(), Error> {
+    let source = if unreached {
+        "not reached by the analysis (CHA candidates, as in CHAmax-only mode)"
+    } else if cha == fsa {
+        "analysis fell back to CHA"
+    } else {
+        "analysis"
+    };
+    writeln!(out, "Source: {source}")
 }
 
 /// The `CHAmax (n[, incomplete: why]): [candidate xN, ...]` line after a site's

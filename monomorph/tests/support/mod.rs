@@ -65,7 +65,11 @@ pub fn parse_stats(text: &str) -> ExampleResult {
     let mut in_maybe_section = false;
     let mut sites = Vec::new();
 
-    let mut lines = text.lines();
+    // Sites the analysis didn't reach (`Source: not reached ...`) get their
+    // targets from CHA by construction, not from the analysis under test:
+    // they're left out, along with their counts.
+    let (mut skipped_maybe, mut skipped_not) = (0, 0);
+    let mut lines = text.lines().peekable();
     while let Some(raw_line) = lines.next() {
         let line = raw_line.trim();
         if let Some(rest) = line.strip_prefix("Num maybe examples = ") {
@@ -82,6 +86,22 @@ pub fn parse_stats(text: &str) -> ExampleResult {
             let span = normalize_span_path(&span);
             let cha_line = lines.next().unwrap_or("");
             let fsa_line = lines.next().unwrap_or("");
+            let mut unreached = false;
+            while let Some(next) = lines.peek() {
+                let next = next.trim();
+                if next.starts_with("CHAmax") || next.starts_with("VTmax") {
+                    lines.next();
+                } else if let Some(source) = next.strip_prefix("Source:") {
+                    unreached = source.contains("not reached");
+                    lines.next();
+                } else {
+                    break;
+                }
+            }
+            if unreached {
+                if in_maybe_section { skipped_maybe += 1 } else { skipped_not += 1 }
+                continue;
+            }
             let mut cha = extract_all_quoted_fields(cha_line, "name: \"");
             let mut fsa = extract_all_quoted_fields(fsa_line, "name: \"");
             cha.sort();
@@ -97,8 +117,8 @@ pub fn parse_stats(text: &str) -> ExampleResult {
 
     sites.sort_by(|a, b| a.span.cmp(&b.span));
     ExampleResult {
-        maybe_count,
-        not_count,
+        maybe_count: maybe_count - skipped_maybe,
+        not_count: not_count - skipped_not,
         sites,
     }
 }

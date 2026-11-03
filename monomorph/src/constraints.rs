@@ -400,6 +400,25 @@ impl Constraints {
         // duplicate is already present. Merge provenance into the existing
         // entry (via replace(), which keeps insertion order) instead of
         // just discarding it.
+        // An identical disjunct already there (one hash lookup - a value's
+        // hash reuses its parts' cached ones): join the provenance and stop.
+        // Nothing else can merge with it - push never keeps two disjuncts
+        // that differ in at most one field - and nothing is written (so a
+        // shared set isn't copied) unless the provenance changes; it isn't
+        // part of the hash, so the cached hash stays valid. Merging into
+        // existing values is mostly this case (ripgrep: ~70% of CPU in
+        // merges, a deep comparison against every disjunct per push).
+        if let Some(i) = self.inner.get_index_of(&new_constraint) {
+            let existing = &self.inner[i];
+            let mut prov = existing.prov.clone();
+            prov.join(&new_constraint.prov);
+            if prov != existing.prov {
+                let mut merged = existing.clone();
+                merged.prov = prov;
+                Rc::make_mut(&mut self.inner).replace(merged);
+            }
+            return;
+        }
         let mut new_constraint = new_constraint;
         // Lossless merging (see merge_if_one_field_differs): absorb, one at a
         // time, every existing disjunct that differs from the incoming one in
@@ -410,12 +429,15 @@ impl Constraints {
         // the differing field, which pushes into that field's value, so
         // merging once to test and again to apply doubled the work at every
         // nesting level - 2^depth for deeply nested values (tock's
-        // statically wired objects stalled for hours).
+        // statically wired objects stalled for hours). The equality test runs
+        // only on disjuncts the merge accepts (same shape, at most one field
+        // apart), not on every one.
         while let Some((i, merged)) = self.inner.iter().enumerate().find_map(|(i, c)| {
+            let merged = merge_if_one_field_differs(c, &new_constraint)?;
             if *c == new_constraint {
                 return None;
             }
-            merge_if_one_field_differs(c, &new_constraint).map(|m| (i, m))
+            Some((i, merged))
         }) {
             new_constraint = merged;
             Rc::make_mut(&mut self.inner).shift_remove_index(i);
@@ -431,6 +453,10 @@ impl Constraints {
     }
 
     pub fn append(&mut self, new_constraints: Constraints) {
+        // x ∪ x = x (e.g. merging a value both sides left unchanged).
+        if Rc::ptr_eq(&self.inner, &new_constraints.inner) {
+            return;
+        }
         for c in new_constraints.inner.iter() {
             self.push(c.clone());
         }

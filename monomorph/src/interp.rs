@@ -2882,7 +2882,12 @@ impl<'a> InterpPass<'a> {
                     &new_ctxt.cstore,
                     &Some(Rc::new(vec![caller_scope.clone()])),
                 );
-                widened = !store.0.cmap.ptr_eq(&old_substore.cmap);
+                // A merge that adds nothing can still build a new map: compare
+                // the entries, not only the allocation. Bumping the epoch for
+                // it made every memoized result that depends on this scope
+                // stale (ripgrep: all ~180 candidates of the formatting
+                // dispatches, on every call, so each one was re-simulated).
+                widened = !store.0.cmap.same_entries(&old_substore.cmap);
             }
             Some(_) => panic!("got constraint, expected store"),
             None => {

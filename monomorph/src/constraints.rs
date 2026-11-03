@@ -2032,6 +2032,15 @@ impl TrackedMap {
         self.map.ptr_eq(&other.map)
     }
 
+    /// Whether both maps hold equal values under the same keys - ptr_eq,
+    /// or else a comparison of the entries (values compare their cached
+    /// hashes first).
+    pub fn same_entries(&self, other: &Self) -> bool {
+        self.ptr_eq(other)
+            || (self.map.len() == other.map.len()
+                && self.map.iter().all(|(k, v)| other.map.get(k).is_some_and(|o| o == v)))
+    }
+
     /// Starts recording mutated keys - keeping any keys already recorded, so
     /// a context cloned inside an outer simulation stays a superset of what
     /// changed since the outermost one began.

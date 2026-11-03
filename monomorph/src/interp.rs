@@ -71,6 +71,18 @@ fn trace_scope_filter() -> &'static Option<String> {
     FILTER.get_or_init(|| std::env::var("VERIFOPT_TRACE_SCOPE").ok())
 }
 
+/// Diagnostics: VERIFOPT_TRACE_DISPATCH=<part of a trait method's name>
+/// (e.g. "Display::fmt") logs every virtual_call_memo miss for that method
+/// - site, argument fingerprint and size, why the memo missed, how often the
+/// caller is already on the call stack - and, when the simulation finishes,
+/// how many bb visits it took. Finds dispatches re-simulated over and over.
+fn trace_dispatch_filter() -> Option<&'static str> {
+    static FILTER: OnceLock<Option<String>> = OnceLock::new();
+    FILTER
+        .get_or_init(|| std::env::var("VERIFOPT_TRACE_DISPATCH").ok().filter(|s| !s.is_empty()))
+        .as_deref()
+}
+
 fn scope_matches_trace_filter(scope: &VOID) -> bool {
     match trace_scope_filter() {
         Some(filter) if !filter.is_empty() => {
@@ -997,7 +1009,10 @@ impl<'a> InterpPass<'a> {
             let init = self.static_get_constraints(ctxt, def);
             let ty = StaticDef(def).ty();
             let init = self.lift_traitobjtys(&self.contains_dyn(&ty), init, &scope);
-            ctxt.cstore.scoped_update_local(&scope, key, Box::new(MapValue::Constraints(init)), Some(self));
+            crate::constraints::materialize_static(|| {
+                ctxt.cstore.scoped_update_local(&scope, key, Box::new(MapValue::Constraints(init)), Some(self))
+            });
+            crate::constraints::note_static_materialized(&ctxt.cstore, def);
         }
         (place, scope)
     }
@@ -1049,6 +1064,7 @@ impl<'a> InterpPass<'a> {
             matches!(alloc.mutability, Mutability::Not) && self.converter.is_frozen(&ty, &mut seen);
 
         let constraints = if frozen {
+            crate::constraints::mark_static_frozen(defid);
             self.converter
                 .convert_static_const(&Location::unknown(), &ty, &alloc, None, Some(self))
         } else {
@@ -2746,7 +2762,7 @@ impl<'a> InterpPass<'a> {
             let epoch_before = *self.scope_epoch.borrow().get(&base_scope_id(cur_scope)).unwrap_or(&0);
             let hit = self.exact_memo.borrow().get(&memo_key).cloned();
             if let Some((cached, cached_epoch, writes)) = hit {
-                if cached_epoch == epoch_before && crate::write_log::reads_fresh(&writes) {
+                if cached_epoch == epoch_before && crate::write_log::reads_fresh(&writes, &ctxt.cstore) {
                     if precise_count >= 50 {
                         crate::assumptions::record(
                             crate::assumptions::Reason::MemoWidenedReuse,
@@ -3190,8 +3206,10 @@ impl<'a> InterpPass<'a> {
             .collect();
         let virtual_key: VirtualCallKey = (key.clone(), ArgSet::new(&resolved_args));
         let hit = self.virtual_call_memo.borrow().get(&virtual_key).cloned();
+        let trace_dispatch = trace_dispatch_filter().is_some_and(|f| fndef.name().contains(f));
+        let mut miss_reason = String::from("no entry");
         match hit {
-            Some((cached, recorded_scopes, writes)) if crate::write_log::reads_fresh(&writes) => {
+            Some((cached, recorded_scopes, writes)) if crate::write_log::reads_fresh(&writes, &ctxt.cstore) => {
                 let stale: Vec<(DefId, u64, u64)> = recorded_scopes
                     .iter()
                     .filter_map(|(scope, recorded_epoch)| {
@@ -3222,6 +3240,37 @@ impl<'a> InterpPass<'a> {
                         recorded_scopes.len(),
                         stale
                     );
+                    if trace_dispatch {
+                        let names: Vec<String> = recorded_scopes
+                            .iter()
+                            .filter(|(scope, recorded_epoch)| {
+                                self.scope_epoch.borrow().get(&base_scope_id(scope)).unwrap_or(&0)
+                                    != recorded_epoch
+                            })
+                            .take(3)
+                            .map(|(scope, _)| scope.0.name())
+                            .collect();
+                        miss_reason = format!(
+                            "stale {}/{} scopes [{}]",
+                            stale.len(),
+                            recorded_scopes.len(),
+                            names.join(" | ")
+                        );
+                    }
+                }
+            }
+            Some((_, _, writes)) => {
+                debug!("virtual_call_memo MISS (statics changed) for call site {:?}", key);
+                if trace_dispatch {
+                    let changed: Vec<String> = writes
+                        .reads
+                        .iter()
+                        .filter_map(|(def, fp)| {
+                            let now = crate::constraints::static_fingerprint(&ctxt.cstore, *def);
+                            (now != *fp).then(|| def.name())
+                        })
+                        .collect();
+                    miss_reason = format!("statics changed [{}]", changed.join(" | "));
                 }
             }
             _ => {
@@ -3229,6 +3278,21 @@ impl<'a> InterpPass<'a> {
             }
         }
         drop(_timing_guard);
+        let trace_start = trace_dispatch.then(|| {
+            let mut h = std::hash::DefaultHasher::new();
+            std::hash::Hash::hash(&virtual_key.1, &mut h);
+            let fingerprint = std::hash::Hasher::finish(&h);
+            let visits = *self.bb_visit_count.borrow();
+            warn!(
+                "[verifopt dispatch] visits={visits} site={}@bb{bb} method={} key={fingerprint:016x} arg_nodes={} miss={miss_reason} caller_on_stack={} depth={}",
+                caller_scope.0.name(),
+                fndef.name(),
+                resolved_args.iter().map(crate::constraints::constraints_size).sum::<usize>(),
+                call_stack.iter().filter(|s| s.0 == caller_scope.0).count(),
+                call_stack.len(),
+            );
+            (fingerprint, visits)
+        });
 
         // Get concrete type constraints for trait object
         // - ctxt (FSA) / tstore (CHA / RTA)
@@ -3432,6 +3496,14 @@ impl<'a> InterpPass<'a> {
             r
         };
         let writes: SharedLog = Rc::new(log);
+        if let Some((fingerprint, start)) = trace_start {
+            warn!(
+                "[verifopt dispatch end] site={}@bb{bb} key={fingerprint:016x} took={} visits ok={}",
+                caller_scope.0.name(),
+                *self.bb_visit_count.borrow() - start,
+                result.is_ok(),
+            );
+        }
         if let Ok(ref cs) = result {
             self.virtual_call_memo
                 .borrow_mut()

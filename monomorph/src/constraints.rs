@@ -2275,7 +2275,13 @@ impl ConstraintStore {
                 other => Some(other),
             };
         }
-        note_static_read(scope);
+        note_static_read(
+            scope,
+            match self.cmap.get(&MapKey::ScopeId(base_scope_id(scope))).map(|b| &**b) {
+                Some(MapValue::Store(store, _)) => Some(store),
+                _ => None,
+            },
+        );
         match self.cmap.get(&MapKey::ScopeId(base_scope_id(scope))) {
             Some(vartype) => match *vartype.clone() {
                 MapValue::Store(store, enclosing_scopes) => {
@@ -2431,7 +2437,7 @@ impl ConstraintStore {
                     // modify scope w new key/val
                     let _g2 =
                         timing.map(|p| p.timing_span(TimingCat::ScopedUpdateStorePost, scope));
-                    note_static_write(scope, store.cmap.get(&key), &new_val);
+                    note_static_write(scope, &store, &key, &new_val);
                     store.cmap.insert(key, new_val);
                     self.cmap.insert(
                         MapKey::ScopeId(base_scope_id(scope)),
@@ -2445,8 +2451,8 @@ impl ConstraintStore {
             None => {
                 // initialize new scope w key/val
                 let _g = timing.map(|p| p.timing_span(TimingCat::ScopedUpdateInitScope, scope));
-                note_static_write(scope, None, &value);
                 let mut new_store = ConstraintStore::new();
+                note_static_write(scope, &new_store, &key, &value);
                 new_store.cmap.insert(key, value);
                 self.cmap.insert(
                     MapKey::ScopeId(base_scope_id(scope)),
@@ -2513,7 +2519,7 @@ impl ConstraintStore {
             match self.cmap.get(&MapKey::ScopeId(base_scope_id(&scope))) {
                 Some(vartype) => match *vartype.clone() {
                     MapValue::Store(mut store, enclosing_scope) => {
-                        note_static_write(&scope, store.cmap.get(&key), &value);
+                        note_static_write(&scope, &store, &key, &value);
                         store.cmap.insert(key, value);
                         self.cmap.insert(
                             MapKey::ScopeId(base_scope_id(&scope)),
@@ -2691,7 +2697,36 @@ pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<
 // other places. The scope's store is part of the flow-sensitive context.
 thread_local! {
     static STATIC_SCOPES: RefCell<HashMap<Instance, DefId>> = RefCell::new(HashMap::new());
-    static STATIC_VERSIONS: RefCell<HashMap<DefId, u64>> = RefCell::new(HashMap::new());
+    /// Each static's fingerprint (store_fingerprint) right after its
+    /// starting value was materialized - the value a context without one
+    /// would materialize (reads_fresh).
+    static INITIAL_FINGERPRINTS: RefCell<HashMap<DefId, u64>> = RefCell::new(HashMap::new());
+    /// Statics no execution can change (immutable allocation, no interior
+    /// mutability - InterpPass::static_get_constraints' `frozen`): never
+    /// recorded as read, so no memo entry depends on them.
+    static FROZEN_STATICS: RefCell<HashSet<DefId>> = RefCell::new(HashSet::new());
+    /// Set while a context's first value for a static is stored
+    /// (materialize_static).
+    static MATERIALIZING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Marks static `def` as one whose value never changes (see FROZEN_STATICS).
+pub fn mark_static_frozen(def: DefId) {
+    FROZEN_STATICS.with(|f| f.borrow_mut().insert(def));
+}
+
+fn is_frozen_static(def: DefId) -> bool {
+    FROZEN_STATICS.with(|f| f.borrow().contains(&def))
+}
+
+/// Runs `f`, which stores a static's starting value (its initializer, or any
+/// value of its type) in a context that has none yet. That's the value every
+/// reader would have seen, not a change: it isn't logged as a write.
+pub fn materialize_static<R>(f: impl FnOnce() -> R) -> R {
+    let prev = MATERIALIZING.with(|m| m.replace(true));
+    let r = f();
+    MATERIALIZING.with(|m| m.set(prev));
+    r
 }
 
 /// The synthetic scope holding static `def`'s value (at `_0`).
@@ -2709,34 +2744,86 @@ pub fn static_of_scope(scope: &VOID) -> Option<DefId> {
     STATIC_SCOPES.with(|s| s.borrow().get(&scope.0).copied())
 }
 
-/// Static `def`'s version: bumped whenever its value changes. A memoized
-/// result is reused only while the statics it read keep the versions it saw
-/// (write_log::reads_fresh) - per static, so one written all the time (a
-/// writer, a counter) doesn't invalidate every memo entry.
-pub fn static_version(def: DefId) -> u64 {
-    STATIC_VERSIONS.with(|v| v.borrow().get(&def).copied().unwrap_or(0))
+/// A fingerprint of a static's store (its synthetic scope's entries; a
+/// static's value is at `_0`), independent of entry order. Memo entries record
+/// the fingerprint of each static they read as they first saw it
+/// (write_log::record_static_read), and a hit needs the current context's
+/// value to have the same one (write_log::reads_fresh).
+///
+/// This replaced a global per-static version, bumped by every write that
+/// changed the writing context's value. Values are per context, though:
+/// candidate simulations and branches each write their own copy, so a static
+/// written in several contexts got a new version on almost every write
+/// without its value ever growing - ripgrep's backtrace MAPPINGS_CACHE
+/// (`None` / `Some`, 1-3 nodes) passed 150 versions in 1M bb visits, and each
+/// one invalidated the memoized formatting dispatches that read it, which
+/// re-simulated 256 Display impls. Comparing values is exact: a hit is valid
+/// iff the static has the value the result was computed from.
+pub fn store_fingerprint(store: &ConstraintStore) -> u64 {
+    let mut combined: u64 = 0;
+    for (key, value) in store.cmap.iter() {
+        let mut h = DefaultHasher::new();
+        key.hash(&mut h);
+        value_fingerprint(value).hash(&mut h);
+        combined ^= h.finish();
+    }
+    combined
 }
 
-/// A read of `scope`'s store: if it is a static's, noted in the write-log
-/// frames (write_log::record_static_read).
-fn note_static_read(scope: &VOID) {
-    if let Some(def) = static_of_scope(scope) {
-        crate::write_log::record_static_read(def, static_version(def));
+fn value_fingerprint(value: &MapValue) -> u64 {
+    match value {
+        MapValue::Constraints(cs) => cs.content_hash(),
+        MapValue::Store(store, _) => store_fingerprint(store),
     }
 }
 
-/// After a write into `scope`'s store: if `scope` is a static's, and its value
-/// changed, a new version (the old one noted as read: a field write computes
-/// from the old value), and the write logged for memo replay
+/// Static `def`'s fingerprint in `cstore` (a context's store), or the one its
+/// materialized starting value has if the context holds none yet.
+pub fn static_fingerprint(cstore: &ConstraintStore, def: DefId) -> u64 {
+    match cstore.cmap.get(&MapKey::ScopeId(base_scope_id(&static_scope(def)))).map(|b| &**b) {
+        Some(MapValue::Store(store, _)) => store_fingerprint(store),
+        _ => INITIAL_FINGERPRINTS.with(|f| f.borrow().get(&def).copied().unwrap_or(0)),
+    }
+}
+
+/// Records static `def`'s fingerprint right after its starting value was
+/// materialized in `cstore` (see INITIAL_FINGERPRINTS).
+pub fn note_static_materialized(cstore: &ConstraintStore, def: DefId) {
+    let fp = static_fingerprint(cstore, def);
+    INITIAL_FINGERPRINTS.with(|f| {
+        f.borrow_mut().entry(def).or_insert(fp);
+    });
+}
+
+/// A read of `scope`'s store `store` (in a context's store): if it is a
+/// static's, its fingerprint noted in the write-log frames
+/// (write_log::record_static_read).
+fn note_static_read(scope: &VOID, store: Option<&ConstraintStore>) {
+    if let Some(def) = static_of_scope(scope)
+        && !is_frozen_static(def)
+    {
+        let fp = match store {
+            Some(store) => store_fingerprint(store),
+            None => INITIAL_FINGERPRINTS.with(|f| f.borrow().get(&def).copied().unwrap_or(0)),
+        };
+        crate::write_log::record_static_read(def, fp);
+    }
+}
+
+/// Before a write of `new` at `key` into `scope`'s store `store` (its entries
+/// before the write): if `scope` is a static's and its value changes, the
+/// store's fingerprint before the write noted as read (a field write computes
+/// from the old value) and the write logged for memo replay
 /// (write_log::record_static - the static's whole new value).
-fn note_static_write(scope: &VOID, old: Option<&Box<MapValue>>, new: &MapValue) {
+fn note_static_write(scope: &VOID, store: &ConstraintStore, key: &MapKey, new: &MapValue) {
     let Some(def) = static_of_scope(scope) else { return };
-    if old.is_some_and(|o| **o == *new) {
+    if is_frozen_static(def) || MATERIALIZING.with(|m| m.get()) {
         return;
     }
-    let version = static_version(def);
-    crate::write_log::record_static_read(def, version);
-    STATIC_VERSIONS.with(|v| v.borrow_mut().insert(def, version + 1));
+    if store.cmap.get(key).is_some_and(|o| **o == *new) {
+        return;
+    }
+    crate::write_log::record_static_read(def, store_fingerprint(store));
     crate::write_log::record_static(def, new);
 }
 

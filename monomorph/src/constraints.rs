@@ -39,19 +39,20 @@ const WRITE_FIELD_WIDEN_THRESHOLD: usize = 50;
 // this only needs to catch cases orders of magnitude beyond that.
 const NEW_VALUE_WIDEN_THRESHOLD: usize = 5_000;
 
-/// The two field maps' keys whose values differ (a key only one has counts),
-/// stopping once more than `limit` are found.
-fn differing_fields(a: &ADTFields, b: &ADTFields, limit: usize) -> Vec<usize> {
-    let mut out = Vec::new();
+/// The fields `a` and `b` disagree on (a key only one has counts):
+/// `Some(None)` if none, `Some(Some(k))` if only `k`, `None` if two or more.
+/// Runs for every same-shape pair a merge compares, so it allocates nothing.
+fn differing_field(a: &ADTFields, b: &ADTFields) -> Option<Option<usize>> {
+    let mut found = None;
     for k in a.keys().chain(b.keys().filter(|k| !a.contains_key(k))) {
         if a.get(k) != b.get(k) {
-            out.push(*k);
-            if out.len() > limit {
-                break;
+            if found.is_some() {
+                return None;
             }
+            found = Some(*k);
         }
     }
-    out
+    Some(found)
 }
 
 /// If `a` and `b` are the same ADT (def, generic args, variant) or closure
@@ -104,12 +105,12 @@ fn merge_if_one_field_differs(a: &Constraint, b: &Constraint) -> Option<Constrai
     if !same_toc_shape {
         return None;
     }
-    let cfc_diff = differing_fields(cfc_fields(&a.cfc)?, cfc_fields(&b.cfc)?, 1);
+    let cfc_diff = differing_field(cfc_fields(&a.cfc)?, cfc_fields(&b.cfc)?)?;
     let toc_diff = match (&a.toc, &b.toc) {
-        (Some((_, c1)), Some((_, c2))) => differing_fields(toc_fields(c1), toc_fields(c2), 1),
-        _ => Vec::new(),
+        (Some((_, c1)), Some((_, c2))) => differing_field(toc_fields(c1), toc_fields(c2))?,
+        _ => None,
     };
-    if cfc_diff.len() + toc_diff.len() > 1 {
+    if cfc_diff.is_some() && toc_diff.is_some() {
         return None;
     }
     // A field one side lacks is unknown there (see step_field_one): the
@@ -118,12 +119,12 @@ fn merge_if_one_field_differs(a: &Constraint, b: &Constraint) -> Option<Constrai
     let present_on_both = |fa: Option<&ADTFields>, fb: Option<&ADTFields>, k: usize| {
         fa.is_some_and(|f| f.contains_key(&k)) && fb.is_some_and(|f| f.contains_key(&k))
     };
-    if let Some(&k) = cfc_diff.first()
+    if let Some(k) = cfc_diff
         && !present_on_both(cfc_fields(&a.cfc), cfc_fields(&b.cfc), k)
     {
         return None;
     }
-    if let Some(&k) = toc_diff.first()
+    if let Some(k) = toc_diff
         && !present_on_both(
             a.toc.as_ref().map(|(_, c)| toc_fields(c)),
             b.toc.as_ref().map(|(_, c)| toc_fields(c)),
@@ -138,16 +139,18 @@ fn merge_if_one_field_differs(a: &Constraint, b: &Constraint) -> Option<Constrai
             into.entry(k).or_insert_with(Constraints::new).append(v.clone());
         }
     };
-    if let Some(&k) = cfc_diff.first() {
-        let from = cfc_fields(&b.cfc).expect("same shape").clone();
+    // `b`'s fields are only read: borrowed, not copied (they were cloned
+    // whole per merge level, a large share of ripgrep's merge time).
+    if let Some(k) = cfc_diff {
+        let from = cfc_fields(&b.cfc).expect("same shape");
         if let Some(RunningConstraint::Adt(_, _, _, f)) | Some(RunningConstraint::Closure(_, _, f)) = &mut merged.cfc {
-            union_at(f, &from, k);
+            union_at(f, from, k);
         }
     }
-    if let Some(&k) = toc_diff.first() {
-        let from = toc_fields(&b.toc.as_ref().expect("same shape").1).clone();
+    if let Some(k) = toc_diff {
+        let from = toc_fields(&b.toc.as_ref().expect("same shape").1);
         if let Some((_, TraitObjConstraint::Adt(_, _, _, f) | TraitObjConstraint::Closure(_, _, f))) = &mut merged.toc {
-            union_at(f, &from, k);
+            union_at(f, from, k);
         }
     }
     merged.prov.join(&b.prov);
@@ -410,11 +413,9 @@ impl Constraints {
         // merges, a deep comparison against every disjunct per push).
         if let Some(i) = self.inner.get_index_of(&new_constraint) {
             let existing = &self.inner[i];
-            let mut prov = existing.prov.clone();
-            prov.join(&new_constraint.prov);
-            if prov != existing.prov {
+            if !existing.prov.covers(&new_constraint.prov) {
                 let mut merged = existing.clone();
-                merged.prov = prov;
+                merged.prov.join(&new_constraint.prov);
                 Rc::make_mut(&mut self.inner).replace(merged);
             }
             return;
@@ -741,6 +742,15 @@ impl TagProv {
             (TagProv::Unknown, _) => {}
             (_, TagProv::Unknown) => *self = TagProv::Unknown,
             (TagProv::Tags(a), TagProv::Tags(b)) => a.extend(b.iter().cloned()),
+        }
+    }
+
+    /// Whether joining `other` into `self` would leave `self` unchanged.
+    pub fn covers(&self, other: &TagProv) -> bool {
+        match (self, other) {
+            (TagProv::Unknown, _) => true,
+            (_, TagProv::Unknown) => false,
+            (TagProv::Tags(a), TagProv::Tags(b)) => b.is_subset(a),
         }
     }
 }

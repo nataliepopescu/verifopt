@@ -678,9 +678,12 @@ impl<'a> InterpPass<'a> {
     /// them:
     /// - `_0` and the arguments stay (resolve_args accumulates arguments
     ///   across calls; memo and epoch logic depend on them);
-    /// - a local borrowed directly (`&`, `&mut`, `&raw` of it or of a field
-    ///   of it - not through a Deref, which borrows the pointee) stays: a
-    ///   pointer to it could outlive the call;
+    /// - a local any borrow mentions (`&`, `&mut`, `&raw` of it, of a field of
+    ///   it, or through it: `&(*L)`) stays: a pointer to it could outlive the
+    ///   call, and a borrow through it is an alias of the place `(*L)`, which
+    ///   the analysis resolves through L's value when L has no alias edge of
+    ///   its own (a raw pointer built from parts - regex_syntax's
+    ///   lift_common_prefix carries `&(*_119)` around a loop);
     /// - nothing is dropped from a body that creates a closure or coroutine
     ///   (a closure reads missing keys from its creator's store), contains
     ///   inline assembly, or is a coroutine (its state lives across resumes).
@@ -707,9 +710,7 @@ impl<'a> InterpPass<'a> {
                 let StatementKind::Assign(_, rvalue) = &stmt.kind else { continue };
                 match rvalue {
                     Rvalue::Ref(_, _, place) | Rvalue::AddressOf(_, place) => {
-                        if !place.projection.iter().any(|e| matches!(e, ProjectionElem::Deref)) {
-                            borrowed[place.local] = true;
-                        }
+                        borrowed[place.local] = true;
                     }
                     Rvalue::Aggregate(
                         AggregateKind::Closure(..)
@@ -808,6 +809,30 @@ impl<'a> InterpPass<'a> {
             );
             warn!("{line}");
             crate::constraints::append_dropped_report(&line);
+            // In reachable code, the blocks themselves (the MIR the analysis
+            // runs on numbers blocks differently from -Zunpretty=mir).
+            if bb_reachable {
+                let mut shown: Vec<usize> = vec![bb];
+                for (i, block) in body.blocks.iter().enumerate() {
+                    let assigns = block.statements.iter().any(|st| {
+                        matches!(&st.kind, StatementKind::Assign(place, _) if place.local == local)
+                    }) || matches!(&block.terminator.kind, TerminatorKind::Call { destination, .. } if destination.local == local);
+                    if assigns && !shown.contains(&i) {
+                        shown.push(i);
+                    }
+                }
+                for i in shown {
+                    let block = &body.blocks[i];
+                    let mut text = format!("[verifopt dropped read]     bb{i}:");
+                    for st in &block.statements {
+                        text.push_str(&format!(" {:?};", st.kind));
+                    }
+                    text.push_str(&format!(" -> {:?}", block.terminator.kind));
+                    let text: String = text.chars().take(4000).collect();
+                    warn!("{text}");
+                    crate::constraints::append_dropped_report(&text);
+                }
+            }
         }
     }
 

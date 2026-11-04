@@ -78,9 +78,9 @@ impl<'a> Iterator for Postorder<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct BBDeps {
     // Rc, not a plain Vec: this is a full clone of the function's MIR
-    // blocks (statements+terminators), and unlike preds/ordering/visited
+    // blocks (statements+terminators), and unlike ordering/visited/dead_edges
     // it's never mutated again after BBDeps::new() builds it - prune() and
-    // mark_visited() only ever touch preds/ordering/visited. Since
+    // mark_visited() only ever touch ordering/visited/dead_edges. Since
     // Context::clone() (called once per candidate at every dynamic-dispatch
     // site) derives Clone across the whole wtos: HashMap<VOID, BBDeps> map,
     // every visited function's MIR was getting fully re-copied on every
@@ -90,6 +90,9 @@ pub struct BBDeps {
     pub ordering: VecDeque<usize>,
     pub visited: Vec<usize>,
     pub has_ret: bool,
+    /// Switch edges (block, target) pruned during this walk (see prune);
+    /// empty in the per-scope template.
+    pub dead_edges: HashSet<(usize, usize)>,
 }
 
 impl BBDeps {
@@ -100,6 +103,7 @@ impl BBDeps {
             ordering: VecDeque::new(),
             visited: Vec::new(),
             has_ret: false,
+            dead_edges: HashSet::default(),
         };
 
         //debug!("%%%%%");
@@ -230,35 +234,32 @@ impl BBDeps {
         rpo
     }
 
-    pub fn prune(&mut self, _cur: usize, bb_root: usize) {
-        debug!("PRUNING from root basicblock: {:?}", bb_root);
-        //debug!("PRE self.ordering: {:?}", self.ordering);
-
-        let mut to_remove = Vec::new();
-        let mut worklist = Vec::new();
-        to_remove.push(bb_root);
-        worklist.push(bb_root);
-
-        // update predecessors
-        while !worklist.is_empty() {
-            let bb_to_prune = worklist.pop().unwrap();
-
-            for (key, val) in self.preds.iter_mut() {
-                if val.contains(&bb_to_prune) {
-                    val.retain(|&x| x != bb_to_prune);
-                    if val.is_empty() {
-                        to_remove.push(*key);
-                        worklist.push(*key);
-                    }
+    /// Prunes the edge from switch block `cur` to `target` (that arm can't
+    /// be taken in this context), then drops from the ordering every block
+    /// no longer reachable from the entry over the edges left.
+    ///
+    /// By reachability, not by predecessor counts. Removing `target` and
+    /// then each block whose predecessor list had emptied kept a loop behind
+    /// a pruned edge alive - its back edge stays a predecessor (ByteStr's
+    /// Display::fmt walked a loop whose only entry was pruned, reading
+    /// locals no visited block assigned) - and removed `target` even when
+    /// another, live block also jumps to it.
+    pub fn prune(&mut self, cur: usize, target: usize) {
+        debug!("PRUNING edge bb{cur} -> bb{target}");
+        self.dead_edges.insert((cur, target));
+        let mut reachable: HashSet<usize> = HashSet::default();
+        let mut stack = vec![START_BLOCK];
+        while let Some(bb) = stack.pop() {
+            if !reachable.insert(bb) {
+                continue;
+            }
+            for succ in self.blocks[bb].terminator.successors() {
+                if !self.dead_edges.contains(&(bb, succ)) {
+                    stack.push(succ);
                 }
             }
         }
-
-        // update ordering
-        self.ordering.retain(|x| !to_remove.contains(x));
-        //debug!("self.preds: {:?}", self.preds);
-        //debug!("to_remove: {:?}", to_remove);
-        //debug!("PST self.ordering: {:?}", self.ordering);
+        self.ordering.retain(|bb| reachable.contains(bb));
     }
 
     pub fn mark_visited(&mut self, bb: usize, cur_scope: &VOID) {

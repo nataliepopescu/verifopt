@@ -10,7 +10,7 @@ use im::hashmap::Entry as ImEntry;
 use rustc_public::DefId;
 use rustc_public::mir::mono::{Instance, InstanceKind, StaticDef};
 use rustc_public::mir::{
-    BasicBlock, Body, BorrowKind, ConstOperand, CopyNonOverlapping, LocalDecl, Mutability,
+    AggregateKind, BasicBlock, Body, BorrowKind, ConstOperand, CopyNonOverlapping, LocalDecl, Mutability,
     NonDivergingIntrinsic, Operand, Place, ProjectionElem, Rvalue, Statement, StatementKind,
     Successors, SwitchTargets, Terminator, TerminatorKind,
 };
@@ -145,6 +145,24 @@ fn report_merge_stats(interval: u64, bb_visits: u64) {
     })
 }
 
+/// Diagnostics: VERIFOPT_TRACE_DROP=<part of a function's name> logs, for
+/// matching scopes, each body walk (id, call-context hash, ordering length,
+/// the blocks it visits, how it ends) and each temporaries drop - to see
+/// how a dropped-read report (VERIFOPT_CHECK_DROPPED) comes about.
+fn trace_drop_matches(scope: &VOID) -> bool {
+    static FILTER: OnceLock<Option<String>> = OnceLock::new();
+    FILTER
+        .get_or_init(|| std::env::var("VERIFOPT_TRACE_DROP").ok().filter(|s| !s.is_empty()))
+        .as_deref()
+        .is_some_and(|f| scope.0.name().contains(f))
+}
+
+fn scope_hash(scope: &VOID) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(scope, &mut h);
+    std::hash::Hasher::finish(&h)
+}
+
 fn scope_matches_trace_filter(scope: &VOID) -> bool {
     match trace_scope_filter() {
         Some(filter) if !filter.is_empty() => {
@@ -266,6 +284,13 @@ pub struct InterpPass<'a> {
     pub scope_exact_memo_count: RefCell<HashMap<BaseScopeId, u32>>,
     pub scope_summaries_count: RefCell<HashMap<BaseScopeId, u32>>,
     body_cache: RefCell<HashMap<Instance, Rc<Body>>>,
+    /// Per instance, the locals a finished call's store can lose
+    /// (droppable_locals).
+    droppable_cache: RefCell<HashMap<Instance, Rc<HashSet<usize>>>>,
+    /// Per scope, the walks of its body (visit_body) in progress - a walk
+    /// can start inside another walk of the same scope (finish_frame's final
+    /// traverse after recursive calls, from the outer walk's Return block).
+    active_walks: RefCell<HashMap<VOID, u32>>,
     /// Memory diagnostics (VERIFOPT_CACHE_SIZES): one entry per active
     /// candidate simulation (simulate_static_calls), outermost first - the
     /// dispatching function, candidate index, candidate count, and the
@@ -381,6 +406,8 @@ impl<'a> InterpPass<'a> {
             scope_exact_memo_count: HashMap::new().into(),
             scope_summaries_count: HashMap::new().into(),
             body_cache: HashMap::new().into(),
+            droppable_cache: HashMap::new().into(),
+            active_walks: HashMap::new().into(),
             sim_levels: RefCell::new(Vec::new()),
             wto_templates: HashMap::new().into(),
             //param_summaries: HashMap::new().into(),
@@ -638,6 +665,152 @@ impl<'a> InterpPass<'a> {
             .clone()
     }
 
+    /// The locals of `cur_scope`'s body that its store can lose once a call
+    /// of it has finished (finish_frame): temporaries nothing outside the
+    /// call can reach. After each candidate simulation, every scope the
+    /// candidate wrote is merged into the accumulated context, including the
+    /// temporaries of every helper it called and finished; in ripgrep's
+    /// formatting dispatches those merges took most of the analysis (e.g.
+    /// `Formatter::pad`'s `_7`, 20 s of a 120 s window). A finished call's
+    /// temporaries are dead - writes through `&mut` reached the caller
+    /// through alias edges, and the next call recomputes them from its entry
+    /// block - so dropping them is sound, provided nothing can still reach
+    /// them:
+    /// - `_0` and the arguments stay (resolve_args accumulates arguments
+    ///   across calls; memo and epoch logic depend on them);
+    /// - a local borrowed directly (`&`, `&mut`, `&raw` of it or of a field
+    ///   of it - not through a Deref, which borrows the pointee) stays: a
+    ///   pointer to it could outlive the call;
+    /// - nothing is dropped from a body that creates a closure or coroutine
+    ///   (a closure reads missing keys from its creator's store), contains
+    ///   inline assembly, or is a coroutine (its state lives across resumes).
+    /// VERIFOPT_KEEP_TEMPORARIES=1 turns it off; VERIFOPT_CHECK_DROPPED=1
+    /// reports reads that find a dropped local missing.
+    fn droppable_locals(&self, cur_scope: &VOID, body: &Body) -> Rc<HashSet<usize>> {
+        static KEEP: OnceLock<bool> = OnceLock::new();
+        if *KEEP.get_or_init(|| std::env::var("VERIFOPT_KEEP_TEMPORARIES").is_ok_and(|v| v == "1")) {
+            return Rc::new(HashSet::new());
+        }
+        if let Some(cached) = self.droppable_cache.borrow().get(&cur_scope.0) {
+            return cached.clone();
+        }
+        let n_locals = body.locals().len();
+        let first_temp = body.arg_locals().len() + 1;
+        let is_coroutine = matches!(
+            cur_scope.0.ty().kind(),
+            TyKind::RigidTy(RigidTy::Coroutine(..) | RigidTy::CoroutineClosure(..))
+        );
+        let mut borrowed = vec![false; n_locals];
+        let mut excluded = is_coroutine;
+        for block in &body.blocks {
+            for stmt in &block.statements {
+                let StatementKind::Assign(_, rvalue) = &stmt.kind else { continue };
+                match rvalue {
+                    Rvalue::Ref(_, _, place) | Rvalue::AddressOf(_, place) => {
+                        if !place.projection.iter().any(|e| matches!(e, ProjectionElem::Deref)) {
+                            borrowed[place.local] = true;
+                        }
+                    }
+                    Rvalue::Aggregate(
+                        AggregateKind::Closure(..)
+                        | AggregateKind::Coroutine(..)
+                        | AggregateKind::CoroutineClosure(..),
+                        _,
+                    ) => excluded = true,
+                    _ => {}
+                }
+            }
+            if matches!(block.terminator.kind, TerminatorKind::InlineAsm { .. }) {
+                excluded = true;
+            }
+        }
+        let locals: HashSet<usize> = if excluded {
+            HashSet::new()
+        } else {
+            (first_temp..n_locals).filter(|l| !borrowed[*l]).collect()
+        };
+        let locals = Rc::new(locals);
+        self.droppable_cache.borrow_mut().insert(cur_scope.0, locals.clone());
+        locals
+    }
+
+    /// Diagnostics (VERIFOPT_CHECK_DROPPED): for each dropped-read report
+    /// from block `bb`'s visit, where the body assigns that local - to tell a
+    /// temporary still needed after its call from one read before this call
+    /// assigned it (a call destination the analysis didn't write).
+    fn explain_dropped_reads(&self, cur_scope: &VOID, body: &Body, bb: usize, visited: &[usize]) {
+        let pending = crate::constraints::take_pending_dropped_reads();
+        if pending.is_empty() {
+            return;
+        }
+        // The reading block's predecessors, and which of them this walk
+        // visited: none means the walk reached `bb` with every way into it
+        // pruned (unreachable in this context, by the analysis's own switch
+        // pruning) - a read there can't matter.
+        let preds: Vec<usize> = body
+            .blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.terminator.successors().contains(&bb))
+            .map(|(i, _)| i)
+            .collect();
+        let visited_preds: Vec<usize> = preds.iter().copied().filter(|p| visited.contains(p)).collect();
+        // Reachable in this walk: a path from bb0 through visited blocks.
+        // A block the walk visited although every way into it was pruned
+        // (see visit_body's pruning) isn't, nor is what's only reached
+        // through it.
+        let mut reachable: Vec<usize> = Vec::new();
+        let mut todo = vec![0usize];
+        while let Some(b) = todo.pop() {
+            if reachable.contains(&b) || (b != bb && !visited.contains(&b)) {
+                continue;
+            }
+            reachable.push(b);
+            if b == bb {
+                continue;
+            }
+            if let Some(block) = body.blocks.get(b) {
+                todo.extend(block.terminator.successors());
+            }
+        }
+        let bb_reachable = reachable.contains(&bb);
+        for local in pending {
+            let mut defs = Vec::new();
+            for (i, block) in body.blocks.iter().enumerate() {
+                for stmt in &block.statements {
+                    if let StatementKind::Assign(place, _) = &stmt.kind
+                        && place.local == local
+                    {
+                        defs.push(format!("bb{i} assign"));
+                    }
+                }
+                if let TerminatorKind::Call { destination, func, .. } = &block.terminator.kind
+                    && destination.local == local
+                {
+                    let callee = match func {
+                        Operand::Constant(co) => match co.const_.ty().kind() {
+                            TyKind::RigidTy(RigidTy::FnDef(fd, _)) => fd.0.name(),
+                            _ => "?".to_string(),
+                        },
+                        _ => "<indirect>".to_string(),
+                    };
+                    defs.push(format!("bb{i} call dest of {callee}"));
+                }
+            }
+            let line = format!(
+                "[verifopt dropped read]   {} _{local}: read in bb{bb}, call depth {}; defined at: {}; preds {:?}, visited {:?}{}",
+                cur_scope.0.name(),
+                self.key_stack.borrow().len(),
+                defs.join(", "),
+                preds,
+                visited_preds,
+                if bb_reachable { "" } else { " (unreachable here)" },
+            );
+            warn!("{line}");
+            crate::constraints::append_dropped_report(&line);
+        }
+    }
+
     /// A fresh block ordering for `cur_scope`: per-instance template (see
     /// BBDeps::new), cloned so each scope consumes its own `ordering`; the
     /// template's blocks are shared through their Rc instead of being copied
@@ -716,6 +889,38 @@ impl<'a> InterpPass<'a> {
         let mut last_res = None;
         let num_bbs = bb_deps.ordering.len();
         let mut saw_return = false;
+        // Counts this walk as in progress until it ends, on every exit.
+        struct WalkGuard<'a>(&'a RefCell<HashMap<VOID, u32>>, VOID);
+        impl Drop for WalkGuard<'_> {
+            fn drop(&mut self) {
+                let mut walks = self.0.borrow_mut();
+                if let Some(n) = walks.get_mut(&self.1) {
+                    *n -= 1;
+                    if *n == 0 {
+                        walks.remove(&self.1);
+                    }
+                }
+            }
+        }
+        *self.active_walks.borrow_mut().entry(cur_scope.clone()).or_insert(0) += 1;
+        let walk_guard = WalkGuard(&self.active_walks, cur_scope.clone());
+        let trace_drop = trace_drop_matches(cur_scope);
+        static WALK_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let walk_id = WALK_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut walked: Vec<usize> = Vec::new();
+        if trace_drop {
+            warn!(
+                "[verifopt drop trace] walk {walk_id} start {} ctx={:016x} ordering={} first={:?} visited_before={} active_walks={} depth={} visits={}",
+                cur_scope.0.name(),
+                scope_hash(cur_scope),
+                bb_deps.ordering.len(),
+                bb_deps.ordering.front(),
+                bb_deps.visited.len(),
+                self.active_walks.borrow().get(cur_scope).copied().unwrap_or(0),
+                call_stack.len(),
+                *self.bb_visit_count.borrow(),
+            );
+        }
 
         loop {
             if bb_deps.ordering.is_empty() {
@@ -916,13 +1121,45 @@ impl<'a> InterpPass<'a> {
                 bb,
                 data,
             )?;
+            if trace_drop {
+                walked.push(bb);
+            }
+            if crate::constraints::check_dropped_reads() {
+                self.explain_dropped_reads(cur_scope, body, bb, &bb_deps.visited);
+            }
         }
 
-        if !saw_return {
+        let result = if !saw_return {
             self.finish_frame(ctxt, call_stack, cur_scope, None)
         } else {
             Ok(last_res)
+        };
+        // The walk is over: the scope's temporaries are dead (see
+        // droppable_locals) - unless another walk of the same scope is still
+        // in progress: finish_frame's final traverse after recursive calls is
+        // a walk nested in the outer one (started at its Return block), and
+        // the outer walk goes on with its remaining blocks, which read them
+        // (str's TwoWaySearcher::next, serde_json's PrettyFormatter::
+        // end_object, ByteStr's Display, found by VERIFOPT_CHECK_DROPPED).
+        drop(walk_guard);
+        let on_stack = call_stack.contains(cur_scope);
+        let still_walking = self.active_walks.borrow().contains_key(cur_scope);
+        let mut removed = 0;
+        if !on_stack && !still_walking {
+            let locals = self.droppable_locals(cur_scope, body);
+            if !locals.is_empty() {
+                removed = ctxt.cstore.drop_scope_locals(cur_scope, &locals);
+            }
         }
+        if trace_drop {
+            warn!(
+                "[verifopt drop trace] walk {walk_id} end ctx={:016x} saw_return={saw_return} walked={:?} on_stack={on_stack} still_walking={still_walking} dropped={removed} visits={}",
+                scope_hash(cur_scope),
+                walked,
+                *self.bb_visit_count.borrow(),
+            );
+        }
+        result
     }
 
     fn visit_basic_block(
@@ -2669,12 +2906,13 @@ impl<'a> InterpPass<'a> {
             );
         }
         log::warn!(
-            "[verifopt memory extra] bb_visits={n} malloc_in_use={malloc_mb}MB rss={rss_mb}MB virtual_memo={vm_n} ({vm_key_nodes} key nodes) refs={refs_scopes} scopes/{refs_places} places/{refs_edges} edges return_walks={} body_cache={} wto_templates={} dispatch_targets={dt_n} ({dt_targets} targets) dispatch_cha={} assumptions={} memo_top=[{memo_top}]",
+            "[verifopt memory extra] bb_visits={n} malloc_in_use={malloc_mb}MB rss={rss_mb}MB virtual_memo={vm_n} ({vm_key_nodes} key nodes) refs={refs_scopes} scopes/{refs_places} places/{refs_edges} edges return_walks={} body_cache={} wto_templates={} dispatch_targets={dt_n} ({dt_targets} targets) dispatch_cha={} assumptions={} dropped_temporaries={} memo_top=[{memo_top}]",
             self.return_walks.borrow().len(),
             self.body_cache.borrow().len(),
             self.wto_templates.borrow().len(),
             self.dispatch_cha.borrow().len(),
             crate::assumptions::entries(),
+            crate::constraints::dropped_temporaries(),
         );
         log::warn!(
             "[verifopt memory] bb_visits={n} rss={rss_mb}MB elapsed={}s exact_memo={em_n} ({em_nodes} value nodes, {em_key_nodes} key nodes) summaries={sm_n} ({sm_nodes} value nodes, {sm_key_nodes} key nodes) stores={store_vars} vars ({store_nodes} nodes) replay_logs={wl_entries} entries ({wl_values} values, {wl_distinct} distinct, {wl_nodes} nodes) rc_caches=[{}lift={}/{} cast={}/{}] wq={wq_keys} keys/{wq_items} items ({wq_nodes} arg nodes, {wq_stack} saved stack frames) in_queue={} dependencies={} incomplete={} dispatch_tags={} scope_epoch={} cstore_cmap={} key_stack={} stack=[{}]",

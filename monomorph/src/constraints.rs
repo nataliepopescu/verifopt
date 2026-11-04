@@ -15,6 +15,7 @@ use crate::sig_collect::SigVal;
 use crate::wto::BBDeps;
 
 use log::{debug, warn};
+use std::io::Write;
 
 use im::HashMap as ImHashMap;
 use im::HashSet as ImHashSet;
@@ -2125,6 +2126,39 @@ impl ConstraintStore {
         self.refs.remove(scope);
     }
 
+    /// Removes the entries of `locals` (whole locals and field paths of
+    /// them) from `scope`'s store - for a scope that has finished, its
+    /// temporaries (see InterpPass::droppable_locals). Returns how many
+    /// entries went.
+    pub fn drop_scope_locals(&mut self, scope: &VOID, locals: &HashSet<usize>) -> usize {
+        let scope_key = MapKey::ScopeId(base_scope_id(scope));
+        let Some(MapValue::Store(store, es)) = self.cmap.get(&scope_key).map(|b| &**b) else {
+            return 0;
+        };
+        let doomed: Vec<MapKey> = store
+            .cmap
+            .iter()
+            .filter_map(|(k, _)| match k {
+                MapKey::Var(place) if locals.contains(&place.local) => Some(k.clone()),
+                _ => None,
+            })
+            .collect();
+        if doomed.is_empty() {
+            return 0;
+        }
+        let (mut store, es) = (store.clone(), es.clone());
+        for k in &doomed {
+            store.cmap.remove(k);
+            if check_dropped_reads() {
+                let MapKey::Var(place) = k else { unreachable!() };
+                DROPPED_LOCALS.with(|d| d.borrow_mut().insert((base_scope_id(scope), place.local)));
+            }
+        }
+        self.cmap.insert(scope_key, Box::new(MapValue::Store(store, es)));
+        DROPPED_COUNT.with(|c| c.set(c.get() + doomed.len() as u64));
+        doomed.len()
+    }
+
     fn ref_targets(&self, cur: &(Place, VOID)) -> Option<&ImHashSet<((Place, VOID), Mutability)>> {
         self.refs.get(&cur.1).and_then(|m| m.get(&cur.0))
     }
@@ -2310,6 +2344,11 @@ impl ConstraintStore {
                     match store.cmap.get(key) {
                         Some(boxed) => Some(*boxed.clone()),
                         None => {
+                            if check_dropped_reads()
+                                && let MapKey::Var(place) = key
+                            {
+                                note_dropped_read(scope, place.local);
+                            }
                             if is_closure && enclosing_scopes.is_some() {
                                 // Check enclosing scopes for missing key(s)
                                 let constraints =
@@ -2727,6 +2766,63 @@ thread_local! {
     /// Set while a context's first value for a static is stored
     /// (materialize_static).
     static MATERIALIZING: Cell<bool> = const { Cell::new(false) };
+}
+
+thread_local! {
+    /// (scope, local) pairs drop_scope_locals removed (only recorded with
+    /// VERIFOPT_CHECK_DROPPED), and the pairs whose later read was reported.
+    static DROPPED_LOCALS: RefCell<HashSet<(BaseScopeId, usize)>> = RefCell::new(HashSet::new());
+    static DROPPED_READS_REPORTED: RefCell<HashSet<(BaseScopeId, usize)>> = RefCell::new(HashSet::new());
+    /// Entries drop_scope_locals removed (diagnostics, `[verifopt memory extra]`).
+    static DROPPED_COUNT: Cell<u64> = const { Cell::new(0) };
+    /// Reports waiting for InterpPass::explain_dropped_reads (it has the body).
+    static PENDING_DROPPED_READS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The locals reported since the last call (see PENDING_DROPPED_READS).
+pub fn take_pending_dropped_reads() -> Vec<usize> {
+    PENDING_DROPPED_READS.with(|p| std::mem::take(&mut *p.borrow_mut()))
+}
+
+pub fn dropped_temporaries() -> u64 {
+    DROPPED_COUNT.with(|c| c.get())
+}
+
+/// Diagnostics: VERIFOPT_CHECK_DROPPED=1 records every temporary
+/// drop_scope_locals removes and warns (`[verifopt dropped read]`, once per
+/// scope and local) when a read then finds one missing - a temporary that
+/// was still needed after its call finished, i.e. a case the
+/// droppable_locals rules don't cover. Any other value than "1" is a file
+/// the reports are appended to as well (fixture runs keep no log).
+fn check_dropped_setting() -> &'static Option<String> {
+    static ON: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    ON.get_or_init(|| std::env::var("VERIFOPT_CHECK_DROPPED").ok().filter(|v| !v.is_empty()))
+}
+
+pub fn check_dropped_reads() -> bool {
+    check_dropped_setting().is_some()
+}
+
+fn note_dropped_read(scope: &VOID, local: usize) {
+    let key = (base_scope_id(scope), local);
+    if DROPPED_LOCALS.with(|d| d.borrow().contains(&key))
+        && DROPPED_READS_REPORTED.with(|r| r.borrow_mut().insert(key))
+    {
+        let line = format!("[verifopt dropped read] {} _{local} read after being dropped", scope.0.name());
+        warn!("{line}");
+        PENDING_DROPPED_READS.with(|p| p.borrow_mut().push(local));
+        append_dropped_report(&line);
+    }
+}
+
+/// Appends `line` to the VERIFOPT_CHECK_DROPPED file, if one was given.
+pub fn append_dropped_report(line: &str) {
+    if let Some(path) = check_dropped_setting()
+        && path != "1"
+        && let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(f, "{line}");
+    }
 }
 
 /// Marks static `def` as one whose value never changes (see FROZEN_STATICS).

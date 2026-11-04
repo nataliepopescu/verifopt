@@ -83,6 +83,68 @@ fn trace_dispatch_filter() -> Option<&'static str> {
         .as_deref()
 }
 
+/// Diagnostics: VERIFOPT_MERGE_STATS=<seconds> prints, every that many
+/// seconds, where context merges (merge_contexts_timed, after each candidate
+/// simulation) spent their time in that window: their count and time, the
+/// scope keys visited and actually merged (not identical), and the scopes and
+/// variables whose value merges took longest, with the merged values' sizes.
+fn merge_stats_interval() -> Option<u64> {
+    static INTERVAL: OnceLock<Option<u64>> = OnceLock::new();
+    *INTERVAL.get_or_init(|| std::env::var("VERIFOPT_MERGE_STATS").ok().and_then(|v| v.parse().ok()))
+}
+
+#[derive(Default)]
+struct MergeStats {
+    window_start: Option<std::time::Instant>,
+    context_merges: u64,
+    context_nanos: u128,
+    scopes_visited: u64,
+    scopes_merged: u64,
+    /// Scope name -> (value merges, nanos).
+    by_scope: HashMap<String, (u64, u128)>,
+    /// "scope place" -> (value merges, nanos, largest merged value in nodes).
+    by_var: HashMap<String, (u64, u128, usize)>,
+}
+
+thread_local! {
+    static MERGE_STATS: RefCell<MergeStats> = RefCell::new(MergeStats::default());
+    /// The scope whose store is being merged (its variables' entries are
+    /// recorded under it).
+    static MERGE_SCOPE_LABEL: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// Prints and resets the merge statistics once the window has passed.
+fn report_merge_stats(interval: u64, bb_visits: u64) {
+    MERGE_STATS.with(|s| {
+        let mut s = s.borrow_mut();
+        let start = *s.window_start.get_or_insert_with(std::time::Instant::now);
+        let window = start.elapsed();
+        if window.as_secs() < interval {
+            return;
+        }
+        let ms = |n: u128| n / 1_000_000;
+        let mut scopes: Vec<_> = s.by_scope.iter().collect();
+        scopes.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+        let mut vars: Vec<_> = s.by_var.iter().collect();
+        vars.sort_by(|a, b| b.1.1.cmp(&a.1.1));
+        warn!(
+            "[verifopt merge stats] bb_visits={bb_visits} window={}s context_merges={} merge_time={}ms scopes_visited={} scopes_merged={}",
+            window.as_secs(),
+            s.context_merges,
+            ms(s.context_nanos),
+            s.scopes_visited,
+            s.scopes_merged,
+        );
+        for (name, (n, nanos)) in scopes.iter().take(12) {
+            warn!("[verifopt merge stats] scope {}ms x{n} {name}", ms(*nanos));
+        }
+        for (name, (n, nanos, max_nodes)) in vars.iter().take(15) {
+            warn!("[verifopt merge stats] var {}ms x{n} max={max_nodes} nodes {name}", ms(*nanos));
+        }
+        *s = MergeStats { window_start: Some(std::time::Instant::now()), ..MergeStats::default() };
+    })
+}
+
 fn scope_matches_trace_filter(scope: &VOID) -> bool {
     match trace_scope_filter() {
         Some(filter) if !filter.is_empty() => {
@@ -4620,8 +4682,17 @@ impl<'a> InterpPass<'a> {
         }
 
         let _timing_guard = self.timing_span(TimingCat::TermMergeCstoresMerge, scope);
+        let stats_start = merge_stats_interval().map(|_| std::time::Instant::now());
         let m_cstores =
             self.merge_cstores_timed(scope, cstores, rhs_base_refs_len, rhs_refs_unchanged);
+        if let (Some(interval), Some(t0)) = (merge_stats_interval(), stats_start) {
+            MERGE_STATS.with(|s| {
+                let mut s = s.borrow_mut();
+                s.context_merges += 1;
+                s.context_nanos += t0.elapsed().as_nanos();
+            });
+            report_merge_stats(interval, *self.bb_visit_count.borrow());
+        }
         drop(_timing_guard);
 
         let mut wtos_iter = wtos_list.into_iter();
@@ -4796,6 +4867,10 @@ impl<'a> InterpPass<'a> {
                 let key = &key;
                 // `get`, not `get_mut`: the value is only read, and get_mut
                 // copies the map's nodes on the way down (copy-on-write).
+                let stats = merge_stats_interval().is_some();
+                if stats && matches!(key, MapKey::ScopeId(_)) {
+                    MERGE_STATS.with(|s| s.borrow_mut().scopes_visited += 1);
+                }
                 match merged.cmap.get(key) {
                     // A candidate's context is a persistent clone of the
                     // base, so most entries are still the very same value on
@@ -4805,8 +4880,44 @@ impl<'a> InterpPass<'a> {
                     Some(merged_val) if crate::merge::mapvals_identical(merged_val, val) => {}
                     Some(merged_val) => {
                         let _tg = self.timing_span(TimingCat::TermMergeMapsvalsMerge, scope);
+                        // Diagnostics (VERIFOPT_MERGE_STATS): a scope's entry
+                        // labels the variable merges nested in it.
+                        let outer_label = (stats && matches!(key, MapKey::ScopeId(_))).then(|| {
+                            let MapKey::ScopeId(b) = key else { unreachable!() };
+                            MERGE_SCOPE_LABEL.with(|l| l.replace(b.0.name()))
+                        });
+                        let t0 = stats.then(std::time::Instant::now);
                         let new_merged_val =
                             crate::merge::merge_mapvals(merged_val, val, Some((self, scope)));
+                        if let Some(t0) = t0 {
+                            let nanos = t0.elapsed().as_nanos();
+                            MERGE_STATS.with(|s| {
+                                let mut s = s.borrow_mut();
+                                match key {
+                                    MapKey::ScopeId(b) => {
+                                        s.scopes_merged += 1;
+                                        let e = s.by_scope.entry(b.0.name()).or_default();
+                                        e.0 += 1;
+                                        e.1 += nanos;
+                                    }
+                                    MapKey::Var(place) => {
+                                        let nodes = match &new_merged_val {
+                                            MapValue::Constraints(cs) => crate::constraints::constraints_size(cs),
+                                            MapValue::Store(..) => 0,
+                                        };
+                                        let label = MERGE_SCOPE_LABEL.with(|l| format!("{} {place:?}", l.borrow()));
+                                        let e = s.by_var.entry(label).or_default();
+                                        e.0 += 1;
+                                        e.1 += nanos;
+                                        e.2 = e.2.max(nodes);
+                                    }
+                                    MapKey::Static(_) => {}
+                                }
+                            });
+                        }
+                        if let Some(prev) = outer_label {
+                            MERGE_SCOPE_LABEL.with(|l| *l.borrow_mut() = prev);
+                        }
                         drop(_tg);
                         merged.cmap.insert(key.clone(), Box::new(new_merged_val));
                     }

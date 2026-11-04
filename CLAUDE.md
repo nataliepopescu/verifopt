@@ -1,7 +1,7 @@
 # verifopt — handoff notes
 
 Context for continuing this work in Claude Code. Started at the end of a long
-debugging/design conversation (Sept–Oct 2026), last updated Oct 27 2026. Verify against
+debugging/design conversation (Sept–Oct 2026), last updated Nov 3 2026. Verify against
 `git log` in each repo before assuming anything below is applied.
 
 Lives in the verifopt repo (`~/hack/verifopt/CLAUDE.md`, versioned there);
@@ -96,9 +96,9 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
   is *compiled*; deps cargo considers fresh write none, and every site's
   CHAmax becomes "incomplete" (no `single exact`). Always `cargo clean
   --target-dir …` before an analysis run.
-- Current ripgrep cost (Oct 2026, build-std, after the Oct 18–20 fixes):
-  the `rg` analysis takes hours and ~30 GB; don't run two at once on the
-  62 GB machine. Run experiments from a separate install root
+- Current ripgrep cost (Nov 3 2026, build-std, `a9ad236`, uncapped): the
+  `rg` analysis takes ~1 h 46 min and ~8-9 GB (whole pipeline ~1 h 55 min);
+  two at once fit on the 62 GB machine. Run experiments from a separate install root
   (`cargo install --path . --root /tmp/vo_x`, then put `/tmp/vo_x/bin`
   first on PATH: cargo-verifopt runs the `verifopt` next to itself).
 - **Diagnostics** (all at warn level, so visible with
@@ -112,6 +112,18 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
     Its size walks are expensive — not for timing runs.
   - `VERIFOPT_TIMING=1`: per-scope timing spans (off by default; they cost
     memory per call context).
+  - `VERIFOPT_TRACE_DISPATCH=<part of a trait method name>` (e.g.
+    `Display::fmt`): every virtual_call_memo miss for that method - site,
+    argument fingerprint and size, reason (no entry / stale scopes with their
+    names / statics changed with their names), caller-on-stack count - and
+    each simulation's length in bb visits (`[verifopt dispatch end]`).
+  - `VERIFOPT_MERGE_STATS=<seconds>` (uncommitted as of Nov 3): per window,
+    context merges after candidate simulation - count, time, scope keys
+    visited / actually merged - and the scopes and variables (scope + place)
+    whose merges took longest, with the merged values' sizes.
+  - Visit counts don't compare across plugin versions that re-simulate
+    differently (Nov 3: the epoch fix halved visits for the same results);
+    compare runs by wall time to the same state (memo entries) or to the end.
   - `STACK DESYNC` panics print the last 64 call/key-stack operations.
   - Profiling a running analysis: `perf record -F 49 --call-graph
     dwarf,16384 -p <pid> -- sleep 8` (read-only); `heaptrack` from
@@ -236,6 +248,20 @@ pointing at the `rust-mono-rewrite` toolchain.
   opt-in. Merging a candidate's context back only visits the scope stores
   either side wrote (`TrackedMap` records writes while a candidate
   simulation runs) and skips entries identical by pointer.
+- **Memo validity** (as of Nov 3, `536c27e`, `f48c511`): a memoized result
+  (exact memo, virtual-call memo, summaries) records, for each static it
+  read, a fingerprint of that static's store as the call first saw it
+  (`store_fingerprint`); a hit needs the current context to hold the same
+  value (`reads_fresh(log, cstore)`). No global per-static versions any more:
+  values are per context, and a version bumped by writes in other contexts
+  (candidate copies, branches) invalidated results whose inputs hadn't
+  changed. Frozen statics (immutable allocation, no interior mutability) are
+  never recorded; materializing a static's starting value in a context is not
+  a write (`materialize_static`). A scope's epoch (the other staleness check)
+  moves only when merging new arguments into its store changes its entries
+  (`TrackedMap::same_entries`), not when the merge merely builds a new map.
+  Remaining stale misses are real: a scope's store accumulates the union of
+  all argument values it is called with.
 - **Errors**: call error paths truncate both stacks to their pre-call length
   (`unwind_stacks_to`); nested re-interpretation deeper than `MAX_DEPTH`
   (50) answers the call from its signature ("recursion depth limit").
@@ -400,6 +426,56 @@ pointing at the `rust-mono-rewrite` toolchain.
   vtables (`Process` 252 B); the 17 multi-vtable traits hold 105 vtables /
   1,960 B (fmt::Debug 33, SyscallDriver 19, fmt::Write 9).
 
+- **ripgrep finishes uncapped again, Nov 2-3** (build-std, `--bin rg`,
+  `--max-candidates 1`, no cap; job tmp `rg_full4.sh`, `rg_exp.done`).
+  - Value growth (Nov 2): `fb516e9` builds `Vec`'s buffer (`RawVec`,
+    `RawVecInner` and their plumbing) unflattened, `23abac1` keeps a sequence
+    copied by `copy_nonoverlapping` one `List` (it nested `List(List(..))`
+    per copy). Values ~6x smaller; a cap-64 analysis completes in ~5 min. The
+    uncapped run (`full1`, Nov 2-3) still didn't finish: stopped at 06:00
+    after 50,538 s, 4.1M bb visits, in nested `Display::fmt` simulation.
+  - Cost of the nested formatting dispatches (256 Display candidates, 3-4
+    levels deep: `&dyn Error` / `io::Error` / anyhow's `BoxedError` dispatch
+    `Display::fmt` again). A `VERIFOPT_TRACE_DISPATCH` trace showed the
+    memo missing over and over for the same arguments: first because
+    immutable lookup tables (`ryu`'s `DIGIT_TABLE`, `serde_json`'s
+    `ESCAPE`, ...) got new versions each time a candidate's context copy
+    materialized them, then because backtrace's `MAPPINGS_CACHE` (1-3 nodes,
+    `None`/`Some`) passed 150 versions in 1M visits from writes in other
+    contexts, then because a scope's epoch moved on every argument merge that
+    built a new map. Fixed by `536c27e` (value fingerprints, frozen statics,
+    materialization) and `f48c511` (epoch only on a real store change); see
+    "Memo validity" in §3. Widening a static after 16 versions was tried
+    and removed: the values never grew, the versions did.
+  - Runs (job tmp `rg_exp.done`; outputs `out_exp_<name>`):
+
+    | run | plugin | pipeline | analysis | bb visits | peak RSS |
+    |---|---|---|---|---|---|
+    | `full1` | growth fixes | stopped after 50,538 s | - | 4.1M | 9.9 GB |
+    | `full3` | + cheaper merges (`37ec8c0`) | stopped after 10,969 s | - | 3.25M | 4.8 GB |
+    | `full7` | + value-checked memo (`536c27e`) | 7,643 s | ~7,110 s | 4.75M | 8.7 GB |
+    | `full8` | + epoch fix (`f48c511`), = `a9ad236` | **6,866 s** | ~6,340 s | 2M | 8.2 GB |
+
+    `full7` and `full8`: identical edits, byte-identical `rg`; one of 181
+    sites differs (`DebugTuple::field`'s closure, 3,149 CHA candidates:
+    `full8` adds `<String as Debug>::fmt`).
+  - `full8` results (`verifopt_results_exp_full8_target/`): 181 sites;
+    CHAmax complete 157, n/a 24; FSA = CHA fallback at 116, FSA == CHAmax at
+    3, FSA < CHAmax at 36, FSA > CHAmax at 2. Edits: 2 `single exact` (both
+    `ignore::WalkParallel::visit`), 11 `pointers n=1`, 259 skipped
+    `too_many_targets`. Output = plain on 21 of 22 `rg_cmp.sh` commands; the
+    22nd, `rg fn core`, has no `--sort` and differs between two plain runs
+    too (same 1,054 lines sorted).
+  - Where the time still goes (`perf` on `full8`, `VERIFOPT_MERGE_STATS` run
+    `mstats`): ~96% in merging each candidate's context back
+    (`merge_contexts_timed`), 89-96% of wall time per window in the slow
+    region; each context merge visits 300-1,500 written scopes. Most of it
+    is temporaries of finished formatting helpers: `Formatter::pad` 35-57 s
+    of a 120 s window (its `_7`, 43k nodes, 20.6 s; eleven ~240-node
+    temporaries ~3 s each), `Formatter::write_fmt`'s `_5`/`_6`,
+    `write_str`'s `_3`. Arguments (`write_fmt`/`write_str` `_1`, the
+    `Formatter`, 33-36k nodes) are the next largest. See §6 "Analysis cost".
+
 ## 5. Done: tock merged into one crate (boards/imix)
 
 Kernel/capsules/chip code is compiled inside `imix`, so every dispatch site
@@ -533,12 +609,31 @@ Gotchas hit doing it:
   `--ASSUMPTIONS--`. Fix: interpret `Drop` as a call to
   `drop_in_place::<T>` (resolve the drop-glue instance; for `dyn T` a virtual
   call through the vtable's drop slot).
-- **Analysis cost after the precision fixes**: hours and ~30 GB for ripgrep.
-  Context merges after candidate simulation were the hotspot; the Oct 20
-  dirty-key merges took the analysis from 229 to 196 min - a smaller gain
-  than hoped, so profile again before the next optimization. Next levers:
-  memo pressure (50 arg sets per function before widening; keys hold full
-  argument values), and the 4 sites with >3,000 CHA-sized targets.
+- **Analysis cost** (Nov 3): ripgrep's uncapped analysis now finishes in
+  ~1 h 46 min / ~8 GB (§4, "ripgrep finishes uncapped again"); ~96% of it
+  is merging each candidate's context back after candidate simulation, mostly
+  temporaries of finished formatting helpers. Next levers, in order:
+  1. **Drop a finished call's temporaries** (planned Nov 3, not
+     implemented): when a scope finishes and is off the call stack
+     (`finish_frame`, where its aliases are already pruned), remove its
+     non-argument locals from its store - nothing left to merge across
+     candidates. Arguments and `_0` stay (resolve_args accumulates
+     arguments; memo/epoch logic unchanged). Only locals whose address can't
+     escape: never borrowed in the body (no `&`/`&mut`/`&raw` of the local
+     or a projection of it - a per-instance MIR scan, cached like the
+     bodies), in a scope whose body creates no closure (the enclosing-scope
+     fallback reads the creator's store), not a coroutine. Sound: each call
+     recomputes its temporaries from the entry block. Check: under a
+     diagnostic switch, dropped (scope, local) pairs leave tombstones and a
+     later read of one logs `[verifopt dropped read]` - run on the fixtures
+     and ripgrep before trusting it.
+  2. Merge each key's candidate values in one pass instead of 255 pairwise
+     merges (pairwise is quadratic in disjuncts).
+  3. Per-candidate summaries reused across contexts (option 3, Oct 26) -
+     what would remove the argument merges (`Formatter` values, 33-36k
+     nodes) too.
+  Smaller: the 4 sites with >3,000 CHA-sized targets; memo pressure (50 arg
+  sets per function before widening).
 - **Soundness gaps the bigger reach exposes** (see the assumptions report):
   memo reuse under widened keys (plan (B) below) - 91k calls in ripgrep;
   `std::thread::LocalKey::try_with` loses its accessor (fn pointer in a
@@ -654,9 +749,9 @@ Gotchas hit doing it:
   faster, but tied to `fmt::Arguments`' internal layout. Revisit if a fresh
   ripgrep report has many benign "callee value empty" entries.
 
-## 7. Recent commits (Oct 17–26 2026; `git log` is authoritative)
+## 7. Recent commits (Oct 17 – Nov 3 2026; `git log` is authoritative)
 
-Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Oct 26):
+Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 3):
 
 - `4875a88` CHA matches impls of traits with their own generic params
 - `ce9a201` guard non-proven single rewrites (`--unguarded-single`);
@@ -698,6 +793,20 @@ Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Oct 26):
 - `ee0d35c` opt-in megamorphic cutoff (`VERIFOPT_MEGAMORPHIC_CAP`,
   experiment only) + step-0 switches `VERIFOPT_CUT_NO_HAVOC`,
   `VERIFOPT_CUT_KEEP_ENUMS`
+- `dc530df` switchInt branch counts saturate (a u8 wrapped to 0 at 256
+  disjuncts: "no possible branches" panic)
+- `fb516e9` `Vec`'s buffer (`RawVec`, `RawVecInner`, plumbing) built
+  unflattened; `23abac1` `copy_nonoverlapping` keeps one `List`
+  (value growth, Nov 2)
+- `37ec8c0` cheaper merges: exact duplicates by hash lookup, no copy for
+  no-op pushes, `append` returns at once for x ∪ x
+- `536c27e` memo hits check statics by value (fingerprints), frozen statics
+  untracked, materialization not a write; `VERIFOPT_TRACE_DISPATCH`
+- `f48c511` a scope's epoch moves only when the argument merge changes its
+  store (`TrackedMap::same_entries`)
+- `a9ad236` fewer copies in value merges (borrowed field map,
+  allocation-free `differing_field`, `TagProv::covers`) - ~2%, results
+  identical
 
 Fork (`~/hack/rust`): `73da158f0d5` disable unguarded/unproven single
 rewrites (on top of `5eec5c673e1` flexible max-candidates,
@@ -1374,18 +1483,27 @@ ripgrep (`<dir>/x86_64-unknown-linux-gnu/release/rg`; unwind = `.eh_frame_hdr
 | 1 hook baseline (Oct 21 store) | `hook_target` | 2,778,626 | 762,112 | 335,928 | 496,900 | 4,373,566 | 2,912 / 288 |
 | 3 CHAmax everywhere (undercounts) | `chamax_target` | 2,783,010 | 762,708 | 335,304 | 496,668 | 4,377,690 | 2,912 / 296 |
 | 4 verifopt (Oct 21 plugin, pre-statics) | `timing_target` | 2,780,034 | 762,112 | 335,928 | 497,348 | 4,375,422 | 2,912 / 288 |
+| 4 verifopt (Nov 3, `a9ad236`) | `exp_full8_target` | 2,777,667 | 762,220 | 336,056 | 497,028 | 4,372,971 | 2,912 / 296 |
 
-Missing: ripgrep rungs 2, 5 (fat-LTO builds), a current rung 4 (no
-complete analysis since the statics work), rung 3's own hook baseline,
-vtable bytes for ripgrep (a scan of `.data.rel.ro`); rung 6 both.
+Indirect calls (`call *`, excluding calls through the GOT): plain 3,503,
+Oct 21 rung 4 3,526, Nov 3 rung 4 3,514. The Nov 3 rung 4 is -8,063 B
+file-backed vs plain, but its hook baseline (partitioning edges from its own
+store, no rewrite) hasn't been built: the Oct 21 hook baseline alone was
+-7,468 B, so most of that is probably partitioning again.
+
+Missing: a hook baseline for the Nov 3 store, rung 4/5 under fat LTO (the
+LTO rows on the dashboard are rungs 1-2 + elimination; needs a new analysis
+under the LTO profile - stores are per build config), rung 3's own hook
+baseline, vtable bytes for ripgrep (a scan of `.data.rel.ro`); rung 6 both.
 
 Tock rung 4 re-checked Oct 26 on `ee0d35c` (cap unset, `boards/imix/cur_target`,
 pipeline 8,362 s): same 369 sites, same edits, byte-identical `.text`.
 
 **Status**: tock rungs 1, 2, 3, 4, 5 exist at K=1 (`plain_target`,
 `plainvfe_target`, `statics_target`, `rwvfe_target`: `.text` 164,068 /
-158,668 / 162,972 / 158,428). ripgrep: rung 1 exists; 4-5 wait for the
-`statics_target` analysis run. Order (revised Oct 27): steps 1-3 (shared
+158,668 / 162,972 / 158,428). ripgrep: rungs 1 and 4 (Nov 3,
+`exp_full8_target`) exist in the default profile, rungs 1-2 + elimination
+under fat LTO; rung 5 needs an analysis under the LTO profile. Order (revised Oct 27): steps 1-3 (shared
 instrumentation, recorder with counts, oracle store) after the current tock
 run (compiler rebuild); then ripgrep 6p (frequency-ordered `pointers`, no new
 edit kind); then PointersExact + vtable elimination for 6s (tock first, then
@@ -1499,7 +1617,9 @@ gap work above but not those (7 red there: `merge_widened_field` and
 runs (incl. the deferred-call dyn experiment) use `fsa-gaps`; ripgrep runs
 use `ripgrep` - never analyze ripgrep from `fsa-gaps` (no flatten fix: it
 explodes). If a fixed ripgrep run needs gap fixes before the merge,
-cherry-pick just those commits.
+cherry-pick just those commits. (Nov 3: ripgrep's uncapped analysis finishes
+on `ripgrep` - `a9ad236`, §4 - so the condition for merging is met; the
+merge itself hasn't been decided or done.)
 
 Related: the megamorphic cutoff (`VERIFOPT_MEGAMORPHIC_CAP`, opt-in, ripgrep
 experiments only) and its havoc of `&mut` args are *not* part of the tool;

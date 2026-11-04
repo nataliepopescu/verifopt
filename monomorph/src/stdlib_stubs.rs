@@ -718,7 +718,7 @@ impl<'a> InterpPass<'a> {
     /// constraint - which for an ADT has no fields (convert_ty's FIXME), so a
     /// trait object nested in some *other* ADT (e.g. `Vec<Box<dyn T>>`) is
     /// lost when those fields are read. That case is logged.
-    fn any_value(&self, ty: &Ty) -> Constraints {
+    pub(crate) fn any_value(&self, ty: &Ty) -> Constraints {
         match ty.kind() {
             TyKind::RigidTy(RigidTy::Ref(_, inner, _))
             | TyKind::RigidTy(RigidTy::RawPtr(inner, _)) => self.any_value(&inner),

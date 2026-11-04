@@ -163,6 +163,23 @@ fn scope_hash(scope: &VOID) -> u64 {
     std::hash::Hasher::finish(&h)
 }
 
+/// Why the call that just returned gave no value for its destination, when
+/// that's right (see InterpPass::call_result_missing). Set where a callee
+/// finishes without one; cleared before each call.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum NoResult {
+    /// The callee's walk reached no Return: it can't return in this context,
+    /// so nothing after the call runs.
+    NoReturn,
+    /// A recursive call whose scope is still being solved: answered with
+    /// nothing for now, and walked again once its result is known.
+    RecursionPending,
+}
+
+thread_local! {
+    static NO_RESULT: std::cell::Cell<Option<NoResult>> = const { std::cell::Cell::new(None) };
+}
+
 fn scope_matches_trace_filter(scope: &VOID) -> bool {
     match trace_scope_filter() {
         Some(filter) if !filter.is_empty() => {
@@ -1155,7 +1172,11 @@ impl<'a> InterpPass<'a> {
         }
 
         let result = if !saw_return {
-            self.finish_frame(ctxt, call_stack, cur_scope, None)
+            let r = self.finish_frame(ctxt, call_stack, cur_scope, None);
+            if matches!(r, Ok(None)) {
+                NO_RESULT.with(|n| n.set(Some(NoResult::NoReturn)));
+            }
+            r
         } else {
             Ok(last_res)
         };
@@ -2183,6 +2204,7 @@ impl<'a> InterpPass<'a> {
         let dest_ty = destination.ty(local_decls).unwrap();
         let maybe_trait_destty = self.contains_dyn(&dest_ty);
         self.pending_return_aliases.borrow_mut().push(Vec::new());
+        NO_RESULT.with(|n| n.set(None));
         let ret_constraints = match co.const_.ty().kind() {
             TyKind::RigidTy(rigid_ty) => match rigid_ty {
                 RigidTy::FnDef(fndef, genargs) => self.interp_fn_def(
@@ -2242,9 +2264,52 @@ impl<'a> InterpPass<'a> {
 
                 return Ok(Some(constraints));
             }
-            Ok(None) => Ok(None),
+            Ok(None) => {
+                let reason = NO_RESULT.with(|n| n.take());
+                self.call_result_missing(ctxt, cur_scope, co, destination, &dest_ty, &maybe_trait_destty, reason);
+                Ok(None)
+            }
             err @ Err(_) => return err,
         }
+    }
+
+    /// A call returned no value for `destination`. Right when the callee
+    /// can't return here (`!`, or no reachable Return - nothing after the
+    /// call runs) or is a recursive call still being solved (walked again
+    /// once its result is known); otherwise its result is simply unknown,
+    /// and the destination gets any value of its type (recorded as
+    /// CallResultUnknown). Leaving it unwritten kept whatever an earlier call
+    /// had left there (regex_automata's Compiler::c_look read add_look's
+    /// result from a previous call), and once finished calls' temporaries are
+    /// dropped (droppable_locals), no value at all.
+    #[allow(clippy::too_many_arguments)]
+    fn call_result_missing(
+        &self,
+        ctxt: &mut Context,
+        cur_scope: &VOID,
+        co: &ConstOperand,
+        destination: &Place,
+        dest_ty: &Ty,
+        maybe_trait_destty: &Option<Vec<TraitObjTy>>,
+        reason: Option<NoResult>,
+    ) {
+        // `!`: nothing after the call runs. `()`: nothing to know (most
+        // callees that finish without a stored result return unit -
+        // Vec::reserve, String::push, drop_in_place, ...).
+        if reason.is_some()
+            || matches!(dest_ty.kind(), TyKind::RigidTy(RigidTy::Never))
+            || matches!(dest_ty.kind(), TyKind::RigidTy(RigidTy::Tuple(ref tys)) if tys.is_empty())
+        {
+            return;
+        }
+        let callee = match co.const_.ty().kind() {
+            TyKind::RigidTy(RigidTy::FnDef(fd, _)) => fd.0.name(),
+            _ => format!("{:?}", co.const_.ty()),
+        };
+        crate::assumptions::record(crate::assumptions::Reason::CallResultUnknown, callee, Vec::new);
+        let value = self.any_value(dest_ty);
+        let value = self.lift_traitobjtys(maybe_trait_destty, value, cur_scope);
+        ctxt.assign_constraints(cur_scope, destination, destination, value, Some(self));
     }
 
     fn interp_fn_def(
@@ -5661,6 +5726,9 @@ impl<'a> InterpPass<'a> {
                     cur_scope,
                     retval
                 );
+            }
+            if retval.is_none() && self.in_queue.borrow().contains(&key) {
+                NO_RESULT.with(|n| n.set(Some(NoResult::RecursionPending)));
             }
             return Ok(retval);
         }

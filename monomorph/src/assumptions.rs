@@ -75,6 +75,12 @@ pub enum Reason {
     /// A field write into more than WRITE_FIELD_WIDEN_THRESHOLD disjuncts
     /// widened them first, dropping the fields of this ADT (Constraints::write_field).
     WidenWriteDisjuncts,
+    /// A call that returned no value for its destination, for no reason
+    /// that makes that right (not a callee that can't return here, not
+    /// recursion still being solved - see InterpPass::call_result_missing):
+    /// the destination gets any value of its type instead. It used to keep
+    /// whatever an earlier call had left there.
+    CallResultUnknown,
     /// A memoized result was reused under a *widened* key (after 50 distinct
     /// argument sets for this function): it may have been computed for
     /// arguments that differ from this call's inside ADT fields.
@@ -121,6 +127,7 @@ impl Reason {
             Reason::WidenMerge => "widened (merge size) - dropped fields of",
             Reason::WidenWriteValue => "widened (written value size) - dropped fields of",
             Reason::WidenWriteDisjuncts => "widened (written place's disjuncts) - dropped fields of",
+            Reason::CallResultUnknown => "call result unknown (destination set to any value)",
             Reason::MemoWidenedReuse => "memo reuse under widened key",
             Reason::WidenCapture => "widened (captured value size) - dropped fields of",
             Reason::FnPtrCall => "fn-pointer call (not followed)",

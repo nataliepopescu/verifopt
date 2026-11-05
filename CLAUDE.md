@@ -952,14 +952,53 @@ Metrics (per rung): the full section table, plus
 on its own. Rungs 1-5 are sound and must match plain on `rg_cmp.sh`; rung 6
 only on its own workload.
 
-**Oracle workload: one per project, never a union** (a single run keeps the
-observed sets tight; more runs only widen them toward what a sound analysis
-must assume). Measure the oracle build (speed, output check) on that same
-run; report executed and never-executed sites separately.
-- ripgrep: `rg -n 'fn \w+\(' ~/hack/rust/library` (walker, glob/type filters,
-  regex engine, searcher, printer).
-- tock: boot + one app's workload on the imix board (QEMU has no sam4l;
-  waits for hardware, like the boot test).
+**Oracle workloads: several per project, unioned** (decided Nov 5, replacing
+"one workload, never a union"). A single run gives the tightest sets but an
+overfit bound - "how small if it only ever ran this"; a union over several
+representative workloads is the bound for a class of uses. Per site, S = the
+union of observed targets over the workloads: |S| = 1 in every workload ->
+single; S small and stable -> narrowed (PointersExact over S, no fallback);
+S large, close to CHAmax, or varying a lot across workloads -> left dyn;
+never executed in any workload -> left alone, unless it is the last read of
+a trait's vtables (then rewritten from VTmax, which is complete) - on top of
+the per-trait size decision below. Measure the oracle build (size, output
+check) on the same workloads; report executed and never-executed sites
+separately. Deferred (Nov 5, rough numbers first): cross-validation (build
+from all workloads but one, run the held-out one - unseen targets at
+narrowed sites show how optimistic the bound is and when enough workloads
+are in) and a sound companion row (same decisions, guarded `pointers` with
+dyn fallback at narrowed sites).
+- ripgrep: e.g. `rg -n 'fn \w+\(' ~/hack/rust/library` (walker, glob/type
+  filters, regex engine, searcher, printer) plus other searches and modes
+  (`--json`, `--files`, error paths).
+- tock: boot + several apps' workloads. imix has no emulator (QEMU has no
+  SAM4L); for Cortex-M none of tock's boards has working emulation (QEMU's
+  STM32 boards: tracking issue #1827). Tried first (Nov 5): Renode's
+  nRF52840 model with the merged `nrf52840dk-min` / `-min-app` boards
+  (unofficial - tock lists no Renode support); fallback `qemu_rv32_virt`
+  (RISC-V, supported and used in tock's CI with app tests; needs a merged
+  crate and new baselines). Verilator boards (`litex/sim`, `veer_el2_sim`)
+  only if both fail - too slow for repeated workloads.
+  **Renode works** (Nov 5, nixpkgs `renode` 1.15.1, ~20 min to get there):
+  the full upstream `nrf52840dk` boots to `tock$` and runs libtock-c's
+  `c_hello` (prints) and `blink` (31 LED changes in 3 s); the merged
+  `nrf52840dk-min-app` (plain build) runs `blink` (23 LED changes in 3 s).
+  Runner: job tmp `renode/run_tock.sh KERNEL_ELF SECONDS OUT_PREFIX
+  [APP_TBF ...]` (apps placed one after another from 0x40000; writes
+  `OUT_PREFIX.uart` and `.log` with LED state changes). Emulator fixes:
+  UICR and FICR as plain memory (the board writes UICR's reset pin /
+  APPROTECT through NVMC and resets until they read back - Renode doesn't
+  model UICR, so it reset forever) and a reset macro reloading the images;
+  peripherals on gpio0 are named `gpio0.led0` etc. (`logLevel -1
+  gpio0.led0` logs LED changes). The minimal boards print nothing
+  (`debug_noop`), so their workloads are observed through LEDs (and later
+  the recorder's table, read from RAM in Renode's monitor).
+  Apps: libtock-c cloned to `~/hack/libtock-c`; build with `nix-shell -p
+  gcc-arm-embedded gnumake unzip --run 'make TOCK_TARGETS=cortex-m4'` in an
+  example dir (it fetches prebuilt newlib). Install `elf2tab` (>= 0.13)
+  beforehand with plain `cargo install elf2tab` - from inside the libtock-c
+  build it fails (the makefiles export `AR=-ar`, which breaks the `ring`
+  C build).
 
 **Analysis baselines: RTA and rupta** (added Oct 27, not implemented). Each
 produces a store (per site: its target set) that goes through the *same*
@@ -1111,14 +1150,14 @@ analysis on the branch (after `fsa3_target`).
 **Two oracles: size and performance** (agreed Oct 27). Both use the same
 instrumentation and recorder (steps 1-3 below); they differ in what they
 rewrite, the edit kinds they need, the build profile and the metric. Both
-are valid only on their workload.
+are valid only on their workloads.
 
 | | size oracle (6s) | performance oracle (6p) |
 |---|---|---|
 | goal | smallest binary that still behaves on the workload | fastest workload run |
-| data | target set per site | target set **and hit counts** per site |
+| data | target set per site, unioned over several workloads | target set **and hit counts** per site |
 | decided per | **trait**, whole program | **site**, from its profile |
-| never-executed sites | still rewritten from CHAmax where that helps make a trait's vtables unread (agreed) | left as dyn calls (no effect on time; extra code only costs i-cache) |
+| never-executed sites | left alone, unless the last read of a trait's vtables (then rewritten from VTmax) | left as dyn calls (no effect on time; extra code only costs i-cache) |
 | executed multi-target sites | rewritten only if that lets the trait's vtables go | hot targets first, by frequency; cold tail stays behind the dyn fallback |
 | edit kinds | PointersExact + vtable elimination (steps 4-5) | today's `pointers`, candidates ordered by frequency; unguarded direct call where only one target was ever seen |
 | build profile | the project's size profile (`opt-level = "z"`/`"s"`) | `opt-level = 3` |

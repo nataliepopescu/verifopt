@@ -773,17 +773,18 @@ Gotchas hit doing it:
   heavily shared values (~68 billion tree nodes in ~2 GB) stalled at ~25k bb
   visits for hours; now merged once. `[verifopt memory]` also reports the
   replay logs and the rc caches (entries/dead).
-- **Writes that never reach the caller** (not memo-related; fixtures
-  `write_raw_ptr_param`, `write_ref_in_field`, `write_interior_mut`, red):
-  (1) `resolve_args` adds alias edges only for `&`/`&mut` parameters, so a
-  write through a `*mut` parameter stays in the callee; (2) a pointer stored
-  in a field holds a *copy* of its pointee (pointer = pointee value), so a
-  write through it updates the copy, not the original place; (3)
-  `resolve_mut_ref` stops at a shared borrow, so `Cell`/`RefCell` writes
-  through `&` land in the callee's own local. (3) is likely the most common
-  (`thread_local!`, `RefCell` state). The Oct 20 report counted 1.5k memo
-  hits each for (2)- and (3)-shaped parameters, but these writes are lost
-  with or without the memo.
+- **Writes that never reach the caller** (not memo-related). Status Nov 5
+  (`fdac59f`): (1) writes through a `*mut` parameter reach the caller
+  (`write_raw_ptr_param` passes, since `371af2f`); (3) `Cell`/`RefCell`
+  writes through `&` reach it too (`write_interior_mut` red but sound:
+  {A, B, D}, D from an "any value"); **(2) is open and unsound**: a pointer
+  stored in a field holds a *copy* of its pointee (pointer = pointee value),
+  so a write through it updates the copy, not the original place -
+  `write_ref_in_field` gives FSA {B} where the program calls `A::put`
+  (missed target; a guarded rewrite stays correct through its fallback, a
+  trusted one would call the wrong impl). The Oct 20 report counted 1.5k
+  memo hits for (2)-shaped parameters; the write is lost with or without
+  the memo.
 - **`InterpPass::run`'s error** is reported since `e78984c`: a warning, an
   `ANALYSIS ABORTED` assumption, and every site's CHAmax marked incomplete.
 - **Partitioning hook adds edges for sites that are never rewritten** (pinned):
@@ -792,18 +793,17 @@ Gotchas hit doing it:
   the 104-impl `Flag` sites). The edges alone reshuffle inlining of
   `rg::run`/`rg::search` (hook-only build: `.text` −7.9 KB vs plain). Make it
   apply the rewrite's own selection (max-candidates, CHA expansion).
-- **"Widening soundness"** (deferred, potentially breaking): a missing ADT
-  field reads as *empty* ("nothing"). `widen_constraints` (merge > 50
-  disjuncts, field writes > 5000 nodes or into > 50 disjuncts) drops ADT
-  fields → can lose trait objects → possible wrong Single rewrites; memo
-  reuse under widened keys (after 50 distinct arg sets) can reuse a result
-  for different args. Plan: (A) missing field = "any value of the field
-  type" via a pure `unknown_value(ty)` (refs→pointee, dyn→Dynamic, ADT→
-  fieldless = unknown, tuple/array element-wise) in `step_field_one`,
-  `wrapper_contents_or_flatten`, flattening; (B) on a widened-key memo miss,
-  interpret with the widened args; (C) fixtures that fail before the fix
-  (>50-arm match building a struct with `Box<dyn T>`; memo reuse). The
-  assumptions report shows how often these occur.
+- **Memo reuse under widened keys** (open, unsound; plan B). Widening itself
+  is sound - it only loses precision. What isn't: after 50 distinct
+  argument sets a function's memo keys drop ADT fields, and a hit returns a
+  result computed for the *narrower* argument that first filled the entry
+  (`memo_widened_reuse`: the `Holder { sink: C }` call hits the entry of
+  `Holder { sink: B }`, FSA {A, B} where the program calls `C::put`; ripgrep:
+  ~91k such reuses, Oct 19). Fix (B): on a widened-key miss, interpret with
+  the widened arguments and cache that result, so every hit's result covers
+  its own argument. Done earlier as plan (A) (`371af2f`): a field dropped by
+  `widen_constraints` reads as "any value of its type", not as empty
+  (`merge_widened_field` passes).
 - **Unify Single/SingleExact**: record every target's resolved instance args
   in the analysis; drop `resolve_target_via_trait`.
 - **Fn items / fn pointers as `dyn Fn` objects**: no candidates today (FSA
@@ -1816,8 +1816,13 @@ runs (incl. the deferred-call dyn experiment) use `fsa-gaps`; ripgrep runs
 use `ripgrep` - never analyze ripgrep from `fsa-gaps` (no flatten fix: it
 explodes). If a fixed ripgrep run needs gap fixes before the merge,
 cherry-pick just those commits. (Nov 3: ripgrep's uncapped analysis finishes
-on `ripgrep` - `a9ad236`, §4 - so the condition for merging is met; the
-merge itself hasn't been decided or done.)
+on `ripgrep` - `a9ad236`, §4 - so the condition for merging is met.)
+**Merged Nov 5** (`fdac59f`, `fsa-gaps` into `ripgrep`): fixtures 55 pass /
+5 red, the same 5 as `ripgrep` alone with identical results
+(`memo_widened_reuse`, `raw_ptr_static_write`, `slice_iter_flatten`,
+`write_interior_mut`, `write_ref_in_field`); `fsa-gaps`' red
+`merge_widened_field` and `static_init_buf` pass. Use `ripgrep` for every
+run from now on.
 
 Related: the megamorphic cutoff (`VERIFOPT_MEGAMORPHIC_CAP`, opt-in, ripgrep
 experiments only) and its havoc of `&mut` args are *not* part of the tool;

@@ -207,11 +207,13 @@ example_test!(merge_widened_field, "merge_widened_field", Passing);
 // Writes that reach the caller other than through a `&mut` parameter: a
 // `*mut` parameter, a `&mut` inside a parameter's field, and `RefCell`
 // through a shared reference. Each replaces the caller's B with an A, so
-// FSA at `use_slot` must list A. All three are red: none of these writes
-// reaches the caller today (no alias edge for raw-pointer parameters, a
-// pointer in a field holds a copy of its pointee, and `resolve_mut_ref` stops
-// at shared borrows). JSON goldens are hand-written ({A, B}: writes through
-// aliases merge); re-bless the MIR dumps once they pass.
+// FSA at `use_slot` must list A. JSON goldens are hand-written ({A, B}:
+// writes through aliases merge). As of Nov 5 (fdac59f): write_raw_ptr_param
+// passes; write_interior_mut is red but sound ({A, B, D}: the write reaches
+// the caller, D comes from an "any value"); write_ref_in_field is red and
+// unsound - FSA {B}: a pointer in a field holds a copy of its pointee, so the
+// write through `s.slot` never reaches `x`. Re-bless the MIR dumps once they
+// pass.
 example_test!(write_raw_ptr_param, "write_raw_ptr_param", Passing);
 example_test!(write_ref_in_field, "write_ref_in_field", Passing);
 example_test!(write_interior_mut, "write_interior_mut", Passing);

@@ -1553,6 +1553,37 @@ imix `.text` (K=1; VFE = with our fixes; verifopt = `fsa3` store unless noted):
 | rung 3 + elim (no VFE) | 153,784 | -10,284 |
 | rung 3 + VFE + elim | 153,724 | -10,344 |
 
+**Does the analysis beat rung 3 on tock?** (Nov 5, imix, K=1, `fsabd` store,
+rewrite-only builds with today's toolchain: the control rebuild reproduces
+160,344 exactly; job tmp `minsize/sa5.sh`, dirs `fsabd*_target`.) Only if
+it is trusted. Of 717 sites the analysis finds nothing (CHA fallback) at
+667, matches CHAmax at 6, is below CHAmax at 10, above (never-compiled
+impls) at 33. Of the 10, four narrow to a single target where CHAmax has
+several - the four guarded `pointers n=1` rewrites: two `dyn Iterator<Item
+= u32>::next` (`Entropy32ToRandomIter::next` -> `TrngIter::next`, `<&mut I
+as Iterator>::next` -> `Entropy32ToRandomIter::next`; CHAmax 154 - CHA
+isn't filtered by `Item`) and the UART mux's `set_transmit_client` /
+`set_receive_client` (-> sam4l `USART`; CHAmax 2). The other six narrow
+little (five `fmt::Write::write_char` sites 9 vs 10, `DebugList::entry`'s
+closure 38 vs 83). Guarded, those four cost bytes; `--unguarded-single`
+(trust the analysis: what rewrites would be with a sound analysis) makes
+them `single`:
+
+| imix `.text` | rung 3 | verifopt guarded | `--no-guarded` | `--unguarded-single` | vs rung 3 |
+|---|---|---|---|---|---|
+| plain | 160,312 | 160,344 | 160,312 | 160,212 | -100 |
+| + VFE | 157,616 | 157,656 | - | 157,580 | -36 |
+| + elim (no VFE) | 153,784 | 153,784 | 153,784 | 153,768 | -16 |
+| + VFE + elim | 153,724 | 153,772 | - | 153,708 | -16 |
+
+153,708 is the smallest imix so far (-10,360 B, -6.3% vs plain). Context
+depth 2 (`-- --context-depth 2`; default 1) changes nothing on the minimal
+nRF boards (same sites, summary, edits and `.text`; job tmp
+`minsize/ctx2.sh`): the analysis loses values through statics (static
+capsules, the process table), not through merged contexts. Those depth-1
+reruns also reproduce the old sizes exactly with the instrumentation
+compiler (recorder in `core`), so normal builds are unaffected by it.
+
 Minimal nRF52840DK boards (K=1; verifopt = final plugin: fallback + bound
 rule, `fsabd` stores; `--no-guarded` identical in every verifopt row):
 

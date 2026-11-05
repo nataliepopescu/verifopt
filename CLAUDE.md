@@ -564,6 +564,35 @@ pointing at the `rust-mono-rewrite` toolchain.
   - `full14`'s rg: file-backed 4,376,775 B, +3,804 B vs `full8`'s with
     identical rewrites - partitioning: the hook adds edges for every stored
     site (§6, pinned), and the bigger target sets add more.
+- **ripgrep K=4 from the `full14` store, Nov 5** (rewrite-only,
+  `--skip-analysis --max-candidates 4`, build-std; job tmp `rg_k4.sh`,
+  `rg_k4_results.txt`; dirs `rwk1_target` (K=1 control), `rwk4_target`).
+  The first K=4 build ICEd in `ignore` (codegen_call_terminator, index out
+  of bounds): expanding a target recorded without args into this crate's
+  compiled instances only checked the trait method, so `<Box<dyn Fn() ->
+  Cache> as Fn<()>>::call` became a candidate at a `dyn Fn(&DirEntry) ->
+  bool` call (`Walk::skip_entry`). Fixed in the fork (`bcd459d4977`: an
+  expanded instance must be what the dispatched method resolves to for its
+  Self with the call's own trait args). Results:
+
+  | build | edits | `.text` | file-backed | indirect calls |
+  |---|---|---|---|---|
+  | plain (`baseline_target`) | - | 2,787,554 | 4,381,034 | 3,503 |
+  | K=1 (`rwk1`) | 2 single exact, 11 `pointers n=1` | 2,779,955 | 4,376,787 | 3,526 |
+  | K=4 (`rwk4`) | 2 single exact, 16 n=1, 6 n=2, 8 n=3, 2 n=4 | 2,788,259 | 4,386,579 | 3,522 |
+
+  K=4 rewrites 34 sites in 25 functions (K=1: 13 sites, 6 functions) - new:
+  globset `is_match`/`matches_into`, aho_corasick (`try_find`, `Automaton
+  for Arc`), `rg::search`/`rg::files`, `log`'s logger call,
+  `Formatter::write_fmt` (anyhow, regex_syntax), the `Box<F> as Fn` shims,
+  std's panic hook / backtrace closures. +9.8 KB over K=1 (+5.5 KB over
+  plain) for 4 fewer indirect calls: every guarded edit keeps its dyn
+  fallback, so on size K=1 is the setting for ripgrep too; K=4 only matters
+  for speed (hot globset / aho_corasick sites - needs hyperfine). Output =
+  plain on 21 of 22 `rg_cmp.sh` commands (the 22nd, `rg fn core`, is
+  unsorted and differs between plain runs). The K=1 control has full14's
+  `.text` and edits but isn't byte-identical (file-backed +12 B, not
+  investigated).
 
 ## 5. Done: tock merged into one crate (boards/imix)
 
@@ -900,7 +929,13 @@ Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 4):
 
 Fork (`~/hack/rust`): `73da158f0d5` disable unguarded/unproven single
 rewrites (on top of `5eec5c673e1` flexible max-candidates,
-`0bea3c87cc6` max-candidates logging, `d7a86258cfd`).
+`0bea3c87cc6` max-candidates logging, `d7a86258cfd`). On branch
+`verifopt-vtable-elim` (Oct 28 - Nov 5): `70c77a914f3`, `a19ce4c390a`,
+`bb8ccddc2c1`, `e23f8c809cb`, `5c0f29b3ca6` (VFE fixes, vtable shrinking -
+§8), `7e3e57baefe`, `e9f83e3e836`, `83c3793b9dd` (standalone elim, vtable
+manifests, exact multi-target guards), `bcd459d4977` expanded candidates
+must match the call's trait args (K=4 ICE). Uncommitted: the oracle
+instrumentation (`VERIFOPT_INSTRUMENT`, `core::verifopt_oracle`).
 
 ## 8. Plan: evaluation ladder and the oracle upper bound (agreed Oct 23 2026)
 

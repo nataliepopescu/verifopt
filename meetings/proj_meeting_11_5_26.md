@@ -57,3 +57,10 @@
 
 ## notes
 
+assume verifopt is sound
+
+by next time:
+- soundness bugs
+- exactly understand the impact of each rewrite (tock)
+- start to do the same for ripgrep
+

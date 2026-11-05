@@ -115,10 +115,13 @@ impl Callbacks for FsaCallbacks {
         }
 
         let _ = rustc_internal::run(tcx, || {
-            let Ok((targets, tags, cha, assumptions)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let cha_only = std::env::var_os("VERIFOPT_CHA_ONLY")
-                    .map(|_| crate::chamax::compiled_instances(tcx));
-                start_verifopt(self.options.clone(), cha_only)
+            let Ok((targets, tags, cha, assumptions, unreached)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // The program's compiled instances: the CHA fallback's
+                // candidates (InterpPass::expand_cha_candidates), and every
+                // site in CHAmax-only mode.
+                let compiled = crate::chamax::compiled_instances(tcx);
+                let cha_only = std::env::var_os("VERIFOPT_CHA_ONLY").is_some();
+                start_verifopt(self.options.clone(), compiled, cha_only)
             })) else {
                 debug!(
                     "[verifopt debug] start_verifopt itself panicked - no store written this run"
@@ -321,6 +324,10 @@ impl Callbacks for FsaCallbacks {
                     .chain(store.tags.keys())
                     .any(|(hash, _bb, _caller_genargs)| hash.stable_crate_id() != primary_crate_id);
 
+                // Always: compiled_instances ran this crate's partitioning
+                // before the store existed, so this pass's partitioning has
+                // none of the rewrite's edges; the second pass rebuilds it.
+                let needs_rewrite_pass = needs_rewrite_pass || true;
                 if needs_rewrite_pass {
                     let _ = std::fs::write(needs_rewrite_pass_marker_path(), "1");
                 }
@@ -349,42 +356,74 @@ impl Callbacks for FsaCallbacks {
             if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
                 let mut store = crate::rewrite::store().lock().unwrap();
                 let mut exact = 0usize;
+                let mut exact_multi = 0usize;
+                let max_candidates = crate::chamax::max_candidates();
                 for (key, c) in &chamax {
-                    if c.not_applicable.is_some()
-                        || c.incomplete.is_some()
-                        || c.total != 1
-                        || c.instances.len() != 1
-                    {
-                        continue;
-                    }
-                    let (function, Some(args)) = c.instances[0].clone() else {
+                    // CHAmax, or VTmax under VERIFOPT_EXACT_FROM=vtables.
+                    let Some((total, instances)) = c.exact_bound() else {
                         continue;
                     };
+                    if c.not_applicable.is_some() || c.incomplete.is_some() {
+                        continue;
+                    }
                     let Some(site_key) = site_keys.get(key) else {
                         continue;
                     };
-                    // Where FSA found the targets itself (rather than falling
-                    // back to CHA), it must agree: a target other than this
-                    // function would mean a bug in one of the two.
+                    // The bound (complete CHAmax or VTmax) is sound on its own, so
+                    // wherever it is smaller than the analysis's set it replaces it:
+                    // a fallback site (the analysis's set is CHA's impls, or it never
+                    // reached the site), or one where the analysis lists more -
+                    // e.g. impls that are never compiled. With one instance the
+                    // site is `single exact`; with 2..=K the instances become its
+                    // targets, as exact instances (function + its own args), so the
+                    // rewrite's K cap counts compiled instances, not impls.
                     let fsa_targets = targets_for_stats.get(key).map(|(_, t)| t);
-                    let cha_targets = cha.get(key).map(|(_, t)| t);
-                    if let Some(fsa_targets) = fsa_targets
-                        && fsa_targets != cha_targets.unwrap_or(&Vec::new())
-                        && fsa_targets.iter().any(|(d, _)| to_hash(*d) != Some(function))
-                    {
-                        warn!(
-                            "[verifopt][store] {:?} bb{}: CHAmax's single instance {:?} isn't among \
-                             FSA's targets {:?} - not recording it as exact",
-                            key.0, key.1, function, fsa_targets
-                        );
+                    let fallback = fsa_targets == cha.get(key).map(|(_, t)| t);
+                    let fsa_len = fsa_targets.map_or(0, |t| t.len());
+                    if instances.len() != total || total == 0 || (!fallback && total >= fsa_len && total > 1) {
                         continue;
                     }
+                    // Both are bounds, so every function the bound names should be
+                    // among the analysis's targets; one that isn't means the analysis
+                    // missed a compiled target - a bug in it. The bound is used anyway.
+                    if !fallback && let Some(fsa_targets) = fsa_targets {
+                        let fsa_fns: std::collections::HashSet<Option<DefPathHash>> =
+                            fsa_targets.iter().map(|(d, _)| to_hash(*d)).collect();
+                        for (function, _) in instances {
+                            if !fsa_fns.contains(&Some(*function)) {
+                                warn!(
+                                    "[verifopt][store] {:?} bb{}: analysis bug: the bound's instance \
+                                     {:?} isn't among the analysis's targets {:?} - using the bound",
+                                    key.0, key.1, function, fsa_targets
+                                );
+                            }
+                        }
+                    }
+                    // 2..=K instances (not where the analysis planned tags: a tagged
+                    // rewrite reads no vtable, which beats comparing slots).
+                    // VERIFOPT_NO_EXACT_MULTI=1 turns this off, to measure it.
+                    if total >= 2 {
+                        if std::env::var_os("VERIFOPT_NO_EXACT_MULTI").is_none()
+                            && !store.tags.contains_key(site_key)
+                            && total <= max_candidates
+                            && instances.iter().all(|(_, args)| args.is_some())
+                        {
+                            store.targets.insert(site_key.clone(), instances.to_vec());
+                            store.tags.remove(site_key);
+                            store.exact.insert(site_key.clone());
+                            exact_multi += 1;
+                        }
+                        continue;
+                    }
+                    let (function, Some(args)) = instances[0].clone() else {
+                        continue;
+                    };
                     store.targets.insert(site_key.clone(), vec![(function, Some(args))]);
                     store.tags.remove(site_key);
                     store.exact.insert(site_key.clone());
                     exact += 1;
                 }
-                if exact > 0 {
+                if exact + exact_multi > 0 {
                     for (hash, shape) in manifest_shapes {
                         store.shapes.entry(hash).or_insert(shape);
                     }
@@ -397,11 +436,15 @@ impl Callbacks for FsaCallbacks {
                         Err(e) => warn!("[verifopt][store] Store::to_json failed: {e:?}"),
                     }
                 }
-                warn!("[verifopt][store] {exact} sites recorded as exact single targets (CHAmax)");
+                warn!(
+                    "[verifopt][store] {exact} sites recorded as exact single targets, {exact_multi} \
+                     with 2..={max_candidates} exact instances ({:?})",
+                    crate::chamax::exact_from()
+                );
             }
 
             let mut logger = crate::logger::VOLogger::new();
-            let _ = logger.log_stats(&targets_for_stats, &cha, &chamax);
+            let _ = logger.log_stats(&targets_for_stats, &cha, &chamax, &unreached);
             let _ = logger.log_text(&assumptions);
         });
 

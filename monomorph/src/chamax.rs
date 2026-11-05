@@ -44,13 +44,76 @@ pub struct ChaMax {
     pub not_applicable: Option<String>,
     /// The instances themselves, as (function, its own generic-arg hashes)
     /// from the manifests - only filled in when there are few of them (see
-    /// MAX_LISTED_INSTANCES); used to record a provably single target as an
+    /// max_listed_instances); used to record a provably single target as an
     /// exact instance (Store::exact).
     pub instances: Vec<(DefPathHash, Option<Vec<DefPathHash>>)>,
+    /// "VTmax": the same, restricted to instances that sit in the slots of
+    /// some vtable the program builds (the manifests' `vtables`). A `dyn` call
+    /// only reaches methods through vtables, so this bounds the site too, and
+    /// tighter: CHAmax also counts instances compiled only for static calls
+    /// (e.g. a type that implements the trait but is never turned into this
+    /// trait object). `None` when no manifest lists vtables (built before the
+    /// compiler recorded them). Same `incomplete`/`not_applicable` as CHAmax.
+    pub vt_total: Option<usize>,
+    pub vt_per_candidate: Vec<(DefId, usize)>,
+    pub vt_instances: Vec<(DefPathHash, Option<Vec<DefPathHash>>)>,
 }
 
-/// Up to how many instances a site's ChaMax lists individually.
-const MAX_LISTED_INSTANCES: usize = 4;
+/// Which bound proves a site's single target (Store::exact): env
+/// VERIFOPT_EXACT_FROM=chamax (default) or vtables - so their effects can be
+/// compared on the same analysis.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ExactFrom {
+    ChaMax,
+    Vtables,
+}
+
+pub fn exact_from() -> ExactFrom {
+    match std::env::var("VERIFOPT_EXACT_FROM").as_deref() {
+        Ok("vtables") => ExactFrom::Vtables,
+        _ => ExactFrom::ChaMax,
+    }
+}
+
+impl ChaMax {
+    /// The bound `exact_from()` selects: (instance count, the instances when
+    /// listed). `None` for VTmax without vtable data.
+    pub fn exact_bound(&self) -> Option<(usize, &[(DefPathHash, Option<Vec<DefPathHash>>)])> {
+        match exact_from() {
+            ExactFrom::ChaMax => Some((self.total, &self.instances)),
+            ExactFrom::Vtables => self.vt_total.map(|t| (t, self.vt_instances.as_slice())),
+        }
+    }
+
+    fn not_bounding(incomplete: Option<String>, not_applicable: Option<String>) -> ChaMax {
+        ChaMax {
+            per_candidate: Vec::new(),
+            total: 0,
+            incomplete,
+            not_applicable,
+            instances: Vec::new(),
+            vt_total: None,
+            vt_per_candidate: Vec::new(),
+            vt_instances: Vec::new(),
+        }
+    }
+}
+
+/// K: the most candidates a Pointers rewrite compares (`--max-candidates`,
+/// env VERIFOPT_MAX_CANDIDATES, default 4 - as the compiler reads it).
+pub fn max_candidates() -> usize {
+    std::env::var("VERIFOPT_MAX_CANDIDATES")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n >= 1)
+        .unwrap_or(4)
+}
+
+/// Up to how many instances a site's ChaMax lists individually: enough for a
+/// Pointers rewrite over them (K), and at least 4.
+fn max_listed_instances() -> usize {
+    max_candidates().max(4)
+}
 
 /// Computes CHAmax for every site in `cha`. Must run *after* the store has
 /// been written: it first makes rustc monomorphize (and partition) this crate
@@ -90,6 +153,10 @@ pub fn compute<'tcx>(
     // Shapes of the manifests' sentinel hashes (first one wins; a hash's shape
     // is the same wherever it was recorded).
     let mut shapes: HashMap<DefPathHash, rustc_verifopt::ArgShape> = HashMap::new();
+    // Every instance that sits in some vtable's slots, and whether any
+    // manifest lists vtables at all.
+    let mut in_vtable: HashSet<(DefPathHash, Option<Vec<DefPathHash>>)> = HashSet::new();
+    let mut have_vtables = false;
     if let Ok(entries) = std::fs::read_dir(rustc_verifopt::manifest_dir()) {
         for entry in entries.flatten() {
             let Ok(json) = std::fs::read_to_string(entry.path()) else { continue };
@@ -106,6 +173,10 @@ pub fn compute<'tcx>(
             for (hash, shape) in manifest.shapes {
                 shapes.entry(hash).or_insert(shape);
             }
+            have_vtables |= !manifest.vtables.is_empty();
+            for vtable in manifest.vtables {
+                in_vtable.extend(vtable.methods);
+            }
         }
     }
     let missing_sysroot = program.iter().any(|(id, (_, sys))| *sys && !covered.contains(id));
@@ -121,6 +192,9 @@ pub fn compute<'tcx>(
         let mut per_candidate = Vec::new();
         let mut listed: Vec<(DefPathHash, Option<Vec<DefPathHash>>)> = Vec::new();
         let mut total = 0;
+        let mut vt_per_candidate = Vec::new();
+        let mut vt_listed: Vec<(DefPathHash, Option<Vec<DefPathHash>>)> = Vec::new();
+        let mut vt_total = 0;
         let mut incomplete: Option<String> = None;
         if !missing_other.is_empty() {
             incomplete = Some(format!("no instance manifest for crate(s) {}", missing_other.join(", ")));
@@ -150,13 +224,7 @@ pub fn compute<'tcx>(
         {
             out.insert(
                 key.clone(),
-                ChaMax {
-                    per_candidate: Vec::new(),
-                    total: 0,
-                    incomplete: Some("CHA lacks FSA's targets (analysis bug)".to_string()),
-                    instances: Vec::new(),
-                    not_applicable: None,
-                },
+                ChaMax::not_bounding(Some("CHA lacks FSA's targets (analysis bug)".to_string()), None),
             );
             continue;
         }
@@ -170,16 +238,7 @@ pub fn compute<'tcx>(
                 None => "dispatch to closures (CHA never lists closures, so CHAmax can't bound it)"
                     .to_string(),
             };
-            out.insert(
-                key.clone(),
-                ChaMax {
-                    per_candidate: Vec::new(),
-                    total: 0,
-                    incomplete: None,
-                    instances: Vec::new(),
-                    not_applicable: Some(why),
-                },
-            );
+            out.insert(key.clone(), ChaMax::not_bounding(None, Some(why)));
             continue;
         }
 
@@ -213,17 +272,48 @@ pub fn compute<'tcx>(
             total += count;
             per_candidate.push((*candidate, count));
             if let Some(set) = found
-                && listed.len() + set.len() <= MAX_LISTED_INSTANCES
+                && listed.len() + set.len() <= max_listed_instances()
             {
-                listed.extend(set.iter().map(|args| (hash, args.clone())));
+                // Sorted: a stable order for the rewrite's candidate list.
+                let mut sorted: Vec<&Option<Vec<DefPathHash>>> = set.iter().collect();
+                sorted.sort();
+                listed.extend(sorted.into_iter().map(|args| (hash, args.clone())));
+            }
+            // VTmax: the instances found in some vtable (an unhashable one,
+            // `None`, is kept - it can't be matched, and CHAmax is already
+            // incomplete for it).
+            let mut in_vt: Vec<&Option<Vec<DefPathHash>>> = found
+                .map(|set| {
+                    set.iter()
+                        .filter(|args| args.is_none() || in_vtable.contains(&(hash, (*args).clone())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            in_vt.sort();
+            vt_total += in_vt.len();
+            vt_per_candidate.push((*candidate, in_vt.len()));
+            if vt_listed.len() + in_vt.len() <= max_listed_instances() {
+                vt_listed.extend(in_vt.into_iter().map(|args| (hash, args.clone())));
             }
         }
         if listed.len() != total {
             listed.clear(); // too many to list: listed only when complete
         }
+        if vt_listed.len() != vt_total {
+            vt_listed.clear();
+        }
         out.insert(
             key.clone(),
-            ChaMax { per_candidate, total, incomplete, not_applicable: None, instances: listed },
+            ChaMax {
+                per_candidate,
+                total,
+                incomplete,
+                not_applicable: None,
+                instances: listed,
+                vt_total: have_vtables.then_some(vt_total),
+                vt_per_candidate,
+                vt_instances: vt_listed,
+            },
         );
     }
     let mut shapes: Vec<(DefPathHash, rustc_verifopt::ArgShape)> = shapes.into_iter().collect();
@@ -274,7 +364,13 @@ pub fn compiled_instances<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<rustc_public::mir::mon
         }
     }
     for krate in rustc_public::external_crates() {
-        for fd in krate.fn_defs() {
+        // Proc-macro crates (and any other whose item list can't be read
+        // from metadata) panic in the decoder: none of their code runs in
+        // the program anyway.
+        let Ok(fn_defs) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| krate.fn_defs())) else {
+            continue;
+        };
+        for fd in fn_defs {
             let did = rustc_internal::internal(tcx, rustc_public::CrateDef::def_id(&fd));
             let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 !tcx.generics_of(did).requires_monomorphization(tcx) && tcx.is_mir_available(did)

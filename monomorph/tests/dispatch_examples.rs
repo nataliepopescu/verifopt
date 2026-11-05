@@ -173,6 +173,13 @@ example_test!(fnptr_args_table, "fnptr_args_table", Passing);
 // called as `dyn FnMut`. FSA at `emit` must list A, B and C.
 example_test!(closure_captures, "closure_captures", Passing);
 
+// tock's deferred-call shape: a closure cast to a fn pointer, stored with a
+// data pointer in a `Cell` array inside a static, read back and called by
+// `run_all`. FSA at `Holder::handle`'s dispatch must list A and B, never D:
+// it needs the static's written values to survive its initial "any" value
+// (array-field writes, alias reads through field paths).
+example_test!(fnptr_static_table, "fnptr_static_table", Passing);
+
 // Memo reuse under a widened key: after 50 distinct argument sets, `take`'s
 // memo keys drop ADT fields, so a `Holder` with a `C` must not reuse the
 // result cached for a `Holder` with a `B`. FSA at `use_last` must list C.

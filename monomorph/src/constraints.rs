@@ -2733,9 +2733,20 @@ pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<
         cur = match elem {
             ProjectionElem::Field(idx, _) => {
                 let mut out = Constraints::new();
+                // An ADT- or closure-typed field a disjunct lacks is any value
+                // of that type - a fieldless value of it, joined with the
+                // other disjuncts' values, as step_field_one does. Giving up
+                // on the whole read instead let an interior-mutable static's
+                // initial "any" disjunct hide every value written into it (a
+                // fn pointer registered in a `Cell` in a static: tock's
+                // deferred calls). Other field types have no such value here.
+                let skeleton = field_skeleton(elem);
                 for c in cur.inner.iter() {
                     if !field(c, *idx, &mut out) {
-                        return None;
+                        if skeleton.inner.is_empty() {
+                            return None;
+                        }
+                        out.append(skeleton.clone());
                     }
                 }
                 out
@@ -2932,6 +2943,22 @@ fn note_static_read(scope: &VOID, store: Option<&ConstraintStore>) {
 /// (write_log::record_static - the static's whole new value).
 fn note_static_write(scope: &VOID, store: &ConstraintStore, key: &MapKey, new: &MapValue) {
     let Some(def) = static_of_scope(scope) else { return };
+    // Diagnostics: VERIFOPT_TRACE_STATICS=<name part> logs each write to a
+    // matching static, old and new value.
+    if let Ok(filter) = std::env::var("VERIFOPT_TRACE_STATICS")
+        && def.name().contains(filter.as_str())
+    {
+        let short = |v: &MapValue| match v {
+            MapValue::Constraints(cs) => shape(cs, 6),
+            other => format!("{other:?}").chars().take(200).collect(),
+        };
+        log::warn!(
+            "[verifopt static trace] {} old={} new={}",
+            def.name(),
+            store.cmap.get(key).map(|o| short(o)).unwrap_or_else(|| "-".into()),
+            short(new)
+        );
+    }
     if is_frozen_static(def) || MATERIALIZING.with(|m| m.get()) {
         return;
     }
@@ -2942,6 +2969,33 @@ fn note_static_write(scope: &VOID, store: &ConstraintStore, key: &MapKey, new: &
     crate::write_log::record_static(def, new);
 }
 
+// Each disjunct as its known field indices, recursively, e.g.
+// `{0:{0:{0:Some{0:..}}},1:..}`.
+pub fn shape(cs: &Constraints, depth: usize) -> String {
+    let one = |c: &Constraint| -> String {
+        match &c.cfc {
+            Some(RunningConstraint::Adt(def, _, v, f)) => {
+                let name = def.0.name().rsplit("::").next().unwrap_or("").to_string();
+                let var = v.map(|v| format!("#{v:?}")).unwrap_or_default();
+                if depth == 0 || f.is_empty() {
+                    format!("{name}{var}{{{}}}", f.keys().map(|k| k.to_string()).collect::<Vec<_>>().join(","))
+                } else {
+                    format!(
+                        "{name}{var}{{{}}}",
+                        f.iter().map(|(k, v)| format!("{k}:{}", shape(v, depth - 1))).collect::<Vec<_>>().join(",")
+                    )
+                }
+            }
+            Some(RunningConstraint::Closure(cd, ..)) => format!("closure({})", cd.0.name().rsplit("::").next().unwrap_or("")),
+            Some(RunningConstraint::FnPtr(_)) => "fnptr".into(),
+            Some(RunningConstraint::FnDef(fd, _)) => format!("fndef({})", fd.0.name()),
+            Some(other) => format!("{other:?}").split('(').next().unwrap_or("").to_string(),
+            None => "-".into(),
+        }
+    };
+    format!("[{}]", cs.inner.iter().map(one).collect::<Vec<_>>().join(" | "))
+}
+
 /// A missing field's value as something a nested write can go into: "any
 /// value" of the field's type with no fields known (an ADT or closure of
 /// that type - its other fields then read as unknown, see step_field_one).
@@ -2949,8 +3003,12 @@ fn note_static_write(scope: &VOID, store: &ConstraintStore, key: &MapKey, new: &
 /// the write was lost (e.g. `set_client` on a `static mut` capsule that
 /// starts as any value of its type).
 fn field_skeleton(elem: &ProjectionElem) -> Constraints {
-    use rustc_public::ty::{RigidTy, TyKind};
     let ProjectionElem::Field(_, ty) = elem else { return Constraints::new() };
+    type_skeleton(ty)
+}
+
+fn type_skeleton(ty: &rustc_public::ty::Ty) -> Constraints {
+    use rustc_public::ty::{RigidTy, TyKind};
     match ty.kind() {
         TyKind::RigidTy(RigidTy::Adt(def, args)) => {
             Constraints::from(Constraint::new(None, Some(RunningConstraint::Adt(def, args, None, ADTFields::new()))))
@@ -2958,6 +3016,11 @@ fn field_skeleton(elem: &ProjectionElem) -> Constraints {
         TyKind::RigidTy(RigidTy::Closure(def, args)) => {
             Constraints::from(Constraint::new(None, Some(RunningConstraint::Closure(def, args, ADTFields::new()))))
         }
+        // An array's value is the union of its elements (index projections
+        // are no-ops on values): any element. Without this, a write into an
+        // element of a missing array field (`STATIC.slots[i].set(..)` on a
+        // static's initial "any" value) went into nothing.
+        TyKind::RigidTy(RigidTy::Array(elem, _) | RigidTy::Slice(elem)) => type_skeleton(&elem),
         _ => Constraints::new(),
     }
 }

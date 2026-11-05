@@ -201,7 +201,7 @@ fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter
     }
 }
 
-alloc12 (size: 16, align: 8) {
+alloc11 (size: 16, align: 8) {
     00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
 }
 
@@ -447,7 +447,7 @@ fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter
     }
 }
 
-alloc12 (size: 16, align: 8) {
+alloc11 (size: 16, align: 8) {
     00 00 00 00 00 00 00 00 __ __ __ __ __ __ __ __ │ ........░░░░░░░░
 }
 

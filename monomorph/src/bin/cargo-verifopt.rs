@@ -40,7 +40,7 @@ use std::process::Command;
 /// The help message for `cargo-verifopt`
 const CARGO_VERIFOPT_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
 Usage:
-    cargo verifopt [--rewrite-only] [--max-candidates N] [--unguarded-single]
+    cargo verifopt [--rewrite-only] [--max-candidates N] [--unguarded-single] [--no-guarded]
 
     --rewrite-only  Skip analysis and the automatic discovery-then-decide
                      flow entirely - just re-run the rewrite pass against
@@ -63,6 +63,15 @@ Usage:
                     a call unsound; those sites get a guarded pointer
                     comparison with the dynamic call as fallback instead.
                     Sets VERIFOPT_UNGUARDED_SINGLE for every compiler process.
+
+    --no-guarded    Apply only rewrites that need no runtime check (single
+                    exact; later PointersExact): every guarded rewrite -
+                    pointer comparisons, including over exact instances,
+                    single-target guards and tagged switches, all of which
+                    keep the dynamic call as their fallback - is left as the
+                    dynamic call. For size: a guard adds code and frees no
+                    vtable read. Sets VERIFOPT_NO_GUARDED for every compiler
+                    process.
 "#;
 
 /// Set the environment variable `VERIFOPT_BUILD_STD` to enable the building of std library when running verifopt.
@@ -504,6 +513,7 @@ fn run_cargo_build(
             || arg == "--rewrite-only"
             || arg == "--skip-rewrite"
             || arg == "--unguarded-single"
+            || arg == "--no-guarded"
         {
             continue;
         }
@@ -602,6 +612,12 @@ fn run_cargo_build(
     // VERIFOPT_SKIP_REWRITE.
     if has_arg_flag("--unguarded-single") {
         cmd.env("VERIFOPT_UNGUARDED_SINGLE", "1");
+    }
+
+    // --no-guarded: read by the modified compiler's rewrite (no_guarded in
+    // verifopt_rewrite.rs); same propagation.
+    if has_arg_flag("--no-guarded") {
+        cmd.env("VERIFOPT_NO_GUARDED", "1");
     }
 
     // --max-candidates N: read by the modified compiler's rewrite (see

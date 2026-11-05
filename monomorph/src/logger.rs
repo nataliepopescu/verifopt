@@ -1,7 +1,7 @@
 use rustc_public::DefId;
 use rustc_public::ty::{GenericArgs, Span};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
 use std::io::{Error, Write};
 
@@ -30,6 +30,7 @@ impl VOLogger {
         dispatch_targets: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
         dispatch_cha: &HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
         chamax: &HashMap<(DefId, usize, GenericArgs), crate::chamax::ChaMax>,
+        unreached: &HashSet<(DefId, usize, GenericArgs)>,
     ) -> Result<(), Error> {
         let mut diff = Vec::new();
         let mut same = Vec::new();
@@ -94,6 +95,51 @@ impl VOLogger {
             dispatch_targets.len(),
         )?;
 
+        // VTmax vs CHAmax at the complete sites: how many each proves single
+        // (the `single exact` candidates), and where vtables cut the bound.
+        let (mut cm_one, mut vt_one, mut vt_lower, mut vt_zero, mut vt_unknown) = (0, 0, 0, 0, 0);
+        for key in dispatch_targets.keys() {
+            let Some(c) = chamax.get(key) else { continue };
+            if c.not_applicable.is_some() || c.incomplete.is_some() {
+                continue;
+            }
+            let Some(vt) = c.vt_total else {
+                vt_unknown += 1;
+                continue;
+            };
+            cm_one += (c.total == 1) as usize;
+            vt_one += (vt == 1) as usize;
+            vt_lower += (vt < c.total) as usize;
+            vt_zero += (vt == 0 && c.total > 0) as usize;
+        }
+        write!(
+            &mut self.stats_file,
+            "VTmax summary (complete sites): single target by CHAmax {cm_one}, by VTmax \
+             {vt_one}; VTmax < CHAmax at {vt_lower} (to 0 at {vt_zero}); no vtable data at \
+             {vt_unknown}; single exact taken from {:?}\n",
+            crate::chamax::exact_from(),
+        )?;
+
+        // Where each site's targets come from.
+        let (mut by_analysis, mut by_fallback) = (0, 0);
+        for (key, (_, fsa)) in dispatch_targets {
+            if unreached.contains(key) {
+                continue;
+            }
+            if dispatch_cha.get(key).map(|(_, v)| v) == Some(fsa) {
+                by_fallback += 1;
+            } else {
+                by_analysis += 1;
+            }
+        }
+        write!(
+            &mut self.stats_file,
+            "Sources: {} sites: analysis {by_analysis}, analysis fell back to CHA {by_fallback}, \
+             not reached by the analysis (CHA, as in CHAmax-only mode) {}\n",
+            dispatch_targets.len(),
+            unreached.len(),
+        )?;
+
         write!(&mut self.stats_file, "--MAYBE EXAMPLES--\n")?;
         for (key, span, cha, fsa) in &diff {
             let (caller_def_id, bb_index, caller_genargs) = key;
@@ -110,6 +156,7 @@ impl VOLogger {
                 fsa
             )?;
             write_chamax_line(&mut self.stats_file, chamax.get(key))?;
+            write_source_line(&mut self.stats_file, unreached.contains(key), cha, fsa)?;
             // (entries in this section end with a blank line)
             writeln!(&mut self.stats_file)?;
         }
@@ -130,10 +177,24 @@ impl VOLogger {
                 fsa
             )?;
             write_chamax_line(&mut self.stats_file, chamax.get(key))?;
+            write_source_line(&mut self.stats_file, unreached.contains(key), cha, fsa)?;
         }
 
         Ok(())
     }
+}
+
+/// The `Source: ...` line after a site's CHAmax/VTmax lines: where its
+/// targets come from.
+fn write_source_line<T: PartialEq>(out: &mut File, unreached: bool, cha: &T, fsa: &T) -> Result<(), Error> {
+    let source = if unreached {
+        "not reached by the analysis (CHA candidates, as in CHAmax-only mode)"
+    } else if cha == fsa {
+        "analysis fell back to CHA"
+    } else {
+        "analysis"
+    };
+    writeln!(out, "Source: {source}")
 }
 
 /// The `CHAmax (n[, incomplete: why]): [candidate xN, ...]` line after a site's
@@ -149,7 +210,20 @@ fn write_chamax_line(out: &mut File, chamax: Option<&crate::chamax::ChaMax>) -> 
             let incomplete = c.incomplete.as_ref().map_or(String::new(), |why| format!(", incomplete: {why}"));
             let parts: Vec<String> =
                 c.per_candidate.iter().map(|(d, n)| format!("{} x{n}", d.name())).collect();
-            writeln!(out, "CHAmax ({}{incomplete}): [{}]", c.total, parts.join(", "))
+            writeln!(out, "CHAmax ({}{incomplete}): [{}]", c.total, parts.join(", "))?;
+            // VTmax: CHAmax restricted to instances in some vtable (chamax.rs).
+            match c.vt_total {
+                None => writeln!(out, "VTmax (?): no vtable lists in the manifests"),
+                Some(total) => {
+                    let parts: Vec<String> = c
+                        .vt_per_candidate
+                        .iter()
+                        .filter(|(_, n)| *n > 0)
+                        .map(|(d, n)| format!("{} x{n}", d.name()))
+                        .collect();
+                    writeln!(out, "VTmax ({total}{incomplete}): [{}]", parts.join(", "))
+                }
+            }
         }
     }
 }

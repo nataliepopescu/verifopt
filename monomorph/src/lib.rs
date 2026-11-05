@@ -11,7 +11,7 @@ use rustc_public::CrateDef;
 use rustc_public::DefId;
 use rustc_public::mir::mono::Instance;
 use rustc_public::ty::{GenericArgs, Span};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use log::debug;
@@ -43,12 +43,16 @@ use crate::util::options::AnalysisOptions;
 
 pub fn start_verifopt(
     options: AnalysisOptions,
-    cha_only: Option<Vec<Instance>>,
+    compiled: Vec<Instance>,
+    cha_only: bool,
 ) -> (
     HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     HashMap<(DefId, usize, GenericArgs), TagPlan>,
     HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     String,
+    // The sites the analysis didn't reach (their targets are CHA's, from the
+    // site enumeration) - every site in CHAmax-only mode.
+    HashSet<(DefId, usize, GenericArgs)>,
 ) {
     // `stats` (opened in append mode by VOLogger::new below) and
     // `mir_dump.txt` (opened in append mode by the modified compiler's
@@ -166,15 +170,17 @@ pub fn start_verifopt(
     // CHAmax-only mode (the evaluation's "CHAmax everywhere" rung): no
     // interpretation; every compiled dispatch site gets its CHA candidates
     // as its targets, so CHAmax alone decides what is rewritten.
-    if let Some(instances) = cha_only {
-        let sites = interp.enumerate_sites(&instances);
+    if cha_only {
+        let sites = interp.enumerate_sites(&compiled);
         eprintln!(
             "verifopt: CHAmax-only mode: {} dispatch sites in {} compiled instances",
             sites.len(),
-            instances.len()
+            compiled.len()
         );
-        return (sites.clone(), HashMap::new(), sites, String::new());
+        let unreached = sites.keys().cloned().collect();
+        return (sites.clone(), HashMap::new(), sites, String::new(), unreached);
     }
+    interp.set_compiled_instances(&compiled);
     // An error that unwinds all the way here means the interpreter stopped
     // early: whatever it found is a partial picture (FSA sets of the sites it
     // did reach may be missing targets it never got to). So no site's FSA
@@ -189,6 +195,10 @@ pub fn start_verifopt(
         crate::assumptions::record(crate::assumptions::Reason::AnalysisAborted, e.to_string(), Vec::new);
     }
 
+    {
+        let (c, i) = *interp.cha_expansions.borrow();
+        eprintln!("verifopt: compiled-instance fallback: {c} candidate expansions into {i} instances");
+    }
     let incomplete = &interp.incomplete.borrow();
     let confirmed: HashMap<Span, bool> = interp
         .dependencies
@@ -199,7 +209,7 @@ pub fn start_verifopt(
 
     let cha = &interp.dispatch_cha.borrow();
 
-    let fsa = interp
+    let mut fsa: HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)> = interp
         .dispatch_targets
         .borrow()
         .iter()
@@ -235,11 +245,36 @@ pub fn start_verifopt(
     // O(program size so far) - this one conversion back to std::HashMap
     // happens exactly once for the whole run, not per summary-build
     // attempt, so it isn't the cost that migration was about avoiding.
-    let cha_std: HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
+    let mut cha_std: HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)> =
         cha.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+
+    // Dispatch sites the analysis never reached - code it doesn't interpret
+    // (another entry point, a call through a lost fn pointer, drop glue) or
+    // dead code - get what CHAmax-only mode gives every site: their CHA
+    // candidates as their targets, so CHAmax (or VTmax) decides the rewrite
+    // there as in rung 3, instead of the site being left alone. Sound: those
+    // bounds don't depend on the analysis having seen the site.
+    // VERIFOPT_NO_UNREACHED_FALLBACK=1 turns it off, to measure it.
+    let mut unreached = HashSet::new();
+    if std::env::var_os("VERIFOPT_NO_UNREACHED_FALLBACK").is_none() {
+        let sites = interp.enumerate_sites(&compiled);
+        let total = sites.len();
+        for (key, site) in sites {
+            if !fsa.contains_key(&key) {
+                cha_std.entry(key.clone()).or_insert_with(|| site.clone());
+                fsa.insert(key.clone(), site);
+                unreached.insert(key);
+            }
+        }
+        eprintln!(
+            "verifopt: {} of {total} compiled dispatch sites weren't reached by the analysis; they \
+             get their CHA candidates (CHAmax decides them, as in CHAmax-only mode)",
+            unreached.len()
+        );
+    }
     // `stats` is written by the caller (rewrite.rs's after_analysis), after
     // the store: CHAmax needs this crate's monomorphization, which must only
     // happen once the store exists (see chamax::compute).
     let assumptions = crate::assumptions::report();
-    (fsa, tags, cha_std, assumptions)
+    (fsa, tags, cha_std, assumptions, unreached)
 }

@@ -308,6 +308,11 @@ pub struct InterpPass<'a> {
     /// can start inside another walk of the same scope (finish_frame's final
     /// traverse after recursive calls, from the outer walk's Return block).
     active_walks: RefCell<HashMap<VOID, u32>>,
+    /// The program's compiled instances by function (chamax::compiled_instances):
+    /// the CHA fallback's candidates (expand_cha_candidates).
+    compiled_by_def: RefCell<HashMap<DefId, Vec<GenericArgs>>>,
+    /// (candidates expanded, instances simulated in their place).
+    pub cha_expansions: RefCell<(usize, usize)>,
     /// Memory diagnostics (VERIFOPT_CACHE_SIZES): one entry per active
     /// candidate simulation (simulate_static_calls), outermost first - the
     /// dispatching function, candidate index, candidate count, and the
@@ -425,6 +430,8 @@ impl<'a> InterpPass<'a> {
             body_cache: HashMap::new().into(),
             droppable_cache: HashMap::new().into(),
             active_walks: HashMap::new().into(),
+            compiled_by_def: HashMap::new().into(),
+            cha_expansions: RefCell::new((0, 0)),
             sim_levels: RefCell::new(Vec::new()),
             wto_templates: HashMap::new().into(),
             //param_summaries: HashMap::new().into(),
@@ -1685,6 +1692,15 @@ impl<'a> InterpPass<'a> {
                         }
                     }
                 }
+                if scope_matches_trace_filter(cur_scope) {
+                    let base = Place { local: place.local, projection: vec![] };
+                    let v = ctxt.get_constraints(cur_scope, local_decls, &base, false, Some(self));
+                    log::warn!(
+                        "[verifopt trace] {:?} bb{bb}[{stmt_idx}] {place:?} := {}",
+                        cur_scope.0.name(),
+                        v.map(|v| crate::constraints::shape(&v, 6)).unwrap_or_else(|| "none".into())
+                    );
+                }
             }
             StatementKind::FakeRead(_, _)
             | StatementKind::StorageLive(_)
@@ -1960,6 +1976,13 @@ impl<'a> InterpPass<'a> {
                 } else {
                     None
                 };
+                if scope_matches_trace_filter(cur_scope) {
+                    log::warn!(
+                        "[verifopt trace] {:?}: indirect call, callee {}",
+                        cur_scope.0.name(),
+                        format!("{:?}", constraints).chars().take(1500).collect::<String>()
+                    );
+                }
                 if let Some(what) = unknown {
                     crate::assumptions::record(
                         crate::assumptions::Reason::FnPtrCall,
@@ -2180,7 +2203,13 @@ impl<'a> InterpPass<'a> {
             panic!("no closure kind in genargs (empty)");
         }
 
-        match genargs.0[0].expect_ty().kind() {
+        // A closure's args are its parent's generic args, then the closure
+        // kind, its signature (as a fn pointer type) and its tupled
+        // captures: the kind is third from the end - at index 0 only when
+        // the parent isn't generic (a closure made in `fn new<T>` starts
+        // with `T`, and calling it through a fn pointer panicked here).
+        let kind_idx = genargs.0.len().saturating_sub(3);
+        match genargs.0[kind_idx].expect_ty().kind() {
             // Rustc encodings for closure kinds
             TyKind::RigidTy(RigidTy::Int(IntTy::I8)) => ClosureKind::Fn,
             TyKind::RigidTy(RigidTy::Int(IntTy::I16)) => ClosureKind::FnMut,
@@ -3859,6 +3888,14 @@ impl<'a> InterpPass<'a> {
             return self.retty_fallback_from_poly(fndef.fn_sig());
         }
 
+        // The site is recorded with its candidates (above); what's simulated
+        // is the compiled instances of any candidate without generic args -
+        // a CHA fallback, or FSA's own CHA-sized set where the receiver was
+        // an unknown `dyn` (get_cha_defids_for_object_args): both list bare
+        // impl fns.
+        let to_simulate = self.expand_cha_candidates(&assoc_fn_impls_fsa, &fndef.0);
+        let _ = fsa_empty;
+
         let mut touched_scopes: Vec<(VOID, u64)> = Vec::new();
         let frame = crate::write_log::push(operand_places(args), caller_scope);
         let result = self.simulate_static_calls(
@@ -3867,7 +3904,7 @@ impl<'a> InterpPass<'a> {
             call_stack,
             caller_scope,
             local_decls,
-            assoc_fn_impls_fsa,
+            to_simulate,
             genargs,
             args,
             is_closure,
@@ -4100,6 +4137,56 @@ impl<'a> InterpPass<'a> {
                 };
                 let cha = self.get_impls_cha(&fndef.0, &trait_defid, &genargs);
                 out.insert((instance.def.def_id(), bb, instance.args()), (block.terminator.span, cha));
+            }
+        }
+        out
+    }
+
+    pub fn set_compiled_instances(&self, instances: &[Instance]) {
+        let mut by = self.compiled_by_def.borrow_mut();
+        for i in instances {
+            let e = by.entry(i.def.def_id()).or_default();
+            let args = i.args();
+            if !e.contains(&args) {
+                e.push(args);
+            }
+        }
+    }
+
+    /// The candidates to simulate where FSA fell back to CHA: each impl
+    /// method's *compiled instances*, with their generic args, instead of the
+    /// bare impl fn - which simulate_static_calls can only interpret when it
+    /// has no generic params at all (lifetimes included: "args mismatch"),
+    /// and which it interprets even when nothing compiles it. A candidate
+    /// with no compiled instance listed (e.g. a generic instance a
+    /// dependency compiles for its own use) and trait default methods stay
+    /// as they were, so this never drops a candidate.
+    fn expand_cha_candidates(
+        &self,
+        candidates: &[(DefId, Option<GenericArgs>)],
+        assoc_fn_defid: &DefId,
+    ) -> Vec<(DefId, Option<GenericArgs>)> {
+        let by = self.compiled_by_def.borrow();
+        let mut out: Vec<(DefId, Option<GenericArgs>)> = Vec::new();
+        for (d, a) in candidates {
+            match (a, by.get(d)) {
+                (None, Some(instances)) if d != assoc_fn_defid => {
+                    let mut s = self.cha_expansions.borrow_mut();
+                    s.0 += 1;
+                    s.1 += instances.len();
+                    for args in instances {
+                        let c = (*d, Some(args.clone()));
+                        if !out.contains(&c) {
+                            out.push(c);
+                        }
+                    }
+                }
+                _ => {
+                    let c = (*d, a.clone());
+                    if !out.contains(&c) {
+                        out.push(c);
+                    }
+                }
             }
         }
         out

@@ -1,7 +1,7 @@
 # verifopt — handoff notes
 
 Context for continuing this work in Claude Code. Started at the end of a long
-debugging/design conversation (Sept–Oct 2026), last updated Nov 3 2026. Verify against
+debugging/design conversation (Sept–Oct 2026), last updated Nov 4 2026. Verify against
 `git log` in each repo before assuming anything below is applied.
 
 Lives in the verifopt repo (`~/hack/verifopt/CLAUDE.md`, versioned there);
@@ -96,9 +96,11 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
   is *compiled*; deps cargo considers fresh write none, and every site's
   CHAmax becomes "incomplete" (no `single exact`). Always `cargo clean
   --target-dir …` before an analysis run.
-- Current ripgrep cost (Nov 3 2026, build-std, `a9ad236`, uncapped): the
-  `rg` analysis takes ~1 h 46 min and ~8-9 GB (whole pipeline ~1 h 55 min);
-  two at once fit on the 62 GB machine. Run experiments from a separate install root
+- Current ripgrep cost (Nov 4 2026, build-std, `c85db8c`, uncapped): the
+  `rg` analysis takes ~16 min and ~4.6 GB (whole pipeline ~24 min); several
+  fit on the 62 GB machine at once - but each needs its *own* install root
+  (run scripts stop every `verifopt` of their root: two runs from one root
+  killed each other twice). Run experiments from a separate install root
   (`cargo install --path . --root /tmp/vo_x`, then put `/tmp/vo_x/bin`
   first on PATH: cargo-verifopt runs the `verifopt` next to itself).
 - **Diagnostics** (all at warn level, so visible with
@@ -117,10 +119,24 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
     argument fingerprint and size, reason (no entry / stale scopes with their
     names / statics changed with their names), caller-on-stack count - and
     each simulation's length in bb visits (`[verifopt dispatch end]`).
-  - `VERIFOPT_MERGE_STATS=<seconds>` (uncommitted as of Nov 3): per window,
-    context merges after candidate simulation - count, time, scope keys
-    visited / actually merged - and the scopes and variables (scope + place)
-    whose merges took longest, with the merged values' sizes.
+  - `VERIFOPT_MERGE_STATS=<seconds>`: per window, context merges after
+    candidate simulation - count, time, scope keys visited / actually merged
+    - and the scopes and variables (scope + place) whose merges took
+    longest, with the merged values' sizes.
+  - `VERIFOPT_CHECK_DROPPED=1` (or `=<file>`, appended to - fixture runs
+    keep no log): a read that finds a dropped temporary missing
+    (`[verifopt dropped read]`), with the reading block, where the local is
+    assigned, the block's predecessors, whether the block is reachable in
+    its walk (a path from bb0 through visited blocks; "unreachable here"),
+    and for reachable reads the blocks themselves (the analysis's MIR numbers
+    blocks differently from `-Zunpretty=mir`). Reads made by an assignment's
+    old-value lookup show up too (false positives).
+    `VERIFOPT_TRACE_DROP=<name part>`: each walk of matching scopes (id,
+    ordering, blocks visited, how it ends) and each drop.
+    `VERIFOPT_KEEP_TEMPORARIES=1` turns dropping off. `[verifopt memory
+    extra]` counts dropped entries (`dropped_temporaries=`).
+  - `VERIFOPT_TRACE_SCOPE=<name part>` also logs, per switch in a matching
+    scope, the discriminant's value and branch counts.
   - Visit counts don't compare across plugin versions that re-simulate
     differently (Nov 3: the epoch fix halved visits for the same results);
     compare runs by wall time to the same state (memo entries) or to the end.
@@ -262,6 +278,29 @@ pointing at the `rust-mono-rewrite` toolchain.
   (`TrackedMap::same_entries`), not when the merge merely builds a new map.
   Remaining stale misses are real: a scope's store accumulates the union of
   all argument values it is called with.
+- **Finished calls' temporaries** (Nov 4, `02e9c1d`, `a38e632`): when a
+  walk of a scope's body ends (`visit_body` - not at the Return terminator:
+  the walk order can put blocks after it, and finish_frame's final traverse
+  after recursive calls is a walk nested in the outer one), no other walk of
+  the scope is in progress (`active_walks`) and the scope is off the call
+  stack, its droppable locals leave its store (`drop_scope_locals`):
+  locals after the arguments that no borrow mentions (`&`, `&mut`, `&raw`
+  of the local, a field of it, or through it - `&(*L)` is an alias of
+  `(*L)`, resolved through L's value), in bodies that create no closure or
+  coroutine, have no inline assembly and aren't coroutines. `_0` and the
+  arguments stay. Before, every helper's temporaries were merged back after
+  each candidate simulation - most of ripgrep's analysis time.
+- **Switch pruning by reachability** (Nov 4, `4ace1b6`): `BBDeps::prune`
+  records the dead switch edge (`dead_edges`, per walk; empty in the
+  template) and keeps only blocks reachable from bb0 over the other edges.
+  Predecessor counting kept dead loops (their back edge stays a
+  predecessor) and cut join blocks another live block still jumps to.
+- **Calls without a result** (Nov 4, `c85db8c`): a call that returns
+  `Ok(None)` writes nothing to its destination only for a reason that makes
+  that right (`NoResult`: no reachable Return in the callee's walk, or a
+  recursive call still being solved), or a `!` / `()` destination;
+  otherwise the destination gets `any_value` of its type, recorded as
+  `CallResultUnknown`. Before, it kept an earlier call's value.
 - **Errors**: call error paths truncate both stacks to their pre-call length
   (`unwind_stacks_to`); nested re-interpretation deeper than `MAX_DEPTH`
   (50) answers the call from its signature ("recursion depth limit").
@@ -476,6 +515,56 @@ pointing at the `rust-mono-rewrite` toolchain.
     `write_str`'s `_3`. Arguments (`write_fmt`/`write_str` `_1`, the
     `Formatter`, 33-36k nodes) are the next largest. See §6 "Analysis cost".
 
+- **ripgrep in ~24 min, Nov 4** (same flags; runs `full9`-`full14`, job
+  tmp `rg_exp.done`, `out_exp_<name>`, script `rg_full9.sh` - no pace
+  rule). Dropping finished calls' temporaries took the uncapped analysis
+  from ~1 h 46 min to ~25 min; the dropped-read check
+  (`VERIFOPT_CHECK_DROPPED`) then found what was relying on leftover
+  values, and each find became a fix:
+  - drop at the end of the walk, not at the Return terminator (blocks after
+    it in walk order: `TwoWaySearcher::next`, serde_json's
+    `PrettyFormatter::end_object`), and not while another walk of the scope
+    is active (the nested final traverse after recursion);
+  - blocks walked although unreachable (35 of 46 reports in `full11`): dead
+    loops behind pruned switch edges (`ByteStr`'s `Display::fmt`: bb0 ->
+    bb7, bb7's preds bb6 pruned and bb28 a back edge) - fixed by pruning by
+    reachability, which also restored two `PadAdapter` dispatch sites the old
+    pruning had cut (the join block after `if self.state.on_newline { .. }`
+    is also the `?`'s Ok target; once on_newline was known exactly, the
+    false arm's pruning removed it);
+  - `&(*L)` keeps L (regex_syntax's `lift_common_prefix`: `_26 =
+    &(*_119)`, `_119` a raw pointer built from parts, read around a loop);
+  - call destinations left unwritten (regex_automata's `c_look`):
+    destination gets any value unless the callee can't return / is pending
+    recursion. 580 calls to 23 functions remain unknown - mostly trait
+    methods resolving to shims / builtin impls (`Clone::clone` 266,
+    `slice::repeat` 138, `RegexInfo::config` 60, `FromResidual::
+    from_residual` 28, `Any::type_id` 12): candidates for models or stubs.
+
+    | run | change | pipeline | sites | dropped reads (unreachable) |
+    |---|---|---|---|---|
+    | `full8` | Nov 3 baseline (`a9ad236`) | 6,866 s | 181 | - |
+    | `full11` | drop temporaries (`02e9c1d`) | 1,605 s | 181 (2 lost, 2 new) | 46 (35) |
+    | `full12` | + pruning by reachability, `&(*L)` rule | 1,630 s | 182 (none lost) | 2 (0) |
+    | `full13` | + call results | 1,464 s | 182 | 0 |
+    | `full14` | + `()` excluded (`c85db8c`) | **1,460 s** | 182 | 0 |
+
+    Last memory reading ~4.6 GB (at 1.75M visits; these runs end before
+    2M). Every run: 2 `single exact`, 11 `pointers n=1`; `full12`'s rg
+    matches plain on all 22 `rg_cmp.sh` commands, `full13`/`full14`'s rg is
+    byte-identical to it. Against `full8`, all 181 sites are in `full14`
+    (170 identical in `full12`, the rest supersets) plus a
+    `DebugStruct::field` closure site. Exception: three `fmt::write` sites
+    went from 23 writers (= CHAmax-ish) to 11 with the call-result fix - the
+    lost ones (serde_json's `collect_str` adapter, serde's
+    `LookForDecimalPoint`, anyhow's writer) are never constructed in code
+    either run interprets (`collect_str` never entered, `VERIFOPT_TRACE_SCOPE`
+    runs `trcs12`/`trcs13`), so they came from an unknown `&mut dyn Write`
+    an unwritten destination had produced.
+  - `full14`'s rg: file-backed 4,376,775 B, +3,804 B vs `full8`'s with
+    identical rewrites - partitioning: the hook adds edges for every stored
+    site (§6, pinned), and the bigger target sets add more.
+
 ## 5. Done: tock merged into one crate (boards/imix)
 
 Kernel/capsules/chip code is compiled inside `imix`, so every dispatch site
@@ -609,31 +698,23 @@ Gotchas hit doing it:
   `--ASSUMPTIONS--`. Fix: interpret `Drop` as a call to
   `drop_in_place::<T>` (resolve the drop-glue instance; for `dyn T` a virtual
   call through the vtable's drop slot).
-- **Analysis cost** (Nov 3): ripgrep's uncapped analysis now finishes in
-  ~1 h 46 min / ~8 GB (§4, "ripgrep finishes uncapped again"); ~96% of it
-  is merging each candidate's context back after candidate simulation, mostly
-  temporaries of finished formatting helpers. Next levers, in order:
-  1. **Drop a finished call's temporaries** (planned Nov 3, not
-     implemented): when a scope finishes and is off the call stack
-     (`finish_frame`, where its aliases are already pruned), remove its
-     non-argument locals from its store - nothing left to merge across
-     candidates. Arguments and `_0` stay (resolve_args accumulates
-     arguments; memo/epoch logic unchanged). Only locals whose address can't
-     escape: never borrowed in the body (no `&`/`&mut`/`&raw` of the local
-     or a projection of it - a per-instance MIR scan, cached like the
-     bodies), in a scope whose body creates no closure (the enclosing-scope
-     fallback reads the creator's store), not a coroutine. Sound: each call
-     recomputes its temporaries from the entry block. Check: under a
-     diagnostic switch, dropped (scope, local) pairs leave tombstones and a
-     later read of one logs `[verifopt dropped read]` - run on the fixtures
-     and ripgrep before trusting it.
-  2. Merge each key's candidate values in one pass instead of 255 pairwise
-     merges (pairwise is quadratic in disjuncts).
-  3. Per-candidate summaries reused across contexts (option 3, Oct 26) -
-     what would remove the argument merges (`Formatter` values, 33-36k
-     nodes) too.
-  Smaller: the 4 sites with >3,000 CHA-sized targets; memo pressure (50 arg
-  sets per function before widening).
+- **Analysis cost** (Nov 4): ripgrep's uncapped analysis now takes ~16 min
+  / ~4.6 GB (pipeline ~24 min; §4, "ripgrep in ~24 min"), after dropping
+  finished calls' temporaries (§3). Merging candidate contexts back is still
+  over half the time (56% in the second 10-min window of `full11`). Next
+  levers: merge each key's candidate values in one pass instead of 255
+  pairwise merges (pairwise is quadratic in disjuncts); per-candidate
+  summaries reused across contexts (option 3, Oct 26) - what would remove
+  the argument merges (`Formatter` values, 33-36k nodes). Smaller: the 4
+  sites with >3,000 CHA-sized targets; memo pressure (50 arg sets per
+  function before widening).
+- **Calls with unknown results** (Nov 4): `CallResultUnknown` in
+  `--ASSUMPTIONS--` lists the callees whose result the analysis loses (any
+  value instead) - ripgrep: 580 calls to 23 functions, mostly trait methods
+  that resolve to compiler shims or builtin impls (`Clone::clone`,
+  `FromResidual::from_residual`, `Any::type_id`, `Iterator::next`,
+  `Borrow::borrow`), plus `slice::repeat` and regex_automata's
+  `RegexInfo::config`: models or stubs for the frequent ones.
 - **Soundness gaps the bigger reach exposes** (see the assumptions report):
   memo reuse under widened keys (plan (B) below) - 91k calls in ripgrep;
   `std::thread::LocalKey::try_with` loses its accessor (fn pointer in a
@@ -749,9 +830,9 @@ Gotchas hit doing it:
   faster, but tied to `fmt::Arguments`' internal layout. Revisit if a fresh
   ripgrep report has many benign "callee value empty" entries.
 
-## 7. Recent commits (Oct 17 – Nov 3 2026; `git log` is authoritative)
+## 7. Recent commits (Oct 17 – Nov 4 2026; `git log` is authoritative)
 
-Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 3):
+Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 4):
 
 - `4875a88` CHA matches impls of traits with their own generic params
 - `ce9a201` guard non-proven single rewrites (`--unguarded-single`);
@@ -807,6 +888,15 @@ Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 3):
 - `a9ad236` fewer copies in value merges (borrowed field map,
   allocation-free `differing_field`, `TagProv::covers`) - ~2%, results
   identical
+- `3a48a2a` `VERIFOPT_MERGE_STATS`
+- `02e9c1d` drop a finished call's temporaries from its scope store
+  (`VERIFOPT_CHECK_DROPPED`, `VERIFOPT_TRACE_DROP`,
+  `VERIFOPT_KEEP_TEMPORARIES`)
+- `4ace1b6` prune switch targets by reachability, not predecessor counts
+- `a38e632` keep locals borrowed through a deref; dropped-read reports show
+  the blocks
+- `c85db8c` a call that returns no value gives its destination any value of
+  its type (`CallResultUnknown`)
 
 Fork (`~/hack/rust`): `73da158f0d5` disable unguarded/unproven single
 rewrites (on top of `5eec5c673e1` flexible max-candidates,
@@ -1484,14 +1574,17 @@ ripgrep (`<dir>/x86_64-unknown-linux-gnu/release/rg`; unwind = `.eh_frame_hdr
 | 3 CHAmax everywhere (undercounts) | `chamax_target` | 2,783,010 | 762,708 | 335,304 | 496,668 | 4,377,690 | 2,912 / 296 |
 | 4 verifopt (Oct 21 plugin, pre-statics) | `timing_target` | 2,780,034 | 762,112 | 335,928 | 497,348 | 4,375,422 | 2,912 / 288 |
 | 4 verifopt (Nov 3, `a9ad236`) | `exp_full8_target` | 2,777,667 | 762,220 | 336,056 | 497,028 | 4,372,971 | 2,912 / 296 |
+| 4 verifopt (Nov 4, `c85db8c`) | `exp_full14_target` | 2,779,955 | 762,716 | 336,072 | 498,032 | 4,376,775 | 2,920 / 296 |
 
 Indirect calls (`call *`, excluding calls through the GOT): plain 3,503,
-Oct 21 rung 4 3,526, Nov 3 rung 4 3,514. The Nov 3 rung 4 is -8,063 B
-file-backed vs plain, but its hook baseline (partitioning edges from its own
-store, no rewrite) hasn't been built: the Oct 21 hook baseline alone was
--7,468 B, so most of that is probably partitioning again.
+Oct 21 rung 4 3,526, Nov 3 rung 4 3,514, Nov 4 rung 4 3,526. Both are
+-4 to -8 KB file-backed vs plain with the same 13 rewrites, but no hook
+baseline (partitioning edges from the same store, no rewrite) exists for
+either: the Oct 21 one alone was -7,468 B, so the differences are probably
+mostly partitioning (Nov 4 vs Nov 3: +3,804 B with identical rewrites, from
+the hook's edges for more sites and bigger target sets).
 
-Missing: a hook baseline for the Nov 3 store, rung 4/5 under fat LTO (the
+Missing: hook baselines for the Nov 3/4 stores, rung 4/5 under fat LTO (the
 LTO rows on the dashboard are rungs 1-2 + elimination; needs a new analysis
 under the LTO profile - stores are per build config), rung 3's own hook
 baseline, vtable bytes for ripgrep (a scan of `.data.rel.ro`); rung 6 both.

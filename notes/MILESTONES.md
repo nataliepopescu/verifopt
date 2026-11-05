@@ -30,19 +30,15 @@
 
     - [ ] general rewrite
         - [x] tag-based rewrite (doesn't use vtables)
-        - [ ] ~vtable ptr mod?~
         - [x] vtable ptr rewrite
-        - [ ] vtable elimination post-rewrite (LTO)
-
-    - [ ] FSA interp nits/improvements (ONLY IF TIME/NEED)
-        - [ ] make call_stack and friends use interior mutability
-        - [x] unique-vec data structure/api
+        - [x] vtable elimination post-rewrite (LTO)
 
 
 - [ ] eval
     - [x] perf bottlenecks / tool benchmarks (verifopt performance)
 
-    - [ ] how to validate FSA
+    - [ ] validate FSA
+        - MIR validation tool? (might already run as part of compilation though)
         - run project/binary tests
         - sample dynamic dispatches
 

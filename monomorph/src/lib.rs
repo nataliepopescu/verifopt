@@ -223,6 +223,33 @@ pub fn start_verifopt(
         })
         .collect();
 
+    // Objects that escaped into code the analysis doesn't interpret (calls
+    // without MIR, fn pointers it can't follow) may reach any site of a
+    // trait they implement: add their targets (InterpPass::escaped_targets).
+    // Applied here, after the analysis, so the order in which a site and an
+    // escape were seen doesn't matter.
+    {
+        let mut widened = 0usize;
+        for (key, (_, targets)) in fsa.iter_mut() {
+            let mut added = false;
+            for t in interp.escaped_targets(key) {
+                if !targets.contains(&t) {
+                    targets.push(t);
+                    added = true;
+                }
+            }
+            widened += added as usize;
+        }
+        if widened > 0 {
+            eprintln!("verifopt: {widened} dispatch sites gained targets from objects escaping into uninterpreted code");
+            crate::assumptions::record(
+                crate::assumptions::Reason::FnPtrCall,
+                format!("{widened} dispatch sites gained the targets of objects escaping into uninterpreted code"),
+                Vec::new,
+            );
+        }
+    }
+
     let tags: HashMap<(DefId, usize, GenericArgs), TagPlan> = interp
         .dispatch_tags
         .borrow()

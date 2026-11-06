@@ -17,7 +17,10 @@
         "<std::string::String as std::fmt::Write>::write_str"
       ],
       "fsa": [
-        "<std::string::String as std::fmt::Write>::write_str"
+        "<fmt_fnptr_writer::Counter as std::fmt::Write>::write_str",
+        "<std::io::default_write_fmt::Adapter<'_, T> as std::fmt::Write>::write_str",
+        "<std::string::String as std::fmt::Write>::write_str",
+        "std::fs::File"
       ]
     }
   ]

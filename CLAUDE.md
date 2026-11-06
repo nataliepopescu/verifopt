@@ -150,6 +150,9 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
     extra]` counts dropped entries (`dropped_temporaries=`).
   - `VERIFOPT_TRACE_SCOPE=<name part>` also logs, per switch in a matching
     scope, the discriminant's value and branch counts.
+  - `VERIFOPT_TRACE_ESCAPE=1`: each escape into uninterpreted code (the
+    objects recorded) and, per site, the targets escaped objects add (§3
+    "Escaping arguments").
   - Visit counts don't compare across plugin versions that re-simulate
     differently (Nov 3: the epoch fix halved visits for the same results);
     compare runs by wall time to the same state (memo entries) or to the end.
@@ -319,6 +322,20 @@ pointing at the `rust-mono-rewrite` toolchain.
   recursive call still being solved), or a `!` / `()` destination;
   otherwise the destination gets `any_value` of its type, recorded as
   `CallResultUnknown`. Before, it kept an earlier call's value.
+- **Escaping arguments** (Nov 6): a call the analysis answers from its
+  signature - no MIR, a recursion cut, a fn pointer it can't follow, a
+  callee value that isn't fn-like - may dispatch on anything it's given.
+  `note_escape` records every ADT/closure value reachable from its
+  arguments (as its type, fields dropped; a value over 200k nodes sets an
+  overflow flag: every site then gets its CHA set); after the analysis
+  (`lib.rs`, before the store) every site also gets the targets of the
+  escaped objects implementing its trait (`escaped_targets`) - so the
+  order in which a site and an escape are seen doesn't matter. Found with
+  unguarded rewrites: `fmt_fnptr_writer` (no build-std, so
+  `core::fmt::write` has no MIR) had FSA {String} at `Formatter::write_fmt`'s
+  writer dispatch while a `Counter` reached it - the direct call corrupted
+  the Counter; now {String, io Adapter, Counter}. 6 fixtures widened, none
+  lost a target.
 - **Errors**: call error paths truncate both stacks to their pre-call length
   (`unwind_stacks_to`); nested re-interpretation deeper than `MAX_DEPTH`
   (50) answers the call from its signature ("recursion depth limit").
@@ -725,7 +742,9 @@ Gotchas hit doing it:
   (Oct 17) and the root cause fixed (Oct 18: fn items through casts,
   `Offset`, array literals, closure captures, rust-call binding; see §3).
   With build-std, `Formatter::write_fmt` / `pad` / `fmt::write` now see the
-  real writers. History below.
+  real writers. Without build-std (fixtures), objects passed to the
+  uninterpreted `fmt::write` now escape (§3 "Escaping arguments", Nov 6).
+  The guard mitigation below is gone: rewrites are unguarded. History below.
   - Bug: FSA gave `Formatter::write_fmt` bb13 (`self.buf.write_str`) one
     writer, `String::write_str`, and the rewrite made it an unguarded
     `single` in ~20 crates. Cause: `fmt::rt::Argument` holds
@@ -1006,6 +1025,11 @@ Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 4):
 - `b849b1e` CLAUDE.md / harness: soundness status after the merge
 - `8b3fcd8` `project_value`: a missing field reads as any value only in a
   static's value (ripgrep blow-up after the merge, §4)
+- `a3a416e` unguarded rewrites by default (`--guarded` opts back in)
+- `c1a6180` CHAmax-only mode / unreached fallback: sites from every crate's
+  manifest (`dispatchers`)
+- `e604b76` fixture MIR goldens for unguarded rewrites
+- (Nov 6) arguments of uninterpreted calls escape (`note_escape`, §3)
 
 Fork (`~/hack/rust`): `73da158f0d5` disable unguarded/unproven single
 rewrites (on top of `5eec5c673e1` flexible max-candidates,

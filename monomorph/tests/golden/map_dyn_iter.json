@@ -340,6 +340,9 @@
         "<std::iter::Map<I, F> as std::iter::Iterator>::next",
         "map_dyn_iter::make::{closure#0}",
         "std::alloc::Global",
+        "std::alloc::Global",
+        "std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<I, A>>::next",
+        "std::io::error::Custom",
         "std::vec::IntoIter"
       ]
     }

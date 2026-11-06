@@ -123,13 +123,9 @@ fn run_dyn(_1: &mut dyn std::ops::FnMut() -> usize) -> usize {
 fn run_dyn(_1: &mut dyn std::ops::FnMut() -> usize) -> usize {
     debug f => _1;
     let mut _0: usize;
-    let mut _2: *mut {closure@src/main.rs:70:26: 70:28};
-    let mut _3: &mut {closure@src/main.rs:70:26: 70:28};
 
     bb0: {
-        _2 = move _1 as *mut {closure@src/main.rs:70:26: 70:28} (PtrToPtr);
-        _3 = &mut (*_2);
-        _0 = <{closure@src/main.rs:70:26: 70:28} as std::ops::FnMut<()>>::call_mut(move _3, const ()) -> [return: bb1, unwind continue];
+        _0 = <dyn std::ops::FnMut() -> usize as std::ops::FnMut<()>>::call_mut(move _1, const ()) -> [return: bb1, unwind continue];
     }
 
     bb1: {

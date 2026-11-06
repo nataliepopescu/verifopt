@@ -114,17 +114,6 @@ fn main() -> () {
     let mut _4: std::option::Option<u32>;
     let mut _5: isize;
     let _7: u32;
-    let mut _11: std::ptr::DynMetadata<dyn std::iter::Iterator<Item = u32>>;
-    let mut _12: *const ();
-    let mut _13: *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
-    let mut _14: *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
-    let mut _15: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
-    let mut _16: *mut Counter;
-    let mut _17: &mut Counter;
-    let mut _18: *mut Countdown;
-    let mut _19: &mut Countdown;
-    let mut _20: for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item>;
-    let mut _21: bool;
     scope 1 {
         debug iter => _3;
         let _6: u32;
@@ -164,14 +153,7 @@ fn main() -> () {
         _10 = copy ((_3.0: std::ptr::Unique<dyn std::iter::Iterator<Item = u32>>).0: std::ptr::NonNull<dyn std::iter::Iterator<Item = u32>>);
         _9 = copy _10 as *const dyn std::iter::Iterator<Item = u32> (Transmute);
         _8 = &mut (*_9);
-        _11 = PtrMetadata(move _8);
-        _12 = move _11 as *const () (Transmute);
-        _13 = copy _12 as *const for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PtrToPtr);
-        _14 = Offset(copy _13, const 3_usize);
-        _15 = copy (*_14);
-        _20 = <Countdown as std::iter::Iterator>::next as for<'a> fn(&'a mut dyn std::iter::Iterator<Item = u32>) -> std::option::Option<<dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::Item> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _21 = Eq(copy _15, copy _20);
-        switchInt(copy _21) -> [1: bb15, otherwise: bb13];
+        _4 = <dyn std::iter::Iterator<Item = u32> as std::iter::Iterator>::next(move _8) -> [return: bb10, unwind: bb7];
     }
 
     bb3: {
@@ -218,26 +200,6 @@ fn main() -> () {
         StorageDead(_7);
         StorageDead(_4);
         goto -> bb2;
-    }
-
-    bb12: {
-        goto -> bb10;
-    }
-
-    bb13: {
-        _16 = move _8 as *mut Counter (PtrToPtr);
-        _17 = &mut (*_16);
-        _4 = <Counter as std::iter::Iterator>::next(move _17) -> [return: bb12, unwind: bb7];
-    }
-
-    bb14: {
-        goto -> bb10;
-    }
-
-    bb15: {
-        _18 = move _8 as *mut Countdown (PtrToPtr);
-        _19 = &mut (*_18);
-        _4 = <Countdown as std::iter::Iterator>::next(move _19) -> [return: bb14, unwind: bb7];
     }
 }
 ######### END after #########

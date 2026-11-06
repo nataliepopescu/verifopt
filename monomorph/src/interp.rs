@@ -246,6 +246,19 @@ pub struct InterpPass<'a> {
 
     pub dispatch_targets:
         RefCell<ImHashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
+    /// Each dispatch site's method and its trait (escaped_targets).
+    pub dispatch_methods: RefCell<HashMap<(DefId, usize, GenericArgs), (DefId, DefId)>>,
+    /// Objects passed to code the analysis doesn't interpret - a call without
+    /// MIR, or through a fn pointer it can't follow (note_escape): that code
+    /// can dispatch on them anywhere, e.g. `core::fmt::write` (no MIR without
+    /// build-std) hands its `&mut dyn Write` to every `Display::fmt` it calls
+    /// through a fn pointer, and those reach `Formatter::write_fmt`'s writer
+    /// dispatch. After the analysis every site also gets the escaped objects
+    /// of its trait as targets (escaped_targets): order-independent, sound.
+    pub escaped: RefCell<Constraints>,
+    /// Set when an escaping value was too big to walk (note_escape): every
+    /// site then gets its CHA candidates instead (sound).
+    escaped_overflow: RefCell<bool>,
     pub dispatch_cha:
         RefCell<ImHashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
     pub dispatch_tags: RefCell<ImHashMap<(DefId, usize, GenericArgs), TagPlan>>,
@@ -393,6 +406,9 @@ impl<'a> InterpPass<'a> {
             converter: RvalConverter::new(tstore),
             call_context_k,
             dispatch_targets: ImHashMap::new().into(),
+            dispatch_methods: HashMap::new().into(),
+            escaped: Constraints::new().into(),
+            escaped_overflow: false.into(),
             dispatch_cha: ImHashMap::new().into(),
             dispatch_tags: ImHashMap::new().into(),
             wq: HashMap::new().into(),
@@ -1989,6 +2005,11 @@ impl<'a> InterpPass<'a> {
                         format!("indirect call in {} ({what})", cur_scope.0.name()),
                         Vec::new,
                     );
+                    let vals: Vec<Constraints> = args
+                        .iter()
+                        .filter_map(|a| self.get_operand_constraints(ctxt, cur_scope, local_decls, a, false))
+                        .collect();
+                    self.note_escape(&vals);
                 }
                 for constraint in constraints.inner.iter() {
                     let constraint = constraint.clone();
@@ -2104,6 +2125,11 @@ impl<'a> InterpPass<'a> {
                     format!("indirect call in {} (callee value not fn-like)", cur_scope.0.name()),
                     Vec::new,
                 );
+                let vals: Vec<Constraints> = args
+                    .iter()
+                    .filter_map(|a| self.get_operand_constraints(ctxt, cur_scope, local_decls, a, false))
+                    .collect();
+                self.note_escape(&vals);
                 if let Some(tainted) = self.summary_build_taint_stack.borrow_mut().last_mut() {
                     *tainted = true;
                 }
@@ -2115,20 +2141,25 @@ impl<'a> InterpPass<'a> {
     fn interp_fn_ptr(
         &self,
         _term_span: &Span,
-        _ctxt: &mut Context,
+        ctxt: &mut Context,
         _call_stack: &mut Vec<VOID>,
         cur_scope: &VOID,
-        _local_decls: &[LocalDecl],
+        local_decls: &[LocalDecl],
         sigval: &SigVal,
-        _args: &Vec<Operand>,
+        args: &Vec<Operand>,
     ) -> Result<Option<Constraints>, Error> {
-        // The target is unknown, so nothing it does - writes through its
-        // arguments, dispatches on trait objects it's given - is modelled.
+        // The target is unknown, so its writes through its arguments aren't
+        // modelled (reported); the objects it's given escape (note_escape).
         crate::assumptions::record(
             crate::assumptions::Reason::FnPtrCall,
             format!("fn pointer called in {}", cur_scope.0.name()),
             || crate::assumptions::input_risks(&sigval.inputs),
         );
+        let vals: Vec<Constraints> = args
+            .iter()
+            .filter_map(|a| self.get_operand_constraints(ctxt, cur_scope, local_decls, a, false))
+            .collect();
+        self.note_escape(&vals);
         //debug!(
         //    "interp_fn_ptr: falling back for sigval with output {:?}",
         //    sigval.output
@@ -2520,6 +2551,10 @@ impl<'a> InterpPass<'a> {
             }
 
             crate::assumptions::record_call(crate::assumptions::Reason::RecursionCut, &fndef);
+            // The cut call isn't interpreted with these arguments: what it
+            // would dispatch on them escapes (e.g. fmt::write re-entered
+            // through Display::fmt with another writer).
+            self.note_escape(&new_cs);
             let retty = self
                 .retty_fallback_from_poly(fndef.fn_sig())?
                 .unwrap_or_default();
@@ -3260,6 +3295,13 @@ impl<'a> InterpPass<'a> {
             }
         } else {
             crate::assumptions::record_call(crate::assumptions::Reason::NoMir, &fndef);
+            // `cur_cs` is only filled for a callee with a body: read the
+            // arguments from the operands, in the caller's scope.
+            let vals: Vec<Constraints> = args
+                .iter()
+                .filter_map(|a| self.get_operand_constraints(ctxt, caller_scope, local_decls, a, is_closure))
+                .collect();
+            self.note_escape(&vals);
             self.retty_fallback_from_poly(fndef.fn_sig())
         }
     }
@@ -3816,6 +3858,7 @@ impl<'a> InterpPass<'a> {
             .borrow_mut()
             .entry(key.clone())
             .or_insert((*term_span, assoc_fn_impls_cha));
+        self.dispatch_methods.borrow_mut().entry(key.clone()).or_insert((fndef.0, trait_defid));
 
         {
             // collect possible calls (mostly for recursion)
@@ -4289,6 +4332,115 @@ impl<'a> InterpPass<'a> {
             }
         }
         true
+    }
+
+    /// Records the objects reachable from `values` - arguments of a call the
+    /// analysis answers from its signature (no MIR, or a fn pointer it can't
+    /// follow) - as escaped: that code may dispatch on any of them (see
+    /// InterpPass::escaped). Each ADT or closure value, at any depth, is kept
+    /// as its type only (fields dropped). A value too big to walk sets
+    /// escaped_overflow instead: every site then gets its CHA candidates.
+    fn note_escape(&self, values: &[Constraints]) {
+        const MAX_NODES: usize = 200_000;
+        fn walk(c: &Constraint, out: &mut Vec<Constraint>, budget: &mut usize) -> bool {
+            if *budget == 0 {
+                return false;
+            }
+            *budget -= 1;
+            match &c.cfc {
+                Some(RunningConstraint::Adt(def, args, variant, fields)) => {
+                    out.push(Constraint::new(
+                        c.toc.clone(),
+                        Some(RunningConstraint::Adt(*def, args.clone(), *variant, ADTFields::new())),
+                    ));
+                    fields.values().all(|f| f.inner.iter().all(|x| walk(x, out, budget)))
+                }
+                Some(RunningConstraint::Closure(def, args, captures)) => {
+                    out.push(Constraint::new(
+                        c.toc.clone(),
+                        Some(RunningConstraint::Closure(def.clone(), args.clone(), ADTFields::new())),
+                    ));
+                    captures.values().all(|f| f.inner.iter().all(|x| walk(x, out, budget)))
+                }
+                Some(RunningConstraint::Ptr(inner)) | Some(RunningConstraint::List(inner)) => {
+                    walk(inner, out, budget)
+                }
+                Some(RunningConstraint::Tuple(elems)) => {
+                    elems.iter().all(|e| e.inner.iter().all(|x| walk(x, out, budget)))
+                }
+                Some(RunningConstraint::Idk(inner)) => inner.inner.iter().all(|x| walk(x, out, budget)),
+                _ => true,
+            }
+        }
+        if *self.escaped_overflow.borrow() {
+            return;
+        }
+        let mut found = Vec::new();
+        let mut budget = MAX_NODES;
+        let complete = values
+            .iter()
+            .all(|v| v.inner.iter().all(|c| walk(c, &mut found, &mut budget)));
+        if !complete {
+            *self.escaped_overflow.borrow_mut() = true;
+            crate::assumptions::record(
+                crate::assumptions::Reason::FnPtrCall,
+                "escaping argument too big to walk: every dispatch site gets its CHA candidates"
+                    .to_string(),
+                Vec::new,
+            );
+            return;
+        }
+        // Diagnostics: VERIFOPT_TRACE_ESCAPE=1 logs each escape.
+        if std::env::var_os("VERIFOPT_TRACE_ESCAPE").is_some() {
+            warn!(
+                "[verifopt escape] {} values, {} objects: {}",
+                values.len(),
+                found.len(),
+                found
+                    .iter()
+                    .map(|c| describe_receiver_constraint(&self.converter, c))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        let mut escaped = self.escaped.borrow_mut();
+        for c in found {
+            escaped.push(c);
+        }
+    }
+
+    /// The targets the escaped objects (note_escape) add to dispatch site
+    /// `key`: each one's implementation of the site's method, for the
+    /// objects whose type implements the site's trait. After an overflow,
+    /// the site's CHA candidates. Empty for a site the analysis didn't
+    /// record a method for.
+    pub fn escaped_targets(&self, key: &(DefId, usize, GenericArgs)) -> Vec<(DefId, Option<GenericArgs>)> {
+        if *self.escaped_overflow.borrow() {
+            return self.dispatch_cha.borrow().get(key).map(|(_, c)| c.clone()).unwrap_or_default();
+        }
+        let escaped = self.escaped.borrow();
+        if escaped.inner.is_empty() {
+            return Vec::new();
+        }
+        let Some((method, trait_defid)) = self.dispatch_methods.borrow().get(key).copied() else {
+            return Vec::new();
+        };
+        let Some(span) = self.dispatch_targets.borrow().get(key).map(|(s, _)| *s) else {
+            return Vec::new();
+        };
+        let (_, defids) = self.get_fsa_constraint_defids(&span, &trait_defid, &escaped);
+        let out = self.get_impls_from_defids(&method, &defids, true);
+        if std::env::var_os("VERIFOPT_TRACE_ESCAPE").is_some() {
+            warn!(
+                "[verifopt escape] site {}@bb{}: {} escaped objects, {} of them of the trait, targets {:?}",
+                key.0.name(),
+                key.1,
+                escaped.inner.len(),
+                defids.len(),
+                out.iter().map(|(d, _)| d.name()).collect::<Vec<_>>()
+            );
+        }
+        out
     }
 
     /// Returns `(is_closure, receiver_is_unresolved_param, impls)`. See
@@ -4769,6 +4921,13 @@ impl<'a> InterpPass<'a> {
                         let _timing_guard =
                             self.timing_span(TimingCat::TermSimulateRecursiveFallback, cur_scope);
                         crate::assumptions::record_call(crate::assumptions::Reason::RecursionCut, &fndef);
+                        let vals: Vec<Constraints> = args
+                            .iter()
+                            .filter_map(|a| {
+                                self.get_operand_constraints(ctxt, cur_scope, local_decls, a, is_closure)
+                            })
+                            .collect();
+                        self.note_escape(&vals);
                         results.push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                         drop(_timing_guard);
                         return Ok(());
@@ -4797,6 +4956,13 @@ impl<'a> InterpPass<'a> {
                                 let _timing_guard =
                                     self.timing_span(TimingCat::TermSigFallback, cur_scope);
                                 crate::assumptions::record_call(crate::assumptions::Reason::NoMir, &fndef);
+                                let vals: Vec<Constraints> = args
+                                    .iter()
+                                    .filter_map(|a| {
+                                        self.get_operand_constraints(ctxt, cur_scope, local_decls, a, is_closure)
+                                    })
+                                    .collect();
+                                self.note_escape(&vals);
                                 results
                                     .push(self.retty_fallback_from_poly(fndef.fn_sig()).unwrap());
                                 drop(_timing_guard);

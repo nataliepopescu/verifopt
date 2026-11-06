@@ -221,8 +221,6 @@ fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter
     let mut _0: std::result::Result<(), std::fmt::Error>;
     let mut _3: std::fmt::Arguments<'_>;
     let mut _4: &str;
-    let mut _27: *mut std::string::String;
-    let mut _28: &mut std::string::String;
     scope 1 (inlined std::fmt::Arguments::<'_>::from_str) {
         let mut _5: std::ptr::NonNull<u8>;
         let mut _6: *const u8;
@@ -411,9 +409,7 @@ fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter
         StorageDead(_17);
         _14 = copy ((_13 as Some).0: &str);
         _15 = copy ((*_2).1: &mut dyn std::fmt::Write);
-        _27 = move _15 as *mut std::string::String (PtrToPtr);
-        _28 = &mut (*_27);
-        _0 = <std::string::String as std::fmt::Write>::write_str(move _28, move _14) -> [return: bb2, unwind continue];
+        _0 = <dyn std::fmt::Write as std::fmt::Write>::write_str(move _15, move _14) -> [return: bb2, unwind continue];
     }
 }
 

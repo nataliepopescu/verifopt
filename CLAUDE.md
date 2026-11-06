@@ -1,8 +1,17 @@
 # verifopt — handoff notes
 
 Context for continuing this work in Claude Code. Started at the end of a long
-debugging/design conversation (Sept–Oct 2026), last updated Nov 4 2026. Verify against
+debugging/design conversation (Sept–Oct 2026), last updated Nov 6 2026. Verify against
 `git log` in each repo before assuming anything below is applied.
+
+**Rule (Nov 6 2026): rewrites are unguarded - the analysis is assumed sound.**
+No rewrite gets a guarded (dyn-call) fallback unless the user explicitly asks
+for one: a single target is a direct call, a multi-target `pointers` rewrite
+compares against n-1 candidates and calls the last one directly. This is the
+tool's default; `--guarded` (`VERIFOPT_GUARDED`) is the explicit opt-in for
+comparisons with older results - don't pass it on your own. Soundness bugs
+are fixed in the analysis (§6), not hedged in the binary. Results from
+before Nov 6 are guarded unless they say otherwise.
 
 Lives in the verifopt repo (`~/hack/verifopt/CLAUDE.md`, versioned there);
 `~/hack/verifopt-examples/ripgrep/CLAUDE.md` is a symlink to it, so sessions
@@ -75,9 +84,11 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
   Baseline build: `--target-dir plain_target --skip-analysis --skip-rewrite`.
 - `--max-candidates N` (env `VERIFOPT_MAX_CANDIDATES`, default 4): max
   candidates for a Pointers rewrite.
-- `--unguarded-single` (env `VERIFOPT_UNGUARDED_SINGLE`): also emit unguarded
-  `single` for 1-target sites that aren't CHAmax-proven. Unsound if FSA
-  missed a target; off by default (those sites get `pointers n=1`).
+- Unguarded by default (rule above). `--guarded` (env `VERIFOPT_GUARDED`):
+  only on explicit request - sites not proven by CHAmax keep the dyn call as
+  fallback (1 target -> `pointers n=1 guarded`, chains end in the dyn call,
+  `tagged` allowed). `--unguarded-single` / `VERIFOPT_UNGUARDED_SINGLE`, the
+  old opt-in, are accepted and ignored. `--no-guarded`: only `single exact`.
 - `VERIFOPT_BUILD_STD=1`: build std/core from source with the fork (adds
   `-Zbuild-std` + `--target`; pass `--target x86_64-unknown-linux-gnu`
   explicitly unless the toolchain-target patch is in). Output then under
@@ -196,13 +207,18 @@ pointing at the `rust-mono-rewrite` toolchain.
   whose single target is an *exact instance* (function + its own args).
   Shapes (`ArgShape`) decode structural sentinel hashes.
 - **Edit kinds** (compute_edits → plan in apply_edits):
-  `single exact` (CHAmax-proven single instance; the only unguarded kind by
-  default), `single` (unguarded direct call, only with `--unguarded-single`),
-  `pointers n=K [of=M]` (compare vtable slot to each candidate's fn ptr,
-  direct call on match, original dyn call as fallback; any subset of real
-  targets is sound), `tagged n=K` (switch on a tag set at the cast sites;
-  fallback = dyn call; only when all casts are in the dispatching function —
-  currently never applies in ripgrep/tock), `skipped too_many_targets n=K`.
+  `single exact` (CHAmax-proven single instance), `single` (the analysis'
+  one target, direct call), `pointers n=K [exact]` (compare the vtable slot
+  to candidates 1..K-1's fn ptrs, direct call on match; the K-th is called
+  when none matched - no fallback), `skipped incomplete <why>` (the
+  candidate list isn't exactly the site's target set - `cut` by
+  `--max-candidates`, a target `dropped` as unresolvable/unlinkable, or one
+  `expanded` into this crate's local instances, which needn't be all of its
+  instances - so without a fallback it would call a wrong function: left as
+  the dyn call), `skipped too_many_targets n=K`. Before Nov 6 / with
+  `--guarded`: `pointers n=K [of=M] guarded` (chain ends in the dyn call;
+  any subset of the real targets works) and `tagged n=K` (switch on a tag
+  set at the cast sites; fallback = dyn call; never applies in ripgrep/tock).
 - **Safety checks before any edit**: the call at the stored bb must resolve
   to `InstanceKind::Virtual`; every target must implement the dispatched trait
   method (default body, impl item, or closure/fn via Fn-traits); targets must
@@ -636,6 +652,22 @@ pointing at the `rust-mono-rewrite` toolchain.
     4,376,639 B (full14 4,376,775), 3,524 indirect calls (3,526). Output =
     plain on all 22 `rg_cmp.sh` commands. Fixtures: same 5 red;
     minimal nRF boards identical to the merged plugin's.
+  - Builds from the `spv` store (rewrite-only, K=1; job tmp
+    `rg_ug_results.txt`, `rg_hook_results.txt`):
+
+    | build | dir | file-backed | vs plain | indirect calls |
+    |---|---|---|---|---|
+    | plain | `baseline_target` | 4,381,034 | - | 3,503 |
+    | hook only (`--skip-rewrite`) | `spvhook_target` | 4,374,727 | -6,307 | 3,524 |
+    | rewrite, guarded (11 `pointers n=1`) | `exp_spv_target` | 4,376,639 | -4,395 | 3,524 |
+    | rewrite, unguarded single (11 `single`) | `spvug_target` | 4,375,695 | -5,339 | 3,512 |
+
+    All of the saving vs plain is the partitioning hook's (CGU regrouping
+    changes inlining); on top of it the rewrite costs +968 B unguarded
+    (+1,912 B guarded) and removes 12 indirect calls. The hook's own +21
+    indirect calls are probably duplicated call sites from inlining. All
+    outputs = plain (the hook build's one diff is the unsorted `rg fn core`).
+    The unguarded `pointers` default (no fallback for K>1) came after these.
 
 ## 5. Done: tock merged into one crate (boards/imix)
 

@@ -40,7 +40,7 @@ use std::process::Command;
 /// The help message for `cargo-verifopt`
 const CARGO_VERIFOPT_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
 Usage:
-    cargo verifopt [--rewrite-only] [--max-candidates N] [--unguarded-single] [--no-guarded]
+    cargo verifopt [--rewrite-only] [--max-candidates N] [--guarded] [--no-guarded]
 
     --rewrite-only  Skip analysis and the automatic discovery-then-decide
                      flow entirely - just re-run the rewrite pass against
@@ -56,22 +56,23 @@ Usage:
                     more possible targets is left as a dynamic call. Sets
                     VERIFOPT_MAX_CANDIDATES for every compiler process.
 
-    --unguarded-single
-                    Also rewrite single-target sites that aren't proven
-                    single (no complete CHAmax == 1) as unguarded direct
-                    calls. Off by default, since a missed target makes such
-                    a call unsound; those sites get a guarded pointer
-                    comparison with the dynamic call as fallback instead.
-                    Sets VERIFOPT_UNGUARDED_SINGLE for every compiler process.
+    --guarded       Don't trust the analysis' target sets: a site not proven
+                    by CHAmax keeps the dynamic call as a fallback (a single
+                    target gets a guarded pointer comparison; a multi-target
+                    comparison chain ends in the dynamic call). By default
+                    the analysis is assumed sound and rewrites are unguarded:
+                    a single target is a direct call, and a pointer
+                    comparison calls its last candidate without comparing.
+                    Sets VERIFOPT_GUARDED for every compiler process.
+                    (--unguarded-single, the old opt-in, is accepted and does
+                    nothing: unguarded is the default.)
 
-    --no-guarded    Apply only rewrites that need no runtime check (single
-                    exact; later PointersExact): every guarded rewrite -
-                    pointer comparisons, including over exact instances,
-                    single-target guards and tagged switches, all of which
-                    keep the dynamic call as their fallback - is left as the
-                    dynamic call. For size: a guard adds code and frees no
-                    vtable read. Sets VERIFOPT_NO_GUARDED for every compiler
-                    process.
+    --no-guarded    Apply only rewrites proven by CHAmax alone (single
+                    exact): every other site - single targets from the
+                    analysis, pointer comparisons (including over exact
+                    instances) and tagged switches - is left as the dynamic
+                    call, guarded or not. Sets VERIFOPT_NO_GUARDED for every
+                    compiler process.
 "#;
 
 /// Set the environment variable `VERIFOPT_BUILD_STD` to enable the building of std library when running verifopt.
@@ -513,6 +514,7 @@ fn run_cargo_build(
             || arg == "--rewrite-only"
             || arg == "--skip-rewrite"
             || arg == "--unguarded-single"
+            || arg == "--guarded"
             || arg == "--no-guarded"
         {
             continue;
@@ -607,11 +609,12 @@ fn run_cargo_build(
         cmd.env("VERIFOPT_SKIP_REWRITE", "1");
     }
 
-    // --unguarded-single: read by the modified compiler's rewrite (see
-    // allow_unguarded_single in verifopt_rewrite.rs); same propagation as
-    // VERIFOPT_SKIP_REWRITE.
-    if has_arg_flag("--unguarded-single") {
-        cmd.env("VERIFOPT_UNGUARDED_SINGLE", "1");
+    // --guarded: read by the modified compiler's rewrite (see guarded in
+    // verifopt_rewrite.rs); same propagation as VERIFOPT_SKIP_REWRITE.
+    // (--unguarded-single is accepted for old scripts; unguarded is the
+    // default.)
+    if has_arg_flag("--guarded") {
+        cmd.env("VERIFOPT_GUARDED", "1");
     }
 
     // --no-guarded: read by the modified compiler's rewrite (no_guarded in

@@ -2324,7 +2324,10 @@ impl ConstraintStore {
         {
             let base = MapKey::Var(Place { local: place.local, projection: vec![] });
             return match self.scoped_get_single(scope, &base, is_closure)? {
-                MapValue::Constraints(cs) => project_value(&cs, &place.projection).map(MapValue::Constraints),
+                MapValue::Constraints(cs) => {
+                    project_value(&cs, &place.projection, static_of_scope(scope).is_some())
+                        .map(MapValue::Constraints)
+                }
                 other => Some(other),
             };
         }
@@ -2690,8 +2693,15 @@ pub fn store_size(store: &ConstraintStore) -> (usize, usize) {
 /// Deref and indexing are no-ops on values (a pointer's value is its
 /// pointee's, an array's the union of its elements). None if some step
 /// can't be followed (a type with no field structure, a parametric
-/// placeholder) - "unknown", like a missing entry.
-pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<Constraints> {
+/// placeholder) - "unknown", like a missing entry. `missing_field_as_any`
+/// (reads of a static's value): a field some disjunct lacks reads as any
+/// value of its type next to the others' values instead of making the whole
+/// read unknown.
+pub fn project_value(
+    cs: &Constraints,
+    projection: &[ProjectionElem],
+    missing_field_as_any: bool,
+) -> Option<Constraints> {
     fn field(c: &Constraint, idx: usize, out: &mut Constraints) -> bool {
         match &c.cfc {
             // A missing field is unknown (see Context::step_field_one), so
@@ -2733,14 +2743,18 @@ pub fn project_value(cs: &Constraints, projection: &[ProjectionElem]) -> Option<
         cur = match elem {
             ProjectionElem::Field(idx, _) => {
                 let mut out = Constraints::new();
-                // An ADT- or closure-typed field a disjunct lacks is any value
-                // of that type - a fieldless value of it, joined with the
-                // other disjuncts' values, as step_field_one does. Giving up
-                // on the whole read instead let an interior-mutable static's
-                // initial "any" disjunct hide every value written into it (a
-                // fn pointer registered in a `Cell` in a static: tock's
-                // deferred calls). Other field types have no such value here.
-                let skeleton = field_skeleton(elem);
+                // In a static's value, an ADT- or closure-typed field a
+                // disjunct lacks is any value of that type - a fieldless value
+                // of it, joined with the other disjuncts' values, as
+                // step_field_one does. Giving up on the whole read instead let
+                // an interior-mutable static's initial "any" disjunct hide
+                // every value written into it (a fn pointer registered in a
+                // `Cell` in a static: tock's deferred calls). Elsewhere the
+                // read gives up (the caller uses any value of the read type):
+                // joining kept ripgrep's formatting values (`Formatter`,
+                // writers, `io::Error`) whole where they used to collapse, and
+                // its analysis grew past 45 GB (Nov 5, run `fullmrg`).
+                let skeleton = if missing_field_as_any { field_skeleton(elem) } else { Constraints::new() };
                 for c in cur.inner.iter() {
                     if !field(c, *idx, &mut out) {
                         if skeleton.inner.is_empty() {

@@ -343,8 +343,11 @@ fn has_builtin_impls(tcx: TyCtxt<'_>, t: rustc_span::def_id::DefId) -> bool {
 /// Every function instance this program compiles, for the CHAmax-only mode
 /// (`VERIFOPT_CHA_ONLY`, InterpPass::enumerate_sites): this crate's mono items,
 /// plus each dependency's non-generic functions (compiled in that crate; the
-/// second pass rewrites them there). Generic instances a dependency compiles
-/// for its own use (not instantiated here) are not listed.
+/// second pass rewrites them there), plus every instance with a dynamic
+/// dispatch that some crate's instance manifest lists
+/// (InstanceManifest::dispatchers) - which covers the generic instances a
+/// dependency compiles for its own use, not instantiated here. Without the
+/// last (a manifest from an older compiler, or none), those were missed.
 ///
 /// Runs the partitioning before the store exists: the partitioning hook then
 /// adds no rewrite edges in this pass - the second pass (which a store with
@@ -382,6 +385,55 @@ pub fn compiled_instances<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<rustc_public::mir::mon
             if let Ok(i) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 rustc_internal::stable(rustc_middle::ty::Instance::mono(tcx, did))
             })) {
+                out.push(i);
+            }
+        }
+    }
+    out.extend(manifest_dispatchers(tcx));
+    out
+}
+
+/// The instances with a dynamic dispatch that this program's instance
+/// manifests list (InstanceManifest::dispatchers), rebuilt from their hashes
+/// with each manifest's shapes. Manifests of other builds (crate ids not in
+/// this program) are skipped; an entry that can't be rebuilt (unhashable
+/// args, or a function this crate can't name) is dropped - its sites then go
+/// unlisted, as before the manifests listed them.
+fn manifest_dispatchers<'tcx>(tcx: TyCtxt<'tcx>) -> Vec<rustc_public::mir::mono::Instance> {
+    let mut program: HashSet<u64> = HashSet::new();
+    program.insert(tcx.stable_crate_id(LOCAL_CRATE).as_u64());
+    for &cnum in tcx.crates(()) {
+        program.insert(tcx.stable_crate_id(cnum).as_u64());
+    }
+    let mut seen: HashSet<rustc_middle::ty::Instance<'tcx>> = HashSet::new();
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(rustc_verifopt::manifest_dir()) else { return out };
+    for entry in entries.flatten() {
+        let Ok(json) = std::fs::read_to_string(entry.path()) else { continue };
+        let Ok(manifest) = rustc_verifopt::InstanceManifest::from_json(&json) else { continue };
+        if !program.contains(&manifest.crate_id) {
+            continue;
+        }
+        let shapes = rustc_verifopt::ShapeRegistry::new();
+        shapes.seed(&manifest.shapes.into_iter().collect());
+        for (function, args) in manifest.dispatchers {
+            let Some(args) = args else { continue };
+            let Some(did) = rustc_verifopt::def_id_from_hash(tcx, function) else { continue };
+            let Some(args) = args
+                .iter()
+                .map(|h| rustc_verifopt::arg_from_hash(tcx, *h, &shapes))
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            if args.len() != tcx.generics_of(did).count() {
+                continue;
+            }
+            let instance = rustc_middle::ty::Instance::new_raw(did, tcx.mk_args(&args));
+            if !seen.insert(instance) {
+                continue;
+            }
+            if let Ok(i) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| rustc_internal::stable(instance))) {
                 out.push(i);
             }
         }

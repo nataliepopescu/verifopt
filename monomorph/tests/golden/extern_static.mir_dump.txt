@@ -73,13 +73,21 @@ fn main() -> () {
     let _1: &dyn Animal;
     let _2: u32;
     let mut _3: u32;
-    let mut _6: usize;
-    let mut _7: *const Dog;
-    let mut _8: &Dog;
-    let mut _9: *const Fish;
-    let mut _10: &Fish;
+    let mut _6: std::ptr::DynMetadata<dyn Animal>;
+    let mut _7: *const ();
+    let mut _8: *const for<'a> fn(&'a dyn Animal) -> u32;
+    let mut _9: *const for<'a> fn(&'a dyn Animal) -> u32;
+    let mut _10: for<'a> fn(&'a dyn Animal) -> u32;
     let mut _11: *const Cat;
     let mut _12: &Cat;
+    let mut _13: *const Fish;
+    let mut _14: &Fish;
+    let mut _15: for<'a> fn(&'a dyn Animal) -> u32;
+    let mut _16: bool;
+    let mut _17: *const Dog;
+    let mut _18: &Dog;
+    let mut _19: for<'a> fn(&'a dyn Animal) -> u32;
+    let mut _20: bool;
     scope 1 {
         debug a => _1;
         scope 3 (inlined std::hint::black_box::<u32>) {
@@ -91,7 +99,6 @@ fn main() -> () {
     }
 
     bb0: {
-        _6 = const usize::MAX;
         StorageLive(_4);
         StorageLive(_5);
         _5 = const {alloc5: *const u32};
@@ -106,19 +113,16 @@ fn main() -> () {
 
     bb2: {
         _1 = const pick::promoted[0] as &dyn Animal (PointerCoercion(Unsize, Implicit));
-        _6 = const 0_usize;
         goto -> bb5;
     }
 
     bb3: {
         _1 = const pick::promoted[1] as &dyn Animal (PointerCoercion(Unsize, Implicit));
-        _6 = const 1_usize;
         goto -> bb5;
     }
 
     bb4: {
         _1 = const pick::promoted[2] as &dyn Animal (PointerCoercion(Unsize, Implicit));
-        _6 = const 2_usize;
         goto -> bb5;
     }
 
@@ -126,7 +130,15 @@ fn main() -> () {
         StorageDead(_4);
         StorageLive(_2);
         StorageLive(_3);
-        switchInt(copy _6) -> [0: bb10, 1: bb12, 2: bb14, otherwise: bb8];
+        _6 = PtrMetadata(move _1);
+        _7 = move _6 as *const () (Transmute);
+        _8 = copy _7 as *const for<'a> fn(&'a dyn Animal) -> u32 (PtrToPtr);
+        _9 = Offset(copy _8, const 3_usize);
+        _10 = copy (*_9);
+        _15 = <Fish as Animal>::speak as for<'a> fn(&'a dyn Animal) -> u32 (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _19 = <Dog as Animal>::speak as for<'a> fn(&'a dyn Animal) -> u32 (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _20 = Eq(copy _10, copy _19);
+        switchInt(copy _20) -> [1: bb13, otherwise: bb11];
     }
 
     bb6: {
@@ -140,7 +152,9 @@ fn main() -> () {
     }
 
     bb8: {
-        _3 = <dyn Animal as Animal>::speak(move _1) -> [return: bb7, unwind continue];
+        _11 = move _1 as *const Cat (PtrToPtr);
+        _12 = &(*_11);
+        _3 = <Cat as Animal>::speak(move _12) -> [return: bb7, unwind continue];
     }
 
     bb9: {
@@ -148,29 +162,24 @@ fn main() -> () {
     }
 
     bb10: {
-        _7 = move _1 as *const Dog (PtrToPtr);
-        _8 = &(*_7);
-        _3 = <Dog as Animal>::speak(move _8) -> [return: bb9, unwind continue];
+        _13 = move _1 as *const Fish (PtrToPtr);
+        _14 = &(*_13);
+        _3 = <Fish as Animal>::speak(move _14) -> [return: bb9, unwind continue];
     }
 
     bb11: {
-        goto -> bb1;
+        _16 = Eq(copy _10, copy _15);
+        switchInt(copy _16) -> [1: bb10, otherwise: bb8];
     }
 
     bb12: {
-        _9 = move _1 as *const Fish (PtrToPtr);
-        _10 = &(*_9);
-        _3 = <Fish as Animal>::speak(move _10) -> [return: bb11, unwind continue];
-    }
-
-    bb13: {
         goto -> bb1;
     }
 
-    bb14: {
-        _11 = move _1 as *const Cat (PtrToPtr);
-        _12 = &(*_11);
-        _3 = <Cat as Animal>::speak(move _12) -> [return: bb13, unwind continue];
+    bb13: {
+        _17 = move _1 as *const Dog (PtrToPtr);
+        _18 = &(*_17);
+        _3 = <Dog as Animal>::speak(move _18) -> [return: bb12, unwind continue];
     }
 }
 

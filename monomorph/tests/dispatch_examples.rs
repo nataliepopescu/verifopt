@@ -157,9 +157,13 @@ example_test!(cha_lifetime_trait, "cha_lifetime_trait", Passing);
 // `Formatter::write_fmt`'s writer dispatch, reached directly from
 // `to_string()` (a String) and, through `core::fmt::write`'s fn-pointer call
 // to `Display::fmt`, with a custom `fmt::Write` type. FSA can miss the
-// second writer, so the single-target site must get a guarded rewrite
-// (pointers, with the dyn call as fallback): the traced byte/call counts
-// are only right if the Counter's own write_str runs.
+// second writer: the traced byte/call counts are only right if the
+// Counter's own write_str runs. Red since rewrites are unguarded (Nov 6):
+// without build-std `core::fmt::write` has no MIR, so the analysis never
+// sees the `Display::fmt` it calls through a fn pointer or the Counter
+// behind it - FSA {String} - and the direct call to String::write_str
+// corrupts the Counter. Analysis bug (a no-MIR call's dyn/fn-pointer
+// arguments must escape), not a rewrite bug.
 example_test!(fmt_fnptr_writer, "fmt_fnptr_writer", Passing);
 
 // `core::fmt`'s argument-passing shape without std: a table of transmuted

@@ -340,11 +340,17 @@ fn main() -> () {
     let _17: &Dog;
     let _19: usize;
     let mut _26: &str;
-    let mut _41: usize;
-    let mut _42: *const Cat;
-    let mut _43: &Cat;
-    let mut _44: *const Dog;
-    let mut _45: &Dog;
+    let mut _41: std::ptr::DynMetadata<dyn Animal>;
+    let mut _42: *const ();
+    let mut _43: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _44: *const for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _45: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _46: *const Cat;
+    let mut _47: &Cat;
+    let mut _48: *const Dog;
+    let mut _49: &Dog;
+    let mut _50: for<'a> fn(&'a dyn Animal) -> usize;
+    let mut _51: bool;
     scope 1 {
         debug args => _1;
         let _6: u32;
@@ -466,7 +472,6 @@ fn main() -> () {
     }
 
     bb0: {
-        _41 = const usize::MAX;
         StorageLive(_1);
         StorageLive(_2);
         _2 = std::env::args() -> [return: bb1, unwind continue];
@@ -564,19 +569,24 @@ fn main() -> () {
     bb10: {
         _16 = &_11;
         _15 = copy _16 as &dyn Animal (PointerCoercion(Unsize, Implicit));
-        _41 = const 0_usize;
         goto -> bb12;
     }
 
     bb11: {
         _17 = &_13;
         _15 = copy _17 as &dyn Animal (PointerCoercion(Unsize, Implicit));
-        _41 = const 1_usize;
         goto -> bb12;
     }
 
     bb12: {
-        switchInt(copy _41) -> [0: bb24, 1: bb26, otherwise: bb22];
+        _41 = PtrMetadata(move _15);
+        _42 = move _41 as *const () (Transmute);
+        _43 = copy _42 as *const for<'a> fn(&'a dyn Animal) -> usize (PtrToPtr);
+        _44 = Offset(copy _43, const 3_usize);
+        _45 = copy (*_44);
+        _50 = <Dog as Animal>::speak as for<'a> fn(&'a dyn Animal) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _51 = Eq(copy _45, copy _50);
+        switchInt(copy _51) -> [1: bb24, otherwise: bb22];
     }
 
     bb13: {
@@ -643,7 +653,9 @@ fn main() -> () {
     }
 
     bb22: {
-        _18 = <dyn Animal as Animal>::speak(move _15) -> [return: bb21, unwind: bb16];
+        _46 = move _15 as *const Cat (PtrToPtr);
+        _47 = &(*_46);
+        _18 = <Cat as Animal>::speak(move _47) -> [return: bb21, unwind: bb16];
     }
 
     bb23: {
@@ -651,19 +663,9 @@ fn main() -> () {
     }
 
     bb24: {
-        _42 = move _15 as *const Cat (PtrToPtr);
-        _43 = &(*_42);
-        _18 = <Cat as Animal>::speak(move _43) -> [return: bb23, unwind: bb16];
-    }
-
-    bb25: {
-        goto -> bb13;
-    }
-
-    bb26: {
-        _44 = move _15 as *const Dog (PtrToPtr);
-        _45 = &(*_44);
-        _18 = <Dog as Animal>::speak(move _45) -> [return: bb25, unwind: bb16];
+        _48 = move _15 as *const Dog (PtrToPtr);
+        _49 = &(*_48);
+        _18 = <Dog as Animal>::speak(move _49) -> [return: bb23, unwind: bb16];
     }
 }
 

@@ -60,12 +60,10 @@ fn main::{closure#0}(_1: &{closure@src/main.rs:60:27: 60:30}, _2: &dyn Sink) -> 
     let mut _9: for<'a> fn(&'a dyn Sink, usize) -> usize;
     let mut _10: *const A;
     let mut _11: &A;
-    let mut _12: for<'a> fn(&'a dyn Sink, usize) -> usize;
-    let mut _13: bool;
-    let mut _14: *const B;
-    let mut _15: &B;
-    let mut _16: for<'a> fn(&'a dyn Sink, usize) -> usize;
-    let mut _17: bool;
+    let mut _12: *const B;
+    let mut _13: &B;
+    let mut _14: for<'a> fn(&'a dyn Sink, usize) -> usize;
+    let mut _15: bool;
     scope 1 {
         debug v => _3;
     }
@@ -76,10 +74,9 @@ fn main::{closure#0}(_1: &{closure@src/main.rs:60:27: 60:30}, _2: &dyn Sink) -> 
         _7 = copy _6 as *const for<'a> fn(&'a dyn Sink, usize) -> usize (PtrToPtr);
         _8 = Offset(copy _7, const 3_usize);
         _9 = copy (*_8);
-        _12 = <A as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _16 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _17 = Eq(copy _9, copy _16);
-        switchInt(copy _17) -> [1: bb11, otherwise: bb9];
+        _14 = <B as Sink>::put as for<'a> fn(&'a dyn Sink, usize) -> usize (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _15 = Eq(copy _9, copy _14);
+        switchInt(copy _15) -> [1: bb8, otherwise: bb6];
     }
 
     bb1: {
@@ -108,7 +105,9 @@ fn main::{closure#0}(_1: &{closure@src/main.rs:60:27: 60:30}, _2: &dyn Sink) -> 
     }
 
     bb6: {
-        _3 = <dyn Sink as Sink>::put(move _2, const 1_usize) -> [return: bb5, unwind continue];
+        _10 = move _2 as *const A (PtrToPtr);
+        _11 = &(*_10);
+        _3 = <A as Sink>::put(move _11, const 1_usize) -> [return: bb5, unwind continue];
     }
 
     bb7: {
@@ -116,24 +115,9 @@ fn main::{closure#0}(_1: &{closure@src/main.rs:60:27: 60:30}, _2: &dyn Sink) -> 
     }
 
     bb8: {
-        _10 = move _2 as *const A (PtrToPtr);
-        _11 = &(*_10);
-        _3 = <A as Sink>::put(move _11, const 1_usize) -> [return: bb7, unwind continue];
-    }
-
-    bb9: {
-        _13 = Eq(copy _9, copy _12);
-        switchInt(copy _13) -> [1: bb8, otherwise: bb6];
-    }
-
-    bb10: {
-        goto -> bb1;
-    }
-
-    bb11: {
-        _14 = move _2 as *const B (PtrToPtr);
-        _15 = &(*_14);
-        _3 = <B as Sink>::put(move _15, const 1_usize) -> [return: bb10, unwind continue];
+        _12 = move _2 as *const B (PtrToPtr);
+        _13 = &(*_12);
+        _3 = <B as Sink>::put(move _13, const 1_usize) -> [return: bb7, unwind continue];
     }
 }
 

@@ -809,12 +809,10 @@ fn main() -> () {
     let mut _94: for<'a> fn(&'a dyn Speak) -> std::string::String;
     let mut _95: *const Dog;
     let mut _96: &Dog;
-    let mut _97: for<'a> fn(&'a dyn Speak) -> std::string::String;
-    let mut _98: bool;
-    let mut _99: *const Cat;
-    let mut _100: &Cat;
-    let mut _101: for<'a> fn(&'a dyn Speak) -> std::string::String;
-    let mut _102: bool;
+    let mut _97: *const Cat;
+    let mut _98: &Cat;
+    let mut _99: for<'a> fn(&'a dyn Speak) -> std::string::String;
+    let mut _100: bool;
     scope 1 {
         debug animals => _1;
         let mut _14: std::collections::btree_map::Iter<'_, std::string::String, std::boxed::Box<dyn Speak>>;
@@ -1320,10 +1318,9 @@ fn main() -> () {
         _92 = copy _91 as *const for<'a> fn(&'a dyn Speak) -> std::string::String (PtrToPtr);
         _93 = Offset(copy _92, const 3_usize);
         _94 = copy (*_93);
-        _97 = <Dog as Speak>::speak as for<'a> fn(&'a dyn Speak) -> std::string::String (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _101 = <Cat as Speak>::speak as for<'a> fn(&'a dyn Speak) -> std::string::String (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _102 = Eq(copy _94, copy _101);
-        switchInt(copy _102) -> [1: bb37, otherwise: bb35];
+        _99 = <Cat as Speak>::speak as for<'a> fn(&'a dyn Speak) -> std::string::String (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
+        _100 = Eq(copy _94, copy _99);
+        switchInt(copy _100) -> [1: bb34, otherwise: bb32];
     }
 
     bb11: {
@@ -1550,7 +1547,9 @@ fn main() -> () {
     }
 
     bb32: {
-        _21 = <dyn Speak as Speak>::speak(move _22) -> [return: bb31, unwind: bb15];
+        _95 = move _22 as *const Dog (PtrToPtr);
+        _96 = &(*_95);
+        _21 = <Dog as Speak>::speak(move _96) -> [return: bb31, unwind: bb15];
     }
 
     bb33: {
@@ -1558,24 +1557,9 @@ fn main() -> () {
     }
 
     bb34: {
-        _95 = move _22 as *const Dog (PtrToPtr);
-        _96 = &(*_95);
-        _21 = <Dog as Speak>::speak(move _96) -> [return: bb33, unwind: bb15];
-    }
-
-    bb35: {
-        _98 = Eq(copy _94, copy _97);
-        switchInt(copy _98) -> [1: bb34, otherwise: bb32];
-    }
-
-    bb36: {
-        goto -> bb12;
-    }
-
-    bb37: {
-        _99 = move _22 as *const Cat (PtrToPtr);
-        _100 = &(*_99);
-        _21 = <Cat as Speak>::speak(move _100) -> [return: bb36, unwind: bb15];
+        _97 = move _22 as *const Cat (PtrToPtr);
+        _98 = &(*_97);
+        _21 = <Cat as Speak>::speak(move _98) -> [return: bb33, unwind: bb15];
     }
 }
 

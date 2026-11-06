@@ -221,15 +221,8 @@ fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter
     let mut _0: std::result::Result<(), std::fmt::Error>;
     let mut _3: std::fmt::Arguments<'_>;
     let mut _4: &str;
-    let mut _27: std::ptr::DynMetadata<dyn std::fmt::Write>;
-    let mut _28: *const ();
-    let mut _29: *const for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
-    let mut _30: *const for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
-    let mut _31: for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
-    let mut _32: *mut std::string::String;
-    let mut _33: &mut std::string::String;
-    let mut _34: for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error>;
-    let mut _35: bool;
+    let mut _27: *mut std::string::String;
+    let mut _28: &mut std::string::String;
     scope 1 (inlined std::fmt::Arguments::<'_>::from_str) {
         let mut _5: std::ptr::NonNull<u8>;
         let mut _6: *const u8;
@@ -418,32 +411,9 @@ fn <impl at src/main.rs:11:1: 11:26>::fmt(_1: &Lit, _2: &mut std::fmt::Formatter
         StorageDead(_17);
         _14 = copy ((_13 as Some).0: &str);
         _15 = copy ((*_2).1: &mut dyn std::fmt::Write);
-        _27 = PtrMetadata(move _15);
-        _28 = move _27 as *const () (Transmute);
-        _29 = copy _28 as *const for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error> (PtrToPtr);
-        _30 = Offset(copy _29, const 3_usize);
-        _31 = copy (*_30);
-        _34 = <std::string::String as std::fmt::Write>::write_str as for<'a, 'b> fn(&'a mut dyn std::fmt::Write, &'b str) -> std::result::Result<(), std::fmt::Error> (PointerCoercion(ReifyFnPointer(Unsafe), AsCast));
-        _35 = Eq(copy _31, copy _34);
-        switchInt(copy _35) -> [1: bb14, otherwise: bb12];
-    }
-
-    bb11: {
-        goto -> bb2;
-    }
-
-    bb12: {
-        _0 = <dyn std::fmt::Write as std::fmt::Write>::write_str(move _15, move _14) -> [return: bb11, unwind continue];
-    }
-
-    bb13: {
-        goto -> bb2;
-    }
-
-    bb14: {
-        _32 = move _15 as *mut std::string::String (PtrToPtr);
-        _33 = &mut (*_32);
-        _0 = <std::string::String as std::fmt::Write>::write_str(move _33, move _14) -> [return: bb13, unwind continue];
+        _27 = move _15 as *mut std::string::String (PtrToPtr);
+        _28 = &mut (*_27);
+        _0 = <std::string::String as std::fmt::Write>::write_str(move _28, move _14) -> [return: bb2, unwind continue];
     }
 }
 

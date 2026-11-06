@@ -96,8 +96,10 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
   is *compiled*; deps cargo considers fresh write none, and every site's
   CHAmax becomes "incomplete" (no `single exact`). Always `cargo clean
   --target-dir …` before an analysis run.
-- Current ripgrep cost (Nov 4 2026, build-std, `c85db8c`, uncapped): the
-  `rg` analysis takes ~16 min and ~4.6 GB (whole pipeline ~24 min); several
+- Current ripgrep cost (Nov 6 2026, build-std, `8b3fcd8` - merged with
+  `fsa-gaps`, uncapped): whole pipeline 6,686 s (~1 h 51 min), peak ~7.2 GB,
+  >3.5M bb visits - more code reached than before the merge (Nov 4,
+  `c85db8c`: pipeline ~24 min, ~4.6 GB; §4 "ripgrep after the merge"); several
   fit on the 62 GB machine at once - but each needs its *own* install root
   (run scripts stop every `verifopt` of their root: two runs from one root
   killed each other twice). Run experiments from a separate install root
@@ -593,6 +595,47 @@ pointing at the `rust-mono-rewrite` toolchain.
   unsorted and differs between plain runs). The K=1 control has full14's
   `.text` and edits but isn't byte-identical (file-backed +12 B, not
   investigated).
+- **ripgrep after the `fsa-gaps` merge, Nov 5-6** (build-std, uncapped,
+  K=1; job tmp `rg_exp.done`, outputs `out_exp_<name>`).
+  - The merged plugin (`fdac59f`) blew up: run `fullmrg` hit the 45 GB guard
+    after 16,757 s (4 h 39 min) at ~2M bb visits, still in nested
+    `io::Error` / anyhow `Display::fmt` simulations (largest merged value
+    20.4M nodes). Bisected to 500-750k visits: with `882dd06` reverted
+    (`bis_nostat`) or only its `project_value` hunk undone (`bis_noproj`)
+    the numbers equal full14's; with the compiled-instance expansion
+    (`a2a6ad2`) switched off instead (`bis_noexp`) it grows like the merged
+    run. A `VERIFOPT_TRACE_STATICS` run (`trst`) showed only 52 static
+    writes in 500k visits, all tiny - the growth wasn't in statics.
+  - Cause: `882dd06` made *every* field-path read through an alias
+    (`project_value`) join the disjuncts that have the field with a
+    fieldless "any" value for those that don't, where it used to give up
+    (caller: any value of the read type). Sound and more precise, but
+    ripgrep's formatting values (`Formatter`, writers, `io::Error`) then
+    stayed whole: memo keys ~63x larger at 500k visits, memo misses,
+    re-interpretation. Tock only needs it for a static's initial "any"
+    value (deferred-call table, `fnptr_static_table`).
+  - Fix `8b3fcd8`: the join only when the read's base is a static's value
+    (`project_value(.., missing_field_as_any)`); elsewhere the old give-up.
+
+    | at 500k bb visits | time | RSS | memo key nodes |
+    |---|---|---|---|
+    | full14 (pre-merge) | 72 s | 1.6 GB | 21M |
+    | merged `fdac59f` | 202 s | 5.0 GB | 1,079M |
+    | merged, `project_value` hunk undone | 55 s | 1.8 GB | 17M |
+    | merged + fix (`spv`) | 55 s | 1.8 GB | 17M |
+
+  - Run `spv` (`8b3fcd8`, `/tmp/vo_spv`, alone on the machine): pipeline
+    6,686 s (full14: 1,460 s), peak ~7.2 GB, >3.5M bb visits (full14
+    ~1.75M) - more code reached, not bigger values: memo key nodes stay in
+    full14's range until ~2.75M visits, then jump (366M -> 194G by 3.5M,
+    RSS only 4.9 -> 7.2 GB; full14 has the same late jump). 274 sites:
+    analysis 60, CHA fallback 153, not reached 61 (decided from CHAmax);
+    CHAmax complete 245, n/a 29; FSA < CHAmax 38, == 5, > 4. Edits: 12
+    `single exact` (full14: 2) + 11 `pointers n=1`; the 10 new ones are in
+    ignore's parallel walker (`generate_work`, `run_one`). File-backed
+    4,376,639 B (full14 4,376,775), 3,524 indirect calls (3,526). Output =
+    plain on all 22 `rg_cmp.sh` commands. Fixtures: same 5 red;
+    minimal nRF boards identical to the merged plugin's.
 
 ## 5. Done: tock merged into one crate (boards/imix)
 
@@ -926,6 +969,11 @@ Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 4):
   the blocks
 - `c85db8c` a call that returns no value gives its destination any value of
   its type (`CallResultUnknown`)
+- `fdac59f` merge `fsa-gaps` into `ripgrep` (`a2a6ad2`, `cfebc51`,
+  `882dd06`, `3395c28`, `8748acf`, `2222fdc`, `caedf03` - §8, §9)
+- `b849b1e` CLAUDE.md / harness: soundness status after the merge
+- `8b3fcd8` `project_value`: a missing field reads as any value only in a
+  static's value (ripgrep blow-up after the merge, §4)
 
 Fork (`~/hack/rust`): `73da158f0d5` disable unguarded/unproven single
 rewrites (on top of `5eec5c673e1` flexible max-candidates,
@@ -1680,6 +1728,7 @@ ripgrep (`<dir>/x86_64-unknown-linux-gnu/release/rg`; unwind = `.eh_frame_hdr
 | 4 verifopt (Oct 21 plugin, pre-statics) | `timing_target` | 2,780,034 | 762,112 | 335,928 | 497,348 | 4,375,422 | 2,912 / 288 |
 | 4 verifopt (Nov 3, `a9ad236`) | `exp_full8_target` | 2,777,667 | 762,220 | 336,056 | 497,028 | 4,372,971 | 2,912 / 296 |
 | 4 verifopt (Nov 4, `c85db8c`) | `exp_full14_target` | 2,779,955 | 762,716 | 336,072 | 498,032 | 4,376,775 | 2,920 / 296 |
+| 4 verifopt (Nov 6, `8b3fcd8`, merged) | `exp_spv_target` | 2,780,995 | 762,336 | 335,472 | 497,836 | 4,376,639 | 2,920 / 296 |
 
 Indirect calls (`call *`, excluding calls through the GOT): plain 3,503,
 Oct 21 rung 4 3,526, Nov 3 rung 4 3,514, Nov 4 rung 4 3,526. Both are
@@ -1822,7 +1871,8 @@ on `ripgrep` - `a9ad236`, §4 - so the condition for merging is met.)
 (`memo_widened_reuse`, `raw_ptr_static_write`, `slice_iter_flatten`,
 `write_interior_mut`, `write_ref_in_field`); `fsa-gaps`' red
 `merge_widened_field` and `static_init_buf` pass. Use `ripgrep` for every
-run from now on.
+run from now on - from `8b3fcd8` on: `fdac59f` itself can't analyze ripgrep
+(45 GB; §4 "ripgrep after the merge").
 
 Related: the megamorphic cutoff (`VERIFOPT_MEGAMORPHIC_CAP`, opt-in, ripgrep
 experiments only) and its havoc of `&mut` args are *not* part of the tool;

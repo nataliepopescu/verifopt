@@ -121,7 +121,36 @@ impl Callbacks for FsaCallbacks {
                 // site in CHAmax-only mode.
                 let compiled = crate::chamax::compiled_instances(tcx);
                 let cha_only = std::env::var_os("VERIFOPT_CHA_ONLY").is_some();
-                start_verifopt(self.options.clone(), compiled, cha_only)
+                // Whether a type satisfies a `dyn` type's associated-type
+                // bindings (`dyn Iterator<Item = u32>`: `<T as Iterator>::Item
+                // == u32`), for objects escaping into uninterpreted code
+                // (InterpPass::escaped_targets). Unknown -> true (sound).
+                let assoc_ok = |dyn_ty: &rustc_public::ty::Ty, self_ty: &rustc_public::ty::Ty| -> bool {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        use rustc_middle::ty::{self as mty, TypingEnv};
+                        let dyn_ty = rustc_internal::internal(tcx, *dyn_ty);
+                        let self_ty = rustc_internal::internal(tcx, *self_ty);
+                        let mty::Dynamic(preds, ..) = dyn_ty.kind() else { return true };
+                        let env = TypingEnv::fully_monomorphized();
+                        preds.iter().all(|pred| {
+                            let pred = tcx.instantiate_bound_regions_with_erased(pred);
+                            let mty::ExistentialPredicate::Projection(p) = pred else { return true };
+                            let proj = p.with_self_ty(tcx, self_ty);
+                            let Some(expected) = proj.term.as_type() else { return true };
+                            let alias = mty::Ty::new_projection_from_args(
+                                tcx,
+                                proj.projection_term.def_id,
+                                proj.projection_term.args,
+                            );
+                            match tcx.try_normalize_erasing_regions(env, alias) {
+                                Ok(actual) => actual == tcx.erase_and_anonymize_regions(expected),
+                                Err(_) => true,
+                            }
+                        })
+                    }))
+                    .unwrap_or(true)
+                };
+                start_verifopt(self.options.clone(), compiled, cha_only, &assoc_ok)
             })) else {
                 debug!(
                     "[verifopt debug] start_verifopt itself panicked - no store written this run"

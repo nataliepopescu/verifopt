@@ -45,6 +45,7 @@ pub fn start_verifopt(
     options: AnalysisOptions,
     compiled: Vec<Instance>,
     cha_only: bool,
+    assoc_ok: &dyn Fn(&rustc_public::ty::Ty, &rustc_public::ty::Ty) -> bool,
 ) -> (
     HashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>,
     HashMap<(DefId, usize, GenericArgs), TagPlan>,
@@ -232,7 +233,7 @@ pub fn start_verifopt(
         let mut widened = 0usize;
         for (key, (_, targets)) in fsa.iter_mut() {
             let mut added = false;
-            for t in interp.escaped_targets(key) {
+            for t in interp.escaped_targets(key, assoc_ok) {
                 if !targets.contains(&t) {
                     targets.push(t);
                     added = true;

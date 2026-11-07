@@ -4431,7 +4431,15 @@ impl<'a> InterpPass<'a> {
     /// objects whose type implements the site's trait. After an overflow,
     /// the site's CHA candidates. Empty for a site the analysis didn't
     /// record a method for.
-    pub fn escaped_targets(&self, key: &(DefId, usize, GenericArgs)) -> Vec<(DefId, Option<GenericArgs>)> {
+    /// `assoc_ok(dyn_ty, self_ty)`: whether `self_ty` satisfies the
+    /// associated-type bindings of the `dyn` type (e.g. `Item = u32`), which
+    /// the method's generic args don't carry (driver-side: it needs the
+    /// compiler's own type normalization).
+    pub fn escaped_targets(
+        &self,
+        key: &(DefId, usize, GenericArgs),
+        assoc_ok: &dyn Fn(&Ty, &Ty) -> bool,
+    ) -> Vec<(DefId, Option<GenericArgs>)> {
         if *self.escaped_overflow.borrow() {
             return self.dispatch_cha.borrow().get(key).map(|(_, c)| c.clone()).unwrap_or_default();
         }
@@ -4455,7 +4463,7 @@ impl<'a> InterpPass<'a> {
         let reachable: Vec<Constraint> = escaped
             .inner
             .iter()
-            .filter(|c| self.escaped_can_reach(c, &method, &call_args))
+            .filter(|c| self.escaped_can_reach(c, &method, &call_args, assoc_ok))
             .cloned()
             .collect();
         let mut reachable_cs = Constraints::new();
@@ -4483,7 +4491,13 @@ impl<'a> InterpPass<'a> {
     /// generic args `call_args`: the method resolves, with the object's type
     /// as Self, to an implementation. True when the type can't be built or
     /// checked (generic params left) - kept, to stay sound.
-    fn escaped_can_reach(&self, c: &Constraint, method: &FnDef, call_args: &GenericArgs) -> bool {
+    fn escaped_can_reach(
+        &self,
+        c: &Constraint,
+        method: &FnDef,
+        call_args: &GenericArgs,
+        assoc_ok: &dyn Fn(&Ty, &Ty) -> bool,
+    ) -> bool {
         let self_ty = match &c.cfc {
             Some(RunningConstraint::Adt(def, args, _, _)) => {
                 if has_unresolved_param(args) {
@@ -4501,6 +4515,13 @@ impl<'a> InterpPass<'a> {
         };
         if call_args.0.is_empty() || has_unresolved_param(call_args) {
             return true;
+        }
+        // The dyn type's associated-type bindings (`dyn Iterator<Item = u32>`)
+        // aren't in the method's args: checked separately.
+        if let GenericArgKind::Type(dyn_ty) = &call_args.0[0]
+            && !assoc_ok(dyn_ty, &self_ty)
+        {
+            return false;
         }
         let mut args = call_args.0.clone();
         args[0] = GenericArgKind::Type(self_ty);

@@ -4347,7 +4347,22 @@ impl<'a> InterpPass<'a> {
     /// escaped_overflow instead: every site then gets its CHA candidates.
     fn note_escape(&self, values: &[Constraints]) {
         const MAX_NODES: usize = 200_000;
-        fn walk(c: &Constraint, out: &mut Vec<Constraint>, budget: &mut usize) -> bool {
+        // Values share sub-values heavily (the same field value reached by
+        // many paths): walk each distinct one once, by its cached content
+        // hash, so the budget counts distinct nodes. Without this, ripgrep's
+        // formatting arguments overflowed it and every site fell back to CHA.
+        fn walk_all(
+            cs: &Constraints,
+            out: &mut Vec<Constraint>,
+            budget: &mut usize,
+            seen: &mut HashSet<u64>,
+        ) -> bool {
+            if !seen.insert(cs.content_hash()) {
+                return true;
+            }
+            cs.inner.iter().all(|x| walk(x, out, budget, seen))
+        }
+        fn walk(c: &Constraint, out: &mut Vec<Constraint>, budget: &mut usize, seen: &mut HashSet<u64>) -> bool {
             if *budget == 0 {
                 return false;
             }
@@ -4358,22 +4373,20 @@ impl<'a> InterpPass<'a> {
                         c.toc.clone(),
                         Some(RunningConstraint::Adt(*def, args.clone(), *variant, ADTFields::new())),
                     ));
-                    fields.values().all(|f| f.inner.iter().all(|x| walk(x, out, budget)))
+                    fields.values().all(|f| walk_all(f, out, budget, seen))
                 }
                 Some(RunningConstraint::Closure(def, args, captures)) => {
                     out.push(Constraint::new(
                         c.toc.clone(),
                         Some(RunningConstraint::Closure(def.clone(), args.clone(), ADTFields::new())),
                     ));
-                    captures.values().all(|f| f.inner.iter().all(|x| walk(x, out, budget)))
+                    captures.values().all(|f| walk_all(f, out, budget, seen))
                 }
                 Some(RunningConstraint::Ptr(inner)) | Some(RunningConstraint::List(inner)) => {
-                    walk(inner, out, budget)
+                    walk(inner, out, budget, seen)
                 }
-                Some(RunningConstraint::Tuple(elems)) => {
-                    elems.iter().all(|e| e.inner.iter().all(|x| walk(x, out, budget)))
-                }
-                Some(RunningConstraint::Idk(inner)) => inner.inner.iter().all(|x| walk(x, out, budget)),
+                Some(RunningConstraint::Tuple(elems)) => elems.iter().all(|e| walk_all(e, out, budget, seen)),
+                Some(RunningConstraint::Idk(inner)) => walk_all(inner, out, budget, seen),
                 _ => true,
             }
         }
@@ -4382,9 +4395,8 @@ impl<'a> InterpPass<'a> {
         }
         let mut found = Vec::new();
         let mut budget = MAX_NODES;
-        let complete = values
-            .iter()
-            .all(|v| v.inner.iter().all(|c| walk(c, &mut found, &mut budget)));
+        let mut seen = HashSet::new();
+        let complete = values.iter().all(|v| walk_all(v, &mut found, &mut budget, &mut seen));
         if !complete {
             *self.escaped_overflow.borrow_mut() = true;
             crate::assumptions::record(

@@ -334,7 +334,7 @@ impl std::fmt::Debug for Constraints {
 
 impl Constraints {
     /// Order-independent hash of the disjuncts, computed once per value.
-    fn content_hash(&self) -> u64 {
+    pub(crate) fn content_hash(&self) -> u64 {
         if let Some(h) = self.hash.get() {
             return h;
         }

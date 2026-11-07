@@ -338,10 +338,7 @@
       ],
       "fsa": [
         "<box_dyn_iter::Countdown as std::iter::Iterator>::next",
-        "<box_dyn_iter::Counter as std::iter::Iterator>::next",
-        "std::alloc::Global",
-        "std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<I, A>>::next",
-        "std::io::error::Custom"
+        "<box_dyn_iter::Counter as std::iter::Iterator>::next"
       ]
     }
   ]

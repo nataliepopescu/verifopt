@@ -1,6 +1,6 @@
 {
-  "maybe_count": 1,
-  "not_count": 1,
+  "maybe_count": 2,
+  "not_count": 0,
   "sites": [
     {
       "span": "src/main.rs:46:5: 46:13",
@@ -19,17 +19,14 @@
     },
     {
       "span": "src/main.rs:56:5: 56:8",
-      "is_maybe_example": false,
+      "is_maybe_example": true,
       "cha": [
         "<std::boxed::Box<F, A> as std::ops::FnMut<Args>>::call_mut",
         "<std::sync::Exclusive<F> as std::ops::FnMut<Args>>::call_mut"
       ],
       "fsa": [
-        "<std::boxed::Box<F, A> as std::ops::FnMut<Args>>::call_mut",
         "closure_captures::Sink",
-        "closure_captures::main::{closure#1}",
-        "std::alloc::Global",
-        "std::io::error::Custom"
+        "closure_captures::main::{closure#1}"
       ]
     }
   ]

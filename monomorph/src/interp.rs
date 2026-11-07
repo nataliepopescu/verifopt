@@ -246,8 +246,10 @@ pub struct InterpPass<'a> {
 
     pub dispatch_targets:
         RefCell<ImHashMap<(DefId, usize, GenericArgs), (Span, Vec<(DefId, Option<GenericArgs>)>)>>,
-    /// Each dispatch site's method and its trait (escaped_targets).
-    pub dispatch_methods: RefCell<HashMap<(DefId, usize, GenericArgs), (DefId, DefId)>>,
+    /// Each dispatch site's method, its trait, and the call's own generic
+    /// args (Self = the `dyn` type, then the trait's and method's args):
+    /// escaped_targets resolves the method for each escaped object with them.
+    pub dispatch_methods: RefCell<HashMap<(DefId, usize, GenericArgs), (FnDef, DefId, GenericArgs)>>,
     /// Objects passed to code the analysis doesn't interpret - a call without
     /// MIR, or through a fn pointer it can't follow (note_escape): that code
     /// can dispatch on them anywhere, e.g. `core::fmt::write` (no MIR without
@@ -3858,7 +3860,10 @@ impl<'a> InterpPass<'a> {
             .borrow_mut()
             .entry(key.clone())
             .or_insert((*term_span, assoc_fn_impls_cha));
-        self.dispatch_methods.borrow_mut().entry(key.clone()).or_insert((fndef.0, trait_defid));
+        self.dispatch_methods
+            .borrow_mut()
+            .entry(key.clone())
+            .or_insert((*fndef, trait_defid, genargs.clone()));
 
         {
             // collect possible calls (mostly for recursion)
@@ -4422,13 +4427,31 @@ impl<'a> InterpPass<'a> {
         if escaped.inner.is_empty() {
             return Vec::new();
         }
-        let Some((method, trait_defid)) = self.dispatch_methods.borrow().get(key).copied() else {
+        let Some((method, trait_defid, call_args)) = self.dispatch_methods.borrow().get(key).cloned() else {
             return Vec::new();
         };
         let Some(span) = self.dispatch_targets.borrow().get(key).map(|(s, _)| *s) else {
             return Vec::new();
         };
-        let (_, defids) = self.get_fsa_constraint_defids(&span, &trait_defid, &escaped);
+        // Only objects the call can reach: resolving the site's method with
+        // the object's type as Self and the call's own trait/method args must
+        // give an implementation. Matching the trait alone let every escaped
+        // iterator reach a `dyn Iterator<Item = u32>` site, and any escaped
+        // `Box<..>` a `dyn FnMut(&CStr)` one (through the generic
+        // `impl<F: FnMut> FnMut for Box<F>`, whose bound wasn't checked).
+        // An object whose type can't be built (generic params) stays in.
+        let reachable: Vec<Constraint> = escaped
+            .inner
+            .iter()
+            .filter(|c| self.escaped_can_reach(c, &method, &call_args))
+            .cloned()
+            .collect();
+        let mut reachable_cs = Constraints::new();
+        for c in &reachable {
+            reachable_cs.push(c.clone());
+        }
+        let (_, defids) = self.get_fsa_constraint_defids(&span, &trait_defid, &reachable_cs);
+        let method = method.0;
         let out = self.get_impls_from_defids(&method, &defids, true);
         if std::env::var_os("VERIFOPT_TRACE_ESCAPE").is_some() {
             warn!(
@@ -4441,6 +4464,40 @@ impl<'a> InterpPass<'a> {
             );
         }
         out
+    }
+
+    /// Whether an escaped object (note_escape: an ADT or closure value, fields
+    /// dropped) can be the receiver of a dispatch of `method` with the call's
+    /// generic args `call_args`: the method resolves, with the object's type
+    /// as Self, to an implementation. True when the type can't be built or
+    /// checked (generic params left) - kept, to stay sound.
+    fn escaped_can_reach(&self, c: &Constraint, method: &FnDef, call_args: &GenericArgs) -> bool {
+        let self_ty = match &c.cfc {
+            Some(RunningConstraint::Adt(def, args, _, _)) => {
+                if has_unresolved_param(args) {
+                    return true;
+                }
+                Ty::from_rigid_kind(RigidTy::Adt(*def, args.clone()))
+            }
+            Some(RunningConstraint::Closure(def, args, _)) => {
+                if has_unresolved_param(args) {
+                    return true;
+                }
+                Ty::from_rigid_kind(RigidTy::Closure(def.clone(), args.clone()))
+            }
+            _ => return true,
+        };
+        if call_args.0.is_empty() || has_unresolved_param(call_args) {
+            return true;
+        }
+        let mut args = call_args.0.clone();
+        args[0] = GenericArgKind::Type(self_ty);
+        let args = GenericArgs(args);
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Instance::resolve(*method, &args))) {
+            Ok(Ok(inst)) => !matches!(inst.kind, InstanceKind::Virtual { .. }),
+            Ok(Err(_)) => false,
+            Err(_) => true,
+        }
     }
 
     /// Returns `(is_closure, receiver_is_unresolved_param, impls)`. See

@@ -340,10 +340,7 @@
         "<box_box_dyn_iter::Counter as std::iter::Iterator>::next",
         "box_box_dyn_iter::Countdown",
         "std::alloc::Global",
-        "std::alloc::Global",
-        "std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<I, A>>::next",
-        "std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<I, A>>::next",
-        "std::io::error::Custom"
+        "std::boxed::iter::<impl std::iter::Iterator for std::boxed::Box<I, A>>::next"
       ]
     }
   ]

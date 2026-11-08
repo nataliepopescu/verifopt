@@ -121,10 +121,51 @@ impl Callbacks for FsaCallbacks {
                 // site in CHAmax-only mode.
                 let compiled = crate::chamax::compiled_instances(tcx);
                 let cha_only = std::env::var_os("VERIFOPT_CHA_ONLY").is_some();
-                // Whether a type satisfies a `dyn` type's associated-type
-                // bindings (`dyn Iterator<Item = u32>`: `<T as Iterator>::Item
-                // == u32`), for objects escaping into uninterpreted code
-                // (InterpPass::escaped_targets). Unknown -> true (sound).
+                // Whether an object of type `self_ty`, escaping into code the
+                // analysis doesn't interpret, can be the receiver of a call on
+                // `dyn_ty` (InterpPass::escaped_targets). Three checks; anything
+                // that can't be checked counts as reachable (sound):
+                // - the dyn type's associated-type bindings hold
+                //   (`dyn Iterator<Item = u32>`: `<T as Iterator>::Item == u32`);
+                // - a closure's parameters are the Fn trait's argument tuple
+                //   (resolving `FnOnce::call_once` for any closure succeeds);
+                // - some crate builds a vtable of the site's trait (or a
+                //   subtrait) for the type, or for a reference to it - the
+                //   analysis models `&mut W` as W (instance manifests, RTA's
+                //   criterion): an object never turned into a `dyn Trait`
+                //   can't reach a call on one.
+                let vtables: std::collections::HashSet<(DefPathHash, DefPathHash)> = std::fs::read_dir(rustc_verifopt::manifest_dir())
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+                    .filter_map(|j| rustc_verifopt::InstanceManifest::from_json(&j).ok())
+                    .flat_map(|m| m.vtables)
+                    .filter_map(|v| Some((v.ty?, v.trait_?)))
+                    .collect();
+                let mut vtable_traits: HashMap<DefPathHash, Vec<DefPathHash>> = HashMap::new();
+                for (ty, tr) in &vtables {
+                    vtable_traits.entry(*ty).or_default().push(*tr);
+                }
+                // `sub` is `sup` or has it among its supertraits (transitively).
+                let is_subtrait = |sub: rustc_span::def_id::DefId, sup: rustc_span::def_id::DefId| -> bool {
+                    let mut stack = vec![sub];
+                    let mut seen = std::collections::HashSet::new();
+                    while let Some(t) = stack.pop() {
+                        if t == sup {
+                            return true;
+                        }
+                        if !seen.insert(t) {
+                            continue;
+                        }
+                        for (clause, _) in tcx.explicit_super_predicates_of(t).iter_identity_copied() {
+                            if let Some(tp) = clause.as_trait_clause() {
+                                stack.push(tp.def_id());
+                            }
+                        }
+                    }
+                    false
+                };
                 let assoc_ok = |dyn_ty: &rustc_public::ty::Ty, self_ty: &rustc_public::ty::Ty| -> bool {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         use rustc_middle::ty::{self as mty, TypingEnv};
@@ -132,7 +173,7 @@ impl Callbacks for FsaCallbacks {
                         let self_ty = rustc_internal::internal(tcx, *self_ty);
                         let mty::Dynamic(preds, ..) = dyn_ty.kind() else { return true };
                         let env = TypingEnv::fully_monomorphized();
-                        preds.iter().all(|pred| {
+                        let bindings_hold = preds.iter().all(|pred| {
                             let pred = tcx.instantiate_bound_regions_with_erased(pred);
                             let mty::ExistentialPredicate::Projection(p) = pred else { return true };
                             let proj = p.with_self_ty(tcx, self_ty);
@@ -146,7 +187,52 @@ impl Callbacks for FsaCallbacks {
                                 Ok(actual) => actual == tcx.erase_and_anonymize_regions(expected),
                                 Err(_) => true,
                             }
-                        })
+                        });
+                        if !bindings_hold {
+                            return false;
+                        }
+                        let Some(principal) = preds.principal() else { return true };
+                        let principal = tcx.instantiate_bound_regions_with_erased(principal);
+                        // Closures: parameters vs the Fn trait's argument tuple.
+                        if let mty::Closure(_, cargs) = self_ty.kind()
+                            && tcx.is_fn_trait(principal.def_id)
+                            && let Some(expected) = principal.args.get(0).and_then(|a| a.as_type())
+                        {
+                            let sig = tcx.instantiate_bound_regions_with_erased(cargs.as_closure().sig());
+                            let actual = mty::Ty::new_tup(tcx, sig.inputs());
+                            if tcx.erase_and_anonymize_regions(actual) != tcx.erase_and_anonymize_regions(expected) {
+                                return false;
+                            }
+                        }
+                        // A vtable of the trait (or a subtrait) for the type or
+                        // a reference to it. No vtable data at all: unchecked.
+                        if vtables.is_empty() {
+                            return true;
+                        }
+                        let site_trait = principal.def_id;
+                        let candidates = [
+                            self_ty,
+                            mty::Ty::new_imm_ref(tcx, tcx.lifetimes.re_erased, self_ty),
+                            mty::Ty::new_mut_ref(tcx, tcx.lifetimes.re_erased, self_ty),
+                        ];
+                        let candidates = candidates.into_iter().chain(candidates.into_iter().flat_map(|t| {
+                            [
+                                mty::Ty::new_imm_ref(tcx, tcx.lifetimes.re_erased, t),
+                                mty::Ty::new_mut_ref(tcx, tcx.lifetimes.re_erased, t),
+                            ]
+                        }));
+                        for ty in candidates {
+                            let Some(h) = hash_args(tcx, tcx.mk_args(&[ty.into()]), &SHAPES).map(|h| h[0]) else {
+                                return true; // unhashable: can't check
+                            };
+                            for tr in vtable_traits.get(&h).map(Vec::as_slice).unwrap_or(&[]) {
+                                let Some(tr) = rustc_verifopt::def_id_from_hash(tcx, *tr) else { return true };
+                                if is_subtrait(tr, site_trait) {
+                                    return true;
+                                }
+                            }
+                        }
+                        false
                     }))
                     .unwrap_or(true)
                 };

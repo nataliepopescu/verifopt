@@ -107,10 +107,11 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
   is *compiled*; deps cargo considers fresh write none, and every site's
   CHAmax becomes "incomplete" (no `single exact`). Always `cargo clean
   --target-dir …` before an analysis run.
-- Current ripgrep cost (Nov 6 2026, build-std, `8b3fcd8` - merged with
-  `fsa-gaps`, uncapped): whole pipeline 6,686 s (~1 h 51 min), peak ~7.2 GB,
-  >3.5M bb visits - more code reached than before the merge (Nov 4,
-  `c85db8c`: pipeline ~24 min, ~4.6 GB; §4 "ripgrep after the merge"); several
+- Current ripgrep cost (Nov 8 2026, build-std, `ca70b20`, uncapped): whole
+  pipeline 7,931 s (~2 h 12 min), peak ~7 GB, ~3.75M bb visits (Nov 6
+  `8b3fcd8`: 6,686 s; Nov 4 `c85db8c`, before the merge: ~24 min, ~4.6 GB;
+  §4 "ripgrep after the merge", "Escaping arguments"). imix: ~65 min (was
+  6.4 h before the merge); several
   fit on the 62 GB machine at once - but each needs its *own* install root
   (run scripts stop every `verifopt` of their root: two runs from one root
   killed each other twice). Run experiments from a separate install root
@@ -322,20 +323,28 @@ pointing at the `rust-mono-rewrite` toolchain.
   recursive call still being solved), or a `!` / `()` destination;
   otherwise the destination gets `any_value` of its type, recorded as
   `CallResultUnknown`. Before, it kept an earlier call's value.
-- **Escaping arguments** (Nov 6): a call the analysis answers from its
+- **Escaping arguments** (Nov 6-8): a call the analysis answers from its
   signature - no MIR, a recursion cut, a fn pointer it can't follow, a
   callee value that isn't fn-like - may dispatch on anything it's given.
   `note_escape` records every ADT/closure value reachable from its
-  arguments (as its type, fields dropped; a value over 200k nodes sets an
-  overflow flag: every site then gets its CHA set); after the analysis
-  (`lib.rs`, before the store) every site also gets the targets of the
-  escaped objects implementing its trait (`escaped_targets`) - so the
-  order in which a site and an escape are seen doesn't matter. Found with
-  unguarded rewrites: `fmt_fnptr_writer` (no build-std, so
-  `core::fmt::write` has no MIR) had FSA {String} at `Formatter::write_fmt`'s
-  writer dispatch while a `Counter` reached it - the direct call corrupted
-  the Counter; now {String, io Adapter, Counter}. 6 fixtures widened, none
-  lost a target.
+  arguments (as its type, fields dropped; each distinct sub-value walked
+  once, by content hash; more than 200k distinct nodes sets an overflow
+  flag: every site then gets its CHA set). After the analysis (`lib.rs`,
+  before the store) every site also gets the targets of the escaped objects
+  that can reach it (`escaped_targets`) - order-independent. An object
+  reaches a site only if (`escaped_can_reach` + the driver-side checker
+  `assoc_ok` in `rewrite.rs`, which has the compiler's types): the site's
+  method resolves for it with the call's own generic args; the dyn type's
+  associated-type bindings hold (`Item = u32`); a closure's parameter tuple
+  is the Fn trait's argument tuple; and some crate builds a vtable of the
+  site's trait (or a subtrait) for its type or a reference to it (instance
+  manifests - RTA's criterion; the analysis models `&mut W` as W). Anything
+  that can't be checked counts as reachable. Found with unguarded rewrites:
+  `fmt_fnptr_writer` (no build-std, so `core::fmt::write` has no MIR) had
+  FSA {String} at `Formatter::write_fmt`'s writer dispatch while a
+  `Counter` reached it - the direct call corrupted the Counter; now
+  {String, io Adapter, Counter}. Versions and what each cost: §4 "Escaping
+  arguments on ripgrep and imix".
 - **Errors**: call error paths truncate both stacks to their pre-call length
   (`unwind_stacks_to`); nested re-interpretation deeper than `MAX_DEPTH`
   (50) answers the call from its signature ("recursion depth limit").
@@ -685,6 +694,54 @@ pointing at the `rust-mono-rewrite` toolchain.
     indirect calls are probably duplicated call sites from inlining. All
     outputs = plain (the hook build's one diff is the unsorted `rg fn core`).
     The unguarded `pointers` default (no fallback for K>1) came after these.
+- **Escaping arguments on ripgrep and imix, Nov 6-8** (unguarded rewrites,
+  K=1; runs `esc`..`esc5`, job tmp `esc*_chain.sh`, results
+  `esc*_rg_results.txt`, `minsize/esc*_results.txt`). Each version of the
+  escape rule (§3) against the pre-escape runs (ripgrep `spv`, imix `fsabd`
+  unguarded):
+
+  | version | rg sites widened | rg `single` | rg `.text` | imix widened | imix `single` | imix `.text` |
+  |---|---|---|---|---|---|---|
+  | before escapes | - | 11 | 2,780,307 | - | 4 | 160,212 |
+  | `456dcb4` trait match only | 43 (overflow: all CHA) | 0 | 2,794,883 | 97 | 2 | 160,312 |
+  | `8ab8760` + method resolves | 43 (overflow) | 0 | 2,794,883 | 71 | 2 | 160,312 |
+  | `0d1fa2a`+`28dd9fe` + distinct walk, assoc. types | 126 | 3 | 2,814,563 | 69 | 4 | 160,212 |
+  | `ca70b20` + closure sig., vtables; hook fix | **75** | **11** | **2,789,283** | 64 | **4** | **160,212** |
+
+  ripgrep plain: `.text` 2,787,554, `.rodata` 761,828, 3,503 indirect calls.
+  Final (`esc5`): `.rodata` 761,928, 3,501 indirect calls (first verifopt rg
+  build below plain), 12 `single exact` + 11 `single` (the pre-escape 11),
+  308 sites (analysis 101, CHA fallback 115, not reached 92), FSA > CHAmax
+  52; output = plain on all 22 commands; pipeline 7,931 s. imix: 4
+  `single`, 513 `single exact`, analysis+build 3,874 s. nRF boards
+  unchanged. Lessons: the trait alone admits every escaped iterator / boxed
+  value / closure; the walk revisited shared sub-values (overflow -> every
+  site CHA); `Item = u32` isn't in the method's args; resolving
+  `FnOnce::call_once` succeeds for any closure. Still widened among the old
+  single-target sites: `<Box<dyn Error>>::source`/`provide` (error types
+  that escape and have a `dyn Error` vtable - plausibly real). The `esc4`
+  size jump (`.rodata` +133 KB) was the partitioning hook's edges for the
+  bigger stored sets (hook-only build identical), fixed in `95cf893c110`.
+- **ripgrep rung 3 and hook baselines, Nov 8** (current compiler and
+  plugin: unguarded, `dispatchers` manifests, hook limited to rewritten
+  sites; job tmp `r3n_results.txt`, `esc5hook_results.txt`,
+  `r3nhook_results.txt`; all outputs = plain on 22 commands):
+
+  | build | dir | `.text` | vs plain | indirect calls | rewrites |
+  |---|---|---|---|---|---|
+  | plain | `baseline_target` | 2,787,554 | - | 3,503 | - |
+  | hook only, rung-3 store | `r3nhook_target` | 2,786,595 | -959 | 3,503 | - |
+  | rung 3, K=1 | `r3nk1_target` | 2,786,611 | -943 | 3,501 | 12 `single exact` |
+  | rung 3, K=4 | `r3nk4_target` | 2,788,419 | +865 | 3,478 | + 14 `pointers exact` (unguarded) |
+  | hook only, verifopt store | `esc5hook_target` | 2,785,011 | -2,543 | 3,525 | - |
+  | verifopt, K=1 | `exp_esc5_target` | 2,789,283 | +1,729 | 3,501 | 12 `single exact` + 11 `single` |
+
+  Rung 3: 305 sites (the `dispatchers` fix; Oct 23: 231), its rewrites +16 B
+  / -2 indirect calls against its own hook baseline. Verifopt's 23 rewrites
+  +4,272 B / -24 indirect calls against its hook baseline (inlined direct
+  calls). The hook still moves `.text` by about -1 to -2.5 KB on its own
+  (edges for the rewritten sites only). K=4: unguarded multi-target
+  rewrites (no fallback) run correctly; +1.8 KB over K=1.
 
 ## 5. Done: tock merged into one crate (boards/imix)
 
@@ -881,12 +938,12 @@ Gotchas hit doing it:
   the memo.
 - **`InterpPass::run`'s error** is reported since `e78984c`: a warning, an
   `ANALYSIS ABORTED` assumption, and every site's CHAmax marked incomplete.
-- **Partitioning hook adds edges for sites that are never rewritten** (pinned):
-  `add_verifopt_rewrite_uses` adds "uses" edges for every stored site,
-  including `too_many_targets` skips (5,595 edges in `rg` at cap 1, mostly
-  the 104-impl `Flag` sites). The edges alone reshuffle inlining of
-  `rg::run`/`rg::search` (hook-only build: `.text` −7.9 KB vs plain). Make it
-  apply the rewrite's own selection (max-candidates, CHA expansion).
+- **Partitioning hook adds edges for sites that are never rewritten** -
+  fixed Nov 8 (fork `95cf893c110`): `add_verifopt_rewrite_uses` now mirrors
+  the rewrite's selection (max-candidates, `--guarded`/`--no-guarded`,
+  incomplete candidate lists); `VERIFOPT_HOOK_ALL_SITES=1` restores edges
+  for every stored site. Before, the edges alone moved ripgrep's `.text` by
+  -8 to +27 KB (and `.rodata` by up to +133 KB) depending on the store.
 - **Memo reuse under widened keys** (open, unsound; plan B). Widening itself
   is sound - it only loses precision. What isn't: after 50 distinct
   argument sets a function's memo keys drop ADT fields, and a hit returns a
@@ -1029,7 +1086,15 @@ Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 4):
 - `c1a6180` CHAmax-only mode / unreached fallback: sites from every crate's
   manifest (`dispatchers`)
 - `e604b76` fixture MIR goldens for unguarded rewrites
-- (Nov 6) arguments of uninterpreted calls escape (`note_escape`, §3)
+- `456dcb4` arguments of uninterpreted calls escape (`note_escape`, §3);
+  `8ab8760` escaped objects only where the method resolves; `0d1fa2a` walk
+  each distinct sub-value once (the overflow); `28dd9fe` associated-type
+  bindings; `ca70b20` closure signatures and vtable existence
+
+Fork, Nov 6-8: `d76a58d580a` unguarded rewrites by default (`--guarded`);
+`efcf8faafe7` manifests list every instance that makes a dyn call
+(`dispatchers`, the rung-3 undercount); `95cf893c110` the partitioning hook
+only adds uses for sites the rewrite changes.
 
 Fork (`~/hack/rust`): `73da158f0d5` disable unguarded/unproven single
 rewrites (on top of `5eec5c673e1` flexible max-candidates,

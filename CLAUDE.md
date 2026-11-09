@@ -764,7 +764,43 @@ pointing at the `rust-mono-rewrite` toolchain.
   first check, clean on two reruns). Smallest ripgrep so far: verifopt +
   VFE + elim, 2,617,816 B (-3.0% vs plain fat LTO, -6.1% vs the default
   profile's plain). Open: why the indirect-call count doesn't drop under
-  LTO (default profile: -2) - not examined. Missing: rung 3 under LTO.
+  LTO (default profile: -2) - not examined.
+- **ripgrep matrix: hook / rung 3 / verifopt x 5 configs x K=1,4,8, Nov 9**
+  (job tmp `rg_matrix.sh`, `rg_matrix8.sh`, `k8_rw.sh`; results
+  `rg_matrix_results.txt`, `rg_matrix8_results.txt`; every build's output =
+  plain on 22 commands - flagged diffs were the unsorted `rg fn core` or a
+  `--json` timing flake, clean on rerun). Each rung's own analysis per
+  profile (default, fat LTO) and K; VFE/elim builds rewrite-only from the
+  LTO store (no crate-id mismatch). `.text`:
+
+  | K | rung | default | fat LTO | + VFE | + elim | + VFE + elim |
+  |---|---|---|---|---|---|---|
+  | - | plain | 2,787,554 | 2,700,440 | 2,628,296 | 2,688,664 | 2,621,208 |
+  | 1 | hook | 2,785,011 | 2,700,600 | 2,628,584 | 2,688,984 | 2,621,512 |
+  | 1 | rung 3 | 2,786,611 | 2,700,376 | 2,628,360 | 2,688,584 | 2,621,272 |
+  | 1 | verifopt | 2,789,283 | 2,697,192 | 2,624,936 | 2,685,176 | 2,617,816 |
+  | 4 | hook | 2,785,011 | 2,688,840 | 2,618,152 | 2,677,400 | **2,611,240** |
+  | 4 | rung 3 | 2,788,419 | 2,701,496 | 2,629,448 | 2,689,704 | 2,622,392 |
+  | 4 | verifopt | 2,793,539 | 2,693,512 | 2,622,248 | 2,682,408 | 2,616,152 |
+  | 8 | hook | 2,785,011 | 2,688,840 | 2,618,152 | 2,677,400 | 2,611,240 |
+  | 8 | rung 3 | 2,809,027 | 2,724,568 | 2,652,520 | 2,716,456 | 2,649,144 |
+  | 8 | verifopt | 2,814,147 | 2,716,584 | 2,645,320 | 2,709,160 | 2,642,904 |
+
+  Edits: rung 3 K=1 12 `single exact`, K=4 +14 `pointers exact`, K=8 +41;
+  verifopt K=1 12 `single exact` + 11 `single`, K=4 + 11 `pointers exact` +
+  5 `pointers`, K=8 + 38 `pointers exact` + 5 `pointers` (all unguarded).
+  Indirect calls (LTO + VFE + elim): plain 3,545, verifopt K=1 3,546, K=4
+  3,551, K=8 3,567; hook K=4 3,586. Readings: under fat LTO verifopt beats
+  rung 3 by ~3.3 KB at K=1 (the 11 analysis-only rewrites); K=4 is the best
+  rewritten setting (verifopt + VFE + elim 2,616,152); K=8's long compare
+  chains cost 20-28 KB. Open: (1) the K=4 hook-only builds are 10-12 KB
+  smaller than plain under fat LTO (smaller than every rewritten build) -
+  partitioning matters under fat LTO too (per-CGU optimization before the
+  merge? not checked); (2) the K=8 hook builds are byte-for-byte the K=4
+  sizes, and the default-profile hook is the same at K=1/4/8 - the extra
+  K=8 sites may all be skipped as incomplete (targets without args), not
+  checked. The K=8 verifopt rewrites first crashed rustc (fork
+  `bee6a02be90`, recorded args of the wrong kind).
 
 ## 5. Done: tock merged into one crate (boards/imix)
 
@@ -1117,7 +1153,8 @@ Plugin (`~/hack/verifopt`, branch `ripgrep`, not pushed as of Nov 4):
 Fork, Nov 6-8: `d76a58d580a` unguarded rewrites by default (`--guarded`);
 `efcf8faafe7` manifests list every instance that makes a dyn call
 (`dispatchers`, the rung-3 undercount); `95cf893c110` the partitioning hook
-only adds uses for sites the rewrite changes.
+only adds uses for sites the rewrite changes; `bee6a02be90` (Nov 9)
+recorded generic args must fit the target's params by kind (K=8 ICE).
 
 Fork (`~/hack/rust`): `73da158f0d5` disable unguarded/unproven single
 rewrites (on top of `5eec5c673e1` flexible max-candidates,

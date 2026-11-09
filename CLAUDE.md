@@ -742,6 +742,29 @@ pointing at the `rust-mono-rewrite` toolchain.
   calls). The hook still moves `.text` by about -1 to -2.5 KB on its own
   (edges for the rewritten sites only). K=4: unguarded multi-target
   rewrites (no fallback) run correctly; +1.8 KB over K=1.
+- **ripgrep verifopt under fat LTO, Nov 8-9** (rungs 4/5; job tmp
+  `rg_lto_va.sh`, `rg_lto_va_results.txt`): one analysis with
+  `CARGO_PROFILE_RELEASE_LTO=fat RUSTFLAGS="-C lto=fat"` (plugin `ca70b20`,
+  K=1, pipeline 8,020 s; same 308 sites and 23 edits as the default
+  profile), then rewrite-only builds from its store with the VFE / elim
+  flags - the store matched each (same 23 edits, no crate-id warning: the
+  `-Z` flags don't change ripgrep's crate ids). Flags: VFE = `-C lto=fat
+  -Zvirtual-function-elimination -Zverifopt-vfe-fixes`, elim = `-C lto=fat
+  -Zverifopt-vtable-elim`, both = `-C lto=fat -Zvirtual-function-elimination
+  -Zverifopt-vtable-elim`.
+
+  | fat LTO + | plain `.text` | verifopt `.text` | diff | plain icalls | verifopt icalls | verifopt dir |
+  |---|---|---|---|---|---|---|
+  | - | 2,700,440 | 2,697,192 | -3,248 | 4,578 | 4,578 | `exp_lto_target` |
+  | VFE | 2,628,296 | 2,624,936 | -3,360 | 3,558 | 3,559 | `ltovfe_target` |
+  | elim | 2,688,664 | 2,685,176 | -3,488 | 4,572 | 4,573 | `ltoelim_target` |
+  | VFE + elim | 2,621,208 | 2,617,816 | -3,392 | 3,545 | 3,546 | `ltovfeelim_target` |
+
+  All outputs = plain on 22 commands (one `--json` timing flake on the
+  first check, clean on two reruns). Smallest ripgrep so far: verifopt +
+  VFE + elim, 2,617,816 B (-3.0% vs plain fat LTO, -6.1% vs the default
+  profile's plain). Open: why the indirect-call count doesn't drop under
+  LTO (default profile: -2) - not examined. Missing: rung 3 under LTO.
 
 ## 5. Done: tock merged into one crate (boards/imix)
 

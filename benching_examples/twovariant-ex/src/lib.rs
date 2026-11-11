@@ -51,6 +51,38 @@ pub fn wrap_cat_call(c: &Cat) -> usize {
     c.speak()
 }
 
+// For the harness (src/bin/bench_twovariant.rs). Constructors and wrappers
+// are #[inline(never)] so the binary's dispatch sites can't see which vtable
+// they get, short of LTO. One wrapper per workload pattern: each dispatch
+// site only ever sees that pattern's objects. The constructors return
+// references, not boxes: the harness keeps its objects in an array, because
+// the analysis loses elements written into a Vec's heap buffer.
+
+#[inline(never)]
+pub fn make_cat() -> &'static dyn Animal {
+    &Cat {}
+}
+
+#[inline(never)]
+pub fn make_animal(sel: usize) -> &'static dyn Animal {
+    if sel == 0 { &Cat {} } else { &Dog {} }
+}
+
+#[inline(never)]
+pub fn wrap_mono(a: &dyn Animal) -> usize {
+    a.speak()
+}
+
+#[inline(never)]
+pub fn wrap_alt(a: &dyn Animal) -> usize {
+    a.speak()
+}
+
+#[inline(never)]
+pub fn wrap_rand(a: &dyn Animal) -> usize {
+    a.speak()
+}
+
 pub fn inner_main() {
     //let x = 0;
     let animal: Box<dyn Animal> = Box::new(Cat {}); //get_animal(x);

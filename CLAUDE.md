@@ -995,6 +995,30 @@ Gotchas hit doing it:
   trusted one would call the wrong impl). The Oct 20 report counted 1.5k
   memo hits for (2)-shaped parameters; the write is lost with or without
   the memo.
+- **Loops are walked once (open, unsound; pinned Nov 11 - fix soon).**
+  `visit_body` pops each block of the RPO ordering once, so a loop
+  contributes only its first iteration's values, and a switch inside it is
+  decided on them (`prune`). Repro (job tmp `constloop/`): `for i in 0..2 {
+  sum += make(i).speak() }` - FSA {Cat}, unguarded `single`, the binary
+  prints 2 instead of 3. Also why a function filling a constant-length array
+  (`for i in 0..LEN`) "never returns": `0 < LEN` prunes the exit. Diagnostic
+  (uncommitted, `src/interp.rs` / `src/wto.rs`, installed in `/tmp/vo_lp`):
+  `VERIFOPT_LOOP_PASSES=N` re-walks a body with a cycle (pruned edges
+  cleared, Return block held back to the last walk) while its scope store
+  changes, up to N walks, logging `[verifopt loop rewalk]`;
+  `VERIFOPT_LOOP_PRUNE=log|keep` reports / skips switch prunes inside
+  cycles (`keep` alone doesn't fix the repro). imix with N=4 (`loop4_target`,
+  1,345 s, vs `esc5`): 227 functions change on a re-walk (mostly
+  `core::fmt`; tock: `compute_udp_checksum`, `NineDof::call_driver`,
+  `ieee802154::Header::encode`), 80 still changing after 4 walks; only 2 of
+  721 sites gain targets (`DebugList::entry` / `DebugTuple::field` closures,
+  ~1,970 targets, skipped either way) - edits identical (job tmp
+  `minsize/loop4_sitediff.txt`, `sitediff.py`). ripgrep not checked. Fix:
+  iterate loop bodies to a fixpoint with widening at loop heads (a
+  loop-carried value still changing after a walk or two becomes "any
+  value"), then add `constloop` as a fixture. Blocks the twovariant timing
+  harness (`benching_examples/twovariant-ex/src/bin/bench_twovariant.rs`,
+  uncommitted): its object arrays are filled by `for i in 0..LEN`.
 - **`InterpPass::run`'s error** is reported since `e78984c`: a warning, an
   `ANALYSIS ABORTED` assumption, and every site's CHAmax marked incomplete.
 - **Partitioning hook adds edges for sites that are never rewritten** -

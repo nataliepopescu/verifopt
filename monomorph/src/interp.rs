@@ -180,6 +180,33 @@ thread_local! {
     static NO_RESULT: std::cell::Cell<Option<NoResult>> = const { std::cell::Cell::new(None) };
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoopPrune {
+    Off,
+    Log,
+    Keep,
+}
+
+/// VERIFOPT_LOOP_PRUNE: `log` reports switch prunes inside loops, `keep`
+/// also skips them (see prune_switchint_targets).
+fn loop_prune_mode() -> LoopPrune {
+    static MODE: OnceLock<LoopPrune> = OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("VERIFOPT_LOOP_PRUNE").as_deref() {
+        Ok("log") => LoopPrune::Log,
+        Ok("keep") => LoopPrune::Keep,
+        _ => LoopPrune::Off,
+    })
+}
+
+/// VERIFOPT_LOOP_PASSES: at most this many walks of a body with a cycle
+/// (see visit_body); 1, the default, is a single walk.
+fn loop_passes() -> u32 {
+    static N: OnceLock<u32> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("VERIFOPT_LOOP_PASSES").ok().and_then(|v| v.parse().ok()).unwrap_or(1).max(1)
+    })
+}
+
 fn scope_matches_trace_filter(scope: &VOID) -> bool {
     match trace_scope_filter() {
         Some(filter) if !filter.is_empty() => {
@@ -989,8 +1016,67 @@ impl<'a> InterpPass<'a> {
             );
         }
 
+        // VERIFOPT_LOOP_PASSES=N (diagnostic): the walk visits each block
+        // once, so a loop only contributes its first iteration's values. A
+        // body with a cycle is walked again from the start (pruned edges
+        // cleared) while its scope store keeps changing, up to N walks.
+        // The Return block (last in the ordering) is held back until the
+        // last walk: visiting it finishes the frame.
+        let max_walks = loop_passes();
+        let mut ret_block: Option<usize> = None;
+        let rewalk_from = (max_walks > 1
+            && bb_deps.ordering.iter().any(|&b| bb_deps.in_cycle(b)))
+        .then(|| {
+            if bb_deps.has_ret
+                && let Some(&last) = bb_deps.ordering.back()
+                && matches!(body.blocks[last].terminator.kind, TerminatorKind::Return)
+            {
+                bb_deps.ordering.pop_back();
+                ret_block = Some(last);
+            }
+            bb_deps.ordering.clone()
+        });
+        let mut walks_done = 1u32;
+        let mut changed_walks = 0u32;
+        let mut prev_fp: Option<u64> = None;
+
         loop {
             if bb_deps.ordering.is_empty() {
+                if let Some(start) = &rewalk_from
+                    && prev_fp != Some(u64::MAX)
+                {
+                    let fp = match ctxt.get_cstore_scope(cur_scope).map(|b| &**b) {
+                        Some(MapValue::Store(store, _)) => crate::constraints::store_fingerprint(store),
+                        _ => 0,
+                    };
+                    let changed = prev_fp.is_some_and(|p| p != fp);
+                    if changed {
+                        changed_walks += 1;
+                    }
+                    if (prev_fp.is_none() || changed) && walks_done < max_walks {
+                        prev_fp = Some(fp);
+                        walks_done += 1;
+                        bb_deps.ordering = start.clone();
+                        bb_deps.dead_edges.clear();
+                        continue;
+                    }
+                    if changed_walks > 0 {
+                        warn!(
+                            "[verifopt loop rewalk] {:?}: {walks_done} walks, store changed after {changed_walks} of the re-walks, {}",
+                            cur_scope.0.name(),
+                            if changed { "not settled" } else { "settled" }
+                        );
+                    }
+                    // Done re-walking (u64::MAX marks it); finish with the
+                    // Return block if the last walk can still reach it.
+                    prev_fp = Some(u64::MAX);
+                    if let Some(r) = ret_block.take()
+                        && bb_deps.reachable(r)
+                    {
+                        bb_deps.ordering.push_back(r);
+                        continue;
+                    }
+                }
                 break;
             }
 
@@ -5741,6 +5827,7 @@ impl<'a> InterpPass<'a> {
                         }
 
                         self.prune_switchint_targets(
+                            cur_scope,
                             bb,
                             bb_deps,
                             &targets.all_targets(),
@@ -5808,6 +5895,7 @@ impl<'a> InterpPass<'a> {
 
     fn prune_switchint_targets(
         &self,
+        cur_scope: &VOID,
         bb: usize,
         bb_deps: &mut BBDeps,
         targets: &Successors,
@@ -5816,6 +5904,23 @@ impl<'a> InterpPass<'a> {
         let prunable_indices_opt = self.get_prunable_indices(discr_vals);
 
         if let Some(prunable_indices) = prunable_indices_opt {
+            // The walk visits each block once, so a switch inside a loop is
+            // decided on the values of the first iteration that reaches it
+            // (`for i in 0..2 { make(i).speak() }`: `0 < 2` prunes the exit,
+            // and only i = 0 is seen). VERIFOPT_LOOP_PRUNE=log reports such
+            // prunes, =keep also leaves the edges in.
+            let mode = loop_prune_mode();
+            if mode != LoopPrune::Off && bb_deps.in_cycle(bb) {
+                log::warn!(
+                    "[verifopt loop prune] {:?} bb{bb}: would prune {:?}{}",
+                    cur_scope.0.name(),
+                    prunable_indices.iter().map(|&i| targets[i]).collect::<Vec<_>>(),
+                    if mode == LoopPrune::Keep { " - kept" } else { "" }
+                );
+                if mode == LoopPrune::Keep {
+                    return;
+                }
+            }
             // Some prunable items point to bbs that are also pointed to by non-prunable items,
             // so need to check that prunable bbs are ONLY pointed to by prunable items
             let mut keep_targets = Vec::new();

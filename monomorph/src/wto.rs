@@ -262,6 +262,41 @@ impl BBDeps {
         self.ordering.retain(|bb| reachable.contains(bb));
     }
 
+    /// Whether `bb` is reachable from the entry over the edges not pruned.
+    pub fn reachable(&self, bb: usize) -> bool {
+        let mut seen: HashSet<usize> = HashSet::default();
+        let mut stack = vec![START_BLOCK];
+        while let Some(b) = stack.pop() {
+            if b == bb {
+                return true;
+            }
+            if seen.insert(b) {
+                for succ in self.blocks[b].terminator.successors() {
+                    if !self.dead_edges.contains(&(b, succ)) {
+                        stack.push(succ);
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Whether `bb` lies on a cycle of the CFG (can reach itself), ignoring
+    /// pruned edges.
+    pub fn in_cycle(&self, bb: usize) -> bool {
+        let mut seen: HashSet<usize> = HashSet::default();
+        let mut stack: Vec<usize> = self.blocks[bb].terminator.successors();
+        while let Some(b) = stack.pop() {
+            if b == bb {
+                return true;
+            }
+            if seen.insert(b) {
+                stack.extend(self.blocks[b].terminator.successors());
+            }
+        }
+        false
+    }
+
     pub fn mark_visited(&mut self, bb: usize, cur_scope: &VOID) {
         debug!("DONE VISITING BB{:?} of {:?}\n\n", bb, cur_scope);
         self.visited.push(bb);

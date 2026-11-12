@@ -1143,6 +1143,29 @@ Gotchas hit doing it:
   trusted one would call the wrong impl). The Oct 20 report counted 1.5k
   memo hits for (2)-shaped parameters; the write is lost with or without
   the memo.
+- **Nested supertrait vtables get no `!type` (fork, latent miscompile;
+  pinned Nov 12).** A trait with several supertraits stores, in its vtable,
+  pointers to separate vtables for the non-first supertraits (used by
+  upcasts `&dyn Sub -> &dyn Super`). Those vtables carry no `!type` even
+  with `-Zverifopt-vfe-fixes`: `e23f8c809cb` only types the
+  `GlobalAlloc::VTable` branch of `scalar_to_backend`
+  (`rustc_codegen_llvm/src/common.rs`), and (unverified reading) the parent
+  vtable's allocation points at them as plain memory allocations
+  (`tcx.vtable_allocation`), emitted untyped. Miscompiles when such a
+  supertrait also has tagged vtables of other types and code upcasts to it
+  and calls: VFE's whole-program devirtualization can pick a tagged impl,
+  and elim compacts the tagged vtables and renumbers the load's offset,
+  which then reads the wrong slot of the uncompacted untagged one. imix
+  (Nov 12): 11 untagged vtables (`USART as Receive`/`Transmit`, `GPIOPin
+  as Output`/`Configure`/`Input`, `Sha256Software as DigestVerify`/`Sha256`,
+  `AppCheckerSha256 as ClientHash`/`ClientVerify`, `AppIdAssignerNames as
+  Compress`); its only real upcasts (`py/upcasts.py` on `-Zunpretty=mir`)
+  are sha256.rs `set_client` (digest `Client` -> `ClientHash` /
+  `ClientVerify`), whose targets have no tagged vtables - the
+  `verification_done` call loads offset 12 from an intact vtable in every
+  build, so imix is correct. Fix: tag the nested supertrait vtables where
+  the parent vtable's allocation is emitted; add an upcast case with a
+  second, tagged impl of the supertrait to the `vtelim_test` check.
 - **Loops are walked once (open, unsound; pinned Nov 11 - fix soon).**
   `visit_body` pops each block of the RPO ordering once, so a loop
   contributes only its first iteration's values, and a switch inside it is

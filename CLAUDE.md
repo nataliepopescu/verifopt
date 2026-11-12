@@ -929,6 +929,18 @@ pointing at the `rust-mono-rewrite` toolchain.
     without VFE give the same vtables; `.text` differs.
     ("Placeholder" = `<{ i32 }>`; a 4-byte `<{ ptr }>` is a vtable compacted
     to one read slot.)
+    - **`Process` alone** (Nov 12; store reduced to the 372 `Process`
+      sites by `ProcessStandard`'s vtable methods in the imix manifest ->
+      343 `single exact`; dirs `proc{st,vfe,elim,vfeelim}_target`): `.text`
+      vs plain -2,504 (LTO, 65% of the -3,856), -372 (LTO + VFE, 37%),
+      -3,032 (LTO + elim, 51%), -484 (LTO + VFE + elim, 21%). Under VFE,
+      LLVM devirtualizes the single-impl `Process` itself; under elim the
+      other traits' vtable shrinking adds up. Rewrites are counted per
+      compiled instance: the 517 come from 300 source sites (`Process` 343 /
+      127; `access_grant_with_allocator`'s `self.process.enter_grant` and
+      `.processid()` - `process: &dyn Process` - in 98 instances;
+      `py/source_sites.py`: distinct function-without-generics + basic block
+      in the MIR dumps).
     - **Untagged supertrait vtables** (fixed Nov 12): a separate supertrait
       vtable that another vtable points to (`USART as Receive`/`Transmit`,
       `GPIOPin as Output`/`Configure`, `Sha256Software as DigestVerify`, ...)

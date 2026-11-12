@@ -801,6 +801,77 @@ pointing at the `rust-mono-rewrite` toolchain.
   K=8 sites may all be skipped as incomplete (targets without args), not
   checked. The K=8 verifopt rewrites first crashed rustc (fork
   `bee6a02be90`, recorded args of the wrong kind).
+- **imix rewrites up close, Nov 11** (`esc5` store, K=1: 513 `single
+  exact` + 4 `single`; rewrite-only builds; job tmp `esc5_scripts/`,
+  scripts in `py/`). In the binary `single` and `single exact` are the same
+  edit (an unguarded direct call); they differ only in what justifies the
+  target (the analysis vs CHAmax).
+
+  | config | plain `.text` | esc5 `.text` | diff | without the 4 `single` (`--no-guarded`) |
+  |---|---|---|---|---|
+  | default | 164,068 | 160,212 | -3,856 | 160,312 |
+  | VFE | 158,592 | 157,580 | -1,012 | - |
+  | VFE + elim | 156,016 | 153,708 | -2,308 | 153,724 |
+
+  - Where the bytes go (default): 343 of 516 removed dyn calls are
+    `Process` -> `ProcessStandard`; savings are inlining in `kernel_loop`
+    and the syscall drivers. Under VFE + elim the rewritten callees become
+    single-use and are inlined whole (88 functions, 12.3 KB, move into their
+    callers; `kernel_loop` 5,764 -> 10,004 B): elim drops unread slots
+    before the inliner runs, VFE only at the end of LTO.
+  - The 4 `single` (analysis-trusted) rewrites are all correct: UART mux
+    `set_transmit_client` / `set_receive_client` -> `USART` (no binary
+    effect: `finalize` is inlined into `start` with `&usart3`, LLVM already
+    calls them directly) and two `Iterator<Item = u32>::next` sites
+    (`TrngIter` -> `Entropy32ToRandomIter` -> `RngDriver`; only these two
+    `dyn Iterator` vtables exist). Worth -100 B default, -16 B VFE + elim.
+  - Vtables (`vtables.py` scan for default; `vtgone.py` / `vtfate.py` on
+    the save-temps IR otherwise): the rewrites alone remove **2** vtables
+    (`Writer as IoWrite`, `Entropy32ToRandomIter as Iterator`, 48 B); every
+    other vtable is unchanged slot for slot, `Process`'s 252 B included. VFE
+    removes 3 (+ `Context as ContextStore`); VFE + elim 4 (+ `TrngIter as
+    Iterator`). 43 vtables are unread after the rewrites (`vtread.py`); with
+    elim 41 of them become one-word placeholders (`<{ i32 }>` with a distinct
+    value, so identical-constant merging can't fold two), 2 are deleted.
+  - **When a vtable disappears without VFE / elim** (traced through
+    `no-opt` -> `lto.input` -> post-LTO IR, `py/vtusers.py`): each trait
+    object carrying it is created in one function and passed only into one
+    other function, never stored or returned; after the rewrites that call
+    is direct (rewrite 1) and the callee's dyn call on the object is direct
+    too (rewrite 2), so the callee no longer loads from the vtable. LLVM
+    then passes `poison` for the dead vtable parameter (the callee is
+    internal - true of nearly everything in imix: one crate,
+    codegen-units=1, fat LTO), the vtable has no uses left and is deleted
+    with the methods only it referenced - already in the crate's own
+    optimization, before LTO. `Writer`: `debug::flush`'s
+    `debug_writer.flush(writer)` -> `UartDebugWriter::flush` and its
+    `writer.write_ring_buffer(..)`, both `single exact`.
+    `Entropy32ToRandomIter`: `client.randomness_available(..)` (`single
+    exact`) and the `<&mut I>::next` site (`single`). A vtable whose trait
+    object is stored in memory (a capsule's `client` field) or passed
+    through a remaining dyn call keeps its address alive however many of
+    its reads are rewritten.
+  - **Why the other vtables stay** (default profile, esc5; `py/vtwhy.py` on
+    the post-LTO IR: every use of each vtable's address; trait read/unread
+    from the VFE build's `vtread`; lists `esc5_scripts/vtwhy_{esc5,plain}.txt`).
+    130 vtables (plain 132): 71 of traits that still have dyn calls (needed
+    for them), 25 unclassified (trait-name matching ambiguous: supertrait
+    first slots, the many `Client` traits), 34 of traits whose dyn calls
+    were all rewritten - kept because:
+
+    | why | count |
+    |---|---|
+    | stored into a static: `start` wires capsules (`static_init!` buffers `start::BUF`, `set_client`-style fat-pointer fields); 1 (`Fxos8700cq as NineDof`) stored packed as one `i64` (vtable << 32 \| data) | 29 |
+    | stored through a pointer: registration (`UartDebugWriter as DebugWriter`, `NineDof as NineDofClient`, `Process` into the process array from the loader's deferred-call closure) | 3 |
+    | passed to a direct call that isn't inlined (`TrngIter` -> `entropy_available`) | 1 |
+    | returned from a function that isn't inlined (`Context as ContextStore` from `Sixlowpan::get_ctx_store`, sixlowpan_state.rs:851) | 1 |
+
+    A rewrite leaves the store of the whole fat pointer in place even when
+    only its data half is ever loaded again; LLVM doesn't drop half a store
+    into a static that is read elsewhere. Elim gets around it by keeping the
+    address and shrinking the contents (41 placeholders); full removal would
+    need storing only the data pointer (tock source change, or a compiler
+    transformation changing the field's layout).
 
 ## 5. Done: tock merged into one crate (boards/imix)
 

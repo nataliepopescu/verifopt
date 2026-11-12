@@ -905,25 +905,50 @@ pointing at the `rust-mono-rewrite` toolchain.
 
     | | default | VFE | elim | VFE + elim |
     |---|---|---|---|---|
-    | `.text` plain -> esc5 | 164,068 -> 160,212 | 158,592 -> 157,580 | 159,712 -> 153,768 | 156,016 -> 153,708 |
-    | vtables after LTO | 132 -> 130 | 122 -> 119 | 122 -> 118 | 122 -> 118 |
-    | vtable bytes | 3,352 -> 3,304 | 3,040 -> 2,964 | 1,164 -> 764 | 1,164 -> 764 |
-    | fully rewritten traits' vtables | 42 -> 40 | 42 -> 39 | 42 -> 38 | 42 -> 38 |
-    | ... their bytes | 1,156 -> 1,108 | 1,120 -> 1,044 | 488 -> 152 | 488 -> 152 |
-    | ... placeholders (esc5) | 0 | 0 | 38 | 38 |
-    | removed | `Writer`, `Entropy32ToRandomIter` | + `Context` | + `TrngIter` | same as elim |
-    | kept: stored into a static / through a pointer / passed to a call / returned | 35 / 3 / 1 / 1 | 35 / 3 / 1 / 0 | 35 / 3 / 0 / 0 | 35 / 3 / 0 / 0 |
+    (All builds fat LTO; "default" = LTO without VFE / elim.)
 
-    The 38 kept stores are the same in every configuration (static capsule
-    wiring, the process array, debug-writer registration); only the
-    non-inlined call / return cases depend on the config. With elim every
-    kept vtable of a fully rewritten trait becomes a 4 B placeholder
-    (`Process` 204 -> 4 B); in plain + elim those vtables are already
-    compacted to their read slots (488 B), so the rewrite's vtable saving
-    under elim is 488 -> 152 B plus the removed ones. Elim with and without
-    VFE give the same vtables; `.text` differs (elim alone 153,768,
-    with VFE 153,708). ("Placeholder" = `<{ i32 }>`; a 4-byte `<{ ptr }>` is
-    a vtable compacted to one read slot.)
+    | | LTO | LTO + VFE | LTO + elim | LTO + VFE + elim |
+    |---|---|---|---|---|
+    | `.text` plain -> esc5 | 164,068 -> 160,212 (-3,856) | 158,592 -> 157,580 (-1,012) | 159,712 -> 153,768 (-5,944) | 156,016 -> 153,708 (-2,308) |
+    | `blx rN` | 731 -> 284 | 250 -> 245 | 728 -> 274 | 251 -> 241 |
+    | ... dyn method calls | 516 -> 92 | 65 -> 60 | 520 -> 85 | 65 -> 53 |
+    | ... direct calls through a register | 154 -> 169 | 163 -> 163 | 159 -> 157 | 164 -> 167 |
+    | ... fn-pointer / other / no location | 61 -> 23 | 22 -> 22 | 49 -> 32 | 22 -> 21 |
+    | vtables after LTO | 132 -> 130 | 133 -> 130 | 124 -> 120 | 124 -> 120 |
+    | vtable bytes | 3,352 -> 3,304 (-48) | 3,328 -> 3,252 (-76) | 1,196 -> 796 (-400) | 1,196 -> 796 (-400) |
+    | rewritten traits (55 rows, each vtable once): dyn calls in the binary | 438 -> 14 | 2 -> 0 | 442 -> 14 | 2 -> 0 |
+    | ... their vtables | 58 -> 56 | 58 -> 55 | 52 -> 48 | 52 -> 48 |
+    | ... their vtable bytes | 1,656 -> 1,608 (-48) | 1,656 -> 1,580 (-76) | 640 -> 252 (-388) | 640 -> 252 (-388) |
+    | removed | `Writer`, `Entropy32ToRandomIter` | + `Context` | + `TrngIter` | same as elim |
+
+    Kept vtables of fully rewritten traits: 37 stored into a static, 3
+    through a pointer, plus (config-dependent) 2 referenced from a static's
+    initial value, 1 passed to a non-inlined call, 1 returned. With elim the
+    tagged ones become 4 B placeholders (`Process` 204 -> 4 B); in plain +
+    elim they are already compacted to their read slots. Elim with and
+    without VFE give the same vtables; `.text` differs.
+    ("Placeholder" = `<{ i32 }>`; a 4-byte `<{ ptr }>` is a vtable compacted
+    to one read slot.)
+    - **Untagged supertrait vtables** (fixed Nov 12): a separate supertrait
+      vtable that another vtable points to (`USART as Receive`/`Transmit`,
+      `GPIOPin as Output`/`Configure`, `Sha256Software as DigestVerify`, ...)
+      gets no `!type` even with `-Zverifopt-vfe-fixes`; elim can't shrink
+      them. `vtwhy.py --pre` first counted only tagged vtables (VFE/elim
+      totals 10-11 too low); it now includes untagged header-shaped ones
+      (traits from their methods). The default build's slot-overlap matching
+      attached such small vtables to the big subtrait vtable's traits; now
+      exact slot match, else the traits of the slot methods.
+    - **`blx rN` is not "indirect calls"** on Thumb: in size-optimized code
+      LLVM loads a function address once (`ldr rN, [pc, #..]` / movw+movt)
+      and calls through the register repeatedly (`start`: 119 calls of
+      `static_buf_check_used`). `py/icall_traits.py STATS ELF OUT.json`
+      resolves the register (walk back to its last write, read the literal
+      from the ELF) and attributes the rest by debug info (llvm-symbolizer
+      `--inlines`, innermost frame matched to the stats' site spans).
+      Earlier tock "indirect calls" / `blx` numbers in this file include
+      these direct calls. Under VFE plain already has only 2 dyn calls of
+      the rewritten traits: LLVM's whole-program devirtualization resolves
+      them itself.
 
 ## 5. Done: tock merged into one crate (boards/imix)
 

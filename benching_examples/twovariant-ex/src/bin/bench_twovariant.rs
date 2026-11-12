@@ -7,22 +7,13 @@
 //   workload,iters,ns_per_dispatch,checksum
 // Usage: bench_twovariant <workload> <iters> <seed>   |   bench_twovariant --list
 //
-// Patterns: mono = every object a Cat; alt = Cat, Dog, Cat, ...; rand =
-// seeded random Cat/Dog. Each pattern has its own constructor function and
-// its own loops, so each dispatch site only sees that pattern's objects:
-// verifopt finds 1 target for mono, 2 for alt and rand.
-// "direct" dispatches in this crate's loop; "wrap" calls the lib's
-// per-pattern #[inline(never)] wrapper, which dispatches.
-// Only the sum goes through black_box, never the objects (black_box has no
-// MIR, so objects passed to it escape and widen the analysis).
+// The objects and the timed loops are in the lib (src/bench.rs, which says
+// why). Only the sum goes through black_box, never the objects (black_box
+// has no MIR, so objects passed to it escape and widen the analysis).
 
 use std::hint::black_box;
 use std::time::Instant;
-use twovariant_ex::{Animal, make_animal, make_cat, wrap_alt, wrap_mono, wrap_rand};
-
-// Pattern length: fits in L1, too long for the branch predictor to memorize
-// a random pattern.
-const LEN: usize = 4096;
+use twovariant_ex::bench::*;
 
 const WORKLOADS: [&str; 6] = [
     "mono_direct",
@@ -32,100 +23,6 @@ const WORKLOADS: [&str; 6] = [
     "rand_direct",
     "rand_wrap",
 ];
-
-fn xorshift(s: &mut u64) -> u64 {
-    *s ^= *s << 13;
-    *s ^= *s >> 7;
-    *s ^= *s << 17;
-    *s
-}
-
-// A fixed array, not a Vec: the analysis loses elements written into a
-// Vec's heap buffer (writes through the buffer pointer), so every site
-// would fall back to CHA.
-type Objs = [&'static dyn Animal; LEN];
-
-#[inline(never)]
-fn objects_mono() -> Objs {
-    let mut v = [make_cat(); LEN];
-    for i in 0..LEN {
-        v[i] = make_cat();
-    }
-    v
-}
-
-#[inline(never)]
-fn objects_alt() -> Objs {
-    let mut v = [make_animal(0); LEN];
-    for i in 0..LEN {
-        v[i] = make_animal(i & 1);
-    }
-    v
-}
-
-#[inline(never)]
-fn objects_rand(seed: u64) -> Objs {
-    let mut s = seed | 1;
-    let mut v = [make_animal(0); LEN];
-    for i in 0..LEN {
-        v[i] = make_animal((xorshift(&mut s) & 1) as usize);
-    }
-    v
-}
-
-#[inline(never)]
-fn wl_mono_direct(objs: &Objs, iters: u64) -> u64 {
-    let mut sum = 0u64;
-    for i in 0..iters as usize {
-        sum = sum.wrapping_add(objs[i % LEN].speak() as u64);
-    }
-    sum
-}
-
-#[inline(never)]
-fn wl_mono_wrap(objs: &Objs, iters: u64) -> u64 {
-    let mut sum = 0u64;
-    for i in 0..iters as usize {
-        sum = sum.wrapping_add(wrap_mono(objs[i % LEN]) as u64);
-    }
-    sum
-}
-
-#[inline(never)]
-fn wl_alt_direct(objs: &Objs, iters: u64) -> u64 {
-    let mut sum = 0u64;
-    for i in 0..iters as usize {
-        sum = sum.wrapping_add(objs[i % LEN].speak() as u64);
-    }
-    sum
-}
-
-#[inline(never)]
-fn wl_alt_wrap(objs: &Objs, iters: u64) -> u64 {
-    let mut sum = 0u64;
-    for i in 0..iters as usize {
-        sum = sum.wrapping_add(wrap_alt(objs[i % LEN]) as u64);
-    }
-    sum
-}
-
-#[inline(never)]
-fn wl_rand_direct(objs: &Objs, iters: u64) -> u64 {
-    let mut sum = 0u64;
-    for i in 0..iters as usize {
-        sum = sum.wrapping_add(objs[i % LEN].speak() as u64);
-    }
-    sum
-}
-
-#[inline(never)]
-fn wl_rand_wrap(objs: &Objs, iters: u64) -> u64 {
-    let mut sum = 0u64;
-    for i in 0..iters as usize {
-        sum = sum.wrapping_add(wrap_rand(objs[i % LEN]) as u64);
-    }
-    sum
-}
 
 fn report(wl: &str, iters: u64, start: Instant, sum: u64) {
     let ns = start.elapsed().as_nanos() as f64 / iters as f64;

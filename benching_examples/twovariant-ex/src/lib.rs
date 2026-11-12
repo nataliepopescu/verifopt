@@ -1,5 +1,11 @@
+pub mod bench;
+
 pub trait Animal {
     fn speak(&self) -> usize;
+    /// Per-call work that depends on its argument, for the timing harness
+    /// (src/bench.rs): a constant like speak() lets a devirtualized loop
+    /// fold away entirely.
+    fn work(&self, x: usize) -> usize;
 }
 
 //#[inline(never)]
@@ -23,11 +29,19 @@ impl Animal for Cat {
     fn speak(&self) -> usize {
         11111
     }
+
+    fn work(&self, x: usize) -> usize {
+        x.wrapping_mul(3) ^ 0x5a
+    }
 }
 
 impl Animal for Dog {
     fn speak(&self) -> usize {
         22222
+    }
+
+    fn work(&self, x: usize) -> usize {
+        x.rotate_left(5).wrapping_add(7)
     }
 }
 
@@ -69,18 +83,18 @@ pub fn make_animal(sel: usize) -> &'static dyn Animal {
 }
 
 #[inline(never)]
-pub fn wrap_mono(a: &dyn Animal) -> usize {
-    a.speak()
+pub fn wrap_mono(a: &dyn Animal, x: usize) -> usize {
+    a.work(x)
 }
 
 #[inline(never)]
-pub fn wrap_alt(a: &dyn Animal) -> usize {
-    a.speak()
+pub fn wrap_alt(a: &dyn Animal, x: usize) -> usize {
+    a.work(x)
 }
 
 #[inline(never)]
-pub fn wrap_rand(a: &dyn Animal) -> usize {
-    a.speak()
+pub fn wrap_rand(a: &dyn Animal, x: usize) -> usize {
+    a.work(x)
 }
 
 pub fn inner_main() {

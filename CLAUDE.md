@@ -872,6 +872,58 @@ pointing at the `rust-mono-rewrite` toolchain.
     address and shrinking the contents (41 placeholders); full removal would
     need storing only the data pointer (tock source change, or a compiler
     transformation changing the field's layout).
+  - **Rewrites reconciled with vtables, per trait** (default profile;
+    `py/reconcile.py`: MIR dyn calls removed, IR dyn calls left from
+    `vtread` on the VFE builds, default-profile vtables matched to exact
+    type ids by their method slots against the VFE build's `!type` tags;
+    `esc5_scripts/reconcile.txt`). Vtables counted once; a vtable serving
+    several traits (supertraits) is "shared".
+
+    | traits | n | MIR calls removed | IR calls plain -> esc5 | vtables plain -> esc5 |
+    |---|---|---|---|---|
+    | all calls rewritten | 53 | 515 | 571 -> 0 | 42 -> 40 |
+    | partly rewritten (UART `Receive`/`Transmit` `set_*_client`) | 2 | 2 | 3 -> 3 | - |
+    | shared vtables, rewritten and untouched traits mixed | - | - | - | 16 -> 16 |
+    | not rewritten | 36 | 0 | 273 -> 247 | 74 -> 74 |
+
+    The 40 kept vtables of fully rewritten traits: 35 stored into a static
+    (1 packed as `i64`), 3 stored through a pointer, 1 passed to a direct
+    call, 1 returned. 8 fully rewritten traits (`SchedulerTimer` 8 calls,
+    gpio `Interrupt` 8, `Compress`, `ReceiveAdvanced`, `ClientHash`,
+    `ClientVerify`, `DigestVerify`, `UDPRecvClient`) have no vtable after
+    LTO even in plain: LLVM resolves those calls itself, the rewrite only
+    changes inlining. Untouched: `fmt::Write` (148 IR calls), `fmt::Debug`,
+    gpio `Pin`, the UART family, `SyscallDriver`.
+  - **The same in all four configurations** (Nov 11; save-temps builds
+    `plainst`/`esc5st` default, `plainvfeir2`/`esc5vfeir` VFE,
+    `plainelimst`/`esc5elimst` elim without VFE, `plainvfeelim`/`esc5vfeelim`;
+    driver `esc5_investigate.sh CONFIG PLAIN REW`; `vtwhy.py --pre
+    LTO_INPUT.ll` takes the typed vtables of the LTO input and looks them up
+    by name after LTO; outputs `esc5_scripts/reconcile_<config>.txt`,
+    `rec_<config>.json`; dashboard section "imix: what the rewrites do to
+    vtables", datasets `imix_vtables`, `imix_traits`):
+
+    | | default | VFE | elim | VFE + elim |
+    |---|---|---|---|---|
+    | `.text` plain -> esc5 | 164,068 -> 160,212 | 158,592 -> 157,580 | 159,712 -> 153,768 | 156,016 -> 153,708 |
+    | vtables after LTO | 132 -> 130 | 122 -> 119 | 122 -> 118 | 122 -> 118 |
+    | vtable bytes | 3,352 -> 3,304 | 3,040 -> 2,964 | 1,164 -> 764 | 1,164 -> 764 |
+    | fully rewritten traits' vtables | 42 -> 40 | 42 -> 39 | 42 -> 38 | 42 -> 38 |
+    | ... their bytes | 1,156 -> 1,108 | 1,120 -> 1,044 | 488 -> 152 | 488 -> 152 |
+    | ... placeholders (esc5) | 0 | 0 | 38 | 38 |
+    | removed | `Writer`, `Entropy32ToRandomIter` | + `Context` | + `TrngIter` | same as elim |
+    | kept: stored into a static / through a pointer / passed to a call / returned | 35 / 3 / 1 / 1 | 35 / 3 / 1 / 0 | 35 / 3 / 0 / 0 | 35 / 3 / 0 / 0 |
+
+    The 38 kept stores are the same in every configuration (static capsule
+    wiring, the process array, debug-writer registration); only the
+    non-inlined call / return cases depend on the config. With elim every
+    kept vtable of a fully rewritten trait becomes a 4 B placeholder
+    (`Process` 204 -> 4 B); in plain + elim those vtables are already
+    compacted to their read slots (488 B), so the rewrite's vtable saving
+    under elim is 488 -> 152 B plus the removed ones. Elim with and without
+    VFE give the same vtables; `.text` differs (elim alone 153,768,
+    with VFE 153,708). ("Placeholder" = `<{ i32 }>`; a 4-byte `<{ ptr }>` is
+    a vtable compacted to one read slot.)
 
 ## 5. Done: tock merged into one crate (boards/imix)
 

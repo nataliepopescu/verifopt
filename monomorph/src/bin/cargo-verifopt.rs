@@ -40,7 +40,7 @@ use std::process::Command;
 /// The help message for `cargo-verifopt`
 const CARGO_VERIFOPT_HELP: &str = r#"Flow-sensitive analysis tool for Rust programs
 Usage:
-    cargo verifopt [--rewrite-only] [--max-candidates N] [--guarded] [--no-guarded]
+    cargo verifopt [--rewrite-only] [--max-candidates N] [--guarded] [--no-guarded] [--canonical]
 
     --rewrite-only  Skip analysis and the automatic discovery-then-decide
                      flow entirely - just re-run the rewrite pass against
@@ -73,6 +73,14 @@ Usage:
                     instances) and tagged switches - is left as the dynamic
                     call, guarded or not. Sets VERIFOPT_NO_GUARDED for every
                     compiler process.
+
+    --canonical     Experiment: give every instance of a rewrite target and
+                    every vtable one copy program-wide (linkonce/weak ODR
+                    under a name shared by all crates) instead of a private
+                    copy per codegen unit, so a pointer comparison against a
+                    target's address can't miss a duplicate. Always runs the
+                    second build pass (every crate must see the store). Sets
+                    VERIFOPT_CANONICAL for every compiler process.
 "#;
 
 /// Set the environment variable `VERIFOPT_BUILD_STD` to enable the building of std library when running verifopt.
@@ -385,7 +393,8 @@ fn build_targets(targets: &[BuildTarget]) {
         run_cargo_build(&t.name, &t.kind, &[], t.kind_override);
     }
 
-    if has_arg_flag("--skip-analysis") || !marker.exists() {
+    // --canonical needs every crate built against the store: always rebuild.
+    if has_arg_flag("--skip-analysis") || (!marker.exists() && !canonical_requested()) {
         return;
     }
 
@@ -516,6 +525,7 @@ fn run_cargo_build(
             || arg == "--unguarded-single"
             || arg == "--guarded"
             || arg == "--no-guarded"
+            || arg == "--canonical"
         {
             continue;
         }
@@ -621,6 +631,12 @@ fn run_cargo_build(
     // verifopt_rewrite.rs); same propagation.
     if has_arg_flag("--no-guarded") {
         cmd.env("VERIFOPT_NO_GUARDED", "1");
+    }
+
+    // --canonical: read by the modified compiler (rustc_verifopt::canonical:
+    // partitioning, symbol names, vtables); same propagation.
+    if canonical_requested() {
+        cmd.env("VERIFOPT_CANONICAL", "1");
     }
 
     // --max-candidates N: read by the modified compiler's rewrite (see
@@ -843,4 +859,9 @@ fn toolchain_target() -> Option<String> {
         .lines()
         .find_map(|line| line.strip_prefix("host: "))
         .map(|host| host.trim().to_owned())
+}
+
+/// `--canonical` or `VERIFOPT_CANONICAL` (see the help text).
+fn canonical_requested() -> bool {
+    has_arg_flag("--canonical") || std::env::var_os("VERIFOPT_CANONICAL").is_some()
 }

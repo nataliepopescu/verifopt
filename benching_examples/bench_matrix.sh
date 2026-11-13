@@ -17,8 +17,10 @@
 #   default   release profile
 #   lto       fat LTO
 #   lto_vfe   fat LTO + VFE (with verifopt's fixes)
+#   lto_elim  fat LTO + verifopt's vtable elimination (standalone, no VFE)
+#   lto_vfe_elim  fat LTO + VFE + vtable elimination
 #
-# Environment: KS (default "1 4"), CONFIGS (default "default lto lto_vfe"),
+# Environment: KS (default "1 4"), CONFIGS (default: all five above),
 # ROWS (only these rows, e.g. "hook_k1 hook_k4"; hook rows need verifopt_k* built),
 # PLUGIN_ROOT (cargo-verifopt install root, default /tmp/vo_lp),
 # INVOCATIONS (timing runs per build and workload, default 40),
@@ -30,7 +32,7 @@ MODE=${1:?usage: bench_matrix.sh build|check|time [EXAMPLE_DIR BIN]}
 EX=$HERE/${2:-twovariant-ex}
 BIN=${3:-bench_twovariant}
 KS=${KS:-1 4}
-CONFIGS=${CONFIGS:-default lto lto_vfe}
+CONFIGS=${CONFIGS:-default lto lto_vfe lto_elim lto_vfe_elim}
 PLUGIN_ROOT=${PLUGIN_ROOT:-/tmp/vo_lp}
 INVOCATIONS=${INVOCATIONS:-40}
 ITERS=${ITERS:-100000000}
@@ -60,6 +62,9 @@ cv() {
   case $cfg in
     lto) flags="-C lto=fat"; lto=fat ;;
     lto_vfe) flags="-C lto=fat -Zvirtual-function-elimination -Zverifopt-vfe-fixes"; lto=fat ;;
+    # vtable elimination (implies the VFE fixes): standalone, and on top of VFE
+    lto_elim) flags="-C lto=fat -Zverifopt-vtable-elim"; lto=fat ;;
+    lto_vfe_elim) flags="-C lto=fat -Zvirtual-function-elimination -Zverifopt-vtable-elim"; lto=fat ;;
   esac
   ( cd "$EX" && CARGO_PROFILE_RELEASE_LTO=$lto RUSTFLAGS="$flags" VERIFOPT_BUILD_STD=1 \
       VERIFOPT_LOG=monomorph=warn cargo verifopt --release --target-dir "$(tdir "$cfg" "$row")" \

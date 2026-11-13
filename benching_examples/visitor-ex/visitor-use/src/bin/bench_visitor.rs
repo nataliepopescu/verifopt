@@ -12,7 +12,18 @@ use std::hint::black_box;
 use std::time::Instant;
 use visitor_use::bench::*;
 
-const WORKLOADS: [&str; 5] = ["mono", "dynanimal", "dynvisitor", "both_alt", "both_rand"];
+const WORKLOADS: [&str; 10] = [
+    "mono_direct",
+    "mono_wrap",
+    "dynanimal_direct",
+    "dynanimal_wrap",
+    "dynvisitor_direct",
+    "dynvisitor_wrap",
+    "both_alt_direct",
+    "both_alt_wrap",
+    "both_rand_direct",
+    "both_rand_wrap",
+];
 
 fn report(wl: &str, iters: u64, start: Instant, sum: u64) {
     let ns = start.elapsed().as_nanos() as f64 / iters as f64;
@@ -38,39 +49,74 @@ fn main() {
 
     // Each arm calls its own functions directly (no fn-pointer table).
     match wl {
-        "mono" => {
+        "mono_direct" => {
             let objs = objects_mono();
-            black_box(wl_mono(&objs, warm));
+            black_box(wl_mono_direct(&objs, warm));
             let t = Instant::now();
-            let sum = black_box(wl_mono(&objs, iters));
+            let sum = black_box(wl_mono_direct(&objs, iters));
             report(wl, iters, t, sum);
         }
-        "dynanimal" => {
+        "mono_wrap" => {
+            let objs = objects_mono();
+            black_box(wl_mono_wrap(&objs, warm));
+            let t = Instant::now();
+            let sum = black_box(wl_mono_wrap(&objs, iters));
+            report(wl, iters, t, sum);
+        }
+        "dynanimal_direct" => {
             let objs = objects_dynanimal(seed);
-            black_box(wl_dynanimal(&objs, warm));
+            black_box(wl_dynanimal_direct(&objs, warm));
             let t = Instant::now();
-            let sum = black_box(wl_dynanimal(&objs, iters));
+            let sum = black_box(wl_dynanimal_direct(&objs, iters));
             report(wl, iters, t, sum);
         }
-        "dynvisitor" => {
+        "dynanimal_wrap" => {
+            let objs = objects_dynanimal(seed);
+            black_box(wl_dynanimal_wrap(&objs, warm));
+            let t = Instant::now();
+            let sum = black_box(wl_dynanimal_wrap(&objs, iters));
+            report(wl, iters, t, sum);
+        }
+        "dynvisitor_direct" => {
             let objs = objects_dynvisitor(seed);
-            black_box(wl_dynvisitor(&objs, warm));
+            black_box(wl_dynvisitor_direct(&objs, warm));
             let t = Instant::now();
-            let sum = black_box(wl_dynvisitor(&objs, iters));
+            let sum = black_box(wl_dynvisitor_direct(&objs, iters));
             report(wl, iters, t, sum);
         }
-        "both_alt" => {
+        "dynvisitor_wrap" => {
+            let objs = objects_dynvisitor(seed);
+            black_box(wl_dynvisitor_wrap(&objs, warm));
+            let t = Instant::now();
+            let sum = black_box(wl_dynvisitor_wrap(&objs, iters));
+            report(wl, iters, t, sum);
+        }
+        "both_alt_direct" => {
             let objs = objects_both_alt();
-            black_box(wl_both_alt(&objs, warm));
+            black_box(wl_both_alt_direct(&objs, warm));
             let t = Instant::now();
-            let sum = black_box(wl_both_alt(&objs, iters));
+            let sum = black_box(wl_both_alt_direct(&objs, iters));
             report(wl, iters, t, sum);
         }
-        "both_rand" => {
-            let objs = objects_both_rand(seed);
-            black_box(wl_both_rand(&objs, warm));
+        "both_alt_wrap" => {
+            let objs = objects_both_alt();
+            black_box(wl_both_alt_wrap(&objs, warm));
             let t = Instant::now();
-            let sum = black_box(wl_both_rand(&objs, iters));
+            let sum = black_box(wl_both_alt_wrap(&objs, iters));
+            report(wl, iters, t, sum);
+        }
+        "both_rand_direct" => {
+            let objs = objects_both_rand(seed);
+            black_box(wl_both_rand_direct(&objs, warm));
+            let t = Instant::now();
+            let sum = black_box(wl_both_rand_direct(&objs, iters));
+            report(wl, iters, t, sum);
+        }
+        "both_rand_wrap" => {
+            let objs = objects_both_rand(seed);
+            black_box(wl_both_rand_wrap(&objs, warm));
+            let t = Instant::now();
+            let sum = black_box(wl_both_rand_wrap(&objs, iters));
             report(wl, iters, t, sum);
         }
         _ => {

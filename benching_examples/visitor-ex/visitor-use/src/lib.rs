@@ -1,3 +1,5 @@
+pub mod bench;
+
 use visitor_decl::{Animal, AnimalVisitor, Cat, Dog};
 
 pub struct SpeakBetterDogs;
@@ -44,6 +46,12 @@ impl AnimalVisitor for SpeakBetterDogs {
     fn receive_cat(&self, a: &dyn Animal) -> usize {
         a.speak()
     }
+    fn work_dog(&self, _a: &dyn Animal, x: usize) -> usize {
+        x.wrapping_mul(5).wrapping_add(1)
+    }
+    fn work_cat(&self, a: &dyn Animal, x: usize) -> usize {
+        a.work(x)
+    }
 }
 
 impl AnimalVisitor for SpeakBetterCats {
@@ -52,6 +60,12 @@ impl AnimalVisitor for SpeakBetterCats {
     }
     fn receive_cat(&self, _a: &dyn Animal) -> usize {
         99999
+    }
+    fn work_dog(&self, a: &dyn Animal, x: usize) -> usize {
+        a.work(x)
+    }
+    fn work_cat(&self, _a: &dyn Animal, x: usize) -> usize {
+        x ^ (x >> 3)
     }
 }
 

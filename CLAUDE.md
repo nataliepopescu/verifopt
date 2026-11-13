@@ -89,6 +89,10 @@ VERIFOPT_LOG=monomorph=warn RUSTC_LOG=rustc_codegen_ssa::mir::verifopt_rewrite=d
   fallback (1 target -> `pointers n=1 guarded`, chains end in the dyn call,
   `tagged` allowed). `--unguarded-single` / `VERIFOPT_UNGUARDED_SINGLE`, the
   old opt-in, are accepted and ignored. `--no-guarded`: only `single exact`.
+- `--canonical` (env `VERIFOPT_CANONICAL`, experiment, opt-in): one
+  program-wide copy of every rewrite target and every vtable, so an
+  unguarded `pointers` compare can't miss a duplicate copy (§6 "Duplicate
+  copies"); always runs the second build pass.
 - `VERIFOPT_BUILD_STD=1`: build std/core from source with the fork (adds
   `-Zbuild-std` + `--target`; pass `--target x86_64-unknown-linux-gnu`
   explicitly unless the toolchain-target patch is in). Output then under
@@ -1199,9 +1203,70 @@ Gotchas hit doing it:
   `minsize/loop4_sitediff.txt`, `sitediff.py`). ripgrep not checked. Fix:
   iterate loop bodies to a fixpoint with widening at loop heads (a
   loop-carried value still changing after a walk or two becomes "any
-  value"), then add `constloop` as a fixture. Blocks the twovariant timing
-  harness (`benching_examples/twovariant-ex/src/bin/bench_twovariant.rs`,
-  uncommitted): its object arrays are filled by `for i in 0..LEN`.
+  value"), then add `constloop` as a fixture. The bench harnesses
+  (`benching_examples/*/src/bench.rs`) work around it: their object arrays
+  are filled over `black_box(0)..black_box(LEN)`.
+- **Duplicate copies of rewrite targets: unguarded `pointers` calls the
+  wrong function (fixed only behind `--canonical`; found Nov 12).** A
+  `pointers` rewrite compares the vtable slot with a target's function
+  address and, with no fallback, calls the last candidate when nothing
+  matches. Rust doesn't make that address unique: cross-crate-inlinable
+  functions, shims and generic instances get a private copy per codegen unit
+  *and per crate*. visitor bench (`benching_examples/visitor-ex`): the
+  `&dyn Animal` is created in visitor-decl (`Cat::visit_work` passes
+  `self`), so its vtable points at visitor-decl's `Dog::work`, while the
+  rewritten compare in visitor-use's `SpeakBetterCats::work_dog` names
+  visitor-use's copy - wrong checksums on 3 of 5 workloads. Both benches'
+  default-profile K=4 builds also segfaulted at exit in std's `Once::call`
+  (same cause). `codegen-units=1` doesn't fix it (copies per crate remain;
+  fat LTO doesn't merge private functions either). Affects rung 3 too
+  (`pointers n=K exact`). Fix (fork `9cbd7df8926`, plugin `6c9a41d`,
+  `cargo verifopt --canonical` / `VERIFOPT_CANONICAL`):
+  `rustc_verifopt::canonical` (`is_canonical_instance`: a stored target's
+  instance that is generic, cross-crate-inlinable or a shim); partitioning
+  emits it `linkonce_odr` (per-CGU copies) / `weak_odr` (roots) hidden in a
+  comdat, symbol mangling drops the instantiating crate from its name, LLVM
+  codegen names every vtable `_verifopt_vtable_<hash of (type, trait)>`
+  (`get_vtable` and vtables in constants), linkonce_odr hidden. Results
+  (Nov 13 matrix, twovariant + visitor x default / LTO / LTO + VFE x 14
+  rows, `benching_examples/results/`): every `_canon` build passes, 5
+  non-canonical K=4 builds fail; speed with the flag within about a cycle of
+  the same rewrite without it, plain + flag alone moves timings -26% to
+  +17% under LTO (layout), +-2% default; `.text` 350-420 B *smaller*.
+  Open: make it the default (and drop the flag), check tock / ripgrep with
+  it, and use it for PointersExact (§8 step 4 needs exactly these unique
+  vtables).
+- **`Once::call` and std's exit path (open question, Nov 12).** At the
+  `&mut dyn FnMut` dispatch in std's `Once::call` (`futex.rs:178`), FSA has
+  `call_once_force`'s closure for `OnceLock<stdout>::get_or_init<
+  stdout::{closure}>` and `call_once`'s closure for `rt::cleanup`, but not
+  the `call_once_force` closure for `get_or_init<io::stdio::cleanup::
+  {closure}>` (`rt::cleanup` -> `io::cleanup` -> `STDOUT.get_or_init`).
+  The exit segfault it seemed to explain was the duplicate-copies bug above
+  (canonical builds exit cleanly). Still to check: whether that closure
+  ever runs (STDOUT already initialized?) or is a real missed target - a
+  guess is `Once::call` re-entered through the closure and cut as
+  recursion.
+- **Morphic benchmarks as Rust ports (pinned Nov 12).**
+  https://github.com/morphic-lang/morphic `samples/`: 15 `bench_*.mor`
+  (~2,600 lines) over a ~1,500-line library (`lib/core/iter.mor` - `Iter`
+  is a closure `() -> Option (a, Iter a)` -, `parse.mor` parser
+  combinators, trie, hashmap, heap); inputs in `sample-input/`, expected
+  outputs in `expected-output/`. Its `rust_samples/` has 8 idiomatic ports
+  with no `dyn` calls (nothing to rewrite) - keep them as the hand-written
+  upper bound. Plan: port with Morphic's function values as `Rc<dyn Fn..>`
+  (the boxed representation its lambda-set specialization removes), so a
+  benchmark has three rows: boxed port plain, boxed port + verifopt,
+  idiomatic Rust. Library first (~1-1.5 days; arrays mutated in place, as
+  Morphic's mutation optimization does), small benchmarks a couple of hours
+  each, lisp / parse_json / unify ~a day each; ~1.5-2 weeks for all. Pilot
+  first: iter library + `bench_primes_iter` + `bench_quicksort` (~half a
+  day), then look at the analysis's site sets before porting more. Risks:
+  closure dispatch has no CHAmax (`Fn*` builtin impls), so every rewrite
+  rests on FSA alone; Morphic's iterators recurse through closures (likely
+  recursion cuts -> escapes -> every closure); closures in heap containers
+  (lost Vec elements); loops in harness code need the opaque-bounds trick.
+  Clone in the job tmp (`morphic_dl/`, temporary).
 - **`InterpPass::run`'s error** is reported since `e78984c`: a warning, an
   `ANALYSIS ABORTED` assumption, and every site's CHAmax marked incomplete.
 - **Partitioning hook adds edges for sites that are never rewritten** -
